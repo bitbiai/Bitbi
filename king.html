@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BITBI — The Gate</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;700&family=MedievalSharp&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Cinzel',serif;color:#d4a857;user-select:none}
+#canvas3d{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:1}
+
+#startScreen{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:400;
+  background:radial-gradient(ellipse at center,#0a0604,#000);
+  display:flex;justify-content:center;align-items:center;flex-direction:column;cursor:pointer}
+#startScreen h1{font-family:'Cinzel Decorative',serif;font-size:3rem;letter-spacing:10px;
+  text-shadow:0 0 40px rgba(212,168,87,0.6),0 0 80px rgba(212,168,87,0.2);margin-bottom:40px}
+#startScreen .sub{font-family:'MedievalSharp',cursive;font-size:1.1rem;color:rgba(212,168,87,0.5);
+  letter-spacing:4px;animation:hPulse 2.5s ease-in-out infinite}
+
+#puzzleOverlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100;
+  display:none;justify-content:center;align-items:center;
+  background:radial-gradient(ellipse at center,rgba(0,0,0,0.75),rgba(0,0,0,0.92));
+  backdrop-filter:blur(6px);animation:fadeIn 1s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+#puzzleBox{text-align:center;padding:50px 60px;border:2px solid rgba(212,168,87,0.35);border-radius:16px;
+  background:radial-gradient(ellipse at center,rgba(40,28,12,0.95),rgba(15,8,3,0.97));
+  box-shadow:0 0 80px rgba(212,168,87,0.2),inset 0 0 50px rgba(212,168,87,0.06);
+  max-width:480px;width:90%;animation:pAppear 0.8s cubic-bezier(0.16,1,0.3,1)}
+@keyframes pAppear{from{transform:scale(0.85) translateY(30px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+
+#puzzleBox h2{font-family:'Cinzel Decorative',serif;font-size:1.6rem;letter-spacing:4px;margin-bottom:10px;
+  text-shadow:0 0 25px rgba(212,168,87,0.5)}
+#puzzleBox .sub2{font-family:'MedievalSharp',cursive;font-size:0.95rem;color:rgba(212,168,87,0.6);margin-bottom:30px}
+#puzzleQ{font-size:2.4rem;font-weight:700;letter-spacing:3px;margin-bottom:30px;text-shadow:0 0 30px rgba(212,168,87,0.5)}
+#answerBtns{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+.abtn{font-family:'Cinzel',serif;font-size:1.3rem;font-weight:700;padding:16px 20px;
+  border:1px solid rgba(212,168,87,0.35);border-radius:10px;background:rgba(212,168,87,0.08);
+  color:#d4a857;cursor:pointer;transition:all 0.35s ease;letter-spacing:2px}
+.abtn:hover{background:rgba(212,168,87,0.22);border-color:#d4a857;box-shadow:0 0 30px rgba(212,168,87,0.3);transform:translateY(-2px)}
+.abtn.wrong{border-color:#8b2020;color:#c83030;background:rgba(139,32,32,0.2);animation:shake 0.5s ease}
+.abtn.correct{border-color:#4a9e4a;color:#4ae04a;background:rgba(74,158,74,0.2);box-shadow:0 0 35px rgba(74,224,74,0.35)}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+
+#puzzleFB{margin-top:20px;font-family:'MedievalSharp',cursive;font-size:1.05rem;min-height:1.4em;color:rgba(212,168,87,0.7)}
+
+#whiteout{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:200;background:#fffbe6;
+  display:none;justify-content:center;align-items:center;flex-direction:column}
+#whiteout.active{display:flex;animation:wFlash 3.5s ease-in forwards}
+@keyframes wFlash{0%{opacity:0}30%{opacity:1}100%{opacity:1}}
+#whiteout p{font-family:'Cinzel Decorative',serif;font-size:2rem;color:#1a1a1a;letter-spacing:8px;
+  animation:tFade 3.5s ease-in-out forwards}
+@keyframes tFade{0%{opacity:0;transform:translateY(20px)}50%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-10px)}}
+
+#loading{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:300;background:#000;
+  display:none;justify-content:center;align-items:center;flex-direction:column;transition:opacity 1.5s ease}
+#loading.hidden{opacity:0;pointer-events:none}
+#loading h1{font-family:'Cinzel Decorative',serif;font-size:2.4rem;letter-spacing:8px;
+  text-shadow:0 0 30px rgba(212,168,87,0.5);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:0.5}50%{opacity:1}}
+#loading .bar{margin-top:30px;width:200px;height:2px;background:rgba(212,168,87,0.2);border-radius:1px;overflow:hidden}
+#loading .bar .fill{width:0%;height:100%;background:#d4a857;transition:width 0.3s}
+
+#hint{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);z-index:50;
+  font-family:'MedievalSharp',cursive;font-size:1.05rem;color:rgba(212,168,87,0.6);
+  letter-spacing:3px;animation:hPulse 3s ease-in-out infinite;pointer-events:none;text-align:center}
+@keyframes hPulse{0%,100%{opacity:0.3}50%{opacity:0.85}}
+</style>
+</head>
+<body>
+
+<div id="startScreen" onclick="startExperience()">
+  <h1>THE GATE</h1>
+  <p class="sub">◆ Klicke zum Starten ◆</p>
+</div>
+
+<div id="loading"><h1>THE GATE</h1><div class="bar"><div class="fill" id="loadFill"></div></div></div>
+<canvas id="canvas3d"></canvas>
+<div id="hint"></div>
+
+<div id="puzzleOverlay">
+  <div id="puzzleBox">
+    <h2>⚔ THE RIDDLE ⚔</h2>
+    <p class="sub2">Löse das Rätsel, um das Tor zu öffnen</p>
+    <div id="puzzleQ"></div>
+    <div id="answerBtns"></div>
+    <div id="puzzleFB"></div>
+  </div>
+</div>
+
+<div id="whiteout"><p>ENTERING BITBI</p></div>
+
+<!-- Background music - must be in same folder -->
+<audio id="bgMusic" loop preload="auto"><source src="king.m4a" type="audio/mp4"></audio>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ═══════════════════════════════════════════
+   AUDIO ENGINE — DEEP & IMPACTFUL
+   ═══════════════════════════════════════════ */
+var audioCtx, masterGain, bgMusic;
+
+function initAudio(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.6;
+  masterGain.connect(audioCtx.destination);
+
+  // Start background music
+  bgMusic = document.getElementById('bgMusic');
+  bgMusic.volume = 0.45;
+  bgMusic.play().catch(function(e){ console.log('Music autoplay blocked, will retry'); });
+}
+
+var ambientDrone;
+function startAmbientDrone(){
+  var now = audioCtx.currentTime;
+  // Very deep sub-bass layers
+  var data = [[27.5,'sine',0.15],[41.2,'sine',0.1],[55,'sine',0.07],[82.5,'triangle',0.03]];
+  var oscs=[], gains=[];
+  for(var i=0;i<data.length;i++){
+    var o = audioCtx.createOscillator();
+    o.type = data[i][1]; o.frequency.value = data[i][0];
+    var g = audioCtx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(data[i][2], now + 3 + i);
+    o.connect(g).connect(masterGain); o.start(now);
+    oscs.push(o); gains.push(g);
+  }
+  // Very slow LFO for ominous pulse
+  var lfo = audioCtx.createOscillator(); lfo.frequency.value = 0.12;
+  var lg = audioCtx.createGain(); lg.gain.value = 4;
+  lfo.connect(lg).connect(oscs[0].frequency); lfo.start(now);
+  ambientDrone = {oscs:oscs, gains:gains};
+}
+
+function playFootstep(){
+  if(!audioCtx) return;
+  var now = audioCtx.currentTime;
+
+  // HEAVY stone impact — deep and boomy
+  var len = audioCtx.sampleRate * 0.2;
+  var buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  var d = buf.getChannelData(0);
+  for(var i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.exp(-i/(len*0.08));
+  var src = audioCtx.createBufferSource(); src.buffer = buf;
+  var lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=150+Math.random()*80; lp.Q.value=3;
+  var g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.45, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.5);
+  src.connect(lp).connect(g).connect(masterGain); src.start(now); src.stop(now+0.55);
+
+  // Sub-bass thud
+  var sub = audioCtx.createOscillator(); sub.type='sine'; sub.frequency.value=35+Math.random()*15;
+  var sg = audioCtx.createGain();
+  sg.gain.setValueAtTime(0.3, now); sg.gain.exponentialRampToValueAtTime(0.001, now+0.3);
+  sub.connect(sg).connect(masterGain); sub.start(now); sub.stop(now+0.35);
+
+  // Deep metallic armor clank
+  var o = audioCtx.createOscillator(); o.type='triangle'; o.frequency.value=180+Math.random()*120;
+  var g2 = audioCtx.createGain();
+  g2.gain.setValueAtTime(0.08, now+0.02); g2.gain.exponentialRampToValueAtTime(0.001, now+0.15);
+  var bp = audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=250; bp.Q.value=4;
+  o.connect(bp).connect(g2).connect(masterGain); o.start(now+0.02); o.stop(now+0.18);
+
+  // Chain rattle
+  var rLen = audioCtx.sampleRate * 0.08;
+  var rBuf = audioCtx.createBuffer(1, rLen, audioCtx.sampleRate);
+  var rD = rBuf.getChannelData(0);
+  for(var i=0;i<rLen;i++) rD[i]=(Math.random()*2-1)*Math.exp(-i/(rLen*0.06));
+  var rSrc = audioCtx.createBufferSource(); rSrc.buffer=rBuf;
+  var hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1500;
+  var rG = audioCtx.createGain();
+  rG.gain.setValueAtTime(0.04, now+0.03); rG.gain.exponentialRampToValueAtTime(0.001, now+0.12);
+  rSrc.connect(hp).connect(rG).connect(masterGain); rSrc.start(now+0.03); rSrc.stop(now+0.15);
+}
+
+function playDoorCreak(){
+  if(!audioCtx) return;
+  var now = audioCtx.currentTime, dur = 4.5;
+
+  // MASSIVE deep creak
+  var o = audioCtx.createOscillator(); o.type='sawtooth';
+  o.frequency.setValueAtTime(22,now);
+  o.frequency.linearRampToValueAtTime(55,now+1);
+  o.frequency.linearRampToValueAtTime(18,now+2);
+  o.frequency.linearRampToValueAtTime(65,now+3);
+  o.frequency.linearRampToValueAtTime(30,now+dur);
+  var mod = audioCtx.createOscillator(); mod.type='sine'; mod.frequency.value=4;
+  var modG = audioCtx.createGain(); modG.gain.value=35;
+  mod.connect(modG).connect(o.frequency); mod.start(now);
+  var g = audioCtx.createGain();
+  g.gain.setValueAtTime(0,now); g.gain.linearRampToValueAtTime(0.28,now+0.5);
+  g.gain.setValueAtTime(0.28,now+2.5); g.gain.linearRampToValueAtTime(0.08,now+dur);
+  var lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=800;
+  o.connect(lp).connect(g).connect(masterGain); o.start(now); o.stop(now+dur); mod.stop(now+dur);
+
+  // MASSIVE impact boom at start
+  var bLen = audioCtx.sampleRate*1.0;
+  var bBuf = audioCtx.createBuffer(1,bLen,audioCtx.sampleRate);
+  var bD = bBuf.getChannelData(0);
+  for(var i=0;i<bLen;i++) bD[i]=(Math.random()*2-1)*Math.exp(-i/(bLen*0.15));
+  var bSrc = audioCtx.createBufferSource(); bSrc.buffer=bBuf;
+  var bLp = audioCtx.createBiquadFilter(); bLp.type='lowpass'; bLp.frequency.value=60;
+  var bG = audioCtx.createGain();
+  bG.gain.setValueAtTime(0.5,now); bG.gain.exponentialRampToValueAtTime(0.001,now+1.5);
+  bSrc.connect(bLp).connect(bG).connect(masterGain); bSrc.start(now);
+
+  // Sub-bass sweep
+  var sub = audioCtx.createOscillator(); sub.type='sine';
+  sub.frequency.setValueAtTime(25,now); sub.frequency.linearRampToValueAtTime(15,now+dur);
+  var sG = audioCtx.createGain();
+  sG.gain.setValueAtTime(0.2,now); sG.gain.linearRampToValueAtTime(0,now+dur);
+  sub.connect(sG).connect(masterGain); sub.start(now); sub.stop(now+dur);
+
+  // Metallic groan
+  var o2 = audioCtx.createOscillator(); o2.type='square';
+  o2.frequency.setValueAtTime(80,now); o2.frequency.linearRampToValueAtTime(200,now+dur);
+  var bp = audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=300; bp.Q.value=8;
+  var g2 = audioCtx.createGain();
+  g2.gain.setValueAtTime(0.01,now+0.3); g2.gain.linearRampToValueAtTime(0.04,now+2);
+  g2.gain.exponentialRampToValueAtTime(0.001,now+dur);
+  o2.connect(bp).connect(g2).connect(masterGain); o2.start(now+0.3); o2.stop(now+dur);
+}
+
+function playCorrectChime(){
+  if(!audioCtx) return;
+  var now = audioCtx.currentTime;
+  // Deep power chord rising
+  var freqs = [130.8, 164.8, 196, 261.6, 523.25];
+  for(var i=0;i<freqs.length;i++){
+    var o = audioCtx.createOscillator(); o.type = i<2?'triangle':'sine'; o.frequency.value=freqs[i];
+    var g = audioCtx.createGain();
+    g.gain.setValueAtTime(0,now+i*0.15);
+    g.gain.linearRampToValueAtTime(i<2?0.15:0.1, now+i*0.15+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001,now+i*0.15+1.2);
+    o.connect(g).connect(masterGain); o.start(now+i*0.15); o.stop(now+i*0.15+1.3);
+  }
+  // Deep impact hit
+  var sub = audioCtx.createOscillator(); sub.type='sine'; sub.frequency.value=65;
+  var sG = audioCtx.createGain();
+  sG.gain.setValueAtTime(0.2,now); sG.gain.exponentialRampToValueAtTime(0.001,now+0.6);
+  sub.connect(sG).connect(masterGain); sub.start(now); sub.stop(now+0.7);
+}
+
+function playWrongBuzz(){
+  if(!audioCtx) return;
+  var now = audioCtx.currentTime;
+  // Deep threatening buzz
+  var o = audioCtx.createOscillator(); o.type='sawtooth'; o.frequency.value=45;
+  var g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.2,now); g.gain.exponentialRampToValueAtTime(0.001,now+0.5);
+  var lp = audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=200;
+  o.connect(lp).connect(g).connect(masterGain); o.start(now); o.stop(now+0.55);
+  // Distorted sub
+  var o2 = audioCtx.createOscillator(); o2.type='square'; o2.frequency.value=30;
+  var g2 = audioCtx.createGain();
+  g2.gain.setValueAtTime(0.12,now); g2.gain.exponentialRampToValueAtTime(0.001,now+0.35);
+  o2.connect(g2).connect(masterGain); o2.start(now); o2.stop(now+0.4);
+}
+
+function playHeavenlyChoir(){
+  if(!audioCtx) return;
+  var now = audioCtx.currentTime;
+  // Deep majestic chord — lower register
+  var freqs = [130.8, 164.8, 196, 261.6, 329.6, 523.2];
+  for(var i=0;i<freqs.length;i++){
+    var o = audioCtx.createOscillator(); o.type = i<3?'triangle':'sine'; o.frequency.value=freqs[i];
+    var g = audioCtx.createGain();
+    g.gain.setValueAtTime(0,now);
+    g.gain.linearRampToValueAtTime(i<3?0.08:0.05, now+2);
+    g.gain.setValueAtTime(i<3?0.08:0.05, now+3.5);
+    g.gain.linearRampToValueAtTime(i<3?0.12:0.08, now+5.5);
+    g.gain.linearRampToValueAtTime(0,now+7);
+    var vib = audioCtx.createOscillator(); vib.frequency.value=2.5+i*0.3;
+    var vG = audioCtx.createGain(); vG.gain.value=3;
+    vib.connect(vG).connect(o.frequency); vib.start(now);
+    o.connect(g).connect(masterGain); o.start(now); o.stop(now+7.5); vib.stop(now+7.5);
+  }
+  // Deep bass swell
+  var sub = audioCtx.createOscillator(); sub.type='sine';
+  sub.frequency.setValueAtTime(32,now); sub.frequency.linearRampToValueAtTime(65,now+5);
+  var sG = audioCtx.createGain();
+  sG.gain.setValueAtTime(0,now); sG.gain.linearRampToValueAtTime(0.18,now+3);
+  sG.gain.linearRampToValueAtTime(0,now+6.5);
+  sub.connect(sG).connect(masterGain); sub.start(now); sub.stop(now+7);
+  // Shimmer rise
+  var oS = audioCtx.createOscillator(); oS.type='triangle';
+  oS.frequency.setValueAtTime(300,now); oS.frequency.exponentialRampToValueAtTime(2000,now+6);
+  var gS = audioCtx.createGain();
+  gS.gain.setValueAtTime(0,now+1); gS.gain.linearRampToValueAtTime(0.03,now+3.5); gS.gain.linearRampToValueAtTime(0,now+6.5);
+  oS.connect(gS).connect(masterGain); oS.start(now); oS.stop(now+7);
+}
+
+// Fade out background music
+function fadeOutMusic(duration){
+  if(!bgMusic) return;
+  var start = bgMusic.volume;
+  var steps = 30;
+  var step = 0;
+  var iv = setInterval(function(){
+    step++;
+    bgMusic.volume = Math.max(0, start * (1 - step/steps));
+    if(step >= steps){ clearInterval(iv); bgMusic.pause(); }
+  }, duration/steps);
+}
+
+/* ═══════════════════════════════════════════
+   3D ENGINE
+   ═══════════════════════════════════════════ */
+var scene, camera, renderer, clock;
+var knight, doorLeft, doorRight;
+var candleFlames=[], candleLights=[], dustParticles=[];
+var doorLight, doorLight2, ambientLight, fillLight, fillLight2;
+var phase='waiting', phaseTime=0;
+var knightZ=8, doorAngle=0, doorLightInt=0.6, lastStepTime=0;
+
+var FLOOR_Y=-2, DOOR_Z=-5;
+var K_START=8, K_PUZZLE=1.5, K_DOOR=-3.5;
+
+// Knight scale factor — smaller knight
+var KS = 0.6;
+var KY_BASE = FLOOR_Y + 2.66 * KS; // feet on floor
+
+// Door dimensions
+var DOOR_W = 2.0;       // each door panel width
+var DOOR_H = 6.5;       // door height
+var DOOR_PIVOT_X = 2.1;  // pivot distance from center
+
+function startExperience(){
+  document.getElementById('startScreen').style.display='none';
+  document.getElementById('loading').style.display='flex';
+  try{ initAudio(); }catch(e){ console.warn('Audio init failed',e); }
+  init();
+}
+
+function init(){
+  clock = new THREE.Clock();
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x100a04, 0.02);
+  scene.background = new THREE.Color(0x0a0604);
+
+  camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+  camera.position.set(0, 1.2, 12);
+
+  renderer = new THREE.WebGLRenderer({canvas:document.getElementById('canvas3d'), antialias:true});
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.3;
+
+  buildScene();
+  simulateLoading();
+  window.addEventListener('resize', function(){
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+function mkMesh(geo, mat, x, y, z){
+  var m = new THREE.Mesh(geo, mat);
+  if(x!==undefined) m.position.set(x, y, z);
+  return m;
+}
+
+/* ═══════════════════════════════════════════
+   BUILD SCENE
+   ═══════════════════════════════════════════ */
+function buildScene(){
+  // ── LIGHTING ──
+  ambientLight = new THREE.AmbientLight(0x3a2a10, 1.0);
+  scene.add(ambientLight);
+
+  doorLight = new THREE.PointLight(0xfff0c8, 0.6, 35, 1.2);
+  doorLight.position.set(0, 3, DOOR_Z-2);
+  doorLight.castShadow = true;
+  scene.add(doorLight);
+
+  doorLight2 = new THREE.PointLight(0xffe0a0, 0.4, 20, 1.5);
+  doorLight2.position.set(0, 0, DOOR_Z-1);
+  scene.add(doorLight2);
+
+  var topLight = new THREE.PointLight(0x5a4020, 1.5, 35);
+  topLight.position.set(0, 8, 2); topLight.castShadow=true; scene.add(topLight);
+
+  fillLight = new THREE.PointLight(0x4a3518, 1.4, 30);
+  fillLight.position.set(-2, 3, 10); scene.add(fillLight);
+  fillLight2 = new THREE.PointLight(0x4a3518, 1.0, 25);
+  fillLight2.position.set(2, 2, 8); scene.add(fillLight2);
+
+  var rim = new THREE.SpotLight(0xffd080, 1.0, 35, Math.PI/5, 0.5);
+  rim.position.set(0, 6, DOOR_Z);
+  rim.target.position.set(0, 1, 5);
+  scene.add(rim); scene.add(rim.target);
+
+  var sidePos = [[-4.5,3,-2],[4.5,3,-2],[-4.5,3,3],[4.5,3,3],[-4.5,3,8],[4.5,3,8]];
+  for(var i=0;i<sidePos.length;i++){
+    var sl = new THREE.PointLight(0xff9933, 0.7, 10);
+    sl.position.set(sidePos[i][0], sidePos[i][1], sidePos[i][2]); scene.add(sl);
+  }
+
+  // ── FLOOR ──
+  var floor = mkMesh(new THREE.PlaneGeometry(20,30),
+    new THREE.MeshStandardMaterial({color:0x5a4a30, roughness:0.7, metalness:0.1}));
+  floor.rotation.x=-Math.PI/2; floor.position.y=FLOOR_Y; floor.receiveShadow=true; scene.add(floor);
+
+  var gridMat = new THREE.MeshBasicMaterial({color:0x6a5a38, transparent:true, opacity:0.35});
+  for(var i=-8;i<=8;i+=1.5){
+    var l=new THREE.Mesh(new THREE.PlaneGeometry(0.012,30),gridMat);
+    l.rotation.x=-Math.PI/2; l.position.set(i,FLOOR_Y+0.01,0); scene.add(l);
+  }
+  for(var j=-12;j<=12;j+=1.5){
+    var l=new THREE.Mesh(new THREE.PlaneGeometry(20,0.012),gridMat);
+    l.rotation.x=-Math.PI/2; l.position.set(0,FLOOR_Y+0.01,j); scene.add(l);
+  }
+
+  // Carpet
+  var carpet=new THREE.Mesh(new THREE.PlaneGeometry(2.5,22),
+    new THREE.MeshStandardMaterial({color:0x4a1818, roughness:0.85}));
+  carpet.rotation.x=-Math.PI/2; carpet.position.set(0,FLOOR_Y+0.02,0); scene.add(carpet);
+  var cbMat=new THREE.MeshStandardMaterial({color:0x9a8a30, emissive:0x4a3a10, emissiveIntensity:0.3});
+  [-1.25,1.25].forEach(function(cx){
+    var b=new THREE.Mesh(new THREE.PlaneGeometry(0.07,22),cbMat);
+    b.rotation.x=-Math.PI/2; b.position.set(cx,FLOOR_Y+0.025,0); scene.add(b);
+  });
+
+  // Ceiling
+  var ceil=new THREE.Mesh(new THREE.PlaneGeometry(14,30),
+    new THREE.MeshStandardMaterial({color:0x251a10, roughness:0.85}));
+  ceil.rotation.x=Math.PI/2; ceil.position.y=7; scene.add(ceil);
+
+  var ribMat=new THREE.MeshStandardMaterial({color:0x3a2e18, roughness:0.6, metalness:0.2});
+  for(var r=-3;r<=3;r++) scene.add(mkMesh(new THREE.BoxGeometry(0.12,0.35,14),ribMat,r*2,6.82,0));
+  for(var cz=-8;cz<=8;cz+=4) scene.add(mkMesh(new THREE.BoxGeometry(14,0.25,0.12),ribMat,0,6.87,cz));
+
+  // Walls
+  buildWall(-5.5,1); buildWall(5.5,-1);
+  scene.add(mkMesh(new THREE.BoxGeometry(12,9,0.5),new THREE.MeshStandardMaterial({color:0x2a2010}),0,2.5,14));
+
+  // Columns, Windows, Candelabras, Banners, Shields
+  [-3.8,3.8].forEach(function(x){
+    [DOOR_Z+0.5,0,5,10].forEach(function(z){buildColumn(x,z);});
+  });
+  [-5.1,5.1].forEach(function(x){
+    [DOOR_Z+0.5,5].forEach(function(z){buildWindow(x,2.5,z);});
+  });
+  [-3.2,3.2].forEach(function(x){
+    [DOOR_Z+1.5,0,5,10].forEach(function(z){buildCandelabra(x,3.0,z);});
+  });
+  [-4.2,4.2].forEach(function(x){
+    [DOOR_Z+1,4,9].forEach(function(z){buildBanner(x,4.5,z);});
+  });
+  [-5.0,5.0].forEach(function(x){
+    [2.5,7.5].forEach(function(z){buildShield(x,2.5,z);});
+  });
+
+  buildDoorFrame();
+  buildDoors();
+  buildKnight();
+  buildParticles(600,0xd4a857,0.04,0.5);
+  buildParticles(250,0xff8822,0.025,0.3);
+}
+
+function buildWall(x, dir){
+  var wall=mkMesh(new THREE.BoxGeometry(1,9,30),
+    new THREE.MeshStandardMaterial({color:0x4a3a22, roughness:0.75}),x,2.5,0);
+  wall.receiveShadow=true; scene.add(wall);
+  var panelMat=new THREE.MeshStandardMaterial({color:0x382815});
+  for(var z=-10;z<=12;z+=2.5) scene.add(mkMesh(new THREE.BoxGeometry(0.08,4.5,1.8),panelMat,x-dir*0.52,1.5,z));
+  var moldMat=new THREE.MeshStandardMaterial({color:0x6a5a30, metalness:0.3});
+  scene.add(mkMesh(new THREE.BoxGeometry(0.15,0.15,30),moldMat,x-dir*0.5,FLOOR_Y+0.08,0));
+  scene.add(mkMesh(new THREE.BoxGeometry(0.15,0.15,30),moldMat,x-dir*0.5,4,0));
+}
+
+function buildColumn(x,z){
+  var mat=new THREE.MeshStandardMaterial({color:0xa89a65, roughness:0.4, metalness:0.25});
+  var shaft=mkMesh(new THREE.CylinderGeometry(0.22,0.28,8,16),mat,x,2,z);
+  shaft.castShadow=true; scene.add(shaft);
+  for(var fi=0;fi<8;fi++){
+    var a=(fi/8)*Math.PI*2;
+    var f=mkMesh(new THREE.BoxGeometry(0.025,7,0.07),new THREE.MeshStandardMaterial({color:0x8a7a50}),
+      x+Math.cos(a)*0.24,2,z+Math.sin(a)*0.24);
+    f.rotation.y=a; scene.add(f);
+  }
+  var capMat=new THREE.MeshStandardMaterial({color:0xb8a870, roughness:0.3, metalness:0.35});
+  scene.add(mkMesh(new THREE.CylinderGeometry(0.42,0.22,0.6,8),capMat,x,6.3,z));
+  scene.add(mkMesh(new THREE.BoxGeometry(0.9,0.12,0.9),capMat,x,6.62,z));
+  scene.add(mkMesh(new THREE.CylinderGeometry(0.38,0.42,0.3,8),capMat,x,FLOOR_Y+0.15,z));
+  scene.add(mkMesh(new THREE.BoxGeometry(0.8,0.15,0.8),capMat,x,FLOOR_Y+0.02,z));
+}
+
+function buildWindow(x,y,z){
+  var g=new THREE.Group();
+  var frameMat=new THREE.MeshStandardMaterial({color:0xb09a68, roughness:0.35, metalness:0.45});
+  var barMat=new THREE.MeshStandardMaterial({color:0x9a8a58, metalness:0.5});
+  var arch=new THREE.Mesh(new THREE.TorusGeometry(1.3,0.07,8,32,Math.PI),frameMat);
+  arch.position.y=1.1; g.add(arch);
+  g.add(new THREE.Mesh(new THREE.PlaneGeometry(2.4,3),
+    new THREE.MeshStandardMaterial({color:0xffe8b0,emissive:0x5a4020,emissiveIntensity:0.5,transparent:true,opacity:0.22,side:THREE.DoubleSide})));
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(0.03,3,0.04),barMat));
+  var bh1=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.03,0.04),barMat); bh1.position.y=0.3; g.add(bh1);
+  var bh2=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.03,0.04),barMat); bh2.position.y=-0.5; g.add(bh2);
+  var rose=new THREE.Mesh(new THREE.TorusGeometry(0.5,0.025,8,24),frameMat); rose.position.y=0.8; g.add(rose);
+  for(var i=0;i<12;i++){
+    var s=new THREE.Mesh(new THREE.BoxGeometry(0.015,0.95,0.02),barMat);
+    s.rotation.z=(i/12)*Math.PI; s.position.y=0.8; g.add(s);
+  }
+  var ir=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.02,8,16),frameMat); ir.position.y=0.8; g.add(ir);
+  g.position.set(x,y,z); g.rotation.y=x>0?-Math.PI/2:Math.PI/2; scene.add(g);
+}
+
+function buildShield(x,y,z){
+  var g=new THREE.Group();
+  var gM=new THREE.MeshStandardMaterial({color:0xb09530,roughness:0.3,metalness:0.8});
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(0.4,6),new THREE.MeshStandardMaterial({color:0x2a2015,roughness:0.4,metalness:0.6})));
+  var boss=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),gM); boss.position.z=0.05; g.add(boss);
+  var cv=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.5,0.02),gM); cv.position.z=0.02; g.add(cv);
+  var ch=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.04,0.02),gM); ch.position.set(0,0.05,0.02); g.add(ch);
+  g.position.set(x,y,z); g.rotation.y=x>0?-Math.PI/2:Math.PI/2; scene.add(g);
+}
+
+function buildBanner(x,y,z){
+  var g=new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,3,6),
+    new THREE.MeshStandardMaterial({color:0x6a5a30,metalness:0.7})));
+  var banner=new THREE.Mesh(new THREE.PlaneGeometry(0.8,2,4,8),
+    new THREE.MeshStandardMaterial({color:0x2a0808,roughness:0.85,side:THREE.DoubleSide}));
+  banner.position.y=-0.5; g.add(banner);
+  var trim=new THREE.Mesh(new THREE.PlaneGeometry(0.82,0.04),
+    new THREE.MeshStandardMaterial({color:0x9a8a30,emissive:0x3a2a08,emissiveIntensity:0.3,side:THREE.DoubleSide}));
+  trim.position.y=0.5; g.add(trim);
+  g.position.set(x,y,z); scene.add(g);
+}
+
+function buildCandelabra(x,y,z){
+  var g=new THREE.Group();
+  var mM=new THREE.MeshStandardMaterial({color:0x6a5520,roughness:0.2,metalness:0.85});
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.35),mM));
+  var scroll=new THREE.Mesh(new THREE.TorusGeometry(0.12,0.015,6,12,Math.PI),mM);
+  scroll.rotation.x=Math.PI/2; scroll.position.set(0,-0.05,0.15); g.add(scroll);
+  var arms=[[-0.4,0.18],[-0.15,0.28],[0.15,0.28],[0.4,0.18]];
+  for(var i=0;i<arms.length;i++){
+    var ax=arms[i][0],ay=arms[i][1];
+    var arm=new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.018,0.55,6),mM);
+    arm.position.set(ax,ay,0.12); arm.rotation.z=ax*0.9; g.add(arm);
+    var tray=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.04,0.03,8),mM);
+    tray.position.set(ax,ay+0.25,0.12); g.add(tray);
+    var candle=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.03,0.22,8),
+      new THREE.MeshStandardMaterial({color:0xfff0d0,roughness:0.6}));
+    candle.position.set(ax,ay+0.37,0.12); g.add(candle);
+    var flame=new THREE.Mesh(new THREE.SphereGeometry(0.065,8,6),
+      new THREE.MeshStandardMaterial({color:0xffcc44,emissive:0xffaa11,emissiveIntensity:3.5,transparent:true,opacity:0.93}));
+    flame.position.set(ax,ay+0.52,0.12); flame.scale.y=1.4; g.add(flame); candleFlames.push(flame);
+    var fl=new THREE.PointLight(0xffaa33,1.0,7,2); fl.position.set(ax,ay+0.52,0.12); g.add(fl);
+    candleLights.push({light:fl,base:1.0});
+  }
+  g.position.set(x,y,z); scene.add(g);
+}
+
+/* ═══════════════════════════════════════════
+   DOOR FRAME & DOORS — properly centered
+   ═══════════════════════════════════════════ */
+function buildDoorFrame(){
+  var g=new THREE.Group();
+  var mat=new THREE.MeshStandardMaterial({color:0x7a6a42,roughness:0.4,metalness:0.35});
+  var dMat=new THREE.MeshStandardMaterial({color:0x9a8a58,roughness:0.3,metalness:0.45});
+
+  // Pillars at edges of door opening
+  [-2.3,2.3].forEach(function(px){
+    var p=mkMesh(new THREE.BoxGeometry(0.6,7,0.9),mat,px,1.5,DOOR_Z);
+    p.castShadow=true; g.add(p);
+    for(var f=-1;f<=1;f++) g.add(mkMesh(new THREE.BoxGeometry(0.05,6.5,0.05),dMat,px+f*0.15,1.5,DOOR_Z-0.46));
+  });
+
+  // Gothic arch
+  for(var i=0;i<=20;i++){
+    var a=(i/20)*Math.PI;
+    var block=mkMesh(new THREE.BoxGeometry(0.65,0.35,0.95),mat,
+      Math.cos(a)*2.3, Math.sin(a)*2.5+5, DOOR_Z);
+    block.rotation.z=a-Math.PI/2; g.add(block);
+  }
+
+  // Keystone
+  g.add(mkMesh(new THREE.BoxGeometry(0.7,0.8,1),
+    new THREE.MeshStandardMaterial({color:0xb09a60,roughness:0.3,metalness:0.45}),0,7.45,DOOR_Z));
+  g.add(mkMesh(new THREE.SphereGeometry(0.16,8,8),
+    new THREE.MeshStandardMaterial({color:0xd4a857,emissive:0x7a5a20,emissiveIntensity:0.6,metalness:0.7}),0,7.45,DOOR_Z-0.5));
+  scene.add(g);
+}
+
+function buildDoors(){
+  var doorMat=new THREE.MeshStandardMaterial({color:0x3a2210,roughness:0.6,metalness:0.15});
+  var metalMat=new THREE.MeshStandardMaterial({color:0x6a5a28,roughness:0.2,metalness:0.85});
+  var darkMat=new THREE.MeshStandardMaterial({color:0x1e0e04,roughness:0.8});
+
+  function makeDoorPanel(){
+    var g=new THREE.Group();
+    var panel=new THREE.Mesh(new THREE.BoxGeometry(DOOR_W,DOOR_H,0.25),doorMat);
+    panel.castShadow=true; g.add(panel);
+    // Planks
+    for(var p=-0.8;p<=0.8;p+=0.35){
+      var pl=new THREE.Mesh(new THREE.BoxGeometry(0.016,DOOR_H,0.27),darkMat);
+      pl.position.x=p; g.add(pl);
+    }
+    // Metal bands
+    for(var b=-2.8;b<=2.8;b+=0.9){
+      var band=new THREE.Mesh(new THREE.BoxGeometry(DOOR_W+0.05,0.1,0.28),metalMat);
+      band.position.y=b; g.add(band);
+    }
+    // Ring handle
+    var ring=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.03,8,20),metalMat);
+    ring.position.set(0.6,0.2,0.16); g.add(ring);
+    var plate=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.04,8),metalMat);
+    plate.rotation.x=Math.PI/2; plate.position.set(0.6,0.4,0.15); g.add(plate);
+    // Studs
+    for(var sy=-3;sy<=3;sy+=0.48){
+      for(var sx=-0.75;sx<=0.75;sx+=0.5){
+        var stud=new THREE.Mesh(new THREE.SphereGeometry(0.028,6,6),metalMat);
+        stud.position.set(sx,sy,0.14); g.add(stud);
+      }
+    }
+    // Diamonds
+    for(var dy=-2.4;dy<=2.4;dy+=0.9){
+      var dd=new THREE.Mesh(new THREE.BoxGeometry(0.55,0.55,0.03),metalMat);
+      dd.rotation.z=Math.PI/4; dd.position.set(0,dy,0.13); dd.scale.set(0.5,0.5,1); g.add(dd);
+    }
+    return g;
+  }
+
+  // LEFT DOOR — pivot on LEFT edge (x = -DOOR_PIVOT_X)
+  doorLeft = makeDoorPanel();
+  doorLeft.position.set(-DOOR_PIVOT_X, FLOOR_Y + DOOR_H/2, DOOR_Z);
+  // Shift all children so the left edge is at group origin (x=0), panel extends to the right
+  doorLeft.children.forEach(function(c){ c.position.x += DOOR_W/2; });
+
+  // RIGHT DOOR — pivot on RIGHT edge (x = +DOOR_PIVOT_X)
+  doorRight = makeDoorPanel();
+  doorRight.position.set(DOOR_PIVOT_X, FLOOR_Y + DOOR_H/2, DOOR_Z);
+  // Mirror: shift children so right edge is at group origin, panel extends to left
+  doorRight.children.forEach(function(c){ c.position.x = -(c.position.x + DOOR_W/2); });
+
+  scene.add(doorLeft);
+  scene.add(doorRight);
+}
+
+/* ═══════════════════════════════════════════
+   KNIGHT — smaller with scale
+   ═══════════════════════════════════════════ */
+function buildKnight(){
+  knight = new THREE.Group();
+
+  var aD=new THREE.MeshStandardMaterial({color:0x303030,roughness:0.28,metalness:0.9});
+  var aM=new THREE.MeshStandardMaterial({color:0x404038,roughness:0.32,metalness:0.88});
+  var aG=new THREE.MeshStandardMaterial({color:0x9a8a40,roughness:0.2,metalness:0.88,emissive:0x3a2a08,emissiveIntensity:0.2});
+  var chain=new THREE.MeshStandardMaterial({color:0x454545,roughness:0.35,metalness:0.92});
+  var cloak=new THREE.MeshStandardMaterial({color:0x151515,roughness:0.82,side:THREE.DoubleSide});
+
+  function add(geo,mat,x,y,z){
+    var m=new THREE.Mesh(geo,mat); m.position.set(x||0,y||0,z||0); m.castShadow=true; knight.add(m); return m;
+  }
+
+  // Torso
+  add(new THREE.BoxGeometry(1.15,1.35,0.72),aM,0,0.7,0);
+  add(new THREE.BoxGeometry(1.0,0.9,0.12),aD,0,0.8,-0.38);
+  add(new THREE.BoxGeometry(0.06,0.5,0.04),aG,0,0.85,-0.44);
+  add(new THREE.BoxGeometry(0.32,0.06,0.04),aG,0,0.92,-0.44);
+  add(new THREE.BoxGeometry(1.0,1.1,0.1),aD,0,0.7,0.37);
+  add(new THREE.CylinderGeometry(0.3,0.42,0.2,10),aD,0,1.38,0);
+  add(new THREE.BoxGeometry(1.2,0.18,0.78),aG,0,0.02,0);
+  add(new THREE.BoxGeometry(0.16,0.14,0.06),aG,0,0.02,-0.42);
+  for(var fi=0;fi<4;fi++) add(new THREE.BoxGeometry(1.05-fi*0.05,0.12,0.68-fi*0.02),aD,0,-0.1-fi*0.12,0);
+  [-0.35,0.35].forEach(function(tx){
+    for(var ti=0;ti<3;ti++) add(new THREE.BoxGeometry(0.35,0.15,0.35),aD,tx,-0.55-ti*0.14,-0.08);
+  });
+  add(new THREE.BoxGeometry(0.75,0.5,0.5),chain,0,-0.85,0);
+
+  // Shoulders & Arms
+  [-0.72,0.72].forEach(function(sx){
+    for(var li=0;li<4;li++){
+      var l=add(new THREE.BoxGeometry(0.48-li*0.04,0.08,0.52-li*0.03),aD,sx,1.4-li*0.07,0);
+      l.rotation.z=sx>0?-0.12:0.12;
+    }
+    var spike=add(new THREE.CylinderGeometry(0,0.06,0.35,4),aG,sx*1.15,1.52,0);
+    spike.rotation.z=sx>0?-0.6:0.6;
+    var trim=add(new THREE.BoxGeometry(0.5,0.03,0.54),aG,sx,1.12,0);
+    trim.rotation.z=sx>0?-0.12:0.12;
+    add(new THREE.BoxGeometry(0.28,0.6,0.3),aM,sx,0.95,0);
+    add(new THREE.SphereGeometry(0.15,8,6),aD,sx*0.88,0.55,0.03);
+    var cop=add(new THREE.CylinderGeometry(0,0.08,0.15,4),aG,sx*0.98,0.55,-0.08);
+    cop.rotation.x=Math.PI/2;
+    add(new THREE.BoxGeometry(0.24,0.55,0.26),aM,sx*0.85,0.2,0.05);
+    add(new THREE.BoxGeometry(0.22,0.25,0.24),aD,sx*0.85,-0.1,0.06);
+    for(var fi=0;fi<3;fi++) add(new THREE.BoxGeometry(0.05,0.08,0.1),aD,sx*0.85+(fi-1)*0.06,-0.2,0.02);
+  });
+
+  // Legs
+  [-0.28,0.28].forEach(function(lx){
+    add(new THREE.BoxGeometry(0.34,0.8,0.36),aM,lx,-1.2,0);
+    add(new THREE.BoxGeometry(0.36,0.22,0.4),aD,lx,-1.6,0.02);
+    var kp=add(new THREE.CylinderGeometry(0,0.06,0.12,4),aG,lx,-1.6,-0.2); kp.rotation.x=Math.PI/2;
+    add(new THREE.BoxGeometry(0.28,0.75,0.32),aM,lx,-2.1,0);
+    add(new THREE.BoxGeometry(0.06,0.7,0.02),aG,lx,-2.1,-0.16);
+    add(new THREE.BoxGeometry(0.3,0.2,0.44),aD,lx,-2.55,-0.04);
+    add(new THREE.BoxGeometry(0.32,0.05,0.46),new THREE.MeshStandardMaterial({color:0x3a2218,roughness:0.75}),lx,-2.66,-0.04);
+  });
+
+  // Helmet
+  var helmet=add(new THREE.SphereGeometry(0.33,14,12),aD,0,1.72,0);
+  helmet.scale.set(1,1.2,1.05);
+  add(new THREE.BoxGeometry(0.48,0.4,0.1),aD,0,1.65,-0.3);
+  add(new THREE.BoxGeometry(0.35,0.03,0.03),new THREE.MeshStandardMaterial({color:0x020202}),0,1.7,-0.36);
+  for(var bh=0;bh<4;bh++) add(new THREE.BoxGeometry(0.02,0.06,0.03),new THREE.MeshStandardMaterial({color:0x050505}),-0.08+bh*0.05,1.58,-0.36);
+  add(new THREE.BoxGeometry(0.55,0.06,0.04),aG,0,1.78,-0.28);
+  add(new THREE.BoxGeometry(0.04,0.18,0.38),aG,0,2.02,0);
+
+  // Cape
+  var cape=new THREE.Mesh(new THREE.PlaneGeometry(1.0,1.8,4,8),cloak);
+  cape.position.set(0,0.4,0.38); knight.add(cape);
+  knight.userData.cape=cape;
+
+  // SCALE KNIGHT DOWN
+  knight.scale.set(KS, KS, KS);
+  knight.position.set(0, KY_BASE, K_START);
+  knight.rotation.y = Math.PI;
+  scene.add(knight);
+}
+
+function buildParticles(count,color,size,opacity){
+  var geo=new THREE.BufferGeometry();
+  var pos=new Float32Array(count*3);
+  for(var i=0;i<count;i++){
+    pos[i*3]=(Math.random()-0.5)*14;
+    pos[i*3+1]=Math.random()*8-1;
+    pos[i*3+2]=(Math.random()-0.5)*26;
+  }
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  var pts=new THREE.Points(geo,new THREE.PointsMaterial({
+    color:color,size:size,transparent:true,opacity:opacity,
+    blending:THREE.AdditiveBlending,depthWrite:false
+  }));
+  scene.add(pts); dustParticles.push(pts);
+}
+
+/* ═══════════════════════════════════════════
+   LOADING
+   ═══════════════════════════════════════════ */
+function simulateLoading(){
+  var fill=document.getElementById('loadFill');
+  var pct=0;
+  var iv=setInterval(function(){
+    pct+=Math.random()*12+4;
+    if(pct>=100){
+      pct=100; fill.style.width='100%'; clearInterval(iv);
+      setTimeout(function(){
+        document.getElementById('loading').classList.add('hidden');
+        phase='intro'; phaseTime=0;
+        try{startAmbientDrone();}catch(e){}
+        // Retry music in case autoplay was blocked
+        try{bgMusic.play().catch(function(){});}catch(e){}
+        animate();
+      },800);
+    }
+    fill.style.width=pct+'%';
+  },200);
+}
+
+/* ═══════════════════════════════════════════
+   PUZZLE
+   ═══════════════════════════════════════════ */
+function generatePuzzle(){
+  var a=Math.floor(Math.random()*12)+3;
+  var b=Math.floor(Math.random()*12)+3;
+  var ops=[{s:'+',f:function(x,y){return x+y}},{s:'−',f:function(x,y){return x-y}},{s:'×',f:function(x,y){return x*y}}];
+  var op=ops[Math.floor(Math.random()*ops.length)];
+  var answer=op.f(a,b);
+  var wrongs=[];
+  while(wrongs.length<3){var w=answer+Math.floor(Math.random()*13)-6;if(w!==answer&&w>0&&wrongs.indexOf(w)===-1)wrongs.push(w);}
+  var options=[answer].concat(wrongs);
+  for(var i=options.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var tmp=options[i];options[i]=options[j];options[j]=tmp;}
+  return{question:a+' '+op.s+' '+b+' = ?',answer:answer,options:options};
+}
+
+function showPuzzle(){
+  var overlay=document.getElementById('puzzleOverlay');
+  var qEl=document.getElementById('puzzleQ');
+  var bEl=document.getElementById('answerBtns');
+  var fEl=document.getElementById('puzzleFB');
+  var p=generatePuzzle();
+  qEl.textContent=p.question; bEl.innerHTML=''; fEl.textContent='';
+  p.options.forEach(function(opt){
+    var btn=document.createElement('button');
+    btn.className='abtn'; btn.textContent=opt;
+    btn.onclick=function(){
+      if(btn.classList.contains('correct')||btn.classList.contains('wrong')) return;
+      if(opt===p.answer){
+        btn.classList.add('correct');
+        fEl.textContent='✦ Das Tor öffnet sich... ✦'; fEl.style.color='#4ae04a';
+        try{playCorrectChime();}catch(e){}
+        setTimeout(function(){
+          overlay.style.display='none';
+          document.getElementById('hint').textContent='';
+          phase='opening'; phaseTime=0;
+          try{playDoorCreak();}catch(e){}
+        },1200);
+      } else {
+        btn.classList.add('wrong');
+        fEl.textContent='Falsch... Versuche es erneut!'; fEl.style.color='#d4a857';
+        try{playWrongBuzz();}catch(e){}
+        setTimeout(function(){btn.classList.remove('wrong');fEl.textContent='';},1000);
+      }
+    };
+    bEl.appendChild(btn);
+  });
+  overlay.style.display='flex';
+}
+
+/* ═══════════════════════════════════════════
+   ANIMATION LOOP
+   ═══════════════════════════════════════════ */
+function animate(){
+  requestAnimationFrame(animate);
+  var dt=clock.getDelta();
+  var t=clock.getElapsedTime();
+  phaseTime+=dt;
+
+  // Candle flicker
+  for(var i=0;i<candleFlames.length;i++){
+    candleFlames[i].scale.y=1.4+Math.sin(t*11+i*2.7)*0.4+Math.sin(t*17+i*1.3)*0.2;
+    candleFlames[i].scale.x=1+Math.sin(t*9+i*3.1)*0.2;
+  }
+  for(var i=0;i<candleLights.length;i++){
+    candleLights[i].light.intensity=candleLights[i].base+Math.sin(t*9+i*2)*0.3+Math.sin(t*14+i*3)*0.15;
+  }
+
+  // Particles
+  for(var pi=0;pi<dustParticles.length;pi++){
+    var pos=dustParticles[pi].geometry.attributes.position;
+    for(var i=0;i<pos.count;i++){
+      pos.setY(i,pos.getY(i)+Math.sin(t*0.7+i*0.3)*0.001);
+      pos.setX(i,pos.getX(i)+Math.cos(t*0.4+i*0.5)*0.0005);
+    }
+    pos.needsUpdate=true;
+  }
+
+  // Cape
+  if(knight && knight.userData.cape){
+    var cp=knight.userData.cape.geometry.attributes.position;
+    for(var i=0;i<cp.count;i++){
+      var y=cp.getY(i);
+      cp.setZ(i,Math.sin(t*3+y*2)*0.03*(1-(y+0.9))+0.02);
+    }
+    cp.needsUpdate=true;
+  }
+
+  // ── PHASES ──
+  switch(phase){
+
+  case 'intro':
+    var ip=Math.min(phaseTime/3,1);
+    camera.position.z=12-ip*2;
+    camera.position.y=1.2+Math.sin(t*0.3)*0.04;
+    camera.lookAt(new THREE.Vector3(0,1,-2));
+    if(phaseTime>2.5){phase='approach';phaseTime=0;document.getElementById('hint').textContent='◆ Der Ritter nähert sich dem Tor... ◆';}
+    break;
+
+  case 'approach':
+    var dur=5.5, ap=Math.min(phaseTime/dur,1);
+    var ease=ap<0.5?2*ap*ap:1-Math.pow(-2*ap+2,2)/2;
+    knightZ=K_START+(K_PUZZLE-K_START)*ease;
+    knight.position.z=knightZ;
+    if(ap<1){
+      var wc=Math.sin(phaseTime*4);
+      knight.position.y=KY_BASE+Math.abs(wc)*0.04;
+      knight.rotation.y=Math.PI+wc*0.012;
+      if(Math.abs(wc)<0.15 && t-lastStepTime>0.35){try{playFootstep();}catch(e){} lastStepTime=t;}
+    }
+    camera.position.z=knightZ+4;
+    camera.position.y=1.2+Math.sin(t*0.5)*0.03;
+    camera.lookAt(new THREE.Vector3(0,1.5,knightZ-6));
+    fillLight.position.z=knightZ+3;
+    fillLight2.position.z=knightZ+2;
+    if(ap>=1){
+      phase='puzzle';phaseTime=0;
+      document.getElementById('hint').textContent='';
+      knight.position.y=KY_BASE; knight.rotation.y=Math.PI;
+      showPuzzle();
+    }
+    break;
+
+  case 'puzzle':
+    knight.position.y=KY_BASE+Math.sin(t*1.5)*0.01;
+    camera.position.y=1.2+Math.sin(t*0.4)*0.02;
+    doorLight.intensity=0.6+Math.sin(t*2)*0.15;
+    doorLight2.intensity=0.4+Math.sin(t*2.5)*0.1;
+    break;
+
+  case 'opening':
+    var dur=4.5, op2=Math.min(phaseTime/dur,1);
+    var easeOpen=1-Math.pow(1-op2,3);
+    doorAngle=easeOpen*(Math.PI/2.2);
+
+    // Left door opens to the left (positive Y rotation)
+    doorLeft.rotation.y=doorAngle;
+    // Right door opens to the right (negative Y rotation)
+    doorRight.rotation.y=-doorAngle;
+
+    doorLightInt=0.6+easeOpen*12;
+    doorLight.intensity=doorLightInt;
+    doorLight2.intensity=0.4+easeOpen*6;
+    doorLight.color.setHex(0xfff8e0);
+    ambientLight.intensity=1.0+easeOpen*2.5;
+    camera.position.z=knightZ+4-easeOpen*0.5;
+    var shake=(1-op2)*0.012;
+    camera.position.x=Math.sin(t*15)*shake;
+    camera.position.y=1.2+Math.cos(t*12)*shake;
+    document.getElementById('hint').textContent='◆ Das Tor öffnet sich... ◆';
+    if(op2>=1){phase='walkthrough';phaseTime=0;try{playHeavenlyChoir();}catch(e){} fadeOutMusic(5000);}
+    break;
+
+  case 'walkthrough':
+    var dur=5, wp=Math.min(phaseTime/dur,1);
+    var ew=wp<0.5?2*wp*wp:1-Math.pow(-2*wp+2,2)/2;
+    knightZ=K_PUZZLE+(K_DOOR-K_PUZZLE)*ew;
+    knight.position.z=knightZ;
+    var wc2=Math.sin(phaseTime*3.5);
+    knight.position.y=KY_BASE+Math.abs(wc2)*0.03;
+    if(Math.abs(wc2)<0.15 && t-lastStepTime>0.4 && wp<0.7){try{playFootstep();}catch(e){} lastStepTime=t;}
+    camera.position.z=knightZ+3.5;
+    camera.lookAt(new THREE.Vector3(0,1.5,knightZ-4));
+    doorLight.intensity=doorLightInt+wp*20;
+    doorLight2.intensity=6+wp*12;
+    ambientLight.intensity=3+wp*6;
+    renderer.toneMappingExposure=1.3+wp*5;
+    scene.fog.density=Math.max(0,0.02-wp*0.02);
+    document.getElementById('hint').textContent='';
+    if(ambientDrone && wp>0.3){
+      for(var gi=0;gi<ambientDrone.gains.length;gi++) ambientDrone.gains[gi].gain.value*=0.96;
+    }
+    if(wp>0.5){
+      var whiteP=(wp-0.5)/0.5;
+      scene.background.setRGB(0.04+whiteP*0.96, 0.025+whiteP*0.975, 0.015+whiteP*0.985);
+    }
+    if(wp>=1){
+      phase='redirect';phaseTime=0;
+      document.getElementById('whiteout').classList.add('active');
+      setTimeout(function(){window.location.href='https://bitbi.ai';},3800);
+    }
+    break;
+
+  case 'redirect':
+    renderer.toneMappingExposure=6;
+    break;
+  }
+
+  renderer.render(scene,camera);
+}
+</script>
+</body>
+</html>

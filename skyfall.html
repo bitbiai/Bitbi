@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky Fall</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    overflow: hidden;
+    touch-action: none;
+    background: #0a0a1a;
+    font-family: 'Exo 2', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  #ui-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  #best-times {
+    position: absolute;
+    top: 16px; left: 16px;
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+    font-family: 'Orbitron', monospace;
+    text-shadow: 0 0 8px rgba(0,180,255,0.5);
+    line-height: 1.6;
+  }
+  #best-times .label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: rgba(0,180,255,0.7);
+    margin-bottom: 4px;
+  }
+  #best-times .time-entry {
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+  }
+  #best-times .time-entry:first-of-type {
+    color: #ffd700;
+  }
+
+  #timer {
+    position: absolute;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    color: #fff;
+    font-size: 22px;
+    font-family: 'Orbitron', monospace;
+    text-shadow: 0 0 12px rgba(255,100,50,0.6);
+    letter-spacing: 1px;
+  }
+
+  #speed-indicator {
+    position: absolute;
+    top: 44px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,200,100,0.8);
+    font-size: 11px;
+    font-family: 'Orbitron', monospace;
+    text-shadow: 0 0 8px rgba(255,150,50,0.4);
+    letter-spacing: 1px;
+    transition: color 0.3s;
+  }
+
+  #start-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, #0d1b3e 0%, #050a15 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    transition: opacity 0.5s;
+  }
+
+  #start-screen h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: 38px;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(0,150,255,0.6), 0 0 60px rgba(0,100,255,0.3);
+    margin-bottom: 12px;
+    letter-spacing: 4px;
+  }
+
+  #start-screen .subtitle {
+    font-size: 13px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 3px;
+    margin-bottom: 50px;
+  }
+
+  #start-btn {
+    pointer-events: all;
+    background: linear-gradient(135deg, #0066ff, #0044cc);
+    color: #fff;
+    border: none;
+    padding: 16px 48px;
+    font-family: 'Orbitron', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 0 30px rgba(0,100,255,0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  #start-btn:active {
+    transform: scale(0.95);
+    box-shadow: 0 0 15px rgba(0,100,255,0.3);
+  }
+
+  #gyro-info {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    margin-top: 20px;
+    letter-spacing: 1px;
+  }
+
+  #crash-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(255,30,30,0.15);
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  #crash-overlay.show { display: flex; }
+
+  #crash-overlay .crash-text {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 900;
+    color: #ff4444;
+    text-shadow: 0 0 20px rgba(255,50,50,0.6);
+    margin-bottom: 8px;
+  }
+  #crash-overlay .crash-time {
+    font-family: 'Orbitron', monospace;
+    font-size: 16px;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 30px;
+  }
+  #crash-overlay .restart-btn {
+    pointer-events: all;
+    background: linear-gradient(135deg, #ff3333, #cc0000);
+    color: #fff;
+    border: none;
+    padding: 14px 40px;
+    font-family: 'Orbitron', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(255,50,50,0.4);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="ui-overlay">
+  <div id="best-times">
+    <div class="label">BESTZEITEN</div>
+  </div>
+  <div id="timer">0.00s</div>
+  <div id="speed-indicator"></div>
+</div>
+
+<div id="start-screen">
+  <h1>SKY FALL</h1>
+  <div class="subtitle">NEIGE DEIN HANDY</div>
+  <button id="start-btn">START</button>
+  <div id="gyro-info">Bewege dein Gerät zum Steuern</div>
+</div>
+
+<div id="crash-overlay">
+  <div class="crash-text">GETROFFEN!</div>
+  <div class="crash-time" id="crash-time-text">0.00s</div>
+  <button class="restart-btn" id="restart-btn">NOCHMAL</button>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Preload head image
+const headImg = new Image();
+headImg.src = 'data:image/png;base64,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';
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+
+// ===================== MUSIC (longing.mp3) =====================
+let musicPlaying = false;
+const bgMusic = new Audio('longing.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.5;
+
+function startMusic() {
+  if (musicPlaying) return;
+  musicPlaying = true;
+  bgMusic.play().catch(() => {
+    // Autoplay blocked - will retry on next user interaction
+    musicPlaying = false;
+  });
+}
+
+// ===================== GAME STATE =====================
+let gamePhase = 'start';
+let introTimer = 0;
+let kickTimer = 0;
+let gameTime = 0;
+let bestTimes = JSON.parse(localStorage.getItem('skyfall_best_v3') || '[]');
+let rawMotionX = 0;
+let smoothMotionX = 0;
+let ballX = 0;
+let ballVelX = 0;
+let clouds = [];
+let fallDistance = 0;
+let cloudSpawnTimer = 0;
+let lastFrame = 0;
+let backgroundStars = [];
+let crashFlash = 0;
+let gearRotation = 0;
+let speedLevel = 0;
+let lastSpeedLevel = -1;
+let speedFlash = 0;
+
+// Background color stages
+const bgStages = [
+  { t1: [12, 22, 65],  t2: [5, 10, 35] },    // Nacht (blau)
+  { t1: [25, 12, 70],  t2: [12, 5, 45] },     // Violett
+  { t1: [50, 12, 55],  t2: [25, 5, 30] },     // Dämmerung
+  { t1: [65, 18, 30],  t2: [35, 8, 15] },     // Feuer
+  { t1: [72, 30, 10],  t2: [42, 12, 5] },     // Magma
+  { t1: [12, 45, 60],  t2: [5, 22, 35] },     // Ozean
+  { t1: [10, 58, 30],  t2: [5, 32, 12] },     // Toxic grün
+  { t1: [58, 12, 58],  t2: [32, 5, 32] },     // Void lila
+  { t1: [68, 55, 10],  t2: [38, 28, 5] },     // Gold
+  { t1: [8, 8, 8],     t2: [2, 2, 2] },       // Abyss
+];
+
+for (let i = 0; i < 80; i++) {
+  backgroundStars.push({
+    x: Math.random(),
+    y: Math.random(),
+    size: Math.random() * 1.5 + 0.5,
+    twinkle: Math.random() * Math.PI * 2,
+    speed: Math.random() * 0.5 + 0.2
+  });
+}
+
+// ===================== BEST TIMES (longest = #1) =====================
+function updateBestTimesUI() {
+  const el = document.getElementById('best-times');
+  let html = '<div class="label">BESTZEITEN</div>';
+  const medals = ['🥇', '🥈', '🥉'];
+  bestTimes.slice(0, 3).forEach((t, i) => {
+    html += `<div class="time-entry">${medals[i]} ${t.toFixed(2)}s</div>`;
+  });
+  if (bestTimes.length === 0) html += '<div class="time-entry" style="opacity:0.4">---</div>';
+  el.innerHTML = html;
+}
+updateBestTimesUI();
+
+function addBestTime(t) {
+  bestTimes.push(t);
+  bestTimes.sort((a, b) => b - a);
+  bestTimes = bestTimes.slice(0, 3);
+  try { localStorage.setItem('skyfall_best_v3', JSON.stringify(bestTimes)); } catch(e) {}
+  updateBestTimesUI();
+}
+
+// ===================== DEVICE MOTION SENSORS =====================
+let hasMotionSensor = false;
+
+function requestMotion() {
+  // DeviceMotion (accelerometer + gyro combined)
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().then(state => {
+      if (state === 'granted') {
+        hasMotionSensor = true;
+        window.addEventListener('devicemotion', handleMotion, true);
+      }
+    }).catch(() => {});
+  } else if ('DeviceMotionEvent' in window) {
+    hasMotionSensor = true;
+    window.addEventListener('devicemotion', handleMotion, true);
+  }
+  // DeviceOrientation as secondary / fallback
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(state => {
+      if (state === 'granted') {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+      }
+    }).catch(() => {});
+  } else {
+    window.addEventListener('deviceorientation', handleOrientation, true);
+  }
+}
+
+function handleMotion(e) {
+  const acc = e.accelerationIncludingGravity;
+  if (acc && acc.x !== null) {
+    // Portrait mode: acc.x is lateral tilt
+    // iOS: acc.x positive = tilt left, negative = tilt right  => invert
+    // Android: acc.x negative = tilt left, positive = tilt right => keep
+    // We detect via userAgent as a pragmatic approach
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    let tilt = acc.x / 5.5; // sensitive divisor
+    if (isIOS) tilt = -tilt;    // invert for iOS so right tilt => positive
+    
+    // Add rotationRate gamma for snappy lateral response
+    const rot = e.rotationRate;
+    if (rot && rot.gamma !== null) {
+      let rotContrib = rot.gamma / 100;
+      if (isIOS) rotContrib = -rotContrib;
+      tilt += rotContrib * 0.5;
+    }
+
+    tilt = Math.max(-1.8, Math.min(1.8, tilt));
+    rawMotionX = tilt;
+  }
+}
+
+function handleOrientation(e) {
+  if (e.gamma !== null) {
+    // gamma: positive = tilted right (correct on both platforms)
+    const tilt = e.gamma / 22;
+    // Only use as primary if no motion sensor
+    if (!hasMotionSensor) {
+      rawMotionX = Math.max(-1.8, Math.min(1.8, tilt));
+    }
+  }
+}
+
+// Touch fallback (desktop / no sensors)
+let touchActive = false;
+canvas.addEventListener('touchstart', e => { touchActive = true; }, { passive: true });
+canvas.addEventListener('touchmove', e => {
+  if (touchActive && !hasMotionSensor) {
+    const dx = e.touches[0].clientX - W() / 2;
+    rawMotionX = (dx / (W() / 3)) * 1.3;
+  }
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('touchend', () => { touchActive = false; if (!hasMotionSensor) rawMotionX *= 0.3; });
+
+// ===================== START / RESTART =====================
+document.getElementById('start-btn').addEventListener('click', () => {
+  requestMotion();
+  startMusic();
+  document.getElementById('start-screen').style.opacity = '0';
+  setTimeout(() => { document.getElementById('start-screen').style.display = 'none'; }, 500);
+  gamePhase = 'intro';
+  introTimer = 0;
+  lastFrame = performance.now();
+});
+
+document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('crash-overlay').classList.remove('show');
+  resetGame();
+});
+
+function resetGame() {
+  gamePhase = 'intro';
+  introTimer = 0;
+  kickTimer = 0;
+  gameTime = 0;
+  ballX = 0;
+  ballVelX = 0;
+  clouds = [];
+  fallDistance = 0;
+  cloudSpawnTimer = 0;
+  crashFlash = 0;
+  gearRotation = 0;
+  rawMotionX = 0;
+  smoothMotionX = 0;
+  speedLevel = 0;
+  lastSpeedLevel = -1;
+  speedFlash = 0;
+  document.getElementById('speed-indicator').textContent = '';
+  lastFrame = performance.now();
+  if (!musicPlaying) startMusic();
+}
+
+// ===================== CLOUD SPAWNING (guaranteed passable gap) =====================
+function spawnCloudRow() {
+  const w = W();
+  const gearR = 16;
+  const minGap = gearR * 2 + 50; // gear diameter + generous margin
+
+  // Random gap position
+  const margin = 30;
+  const gapCenter = margin + minGap / 2 + Math.random() * (w - 2 * margin - minGap);
+  const gapLeft = gapCenter - minGap / 2;
+  const gapRight = gapCenter + minGap / 2;
+
+  const baseY = fallDistance + H() * 0.95 + Math.random() * 100;
+
+  // Place clouds left and/or right of gap
+  if (gapLeft > 50) {
+    const cw = Math.min(40 + Math.random() * 80, gapLeft - 10);
+    const cx = Math.max(5, gapLeft - cw - Math.random() * Math.max(gapLeft - cw - 5, 0));
+    addCloud(cx, baseY + (Math.random() - 0.5) * 20, cw);
+    // Possibly another small one further left
+    if (cx > 70 && Math.random() < 0.15) {
+      const cw2 = 30 + Math.random() * 50;
+      addCloud(Math.max(5, Math.random() * (cx - cw2 - 10)), baseY + (Math.random() - 0.5) * 25, cw2);
+    }
+  }
+  if (w - gapRight > 50) {
+    const space = w - gapRight - 10;
+    const cw = Math.min(40 + Math.random() * 80, space);
+    const cx = gapRight + 5 + Math.random() * Math.max(space - cw, 0);
+    addCloud(Math.min(cx, w - cw - 5), baseY + (Math.random() - 0.5) * 20, cw);
+    // Possibly another one further right
+    if (w - cx - cw > 60 && Math.random() < 0.15) {
+      const cw2 = 30 + Math.random() * 50;
+      addCloud(Math.min(w - cw2 - 5, cx + cw + 10 + Math.random() * 30), baseY + (Math.random() - 0.5) * 25, cw2);
+    }
+  }
+}
+
+function addCloud(x, relY, w) {
+  const c = {
+    x: Math.max(3, x),
+    relY: relY,
+    w: Math.max(30, w),
+    h: 26 + Math.random() * 18,
+    opacity: 0.55 + Math.random() * 0.35,
+    puffs: []
+  };
+  const numPuffs = 3 + Math.floor(Math.random() * 3);
+  for (let j = 0; j < numPuffs; j++) {
+    c.puffs.push({
+      rx: (j / Math.max(numPuffs - 1, 1)) * c.w * 0.7 + c.w * 0.15,
+      ry: (Math.random() - 0.5) * c.h * 0.35,
+      r: c.h * 0.5 + Math.random() * c.h * 0.4
+    });
+  }
+  clouds.push(c);
+}
+
+// ===================== DRAWING =====================
+
+function lerpColor(c1, c2, t) {
+  return [
+    Math.floor(c1[0] + (c2[0] - c1[0]) * t),
+    Math.floor(c1[1] + (c2[1] - c1[1]) * t),
+    Math.floor(c1[2] + (c2[2] - c1[2]) * t)
+  ];
+}
+
+function drawSky(scrollY) {
+  const timePassed = gameTime / 10;
+  const stageIdx = Math.min(Math.floor(timePassed), bgStages.length - 1);
+  const nextIdx = Math.min(stageIdx + 1, bgStages.length - 1);
+  const stageFrac = timePassed - Math.floor(timePassed);
+  const smoothFrac = Math.min(stageFrac * 2.5, 1);
+
+  const col1 = lerpColor(bgStages[stageIdx].t1, bgStages[nextIdx].t1, smoothFrac);
+  const col2 = lerpColor(bgStages[stageIdx].t2, bgStages[nextIdx].t2, smoothFrac);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, H());
+  grad.addColorStop(0, `rgb(${col1[0]},${col1[1]},${col1[2]})`);
+  grad.addColorStop(1, `rgb(${col2[0]},${col2[1]},${col2[2]})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W(), H());
+
+  backgroundStars.forEach(s => {
+    const sy = ((s.y * H() * 3 - scrollY * s.speed * 0.1) % (H() * 1.5) + H() * 1.5) % (H() * 1.5);
+    const twinkle = 0.4 + 0.6 * Math.sin(s.twinkle + performance.now() * 0.002 * s.speed);
+    ctx.globalAlpha = twinkle * 0.5;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x * W(), sy, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawCloud(cloud, scrollY) {
+  const screenY = cloud.relY - scrollY;
+  if (screenY < -100 || screenY > H() + 100) return;
+  ctx.save();
+  ctx.globalAlpha = cloud.opacity * 0.85;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  cloud.puffs.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(cloud.x + p.rx + 4, screenY + p.ry + 4, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const cGrad = ctx.createLinearGradient(cloud.x, screenY - cloud.h, cloud.x, screenY + cloud.h);
+  cGrad.addColorStop(0, 'rgba(225,235,255,0.95)');
+  cGrad.addColorStop(1, 'rgba(185,200,225,0.8)');
+  ctx.fillStyle = cGrad;
+  cloud.puffs.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(cloud.x + p.rx, screenY + p.ry, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+function drawGear(x, y, radius, rotation) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const glowGrad = ctx.createRadialGradient(0, 0, radius * 0.5, 0, 0, radius * 2.8);
+  glowGrad.addColorStop(0, 'rgba(255,160,40,0.35)');
+  glowGrad.addColorStop(0.5, 'rgba(255,100,20,0.1)');
+  glowGrad.addColorStop(1, 'rgba(255,80,10,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 2.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.rotate(rotation);
+
+  const teeth = 10;
+  const innerR = radius * 0.72;
+  const outerR = radius;
+  const toothW = 0.38;
+
+  function gearPath() {
+    ctx.beginPath();
+    for (let i = 0; i < teeth; i++) {
+      const a = (i / teeth) * Math.PI * 2;
+      const a1 = a - toothW / 2;
+      const a2 = a + toothW / 2;
+      const nextA = ((i + 1) / teeth) * Math.PI * 2;
+      const nextA1 = nextA - toothW / 2;
+      const halfGap = (Math.PI / teeth) * 0.25;
+      if (i === 0) ctx.moveTo(Math.cos(a1) * outerR, Math.sin(a1) * outerR);
+      ctx.lineTo(Math.cos(a1) * outerR, Math.sin(a1) * outerR);
+      ctx.lineTo(Math.cos(a2) * outerR, Math.sin(a2) * outerR);
+      ctx.lineTo(Math.cos(nextA1 - halfGap) * innerR, Math.sin(nextA1 - halfGap) * innerR);
+      ctx.lineTo(Math.cos(nextA1) * innerR, Math.sin(nextA1) * innerR);
+    }
+    ctx.closePath();
+  }
+
+  // Shadow
+  ctx.save();
+  ctx.translate(2, 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  gearPath();
+  ctx.fill();
+  ctx.restore();
+
+  // Body
+  const gearGrad = ctx.createRadialGradient(-radius * 0.25, -radius * 0.25, 0, 0, 0, outerR);
+  gearGrad.addColorStop(0, '#e8d8c0');
+  gearGrad.addColorStop(0.4, '#c8a878');
+  gearGrad.addColorStop(0.8, '#a08050');
+  gearGrad.addColorStop(1, '#806030');
+  ctx.fillStyle = gearGrad;
+  ctx.strokeStyle = '#604020';
+  ctx.lineWidth = 1.5;
+  gearPath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Center hole
+  ctx.fillStyle = '#1a1a2e';
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#604020';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Inner ring
+  ctx.strokeStyle = 'rgba(96,64,32,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.48, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Highlight
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(-radius * 0.15, -radius * 0.15, radius * 0.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawPerson(x, y, scale, kickPhase) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  const legAngle = kickPhase * Math.PI * 0.6;
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+
+  // Draw uploaded face as head
+  const headSize = 22;
+  if (headImg.complete && headImg.naturalWidth > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, -55, headSize * 0.52, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(headImg, -headSize * 0.52, -55 - headSize * 0.52, headSize * 1.04, headSize * 1.04);
+    ctx.restore();
+    // subtle border
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, -55, headSize * 0.52, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#e0e0e0';
+    ctx.beginPath();
+    ctx.arc(0, -55, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.beginPath(); ctx.moveTo(0, -47); ctx.lineTo(0, -15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(-15, -25 + Math.sin(kickPhase * Math.PI) * 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(15, -25 - Math.sin(kickPhase * Math.PI) * 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(-8, 15); ctx.stroke();
+
+  const kickX = Math.sin(legAngle) * 28;
+  const kickY = Math.cos(legAngle) * 28;
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(kickX, -15 + kickY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(kickX, -15 + kickY); ctx.lineTo(kickX + 8, -15 + kickY + 2); ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawCliff(groundY) {
+  const w = W();
+  const edgeX = w * 0.62;
+
+  // Ground
+  const grassGrad = ctx.createLinearGradient(0, groundY - 20, 0, groundY + 10);
+  grassGrad.addColorStop(0, '#2d6a1e');
+  grassGrad.addColorStop(0.5, '#1e4a12');
+  grassGrad.addColorStop(1, '#153a0d');
+  ctx.fillStyle = grassGrad;
+  ctx.fillRect(0, groundY, edgeX, 50);
+  ctx.fillStyle = '#3a8a28';
+  ctx.fillRect(0, groundY, edgeX, 3);
+
+  // Cliff face
+  const cliffGrad = ctx.createLinearGradient(edgeX, 0, edgeX + 8, 0);
+  cliffGrad.addColorStop(0, '#5a4a3a');
+  cliffGrad.addColorStop(0.3, '#4a3a2a');
+  cliffGrad.addColorStop(1, '#3a2a1a');
+  ctx.fillStyle = cliffGrad;
+  ctx.fillRect(edgeX, groundY, 40, H() - groundY + 10);
+
+  ctx.strokeStyle = 'rgba(80,65,45,0.4)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const ly = groundY + 15 + i * 25;
+    ctx.beginPath(); ctx.moveTo(edgeX + 2, ly); ctx.lineTo(edgeX + 35, ly + 5); ctx.stroke();
+  }
+  ctx.fillStyle = '#6a5a4a';
+  ctx.fillRect(edgeX, groundY + 3, 38, 3);
+
+  // 90° edge highlight
+  ctx.strokeStyle = '#8a7a60';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(edgeX - 1, groundY); ctx.lineTo(edgeX - 1, groundY + H()); ctx.stroke();
+  ctx.strokeStyle = '#4a8a30';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, groundY + 1); ctx.lineTo(edgeX, groundY + 1); ctx.stroke();
+
+  // Abyss
+  ctx.fillStyle = '#060610';
+  ctx.fillRect(edgeX + 40, groundY, w - edgeX - 40, H() - groundY + 10);
+  ctx.fillStyle = '#1a120a';
+  ctx.fillRect(0, groundY + 50, edgeX, H() - groundY);
+
+  return edgeX;
+}
+
+// ===================== MAIN LOOP =====================
+function gameLoop(ts) {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min((ts - lastFrame) / 1000, 0.05);
+  lastFrame = ts;
+
+  const w = W();
+  const h = H();
+
+  // Fast responsive smoothing
+  smoothMotionX += (rawMotionX - smoothMotionX) * 0.5;
+
+  // --- INTRO ---
+  if (gamePhase === 'intro') {
+    introTimer += dt;
+    const t = Math.min(introTimer / 2.0, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    const zoom = 0.3 + ease * 0.7;
+    const camX = w * 0.5 - ease * w * 0.1;
+    const camY = h * 0.5;
+
+    drawSky(0);
+    ctx.save();
+    ctx.translate(camX, camY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camX, -camY);
+    const groundY = h * 0.7;
+    const edgeX = drawCliff(groundY);
+    drawPerson(edgeX - 65, groundY, 1, 0);
+    drawGear(edgeX - 25, groundY - 14, 14, t * 0.5);
+    ctx.restore();
+
+    if (introTimer >= 2.0) { gamePhase = 'kick'; kickTimer = 0; }
+  }
+
+  // --- KICK ---
+  else if (gamePhase === 'kick') {
+    kickTimer += dt;
+    const t = Math.min(kickTimer / 1.2, 1);
+    drawSky(0);
+    const groundY = h * 0.7;
+    const edgeX = drawCliff(groundY);
+    drawPerson(edgeX - 65, groundY, 1, Math.min(t * 1.5, 1));
+
+    const gearR = 14;
+    let bx, by, rot;
+    if (t < 0.35) {
+      const rollT = t / 0.35;
+      bx = edgeX - 25 + rollT * 23;
+      by = groundY - gearR;
+      rot = rollT * Math.PI * 6;
+    } else if (t < 0.55) {
+      const tipT = (t - 0.35) / 0.2;
+      bx = edgeX - 2 + tipT * 10;
+      by = groundY - gearR + tipT * gearR * 1.5;
+      rot = Math.PI * 6 + tipT * Math.PI * 2;
+    } else {
+      const fallT = (t - 0.55) / 0.45;
+      bx = edgeX + 8 + fallT * 3;
+      by = groundY + gearR * 0.5 + fallT * fallT * 200;
+      rot = Math.PI * 8 + fallT * Math.PI * 4;
+    }
+    drawGear(bx, by, gearR, rot);
+
+    if (kickTimer >= 1.2) {
+      gamePhase = 'falling';
+      gameTime = 0;
+      ballX = w * 0.5;
+      ballVelX = 0;
+      fallDistance = 0;
+      clouds = [];
+      cloudSpawnTimer = 0;
+      gearRotation = 0;
+      speedLevel = 0;
+      lastSpeedLevel = -1;
+      speedFlash = 0;
+      for (let i = 0; i < 3; i++) {
+        const saved = fallDistance;
+        fallDistance = 400 + i * 450;
+        spawnCloudRow();
+        fallDistance = saved;
+      }
+    }
+  }
+
+  // --- FALLING ---
+  else if (gamePhase === 'falling') {
+    gameTime += dt;
+
+    // Speed: +10% per minute
+    speedLevel = Math.floor(gameTime / 60);
+    const speedMult = Math.pow(1.1, speedLevel);
+
+    if (speedLevel !== lastSpeedLevel) {
+      lastSpeedLevel = speedLevel;
+      if (speedLevel > 0) {
+        speedFlash = 1.0;
+        document.getElementById('speed-indicator').textContent = `${100 + speedLevel * 10}% SPEED`;
+        document.getElementById('speed-indicator').style.color =
+          `hsl(${(50 - speedLevel * 30 + 360) % 360}, 85%, 65%)`;
+      }
+    }
+    if (speedFlash > 0) speedFlash *= 0.97;
+
+    const baseFallSpeed = 126 + gameTime * 4.2;
+    const fallSpeed = baseFallSpeed * speedMult;
+    fallDistance += dt * fallSpeed;
+    cloudSpawnTimer += dt;
+
+    const spawnInterval = Math.max(0.88, 1.87 - gameTime * 0.0066) / speedMult;
+    if (cloudSpawnTimer > spawnInterval) {
+      cloudSpawnTimer = 0;
+      spawnCloudRow();
+    }
+
+    // Controls: high sensitivity, fast response
+    const controlSens = 1400;
+    ballVelX += -smoothMotionX * controlSens * dt;
+    ballVelX *= 0.87;
+    ballX += ballVelX * dt;
+
+    const gearR = 16;
+    if (ballX < gearR + 6) { ballX = gearR + 6; ballVelX *= -0.25; }
+    if (ballX > w - gearR - 6) { ballX = w - gearR - 6; ballVelX *= -0.25; }
+
+    gearRotation += (dt * fallSpeed * 0.015) + (ballVelX * dt * 0.03);
+
+    const ballScreenY = h * 0.28;
+    const scrollY = fallDistance;
+
+    drawSky(scrollY);
+
+    // Speed flash overlay
+    if (speedFlash > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = speedFlash * 0.2;
+      const stIdx = Math.min(speedLevel, bgStages.length - 1);
+      const sc = bgStages[stIdx].t1;
+      ctx.fillStyle = `rgb(${Math.min(255, sc[0] * 3)},${Math.min(255, sc[1] * 3)},${Math.min(255, sc[2] * 3)})`;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    clouds.forEach(c => drawCloud(c, scrollY - h * 0.28));
+    clouds = clouds.filter(c => (c.relY - (scrollY - h * 0.28)) > -150);
+
+    // Speed lines
+    const speedAlpha = Math.min(fallSpeed / 1200, 0.3);
+    if (speedAlpha > 0.02) {
+      ctx.globalAlpha = speedAlpha;
+      ctx.strokeStyle = 'rgba(200,220,255,0.4)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 12; i++) {
+        const lx = Math.random() * w;
+        const ly = Math.random() * h;
+        ctx.beginPath(); ctx.moveTo(lx, ly);
+        ctx.lineTo(lx + (Math.random() - 0.5) * 3, ly + 12 + Math.random() * 25 * speedMult);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    drawGear(ballX, ballScreenY, gearR, gearRotation);
+
+    // Collision
+    let hit = false;
+    clouds.forEach(c => {
+      const cloudScreenY = c.relY - (scrollY - h * 0.28);
+      const m = 10;
+      if (ballX + gearR > c.x + m &&
+          ballX - gearR < c.x + c.w - m &&
+          ballScreenY + gearR > cloudScreenY - c.h * 0.55 &&
+          ballScreenY - gearR < cloudScreenY + c.h * 0.55) {
+        hit = true;
+      }
+    });
+
+    if (hit) {
+      gamePhase = 'crashed';
+      crashFlash = 1;
+      addBestTime(gameTime);
+      document.getElementById('crash-time-text').textContent = gameTime.toFixed(2) + 's';
+      setTimeout(() => { document.getElementById('crash-overlay').classList.add('show'); }, 600);
+    }
+
+    document.getElementById('timer').textContent = gameTime.toFixed(2) + 's';
+  }
+
+  // --- CRASHED ---
+  else if (gamePhase === 'crashed') {
+    crashFlash *= 0.94;
+    drawSky(fallDistance);
+    clouds.forEach(c => drawCloud(c, fallDistance - H() * 0.28));
+
+    ctx.save();
+    ctx.globalAlpha = crashFlash;
+    const fg = ctx.createRadialGradient(ballX, H() * 0.28, 0, ballX, H() * 0.28, 120);
+    fg.addColorStop(0, 'rgba(255,200,80,0.9)');
+    fg.addColorStop(0.5, 'rgba(255,100,30,0.4)');
+    fg.addColorStop(1, 'rgba(255,50,10,0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.arc(ballX, H() * 0.28, 120, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    const t = performance.now() * 0.001;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + t * 0.5;
+      const d = (1 - crashFlash) * 80;
+      const px = ballX + Math.cos(a) * d;
+      const py = H() * 0.28 + Math.sin(a) * d + (1 - crashFlash) * 40;
+      ctx.globalAlpha = crashFlash * 0.7;
+      ctx.fillStyle = '#c8a878';
+      ctx.beginPath(); ctx.moveTo(px, py - 4); ctx.lineTo(px + 3, py + 2); ctx.lineTo(px - 3, py + 2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // --- START ---
+  else if (gamePhase === 'start') {
+    drawSky(performance.now() * 0.008);
+  }
+}
+
+lastFrame = performance.now();
+requestAnimationFrame(gameLoop);
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+</script>
+
+</body>
+</html>
