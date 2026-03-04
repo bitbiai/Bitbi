@@ -42,9 +42,9 @@
         }
     </script>
     <style>
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('inter-v20-latin_latin-ext-regular.woff2') format('woff2'); }
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('inter-v20-latin_latin-ext-500.woff2') format('woff2'); }
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('inter-v20-latin_latin-ext-600.woff2') format('woff2'); }
+        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-regular.woff2') format('woff2'); }
+        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-500.woff2') format('woff2'); }
+        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-600.woff2') format('woff2'); }
     </style>
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -435,7 +435,7 @@ document.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
     const vrCard=document.createElement('div');vrCard.className='tilt-card rounded-2xl overflow-hidden reveal';
     vrCard.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06)';
     const vrTags=vrData.tags.map(t=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t]||'0,240,255'},0.08);color:rgba(${tc[t]||'0,240,255'},0.8);padding:2px 8px;border-radius:20px">${t}</span>`).join('');
-    vrCard.innerHTML=`<div style="height:180px;position:relative;overflow:hidden"><img src="1.jpg" alt="Cosmic Dreamscape" style="width:100%;height:100%;object-fit:cover;display:block"><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${vrTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">${vrData.n}</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">${vrData.d}</p><a href="${vrData.link}" style="color:#00F0FF;font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">View Live <span style="font-size:14px">→</span></a></div>`;
+    vrCard.innerHTML=`<div style="height:180px;position:relative;overflow:hidden"><img src="pictures/1.jpg" alt="Cosmic Dreamscape" style="width:100%;height:100%;object-fit:cover;display:block"><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${vrTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">${vrData.n}</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">${vrData.d}</p><a href="${vrData.link}" style="color:#00F0FF;font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">View Live <span style="font-size:14px">→</span></a></div>`;
     grid.appendChild(vrCard);
 
     /* Card 2: Klang & Farbe — expandable with embedded synth */
@@ -728,15 +728,15 @@ document.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
 /* 7. GALLERY */
 (function(){
     const items=[
-        {t:'Digital Horizons',c:'A vast digital landscape where light and shadow converge — neural networks painting horizons that exist only in silicon dreams.',cat:'pictures',img:'100.JPG'},
-        {t:'Ethereal Bloom',c:'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.',cat:'pictures',img:'101.JPG'},
-        {t:'Neon Reverie',c:'Luminous abstractions pulse with electric energy — the visual echo of data streams flowing through hidden layers.',cat:'pictures',img:'102.JPG'},
-        {t:'Synthetic Aurora',c:'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.',cat:'pictures',img:'103.JPG'},
-        {t:'Phantom Architecture',c:'Impossible structures materialize from latent space — buildings that defy physics, rendered in crystalline detail.',cat:'pictures',img:'104.JPG'},
-        {t:'Quantum Garden',c:'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.',cat:'pictures',img:'105.JPG'},
-        {t:'Chrome Solitude',c:'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.',cat:'pictures',img:'106.JPG'},
-        {t:'Prismatic Depths',c:'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.',cat:'pictures',img:'107.JPG'},
-        {t:'Celestial Drift',c:'Cosmic formations born from generative adversarial networks — nebulae and star fields that never existed, yet feel profoundly real.',cat:'pictures',img:'108.JPG'},
+        {t:'Digital Horizons',c:'A vast digital landscape where light and shadow converge — neural networks painting horizons that exist only in silicon dreams.',cat:'pictures',img:'pictures/100.JPG'},
+        {t:'Ethereal Bloom',c:'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.',cat:'pictures',img:'pictures/101.JPG'},
+        {t:'Neon Reverie',c:'Luminous abstractions pulse with electric energy — the visual echo of data streams flowing through hidden layers.',cat:'pictures',img:'pictures/102.JPG'},
+        {t:'Synthetic Aurora',c:'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.',cat:'pictures',img:'pictures/103.JPG'},
+        {t:'Phantom Architecture',c:'Impossible structures materialize from latent space — buildings that defy physics, rendered in crystalline detail.',cat:'pictures',img:'pictures/104.JPG'},
+        {t:'Quantum Garden',c:'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.',cat:'pictures',img:'pictures/105.JPG'},
+        {t:'Chrome Solitude',c:'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.',cat:'pictures',img:'pictures/106.JPG'},
+        {t:'Prismatic Depths',c:'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.',cat:'pictures',img:'pictures/107.JPG'},
+        {t:'Celestial Drift',c:'Cosmic formations born from generative adversarial networks — nebulae and star fields that never existed, yet feel profoundly real.',cat:'pictures',img:'pictures/108.JPG'},
     ];
     const grid=document.getElementById('galleryGrid');
     function render(f){grid.innerHTML='';const list=f==='all'?items:items.filter(i=>i.cat===f);
@@ -752,11 +752,11 @@ document.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
 /* 8. SOUND LAB */
 (function(){
     const tracks=[
-        {t:'Cosmic Sea',file:'cosmic-sea.mp3'},
-        {t:'Zufall und Notwendigkeit',file:'zufall-und-notwendigkeit.mp3'},
-        {t:'Relativity',file:'relativity.mp3'},
-        {t:'Tiny Hearts',file:'tiny-hearts.mp3'},
-        {t:"Grok's Groove Remix",file:"grok.mp3"},
+        {t:'Cosmic Sea',file:'music/cosmic-sea.mp3'},
+        {t:'Zufall und Notwendigkeit',file:'music/zufall-und-notwendigkeit.mp3'},
+        {t:'Relativity',file:'music/relativity.mp3'},
+        {t:'Tiny Hearts',file:'music/tiny-hearts.mp3'},
+        {t:"Grok's Groove Remix",file:"music/grok.mp3"},
     ];
     const ctn=document.getElementById('soundLabTracks');
     const audios=[];
