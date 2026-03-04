@@ -1,0 +1,13 @@
+/* ============================================================
+   BITBI — Legal Page Styles
+   Used by: privacy.html
+   ============================================================ */
+
+.policy-section h3 { font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 16px; color: rgba(255,255,255,0.85); margin-bottom: 12px; }
+.policy-section p, .policy-section li { color: rgba(255,255,255,0.45); font-size: 13px; line-height: 1.75; }
+.policy-section p + p { margin-top: 10px; }
+.policy-section ul { list-style: none; padding: 0; margin-top: 8px; }
+.policy-section ul li { padding-left: 16px; position: relative; margin-bottom: 4px; }
+.policy-section ul li::before { content: ''; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; }
+.policy-section a { color: var(--color-cyan); transition: color 0.3s; }
+.policy-section a:hover { color: rgba(0,240,255,0.7); }
