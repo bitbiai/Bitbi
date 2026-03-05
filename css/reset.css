@@ -1,0 +1,73 @@
+/* ============================================================
+   BITBI — Modern CSS Reset
+   @layer reset
+   ============================================================ */
+
+@layer reset {
+    *, *::before, *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        scroll-behavior: smooth;
+    }
+
+    body {
+        min-block-size: 100dvh;
+        overflow-x: hidden;
+    }
+
+    img, picture, video, canvas, svg {
+        display: block;
+        max-inline-size: 100%;
+    }
+
+    input, button, textarea, select {
+        font: inherit;
+        color: inherit;
+    }
+
+    button {
+        cursor: pointer;
+        background: none;
+        border: none;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    ul, ol {
+        list-style: none;
+    }
+
+    ::selection {
+        background: rgba(0, 240, 255, 0.25);
+        color: var(--color-white);
+    }
+
+    ::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--color-midnight);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, var(--color-cyan), var(--color-gold));
+        border-radius: var(--radius-sm);
+    }
+
+    @supports (scrollbar-color: auto) {
+        html {
+            scrollbar-color: var(--color-cyan) var(--color-midnight);
+            scrollbar-width: thin;
+        }
+    }
+}

@@ -1,88 +1,103 @@
 /* ============================================================
    BITBI — Index Page Styles
+   @layer pages — tilt-card, nav-link, animations, gallery
    Used by: index.html only
    ============================================================ */
 
-/* --- Tilt Card --- */
-.tilt-card {
-    transition: transform 0.45s var(--ease-smooth), box-shadow 0.45s ease;
-    will-change: transform;
-}
-.tilt-card:hover {
-    transform: translateY(-6px) scale(1.01);
-    box-shadow: 0 24px 48px rgba(0,0,0,0.4), 0 0 30px rgba(0,240,255,0.06);
-}
+@layer pages {
 
-/* --- Nav Link Underline --- */
-.nav-link { position: relative; }
-.nav-link::after {
-    content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
-    background: linear-gradient(90deg, var(--color-cyan), var(--color-gold)); border-radius: 1px;
-    transition: width 0.35s var(--ease-smooth);
-}
-.nav-link:hover::after { width: 100%; }
+    /* --- Tilt Card --- */
+    .tilt-card {
+        transition: transform 0.45s var(--ease-smooth), box-shadow 0.45s var(--ease-default);
+        will-change: transform;
 
-/* --- Animations --- */
-@keyframes pulseGlow {
-    0%,100% { box-shadow: 0 0 12px rgba(0,240,255,0.25), 0 0 24px rgba(0,240,255,0.08); }
-    50% { box-shadow: 0 0 20px rgba(0,240,255,0.45), 0 0 40px rgba(0,240,255,0.15); }
-}
-@keyframes eqBar1 { 0%,100%{ height: 6px; } 50%{ height: 24px; } }
-@keyframes eqBar2 { 0%,100%{ height: 12px; } 50%{ height: 32px; } }
-@keyframes eqBar3 { 0%,100%{ height: 4px; } 50%{ height: 18px; } }
+        &:hover {
+            transform: translateY(-6px) scale(1.01);
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 240, 255, 0.06);
+        }
+    }
 
-/* --- Utility Classes --- */
-.float-anim { animation: float 6s ease-in-out infinite; }
-.pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
-.eq-bar { width: 3px; border-radius: 2px; background: linear-gradient(180deg, var(--color-cyan), var(--color-gold)); }
+    /* --- Nav Link Underline --- */
+    .nav-link {
+        position: relative;
 
-/* --- Buttons --- */
-.btn-primary {
-    background: linear-gradient(135deg, var(--color-gold), var(--color-ember));
-    color: var(--color-midnight); font-weight: 700; transition: all 0.3s ease;
-}
-.btn-primary:hover {
-    box-shadow: 0 0 28px rgba(255,179,0,0.35), 0 8px 32px rgba(255,107,0,0.2);
-    transform: translateY(-2px);
-}
-.btn-secondary {
-    border: 1px solid rgba(0,240,255,0.4); color: var(--color-cyan); transition: all 0.3s ease;
-}
-.btn-secondary:hover {
-    background: rgba(0,240,255,0.08);
-    box-shadow: 0 0 20px rgba(0,240,255,0.2);
-    transform: translateY(-2px);
-}
+        &::after {
+            content: '';
+            position: absolute;
+            inset-block-end: -4px;
+            inset-inline-start: 0;
+            inline-size: 0;
+            block-size: 2px;
+            background: linear-gradient(90deg, var(--color-cyan), var(--color-gold));
+            border-radius: 1px;
+            transition: inline-size 0.35s var(--ease-smooth);
+        }
 
-/* --- Modal --- */
-.modal-overlay {
-    position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0,0,0,0.88); backdrop-filter: blur(12px);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.35s var(--ease-smooth);
-}
-.modal-overlay.active { opacity: 1; pointer-events: all; }
+        &:hover::after {
+            inline-size: 100%;
+        }
+    }
 
-/* --- Mobile Nav --- */
-.mobile-nav-panel {
-    transform: translateX(100%);
-    transition: transform 0.45s var(--ease-smooth);
-}
-.mobile-nav-panel.open { transform: translateX(0); }
+    /* --- Animations --- */
+    @keyframes pulseGlow {
+        0%, 100% { box-shadow: 0 0 12px rgba(0, 240, 255, 0.25), 0 0 24px rgba(0, 240, 255, 0.08); }
+        50% { box-shadow: 0 0 20px rgba(0, 240, 255, 0.45), 0 0 40px rgba(0, 240, 255, 0.15); }
+    }
 
-/* --- Filter Buttons --- */
-.filter-btn.active {
-    background: rgba(0,240,255,0.12) !important;
-    border-color: rgba(0,240,255,0.4) !important;
-    color: var(--color-cyan) !important;
-}
+    @keyframes eqBar1 { 0%, 100% { height: 6px; } 50% { height: 24px; } }
+    @keyframes eqBar2 { 0%, 100% { height: 12px; } 50% { height: 32px; } }
+    @keyframes eqBar3 { 0%, 100% { height: 4px; } 50% { height: 18px; } }
 
-/* --- Gallery --- */
-.gallery-item:hover .gallery-overlay { opacity: 1; }
-.gallery-item:hover .gallery-inner { transform: scale(1.03); }
-.gallery-inner { transition: transform 0.5s var(--ease-smooth); }
-.gallery-overlay {
-    opacity: 0; transition: opacity 0.4s ease;
-    background: linear-gradient(to top, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.4) 50%, transparent 100%);
+    /* --- Utility Classes --- */
+    .float-anim { animation: float 6s ease-in-out infinite; }
+    .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+
+    .eq-bar {
+        width: 3px;
+        border-radius: 2px;
+        background: linear-gradient(180deg, var(--color-cyan), var(--color-gold));
+    }
+
+    /* Modal, mobile nav, filter-btn are defined in components.css */
+
+    /* --- Gallery --- */
+    .gallery-item {
+        cursor: pointer;
+
+        &:hover {
+            .gallery-overlay { opacity: 1; }
+            .gallery-inner { transform: scale(1.03); }
+        }
+    }
+
+    .gallery-inner {
+        transition: transform 0.5s var(--ease-smooth);
+    }
+
+    .gallery-overlay {
+        opacity: 0;
+        transition: opacity 0.4s var(--ease-default);
+        background: linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.4) 50%, transparent 100%);
+    }
+
+    /* --- Reduced Motion --- */
+    @media (prefers-reduced-motion: reduce) {
+        .tilt-card {
+            transition: none;
+
+            &:hover {
+                transform: none;
+                box-shadow: none;
+            }
+        }
+
+        .float-anim,
+        .pulse-glow {
+            animation: none;
+        }
+
+        .gallery-inner {
+            transition: none;
+        }
+    }
 }

@@ -1,0 +1,101 @@
+/* ============================================================
+   BITBI — Design Tokens
+   @layer tokens — colors (oklch), spacing, fonts, easing
+   ============================================================ */
+
+@layer tokens {
+    @property --color-midnight {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #0A0A0A;
+    }
+    @property --color-navy {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #0D1B2A;
+    }
+    @property --color-navy-light {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #152238;
+    }
+    @property --color-cyan {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #00F0FF;
+    }
+    @property --color-gold {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #FFB300;
+    }
+    @property --color-ember {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #FF6B00;
+    }
+    @property --color-magenta {
+        syntax: '<color>';
+        inherits: true;
+        initial-value: #C026D3;
+    }
+
+    :root {
+        /* Colors — oklch with hex fallbacks */
+        --color-midnight: oklch(0.07 0 0);       /* #0A0A0A */
+        --color-navy: oklch(0.16 0.03 250);       /* #0D1B2A */
+        --color-navy-light: oklch(0.20 0.04 250); /* #152238 */
+        --color-cyan: oklch(0.85 0.15 195);       /* #00F0FF */
+        --color-gold: oklch(0.80 0.16 80);        /* #FFB300 */
+        --color-ember: oklch(0.68 0.20 50);       /* #FF6B00 */
+        --color-magenta: oklch(0.53 0.24 320);    /* #C026D3 */
+        --color-text: oklch(0.87 0 0);            /* #d4d4d4 */
+        --color-white: #fff;
+        --color-success: #22c55e;
+        --color-danger: #ef4444;
+
+        /* Font Stacks */
+        --font-display: 'Playfair Display', Georgia, serif;
+        --font-body: 'Inter', system-ui, sans-serif;
+        --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+        /* Spacing Scale */
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 20px;
+        --space-6: 24px;
+        --space-8: 32px;
+        --space-10: 40px;
+        --space-12: 48px;
+        --space-14: 56px;
+        --space-16: 64px;
+        --space-20: 80px;
+        --space-24: 96px;
+        --space-36: 144px;
+
+        /* Container */
+        --container-max: 80rem;  /* 1280px, equiv to max-w-7xl */
+        --container-narrow: 42rem; /* 672px, equiv to max-w-2xl */
+        --container-text: 48rem;   /* 768px, equiv to max-w-3xl */
+        --container-wide: 64rem;   /* 1024px, equiv to max-w-4xl */
+        --container-xl: 72rem;     /* 1152px, equiv to max-w-6xl */
+        --container-cards: 64rem;  /* max-w-5xl */
+
+        /* Easing */
+        --ease-smooth: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-default: ease;
+
+        /* Borders */
+        --border-subtle: 1px solid rgba(255, 255, 255, 0.06);
+        --border-faint: 1px solid rgba(255, 255, 255, 0.04);
+        --border-cyan: 1px solid rgba(0, 240, 255, 0.15);
+        --radius-sm: 8px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+        --radius-xl: 16px;
+        --radius-2xl: 20px;
+        --radius-full: 9999px;
+    }
+}

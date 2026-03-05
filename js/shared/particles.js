@@ -5,23 +5,33 @@
    ============================================================ */
 
 export function initParticles(canvasId, options = {}) {
-    const maxParticles = options.maxParticles || 60;
-    const particleDensity = options.particleDensity || 20000;
-    const nebulaCount = options.nebulaCount || 4;
-    const showConnections = options.showConnections || false;
-    const connectionDistance = options.connectionDistance || 280;
+    const maxParticles = options.maxParticles ?? 60;
+    const particleDensity = options.particleDensity ?? 20000;
+    const nebulaCount = options.nebulaCount ?? 4;
+    const showConnections = options.showConnections ?? false;
+    const connectionDistance = options.connectionDistance ?? 280;
 
     const c = document.getElementById(canvasId);
     if (!c) return;
     const ctx = c.getContext('2d');
     let W, H;
 
+    /* Prefer ResizeObserver over window resize */
     function resize() {
         W = c.width = c.parentElement.offsetWidth;
         H = c.height = c.parentElement.offsetHeight;
     }
     resize();
-    window.addEventListener('resize', resize);
+
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => resize());
+        ro.observe(c.parentElement);
+    } else {
+        window.addEventListener('resize', resize);
+    }
+
+    /* Respect prefers-reduced-motion */
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const ps = [];
     const PC = Math.min(maxParticles, Math.floor(W * H / particleDensity));
@@ -84,6 +94,14 @@ export function initParticles(canvasId, options = {}) {
     for (let i = 0; i < PC; i++) ps.push(new P());
     const ns = [];
     for (let i = 0; i < nebulaCount; i++) ns.push(new N());
+
+    /* Draw single static frame if reduced motion */
+    if (prefersReducedMotion) {
+        ctx.clearRect(0, 0, W, H);
+        ps.forEach((p) => { p.draw(); });
+        ns.forEach((n) => { n.r = n.br; n.draw(); });
+        return;
+    }
 
     let t = 0;
     (function loop() {

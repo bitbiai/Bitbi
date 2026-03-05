@@ -3,11 +3,14 @@
    ============================================================ */
 
 export function initBinaryRain(containerId, options = {}) {
-    const maxCols = options.maxCols || 20;
-    const colDivisor = options.colDivisor || 50;
-    const charCount = options.charCount || 30;
-    const minDuration = options.minDuration || 16;
-    const durationRange = options.durationRange || 20;
+    /* Skip if user prefers reduced motion */
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
+    const maxCols = options.maxCols ?? 20;
+    const colDivisor = options.colDivisor ?? 50;
+    const charCount = options.charCount ?? 30;
+    const minDuration = options.minDuration ?? 16;
+    const durationRange = options.durationRange ?? 20;
 
     const el = document.getElementById(containerId);
     if (!el) return;
@@ -29,6 +32,7 @@ export function initBinaryRain(containerId, options = {}) {
             willChange: 'transform'
         });
         d.textContent = t;
+        d.setAttribute('aria-hidden', 'true');
         el.appendChild(d);
     }
 }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,14 @@
     <meta name="description" content="BITBI — Experimental websites, AI art, YouTube journeys, VR worlds, and live markets. A digital playground by a creative technologist.">
     <meta name="keywords" content="BITBI, digital art, experiments, AI creations, VR, creative coding">
     <meta name="author" content="BITBI Studio">
+    <link rel="canonical" href="https://bitbi.ai/">
     <meta property="og:title" content="BITBI | My Digital Playground">
     <meta property="og:description" content="Experimental websites • AI art • YouTube journeys • VR worlds • Live markets">
     <meta property="og:type" content="website">
+    <meta property="og:url" content="https://bitbi.ai/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="BITBI | My Digital Playground">
+    <meta name="twitter:description" content="Experimental websites • AI art • YouTube journeys • VR worlds • Live markets">
     <meta name="theme-color" content="#0A0A0A">
     <link rel="icon" href="favicon.ico" sizes="48x48">
     <link rel="icon" href="favicon-16x16.png" sizes="16x16" type="image/png">
@@ -19,1085 +24,265 @@
     <link rel="manifest" href="site.webmanifest">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        midnight: '#0A0A0A',
-                        navy: '#0D1B2A',
-                        'navy-light': '#152238',
-                        cyan: '#00F0FF',
-                        gold: '#FFB300',
-                        ember: '#FF6B00',
-                        magenta: '#C026D3',
-                    },
-                    fontFamily: {
-                        display: ['"Playfair Display"', 'Georgia', 'serif'],
-                        body: ['Inter', 'system-ui', 'sans-serif'],
-                        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-                    }
-                }
-            }
-        }
+    <link rel="dns-prefetch" href="https://api.coingecko.com">
+    <link rel="dns-prefetch" href="https://www.youtube-nocookie.com">
+    <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/reset.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/utilities.css">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "BITBI",
+        "url": "https://bitbi.ai/",
+        "description": "Experimental websites, AI art, YouTube journeys, VR worlds, and live markets."
+    }
     </script>
-    <style>
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-regular.woff2') format('woff2'); }
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-500.woff2') format('woff2'); }
-        @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/inter-v20-latin_latin-ext-600.woff2') format('woff2'); }
-    </style>
-    <style>
-        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-        html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-        body { background: #0A0A0A; color: #d4d4d4; font-family: 'Inter', system-ui, sans-serif; overflow-x: hidden; }
-        ::selection { background: rgba(0,240,255,0.25); color: #fff; }
-        section, footer, .section-divider { position: relative; z-index: 1; }
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: #0A0A0A; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #00F0FF, #FFB300); border-radius: 8px; }
-
-        .gt-hero {
-            background: linear-gradient(135deg, #FFB300 0%, #FF6B00 25%, #00F0FF 65%, #C026D3 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; color: transparent;
-        }
-        .gt-gold-cyan {
-            background: linear-gradient(90deg, #FFB300, #00F0FF);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; color: transparent;
-        }
-        .gt-cyan-mag {
-            background: linear-gradient(90deg, #00F0FF, #C026D3);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; color: transparent;
-        }
-
-        .glass {
-            background: rgba(13,27,42,0.45);
-            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-            border: 1px solid rgba(255,255,255,0.06);
-        }
-        .glass-nav {
-            background: rgba(10,10,10,0.75);
-            backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-
-        .tilt-card {
-            transition: transform 0.45s cubic-bezier(0.23,1,0.32,1), box-shadow 0.45s ease;
-            will-change: transform;
-        }
-        .tilt-card:hover {
-            transform: translateY(-6px) scale(1.01);
-            box-shadow: 0 24px 48px rgba(0,0,0,0.4), 0 0 30px rgba(0,240,255,0.06);
-        }
-
-        .nav-link { position: relative; }
-        .nav-link::after {
-            content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
-            background: linear-gradient(90deg, #00F0FF, #FFB300); border-radius: 1px;
-            transition: width 0.35s cubic-bezier(0.23,1,0.32,1);
-        }
-        .nav-link:hover::after { width: 100%; }
-
-        .reveal {
-            opacity: 0; transform: translateY(30px);
-            transition: opacity 0.7s cubic-bezier(0.23,1,0.32,1), transform 0.7s cubic-bezier(0.23,1,0.32,1);
-        }
-        .reveal.visible { opacity: 1; transform: translateY(0); }
-
-        @keyframes float { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-12px); } }
-        @keyframes pulseGlow {
-            0%,100% { box-shadow: 0 0 12px rgba(0,240,255,0.25), 0 0 24px rgba(0,240,255,0.08); }
-            50% { box-shadow: 0 0 20px rgba(0,240,255,0.45), 0 0 40px rgba(0,240,255,0.15); }
-        }
-        @keyframes binaryFall {
-            0%{ transform: translateY(-100%); opacity: 0; }
-            5%{ opacity: 1; }
-            95%{ opacity: 1; }
-            100%{ transform: translateY(calc(100vh + 100%)); opacity: 0; }
-        }
-        @keyframes eqBar1 { 0%,100%{ height: 6px; } 50%{ height: 24px; } }
-        @keyframes eqBar2 { 0%,100%{ height: 12px; } 50%{ height: 32px; } }
-        @keyframes eqBar3 { 0%,100%{ height: 4px; } 50%{ height: 18px; } }
-
-        .float-anim { animation: float 6s ease-in-out infinite; }
-        .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
-        .eq-bar { width: 3px; border-radius: 2px; background: linear-gradient(180deg, #00F0FF, #FFB300); }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #FFB300, #FF6B00);
-            color: #0A0A0A; font-weight: 700; transition: all 0.3s ease;
-        }
-        .btn-primary:hover {
-            box-shadow: 0 0 28px rgba(255,179,0,0.35), 0 8px 32px rgba(255,107,0,0.2);
-            transform: translateY(-2px);
-        }
-        .btn-secondary {
-            border: 1px solid rgba(0,240,255,0.4); color: #00F0FF; transition: all 0.3s ease;
-        }
-        .btn-secondary:hover {
-            background: rgba(0,240,255,0.08);
-            box-shadow: 0 0 20px rgba(0,240,255,0.2);
-            transform: translateY(-2px);
-        }
-
-        .section-divider {
-            height: 1px; margin: 0 auto; max-width: 90%;
-            background: linear-gradient(90deg, transparent, rgba(0,240,255,0.15) 30%, rgba(255,179,0,0.15) 70%, transparent);
-        }
-
-        .modal-overlay {
-            position: fixed; inset: 0; z-index: 9999;
-            background: rgba(0,0,0,0.88); backdrop-filter: blur(12px);
-            display: flex; align-items: center; justify-content: center;
-            opacity: 0; pointer-events: none;
-            transition: opacity 0.35s cubic-bezier(0.23,1,0.32,1);
-        }
-        .modal-overlay.active { opacity: 1; pointer-events: all; }
-
-        .mobile-nav-panel {
-            transform: translateX(100%);
-            transition: transform 0.45s cubic-bezier(0.23,1,0.32,1);
-        }
-        .mobile-nav-panel.open { transform: translateX(0); }
-
-        .filter-btn.active {
-            background: rgba(0,240,255,0.12) !important;
-            border-color: rgba(0,240,255,0.4) !important;
-            color: #00F0FF !important;
-        }
-
-        .binary-footer-text {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px; color: rgba(0,240,255,0.05);
-            line-height: 1.5; word-break: break-all;
-            overflow: hidden; max-height: 50px; user-select: none;
-        }
-
-        #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-        .gallery-item:hover .gallery-overlay { opacity: 1; }
-        .gallery-item:hover .gallery-inner { transform: scale(1.03); }
-        .gallery-inner { transition: transform 0.5s cubic-bezier(0.23,1,0.32,1); }
-        .gallery-overlay {
-            opacity: 0; transition: opacity 0.4s ease;
-            background: linear-gradient(to top, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.4) 50%, transparent 100%);
-        }
-    </style>
 </head>
 <body>
 
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
 <!-- BACKGROUND FAVICON WATERMARK -->
-<div style="position:fixed;inset:0;z-index:0;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden">
-    <img src="android-chrome-512x512.png" alt="" style="width:100vw;height:100vh;object-fit:contain;opacity:0.13;filter:blur(30px);user-select:none;-webkit-user-drag:none">
+<div class="watermark" aria-hidden="true">
+    <img src="android-chrome-512x512.png" alt="" class="watermark__img" role="presentation" width="512" height="512" fetchpriority="low">
 </div>
 
 <!-- NAVBAR -->
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-500">
-    <div class="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-16 lg:h-20">
-            <a href="#hero" class="relative group flex-shrink-0">
-                <span class="font-display font-black text-2xl lg:text-3xl gt-hero tracking-tight relative z-10">BITBI</span>
-                <span class="absolute -inset-3 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-600" style="background:radial-gradient(circle,rgba(0,240,255,0.06),transparent 70%)"></span>
+<header>
+<nav id="navbar" class="site-nav" aria-label="Main navigation">
+    <div class="container">
+        <div class="site-nav__bar">
+            <a href="#hero" class="site-nav__logo">
+                <span class="site-nav__logo-text gt-hero">BITBI</span>
+                <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
-            <div class="hidden lg:flex items-center gap-7">
-                <a href="#experiments" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">Experiments</a>
-                <a href="#youtube" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">YouTube</a>
-                <a href="#gallery" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">Gallery</a>
-                <a href="#soundlab" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">Sound Lab</a>
-                <a href="#markets" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">Live Markets</a>
-                <a href="#contact" class="nav-link text-[13px] font-medium text-white/60 hover:text-cyan transition-colors duration-300">Contact</a>
+            <div class="site-nav__links">
+                <a href="#experiments" class="site-nav__link nav-link">Experiments</a>
+                <a href="#youtube" class="site-nav__link nav-link">YouTube</a>
+                <a href="#gallery" class="site-nav__link nav-link">Gallery</a>
+                <a href="#soundlab" class="site-nav__link nav-link">Sound Lab</a>
+                <a href="#markets" class="site-nav__link nav-link">Live Markets</a>
+                <a href="#contact" class="site-nav__link nav-link">Contact</a>
             </div>
-            <div class="hidden lg:flex items-center gap-3">
-                <span class="text-[10px] font-mono text-white/25 rounded-full px-3 py-1 select-none" style="border:1px solid rgba(255,255,255,0.08)">Mood: <span class="text-cyan/80">Creating</span></span>
-                <a href="#experiments" class="px-5 py-2 rounded-full text-xs font-bold text-midnight bg-cyan pulse-glow transition-all hover:bg-white">Enter the Lab</a>
+            <div class="site-nav__actions">
+                <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
+                <a href="#experiments" class="site-nav__cta pulse-glow">Enter the Lab</a>
             </div>
-            <button id="mobileMenuBtn" class="lg:hidden relative z-[60] w-10 h-10 flex flex-col items-center justify-center gap-[5px]" aria-label="Toggle menu">
-                <span class="block w-6 h-[2px] bg-white/80 rounded transition-all duration-300 origin-center" id="bar1"></span>
-                <span class="block w-6 h-[2px] bg-white/80 rounded transition-all duration-300" id="bar2"></span>
-                <span class="block w-4 h-[2px] bg-cyan rounded transition-all duration-300 origin-center" id="bar3"></span>
+            <button id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
+                <span class="site-nav__menu-bar" id="bar1"></span>
+                <span class="site-nav__menu-bar" id="bar2"></span>
+                <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
             </button>
         </div>
     </div>
 </nav>
+</header>
 
-<div id="mobileNav" class="mobile-nav-panel fixed inset-0 z-[55] flex flex-col items-center justify-center gap-7" style="background:rgba(10,10,10,0.97);backdrop-filter:blur(30px)">
-    <a href="#experiments" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">Experiments</a>
-    <a href="#youtube" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">YouTube</a>
-    <a href="#gallery" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">Gallery</a>
-    <a href="#soundlab" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">Sound Lab</a>
-    <a href="#markets" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">Live Markets</a>
-    <a href="#contact" class="mobile-link text-2xl font-display font-bold text-white/70 hover:text-cyan transition-colors">Contact</a>
-    <a href="#experiments" class="mobile-link mt-4 px-7 py-3 rounded-full text-sm font-bold text-midnight bg-cyan">Enter the Lab</a>
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+    <a href="#experiments" class="mobile-nav__link">Experiments</a>
+    <a href="#youtube" class="mobile-nav__link">YouTube</a>
+    <a href="#gallery" class="mobile-nav__link">Gallery</a>
+    <a href="#soundlab" class="mobile-nav__link">Sound Lab</a>
+    <a href="#markets" class="mobile-nav__link">Live Markets</a>
+    <a href="#contact" class="mobile-nav__link">Contact</a>
+    <a href="#experiments" class="mobile-nav__cta">Enter the Lab</a>
 </div>
 
-<!-- HERO -->
-<section id="hero" class="relative min-h-screen flex items-center justify-center overflow-hidden">
-    <canvas id="heroCanvas" class="pointer-events-none"></canvas>
-    <div class="absolute inset-0 z-[1]" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.5) 40%,rgba(13,27,42,0.3) 60%,#0A0A0A 100%)"></div>
-    <div class="absolute top-[20%] left-[15%] w-[400px] h-[400px] rounded-full z-[1]" style="background:radial-gradient(circle,rgba(0,240,255,0.06),transparent 70%)"></div>
-    <div class="absolute bottom-[20%] right-[15%] w-[350px] h-[350px] rounded-full z-[1]" style="background:radial-gradient(circle,rgba(255,179,0,0.05),transparent 70%)"></div>
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full z-[1]" style="background:radial-gradient(circle,rgba(192,38,211,0.03),transparent 70%)"></div>
-    <div class="absolute inset-0 z-[2] overflow-hidden pointer-events-none" id="binaryRain"></div>
+<main id="main-content">
 
-    <div class="relative z-10 text-center px-5 max-w-4xl mx-auto">
-        <div class="mb-8 float-anim">
-            <h1 class="font-display font-black leading-[0.85] gt-hero tracking-tight"
-                style="font-size:clamp(5rem,15vw,12rem);filter:drop-shadow(0 0 40px rgba(0,240,255,0.15)) drop-shadow(0 0 80px rgba(255,179,0,0.1))">BITBI</h1>
+<!-- HERO -->
+<section id="hero" class="hero" aria-label="Hero">
+    <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.5) 40%,rgba(13,27,42,0.3) 60%,#0A0A0A 100%)" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--cyan" style="top:20%;left:15%;width:400px;height:400px" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--gold" style="bottom:20%;right:15%;width:350px;height:350px" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--magenta" style="top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px" aria-hidden="true"></div>
+    <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
+
+    <div class="hero__content">
+        <div class="hero__title-wrap float-anim">
+            <h1 class="hero__title gt-hero">BITBI</h1>
         </div>
-        <p class="font-display text-xl sm:text-2xl md:text-3xl text-white/85 font-light mb-3 tracking-wide">My Digital Playground</p>
-        <p class="font-body text-sm sm:text-base text-white/35 mb-12 max-w-md mx-auto leading-relaxed">Experimental websites &bull; AI art &bull; YouTube journeys &bull; VR worlds &bull; Live markets</p>
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href="#experiments" class="btn-primary px-8 py-3.5 rounded-full text-sm inline-flex items-center gap-2.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+        <p class="hero__subtitle">My Digital Playground</p>
+        <p class="hero__desc">Experimental websites &bull; AI art &bull; YouTube journeys &bull; VR worlds &bull; Live markets</p>
+        <div class="hero__actions">
+            <a href="#experiments" class="btn-primary">
+                <svg class="btn-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
                 Browse Experiments
             </a>
-            <a href="#youtube" class="btn-secondary px-8 py-3.5 rounded-full text-sm font-medium inline-flex items-center gap-2.5">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            <a href="#youtube" class="btn-secondary">
+                <svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                 Watch Latest Video
             </a>
         </div>
     </div>
-    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 animate-bounce">
-        <span class="text-[9px] font-mono text-white/25 tracking-[0.25em] uppercase">Scroll</span>
-        <svg class="w-4 h-4 text-cyan/40" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+    <div class="hero__scroll-hint" aria-hidden="true">
+        <span class="hero__scroll-text">Scroll</span>
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:rgba(0,240,255,0.4)"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
     </div>
 </section>
 
 <!-- EXPERIMENTS -->
-<div class="section-divider"></div>
-<section id="experiments" class="py-24 lg:py-36 px-5">
-    <div class="max-w-7xl mx-auto">
-        <div class="text-center mb-16 reveal">
-            <span class="font-mono text-[11px] text-cyan/50 tracking-[0.3em] uppercase">Portfolio</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-gold-cyan mt-3">Experiments</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">Digital experiments, creative tools, and interactive experiences I've built.</p>
+<div class="section-divider" aria-hidden="true"></div>
+<section id="experiments" class="section" aria-label="Experiments">
+    <div class="section__inner">
+        <div class="section__header reveal">
+            <span class="section__label section__label--cyan">Portfolio</span>
+            <h2 class="section__title gt-gold-cyan">Experiments</h2>
+            <p class="section__desc">Digital experiments, creative tools, and interactive experiences I've built.</p>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 lg:gap-6 max-w-5xl mx-auto" id="experimentsGrid"></div>
+        <div class="grid-2col section__inner--cards" style="margin-inline:auto" id="experimentsGrid"></div>
     </div>
 </section>
 
 <!-- YOUTUBE -->
-<div class="section-divider"></div>
-<section id="youtube" class="py-24 lg:py-36 px-5">
-    <div class="max-w-7xl mx-auto">
-        <div class="text-center mb-16 reveal">
-            <span class="font-mono text-[11px] text-gold/50 tracking-[0.3em] uppercase">Videos</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-gold-cyan mt-3">Behind the Pixels</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">YouTube journeys into creative coding, AI explorations, and tech experiments.</p>
+<div class="section-divider" aria-hidden="true"></div>
+<section id="youtube" class="section" aria-label="YouTube videos">
+    <div class="section__inner">
+        <div class="section__header reveal">
+            <span class="section__label section__label--gold">Videos</span>
+            <h2 class="section__title gt-gold-cyan">Behind the Pixels</h2>
+            <p class="section__desc">YouTube journeys into creative coding, AI explorations, and tech experiments.</p>
         </div>
-        <div class="max-w-4xl mx-auto">
-            <div class="tilt-card glass rounded-2xl overflow-hidden reveal"><div class="aspect-video" id="ytContainer"><iframe id="ytFrame" class="w-full h-full" data-src="https://www.youtube-nocookie.com/embed/j27ONa_0ny8" title="BITBI Video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe><div id="ytPlaceholder" style="display:none;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;padding:24px"><svg style="width:48px;height:48px;color:rgba(255,255,255,0.3)" fill="currentColor" viewBox="0 0 24 24"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg><p style="font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(255,255,255,0.4);margin:0;max-width:300px">YouTube content is blocked because marketing cookies are disabled.</p><button id="ytEnableBtn" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(0,240,255,0.2);background:rgba(0,240,255,0.08);color:#00F0FF;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:background 0.2s">Enable Marketing Cookies</button></div></div><div class="p-5"><h3 class="font-display font-bold text-[15px] text-white/90">Latest from BITBI</h3><p class="text-white/25 text-xs mt-1.5 font-mono">Featured Video</p></div></div>
+        <div class="section__inner--wide" style="margin-inline:auto">
+            <div class="tilt-card glass rounded-2xl overflow-hidden reveal">
+                <div class="yt-container" id="ytContainer">
+                    <iframe id="ytFrame" data-src="https://www.youtube-nocookie.com/embed/j27ONa_0ny8" title="BITBI Video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
+                    <div id="ytPlaceholder" class="yt-placeholder" style="display:none">
+                        <svg class="yt-placeholder__icon" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg>
+                        <p class="yt-placeholder__text">YouTube content is blocked because marketing cookies are disabled.</p>
+                        <button id="ytEnableBtn" class="yt-placeholder__btn">Enable Marketing Cookies</button>
+                    </div>
+                </div>
+                <div class="yt-card__info">
+                    <h3 class="yt-card__title">Latest from BITBI</h3>
+                    <p class="yt-card__label">Featured Video</p>
+                </div>
+            </div>
         </div>
     </div>
 </section>
 
 <!-- GALLERY -->
-<div class="section-divider"></div>
-<section id="gallery" class="py-24 lg:py-36 px-5">
-    <div class="max-w-7xl mx-auto">
-        <div class="text-center mb-12 reveal">
-            <span class="font-mono text-[11px] text-magenta/50 tracking-[0.3em] uppercase">AI Art</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-cyan-mag mt-3">AI Creations Gallery</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">Curated pieces from experiments with generative AI, diffusion models, and creative algorithms.</p>
+<div class="section-divider" aria-hidden="true"></div>
+<section id="gallery" class="section" aria-label="AI Creations Gallery">
+    <div class="section__inner">
+        <div class="section__header--sm reveal">
+            <div style="text-align:center">
+                <span class="section__label section__label--magenta">AI Art</span>
+                <h2 class="section__title gt-cyan-mag" style="margin-block-start:var(--space-3)">AI Creations Gallery</h2>
+                <p class="section__desc">Curated pieces from experiments with generative AI, diffusion models, and creative algorithms.</p>
+            </div>
         </div>
-        <div class="flex flex-wrap justify-center gap-2.5 mb-12 reveal">
-            <button class="filter-btn active px-5 py-2 rounded-full text-xs font-medium text-white/50 transition-all cursor-pointer" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)" data-filter="all">All</button>
-            <button class="filter-btn px-5 py-2 rounded-full text-xs font-medium text-white/50 transition-all cursor-pointer" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)" data-filter="pictures">Pictures</button>
-            <button class="filter-btn px-5 py-2 rounded-full text-xs font-medium text-white/50 transition-all cursor-pointer" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)" data-filter="audiovisual">Audio Visuals</button>
-            <button class="filter-btn px-5 py-2 rounded-full text-xs font-medium text-white/50 transition-all cursor-pointer" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)" data-filter="experimental">Experimental</button>
+        <div class="filter-bar reveal" role="tablist" aria-label="Gallery filters">
+            <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true" tabindex="0">All</button>
+            <button class="filter-btn" data-filter="pictures" role="tab" aria-selected="false" tabindex="-1">Pictures</button>
+            <button class="filter-btn" data-filter="audiovisual" role="tab" aria-selected="false" tabindex="-1">Audio Visuals</button>
+            <button class="filter-btn" data-filter="experimental" role="tab" aria-selected="false" tabindex="-1">Experimental</button>
         </div>
-        <div id="galleryGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        <div id="galleryGrid" class="grid-gallery"></div>
     </div>
 </section>
 
 <!-- Gallery Modal -->
-<div id="galleryModal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
-    <div class="relative max-w-3xl w-full mx-5">
-        <button onclick="closeModal()" class="absolute -top-10 right-0 text-white/50 hover:text-white text-sm transition-colors cursor-pointer">&times; Close</button>
-        <div class="rounded-2xl overflow-hidden" style="background:rgba(13,27,42,0.7);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,0.06)">
-            <div id="modalImage" class="w-full" style="aspect-ratio:16/10"></div>
-            <div class="p-6 sm:p-8">
-                <h3 id="modalTitle" class="font-display font-bold text-xl text-white/90"></h3>
-                <p id="modalCaption" class="text-white/40 text-sm mt-2 leading-relaxed"></p>
+<div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+        <button class="modal-close" aria-label="Close gallery modal">&times; Close</button>
+        <div class="modal-card">
+            <div id="modalImage" class="modal-image"></div>
+            <div class="modal-body">
+                <h3 id="modalTitle" class="modal-title"></h3>
+                <p id="modalCaption" class="modal-caption"></p>
             </div>
         </div>
     </div>
 </div>
 
 <!-- SOUND LAB -->
-<div class="section-divider"></div>
-<section id="soundlab" class="py-24 lg:py-36 px-5">
-    <div class="max-w-3xl mx-auto">
-        <div class="text-center mb-16 reveal">
-            <span class="font-mono text-[11px] text-cyan/50 tracking-[0.3em] uppercase">Audio</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-gold-cyan mt-3">Sound Lab</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">Sonic experiments, ambient textures, and generative audio compositions.</p>
+<div class="section-divider" aria-hidden="true"></div>
+<section id="soundlab" class="section" aria-label="Sound Lab">
+    <div class="section__inner--text" style="margin-inline:auto">
+        <div class="section__header reveal">
+            <span class="section__label section__label--cyan">Audio</span>
+            <h2 class="section__title gt-gold-cyan">Sound Lab</h2>
+            <p class="section__desc">Sonic experiments, ambient textures, and generative audio compositions.</p>
         </div>
-        <div class="space-y-3" id="soundLabTracks"></div>
-        <div id="playlistPlayer" class="mt-4 reveal"></div>
+        <div class="card-stack" id="soundLabTracks"></div>
+        <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
     </div>
 </section>
 
 <!-- LIVE MARKETS -->
-<div class="section-divider"></div>
-<section id="markets" class="py-24 lg:py-36 px-5">
-    <div class="max-w-6xl mx-auto">
-        <div class="text-center mb-16 reveal">
-            <span class="font-mono text-[11px] text-gold/50 tracking-[0.3em] uppercase">Data</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-gold-cyan mt-3">Live Markets</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">Real-time market data. Because even artists watch the charts.</p>
+<div class="section-divider" aria-hidden="true"></div>
+<section id="markets" class="section" aria-label="Live Markets">
+    <div class="section__inner--xl" style="margin-inline:auto">
+        <div class="section__header reveal">
+            <span class="section__label section__label--gold">Data</span>
+            <h2 class="section__title gt-gold-cyan">Live Markets</h2>
+            <p class="section__desc">Real-time market data. Because even artists watch the charts.</p>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4" id="marketCards"></div>
-        <p class="text-center text-white/15 text-[10px] font-mono mt-5">Auto-refreshes every 30s &bull; Crypto via CoinGecko &bull; Stocks simulated</p>
+        <div class="grid-markets" id="marketCards" aria-live="polite"></div>
+        <p class="section__note">Auto-refreshes every 30s &bull; Crypto via CoinGecko &bull; Stocks simulated</p>
     </div>
 </section>
 
 <!-- CONTACT -->
-<div class="section-divider"></div>
-<section id="contact" class="py-24 lg:py-36 px-5">
-    <div class="max-w-2xl mx-auto">
-        <div class="text-center mb-14 reveal">
-            <span class="font-mono text-[11px] text-gold/50 tracking-[0.3em] uppercase">Contact</span>
-            <h2 class="font-display font-black text-4xl sm:text-5xl lg:text-6xl gt-gold-cyan mt-3">Say Hello</h2>
-            <p class="text-white/35 mt-4 max-w-md mx-auto text-sm leading-relaxed">Want to collaborate or just say hi? Drop a message below.</p>
-        </div>
-        <form class="glass rounded-2xl p-6 sm:p-8 space-y-4 reveal" onsubmit="event.preventDefault();const b=this.querySelector('button[type=submit]');b.textContent='Sent! ✨';setTimeout(()=>b.textContent='Send Message',2500)">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input type="text" placeholder="Name" required class="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)" onfocus="this.style.borderColor='rgba(0,240,255,0.3)'" onblur="this.style.borderColor='rgba(255,255,255,0.06)'">
-                <input type="email" placeholder="Email" required class="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)" onfocus="this.style.borderColor='rgba(0,240,255,0.3)'" onblur="this.style.borderColor='rgba(255,255,255,0.06)'">
+<div class="section-divider" aria-hidden="true"></div>
+<section id="contact" class="section" aria-label="Contact">
+    <div class="section__inner--narrow" style="margin-inline:auto">
+        <div class="section__header--md reveal">
+            <div style="text-align:center">
+                <span class="section__label section__label--gold">Contact</span>
+                <h2 class="section__title gt-gold-cyan" style="margin-block-start:var(--space-3)">Say Hello</h2>
+                <p class="section__desc">Want to collaborate or just say hi? Drop a message below.</p>
             </div>
-            <input type="text" placeholder="Subject" class="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)" onfocus="this.style.borderColor='rgba(0,240,255,0.3)'" onblur="this.style.borderColor='rgba(255,255,255,0.06)'">
-            <textarea rows="5" placeholder="Your message..." class="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all resize-none" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)" onfocus="this.style.borderColor='rgba(0,240,255,0.3)'" onblur="this.style.borderColor='rgba(255,255,255,0.06)'"></textarea>
-            <button type="submit" class="btn-primary w-full py-3.5 rounded-xl text-sm cursor-pointer">Send Message</button>
+        </div>
+        <form class="glass rounded-2xl contact-form reveal" style="padding:var(--space-6)" onsubmit="event.preventDefault();const b=this.querySelector('button[type=submit]');b.textContent='Sent! \u2728';setTimeout(()=>b.textContent='Send Message',2500)">
+            <div class="grid-form">
+                <input type="text" placeholder="Name" required class="form-input" autocomplete="name">
+                <input type="email" placeholder="Email" required class="form-input" autocomplete="email">
+            </div>
+            <input type="text" placeholder="Subject" class="form-input">
+            <textarea rows="5" placeholder="Your message..." class="form-input form-textarea"></textarea>
+            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
         </form>
     </div>
 </section>
 
+</main>
+
 <!-- FOOTER -->
-<footer class="py-12 px-5" style="border-top:1px solid rgba(255,255,255,0.04)">
-    <div class="max-w-7xl mx-auto">
-        <div class="flex flex-col md:flex-row items-center justify-between gap-8 mb-8">
-            <div class="text-center md:text-left">
-                <span class="font-display font-black text-2xl gt-hero">BITBI</span>
-                <p class="text-white/20 text-xs mt-1">My Digital Playground</p>
+<footer class="site-footer">
+    <div class="site-footer__inner">
+        <div class="site-footer__top">
+            <div class="site-footer__brand">
+                <span class="site-footer__brand-name gt-hero">BITBI</span>
+                <p class="site-footer__tagline">My Digital Playground</p>
             </div>
-            <div class="flex items-center gap-5">
-                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="text-white/25 hover:text-cyan transition-colors duration-300" aria-label="X"><svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
-                <a href="https://www.youtube.com/@bitbi_ai" target="_blank" rel="noopener noreferrer" class="text-white/25 hover:text-red-500 transition-colors duration-300" aria-label="YouTube"><svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></a>
+            <div class="site-footer__social">
+                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+                <a href="https://www.youtube.com/@bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link site-footer__social-link--yt" aria-label="YouTube"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></a>
             </div>
         </div>
-        <div class="binary-footer-text mb-5" id="binaryFooter" aria-hidden="true"></div>
-        <div class="flex items-center justify-center gap-4 mb-3">
-            <a href="imprint.html" class="text-white/25 text-[11px] font-mono hover:text-cyan transition-colors duration-300">Imprint</a>
-            <span class="text-white/10 text-[11px]">&bull;</span>
-            <a href="privacy.html" class="text-white/25 text-[11px] font-mono hover:text-cyan transition-colors duration-300">Privacy Policy</a>
-            <span class="text-white/10 text-[11px]">&bull;</span>
-            <a href="#" id="openCookieSettings" class="text-white/25 text-[11px] font-mono hover:text-cyan transition-colors duration-300">Cookie Settings</a>
+        <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
+        <div class="site-footer__links">
+            <a href="imprint.html" class="site-footer__link">Imprint</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="privacy.html" class="site-footer__link">Privacy Policy</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie Settings</a>
         </div>
-        <p class="text-center text-white/15 text-[11px] font-mono">BITBI Studio &bull; All experiments are mine &bull; Built with love &amp; code &bull; &copy; 2026</p>
+        <p class="site-footer__copy">BITBI Studio &bull; All experiments are mine &bull; Built with love &amp; code &bull; &copy; 2026</p>
     </div>
 </footer>
 
-<script>
-/* 1. HERO PARTICLES */
-(function(){
-    const c=document.getElementById('heroCanvas'),ctx=c.getContext('2d');
-    let W,H;
-    function resize(){W=c.width=c.parentElement.offsetWidth;H=c.height=c.parentElement.offsetHeight}
-    resize();window.addEventListener('resize',resize);
-    const ps=[],ns=[];const PC=Math.min(100,Math.floor(W*H/15000));
-    class P{constructor(){this.reset()}reset(){this.x=Math.random()*W;this.y=Math.random()*H;this.vx=(Math.random()-.5)*.25;this.vy=(Math.random()-.5)*.25;this.r=Math.random()*1.8+.4;this.life=Math.random();this.cy=Math.random()>.45}update(){this.x+=this.vx;this.y+=this.vy;this.life-=.0008;if(this.x<0||this.x>W||this.y<0||this.y>H||this.life<=0)this.reset()}draw(){ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);ctx.fillStyle=this.cy?`rgba(0,240,255,${this.life*.35})`:`rgba(255,179,0,${this.life*.3})`;ctx.fill()}}
-    class N{constructor(){this.x=Math.random()*W;this.y=Math.random()*H;this.br=Math.random()*3+2;this.ph=Math.random()*6.28;this.sp=Math.random()*.008+.004;const cs=['0,240,255','255,179,0','192,38,211'];this.col=cs[Math.floor(Math.random()*3)]}update(t){this.r=this.br+Math.sin(t*this.sp+this.ph)*1.5}draw(){const g=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,this.r*7);g.addColorStop(0,`rgba(${this.col},.25)`);g.addColorStop(1,`rgba(${this.col},0)`);ctx.beginPath();ctx.arc(this.x,this.y,this.r*7,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);ctx.fillStyle=`rgba(${this.col},.5)`;ctx.fill()}}
-    for(let i=0;i<PC;i++)ps.push(new P);for(let i=0;i<7;i++)ns.push(new N);
-    let t=0;(function loop(){t++;ctx.clearRect(0,0,W,H);ps.forEach(p=>{p.update();p.draw()});ns.forEach(n=>{n.update(t);n.draw()});for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const dx=ns[i].x-ns[j].x,dy=ns[i].y-ns[j].y,d=Math.sqrt(dx*dx+dy*dy);if(d<280){ctx.beginPath();ctx.moveTo(ns[i].x,ns[i].y);ctx.lineTo(ns[j].x,ns[j].y);ctx.strokeStyle=`rgba(0,240,255,${(1-d/280)*.06})`;ctx.lineWidth=.5;ctx.stroke()}}requestAnimationFrame(loop)})();
-})();
-
-/* 2. BINARY RAIN */
-(function(){const el=document.getElementById('binaryRain');const cols=Math.min(30,Math.floor(window.innerWidth/40));for(let i=0;i<cols;i++){const d=document.createElement('div');let t='';for(let j=0;j<40;j++)t+=Math.round(Math.random());Object.assign(d.style,{position:'absolute',left:(i/cols*100)+'%',top:'0',fontFamily:'"JetBrains Mono",monospace',fontSize:'9px',color:'rgba(0,240,255,0.05)',writingMode:'vertical-rl',animation:`binaryFall ${14+Math.random()*18}s linear ${Math.random()*-15}s infinite`,willChange:'transform'});d.textContent=t;el.appendChild(d)}})();
-
-/* 3. NAVBAR SCROLL */
-(function(){const nav=document.getElementById('navbar');let tk=false;window.addEventListener('scroll',()=>{if(!tk){requestAnimationFrame(()=>{nav.classList.toggle('glass-nav',window.scrollY>60);tk=false});tk=true}})})();
-
-/* 4. MOBILE NAV */
-(function(){const btn=document.getElementById('mobileMenuBtn'),panel=document.getElementById('mobileNav'),b1=document.getElementById('bar1'),b2=document.getElementById('bar2'),b3=document.getElementById('bar3');let open=false;function toggle(f){open=f!==undefined?f:!open;panel.classList.toggle('open',open);b1.style.transform=open?'rotate(45deg) translateY(7px)':'';b2.style.opacity=open?'0':'1';b3.style.transform=open?'rotate(-45deg) translateY(-7px)':'';b3.style.width=open?'24px':'16px';document.body.style.overflow=open?'hidden':''}btn.addEventListener('click',()=>toggle());panel.querySelectorAll('.mobile-link').forEach(l=>l.addEventListener('click',()=>toggle(false)))})();
-
-/* 5. SCROLL REVEAL */
-const revealObs=new IntersectionObserver(e=>e.forEach(en=>{if(en.isIntersecting)en.target.classList.add('visible')}),{threshold:.08,rootMargin:'0px 0px -40px 0px'});
-document.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
-
-/* 6. EXPERIMENTS */
-(function(){
-    const tc={WebGL:'0,240,255',AI:'192,38,211','Three.js':'255,179,0',Python:'0,240,255',WebXR:'255,179,0','A-Frame':'0,240,255',Canvas:'0,240,255','Audio API':'192,38,211'};
-    const grid=document.getElementById('experimentsGrid');
-
-    /* Card 1: Cosmic VR — normal link */
-    const vrData={n:'Cosmic Dreamscape VR',d:'Immersive WebXR experience transforming space imagery into 3D worlds for Quest 3. Navigate cosmic spider webs and animated nebulae.',tags:['WebXR','A-Frame'],g:'linear-gradient(135deg,rgba(192,38,211,0.15),rgba(13,27,42,0.9),rgba(0,240,255,0.12))',link:'cosmic.html'};
-    const vrCard=document.createElement('div');vrCard.className='tilt-card rounded-2xl overflow-hidden reveal';
-    vrCard.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06)';
-    const vrTags=vrData.tags.map(t=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t]||'0,240,255'},0.08);color:rgba(${tc[t]||'0,240,255'},0.8);padding:2px 8px;border-radius:20px">${t}</span>`).join('');
-    vrCard.innerHTML=`<div style="height:180px;position:relative;overflow:hidden"><img src="pictures/1.jpg" alt="Cosmic Dreamscape" style="width:100%;height:100%;object-fit:cover;display:block"><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${vrTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">${vrData.n}</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">${vrData.d}</p><a href="${vrData.link}" style="color:#00F0FF;font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">View Live <span style="font-size:14px">→</span></a></div>`;
-    grid.appendChild(vrCard);
-
-    /* Card 2: Klang & Farbe — expandable with embedded synth */
-    const klangCard=document.createElement('div');klangCard.className='tilt-card rounded-2xl overflow-hidden reveal';
-    klangCard.id='klangCard';
-    klangCard.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    const klTags=['Audio API','Canvas'].map(t=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t]},0.08);color:rgba(${tc[t]},0.8);padding:2px 8px;border-radius:20px">${t}</span>`).join('');
-    klangCard.innerHTML=`<div id="klangPreview" style="height:180px;background:rgba(10,14,18,0.9);position:relative;overflow:hidden"><canvas id="sinePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.5),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${klTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sound & Color</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Interactive audiovisual synth — click to play notes, each key triggers a unique tone with real-time waveform visualization. Keyboard keys A–K supported.</p><span id="klangToggle" style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Open Synth <span style="font-size:14px">→</span></span></div><div id="klangSynth" style="display:none;padding:0 20px 24px 20px"></div>`;
-    grid.appendChild(klangCard);
-
-    /* Synth engine */
-    let synthReady=false;
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    let audioCtx=null;
-    function ensureAudio(){if(!audioCtx)audioCtx=new AudioCtx();if(audioCtx.state==='suspended')audioCtx.resume()}
-    const notes=[
-        {name:'C',freq:261.63,color:'#1a6b7a'},{name:'D',freq:293.66,color:'#1e7d8f'},
-        {name:'E',freq:329.63,color:'#2a9bb0'},{name:'F',freq:349.23,color:'#3dd4f0'},
-        {name:'G',freq:392.00,color:'#d4a853'},{name:'A',freq:440.00,color:'#c49340'},
-        {name:'B',freq:493.88,color:'#f0d48a'},{name:'C₂',freq:523.25,color:'#e8c86a'},
-    ];
-    const VIZ_LEN=200;let vizData=[];for(let i=0;i<VIZ_LEN;i++)vizData.push(0);
-    let vizAnim=null,vizCanvas=null,vizCtx=null;
-
-    function drawViz(){
-        if(!vizCanvas)return;
-        vizCanvas.width=vizCanvas.parentElement.clientWidth;vizCanvas.height=vizCanvas.parentElement.clientHeight;
-        const w=vizCanvas.width,h=vizCanvas.height;
-        vizCtx.fillStyle='rgba(10,14,18,0.15)';vizCtx.fillRect(0,0,w,h);
-        vizCtx.beginPath();const sl=w/VIZ_LEN;let x=0;
-        for(let i=0;i<VIZ_LEN;i++){const y=h/2+vizData[i]*h*0.4;if(i===0)vizCtx.moveTo(x,y);else vizCtx.lineTo(x,y);x+=sl;vizData[i]*=0.96}
-        vizCtx.strokeStyle='rgba(61,212,240,0.6)';vizCtx.lineWidth=2;vizCtx.stroke();
-        vizCtx.beginPath();x=0;
-        for(let i=0;i<VIZ_LEN;i++){const y=h/2+vizData[i]*h*0.4;if(i===0)vizCtx.moveTo(x,y);else vizCtx.lineTo(x,y);x+=sl}
-        vizCtx.strokeStyle='rgba(212,168,83,0.25)';vizCtx.lineWidth=6;vizCtx.filter='blur(4px)';vizCtx.stroke();vizCtx.filter='none';
-        vizCtx.beginPath();vizCtx.moveTo(0,h/2);vizCtx.lineTo(w,h/2);vizCtx.strokeStyle='rgba(42,155,176,0.1)';vizCtx.lineWidth=1;vizCtx.stroke();
-        vizAnim=requestAnimationFrame(drawViz);
-    }
-
-    function playNote(freq,idx){
-        ensureAudio();
-        const osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
-        osc.type='sine';osc.frequency.setValueAtTime(freq,audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.15,audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+1.2);
-        osc.connect(gain);gain.connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+1.2);
-        const phase=idx/notes.length;
-        for(let i=0;i<VIZ_LEN;i++)vizData[i]+=Math.sin((i/VIZ_LEN)*Math.PI*(2+phase*6))*0.5;
-    }
-
-    function buildSynth(){
-        if(synthReady)return;synthReady=true;
-        const wrap=document.getElementById('klangSynth');
-        wrap.innerHTML=`<div style="width:100%;height:120px;border-radius:14px;overflow:hidden;border:1px solid rgba(42,155,176,0.15);background:rgba(10,14,18,0.8);margin-bottom:16px"><canvas id="klangViz" style="width:100%;height:100%;display:block"></canvas></div><p style="color:rgba(255,255,255,0.3);font-size:10px;text-align:center;margin-bottom:10px;font-family:'JetBrains Mono',monospace">Click pads or press A S D F G H J K</p><div id="klangKeys" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"></div>`;
-        vizCanvas=document.getElementById('klangViz');vizCtx=vizCanvas.getContext('2d');
-        drawViz();
-        const keysEl=document.getElementById('klangKeys');
-        notes.forEach((note,idx)=>{
-            const key=document.createElement('div');
-            key.style.cssText=`width:64px;height:64px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:0.75rem;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:all 0.2s;background:linear-gradient(145deg,${note.color}22,${note.color}44);border:1px solid ${note.color}55;color:${note.color}`;
-            key.textContent=note.name;key.dataset.idx=idx;
-            key.addEventListener('pointerdown',e=>{
-                e.preventDefault();playNote(note.freq,idx);
-                key.style.background=`linear-gradient(145deg,${note.color}66,${note.color}88)`;
-                key.style.boxShadow=`0 0 25px ${note.color}44`;key.style.transform='scale(0.92)';
-                setTimeout(()=>{key.style.background=`linear-gradient(145deg,${note.color}22,${note.color}44)`;key.style.boxShadow='none';key.style.transform=''},300);
-            });
-            keysEl.appendChild(key);
-        });
-    }
-
-    /* Keyboard support */
-    document.addEventListener('keydown',e=>{
-        if(!synthReady||!expanded)return;
-        const map={a:0,s:1,d:2,f:3,g:4,h:5,j:6,k:7};
-        const idx=map[e.key.toLowerCase()];
-        if(idx!==undefined&&!e.repeat){
-            const note=notes[idx];playNote(note.freq,idx);
-            const key=document.getElementById('klangKeys').children[idx];
-            if(key){key.style.background=`linear-gradient(145deg,${note.color}66,${note.color}88)`;key.style.boxShadow=`0 0 25px ${note.color}44`;key.style.transform='scale(0.92)';
-            setTimeout(()=>{key.style.background=`linear-gradient(145deg,${note.color}22,${note.color}44)`;key.style.boxShadow='none';key.style.transform=''},300)}
-        }
-    });
-
-    /* Animated sine wave preview */
-    let sineAnim=null;
-    function drawSinePreview(){
-        const c=document.getElementById('sinePreviewCanvas');
-        if(!c)return;
-        c.width=c.parentElement.clientWidth;c.height=c.parentElement.clientHeight;
-        const cx=c.getContext('2d'),w=c.width,h=c.height,t=performance.now()*0.001;
-        cx.clearRect(0,0,w,h);
-        const waves=[
-            {freq:1.5,amp:0.25,color:'rgba(61,212,240,0.5)',lw:2,speed:1.2},
-            {freq:2.2,amp:0.18,color:'rgba(212,168,83,0.4)',lw:2,speed:0.8},
-            {freq:3.0,amp:0.12,color:'rgba(42,155,176,0.35)',lw:1.5,speed:1.6},
-            {freq:0.8,amp:0.3,color:'rgba(240,212,138,0.25)',lw:3,speed:0.5},
-            {freq:4.0,amp:0.08,color:'rgba(192,38,211,0.3)',lw:1,speed:2.0},
-        ];
-        waves.forEach(wv=>{
-            cx.beginPath();
-            for(let x=0;x<=w;x++){
-                const nx=x/w;
-                const y=h/2+Math.sin(nx*Math.PI*2*wv.freq+t*wv.speed)*h*wv.amp;
-                if(x===0)cx.moveTo(x,y);else cx.lineTo(x,y);
-            }
-            cx.strokeStyle=wv.color;cx.lineWidth=wv.lw;cx.stroke();
-        });
-        /* glow center line */
-        cx.beginPath();cx.moveTo(0,h/2);cx.lineTo(w,h/2);
-        cx.strokeStyle='rgba(42,155,176,0.08)';cx.lineWidth=1;cx.stroke();
-        sineAnim=requestAnimationFrame(drawSinePreview);
-    }
-    drawSinePreview();
-
-    /* Expand / Collapse — card click opens, ONLY toggle closes */
-    let expanded=false;
-    function collapseKlang(){
-        expanded=false;
-        const synth=document.getElementById('klangSynth');
-        const toggle=document.getElementById('klangToggle');
-        const preview=document.getElementById('klangPreview');
-        synth.style.display='none';
-        preview.style.height='180px';
-        klangCard.style.borderColor='rgba(255,255,255,0.06)';
-        klangCard.style.boxShadow='none';
-        klangCard.style.cursor='pointer';
-        toggle.innerHTML='Open Synth <span style="font-size:14px">→</span>';
-        if(vizAnim){cancelAnimationFrame(vizAnim);vizAnim=null}
-        if(!sineAnim)drawSinePreview();
-    }
-    function expandKlang(){
-        expanded=true;
-        buildSynth();
-        const synth=document.getElementById('klangSynth');
-        const toggle=document.getElementById('klangToggle');
-        const preview=document.getElementById('klangPreview');
-        synth.style.display='block';
-        preview.style.height='0px';preview.style.overflow='hidden';preview.style.transition='height 0.4s ease';
-        klangCard.style.borderColor='rgba(42,155,176,0.25)';
-        klangCard.style.boxShadow='0 0 40px rgba(26,107,122,0.12)';
-        klangCard.style.cursor='default';
-        toggle.innerHTML='Close Synth <span style="font-size:14px">✕</span>';
-        if(sineAnim){cancelAnimationFrame(sineAnim);sineAnim=null}
-        /* Restart viz after browser layout completes */
-        if(vizCanvas&&vizCtx){
-            if(vizAnim){cancelAnimationFrame(vizAnim);vizAnim=null}
-            requestAnimationFrame(()=>{ drawViz(); });
-        }
-    }
-    /* Card click = open only */
-    klangCard.addEventListener('click',e=>{
-        if(expanded)return; /* when open, card clicks do nothing */
-        expandKlang();
-    });
-    /* Toggle click = close when expanded */
-    document.addEventListener('click',e=>{
-        const tog=e.target.closest('#klangToggle');
-        if(tog&&expanded){e.stopPropagation();collapseKlang()}
-    });
-
-    /* Card 3: Sky Fall — fullscreen game */
-    const sfCard=document.createElement('div');sfCard.className='tilt-card rounded-2xl overflow-hidden reveal';
-    sfCard.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    const sfTags=['Canvas','Audio API'].map(t=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t]},0.08);color:rgba(${tc[t]},0.8);padding:2px 8px;border-radius:20px">${t}</span>`).join('');
-    sfCard.innerHTML=`<div style="height:180px;background:radial-gradient(ellipse at center,#0d1b3e,#050a15);position:relative;overflow:hidden"><canvas id="sfPreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${sfTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sky Fall</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Tilt your device to dodge clouds as a falling gear. Procedural music, gyro controls, and endless descent — how long can you survive?</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Play Game <span style="font-size:14px">→</span></span></div>`;
-    grid.appendChild(sfCard);
-
-    /* Sky Fall preview — falling particles */
-    let sfAnim=null;
-    const sfParticles=[];for(let i=0;i<35;i++)sfParticles.push({x:Math.random(),y:Math.random(),s:Math.random()*2+0.5,sp:Math.random()*0.4+0.2});
-    function drawSfPreview(){
-        const c=document.getElementById('sfPreviewCanvas');if(!c)return;
-        c.width=c.parentElement.clientWidth;c.height=c.parentElement.clientHeight;
-        const cx=c.getContext('2d'),w=c.width,h=c.height,t=performance.now()*0.001;
-        cx.clearRect(0,0,w,h);
-        sfParticles.forEach(p=>{
-            p.y+=p.sp*0.003;if(p.y>1)p.y=0;
-            const twinkle=0.3+0.7*Math.sin(t*p.sp*2+p.x*10);
-            cx.globalAlpha=twinkle*0.6;
-            cx.fillStyle=p.sp>0.35?'rgba(100,180,255,0.8)':'rgba(255,200,100,0.6)';
-            cx.beginPath();cx.arc(p.x*w,p.y*h,p.s,0,Math.PI*2);cx.fill();
-        });
-        /* falling speed lines */
-        cx.globalAlpha=0.15;cx.strokeStyle='rgba(150,200,255,0.5)';cx.lineWidth=1;
-        for(let i=0;i<6;i++){
-            const lx=((t*0.1+i*0.17)%1)*w;const ly=((t*0.3+i*0.13)%1)*h;
-            cx.beginPath();cx.moveTo(lx,ly);cx.lineTo(lx,ly+12+Math.random()*8);cx.stroke();
-        }
-        cx.globalAlpha=1;
-        sfAnim=requestAnimationFrame(drawSfPreview);
-    }
-    drawSfPreview();
-
-    /* Fullscreen overlay for Sky Fall */
-    const sfOverlay=document.createElement('div');
-    sfOverlay.id='sfOverlay';
-    sfOverlay.style.cssText='display:none;position:fixed;inset:0;z-index:9999;background:#050a15;flex-direction:column';
-    sfOverlay.innerHTML=`<div style="position:absolute;top:12px;right:12px;z-index:10000"><button id="sfClose" style="background:rgba(255,255,255,0.1);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.15);color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 16px;border-radius:20px;cursor:pointer;letter-spacing:1px">✕ CLOSE</button></div><iframe id="sfFrame" src="" style="width:100%;height:100%;border:none;flex:1" allow="accelerometer;gyroscope"></iframe>`;
-    document.body.appendChild(sfOverlay);
-
-    let sfOpen=false;
-    sfCard.addEventListener('click',()=>{
-        if(sfOpen)return;sfOpen=true;
-        sfOverlay.style.display='flex';
-        document.getElementById('sfFrame').src='skyfall.html';
-        document.body.style.overflow='hidden';
-        if(sfAnim){cancelAnimationFrame(sfAnim);sfAnim=null}
-    });
-    document.getElementById('sfClose').addEventListener('click',()=>{
-        sfOpen=false;
-        document.getElementById('sfFrame').src='';
-        sfOverlay.style.display='none';
-        document.body.style.overflow='';
-        if(!sfAnim)drawSfPreview();
-    });
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sfOpen)document.getElementById('sfClose').click()});
-
-    /* Card 4: The Gate — 3D puzzle experience */
-    const gateCard=document.createElement('div');gateCard.className='tilt-card rounded-2xl overflow-hidden reveal';
-    gateCard.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    const gateTags=['Three.js','Canvas'].map(t=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t]},0.08);color:rgba(${tc[t]},0.8);padding:2px 8px;border-radius:20px">${t}</span>`).join('');
-    gateCard.innerHTML=`<div style="height:180px;background:radial-gradient(ellipse at center,#1a0f05,#060302);position:relative;overflow:hidden"><canvas id="gatePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${gateTags}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">The Gate</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">A dark knight approaches a gothic gate. Solve the riddle to open the doors and step into the light. 3D cinematic puzzle experience.</p><span style="color:#d4a857;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Enter Gate <span style="font-size:14px">→</span></span></div>`;
-    grid.appendChild(gateCard);
-
-    /* Gate preview — flickering torches + dust particles */
-    let gateAnim=null;
-    const gateParticles=[];for(let i=0;i<25;i++)gateParticles.push({x:Math.random(),y:Math.random(),s:Math.random()*1.5+0.5,sp:Math.random()*0.3+0.1,drift:Math.random()*Math.PI*2});
-    function drawGatePreview(){
-        const c=document.getElementById('gatePreviewCanvas');if(!c)return;
-        c.width=c.parentElement.clientWidth;c.height=c.parentElement.clientHeight;
-        const cx=c.getContext('2d'),w=c.width,h=c.height,t=performance.now()*0.001;
-        cx.clearRect(0,0,w,h);
-        /* torch glow left + right */
-        const glowL=cx.createRadialGradient(w*0.2,h*0.35,0,w*0.2,h*0.35,w*0.25);
-        glowL.addColorStop(0,'rgba(212,168,87,'+(.15+Math.sin(t*6)*.05)+')');glowL.addColorStop(1,'transparent');
-        cx.fillStyle=glowL;cx.fillRect(0,0,w,h);
-        const glowR=cx.createRadialGradient(w*0.8,h*0.35,0,w*0.8,h*0.35,w*0.25);
-        glowR.addColorStop(0,'rgba(212,168,87,'+(.12+Math.sin(t*7+1)*.05)+')');glowR.addColorStop(1,'transparent');
-        cx.fillStyle=glowR;cx.fillRect(0,0,w,h);
-        /* door arch silhouette */
-        cx.fillStyle='rgba(20,12,5,0.7)';
-        cx.beginPath();cx.moveTo(w*0.35,h);cx.lineTo(w*0.35,h*0.3);
-        cx.quadraticCurveTo(w*0.5,h*0.05,w*0.65,h*0.3);
-        cx.lineTo(w*0.65,h);cx.closePath();cx.fill();
-        /* light through door crack */
-        cx.fillStyle='rgba(255,248,220,'+(.04+Math.sin(t*2)*.02)+')';
-        cx.fillRect(w*0.49,h*0.25,w*0.02,h*0.75);
-        /* dust motes */
-        gateParticles.forEach(p=>{
-            p.y-=p.sp*0.002;if(p.y<0)p.y=1;
-            const px=p.x*w+Math.sin(t*0.5+p.drift)*8;
-            const twinkle=0.2+0.5*Math.sin(t*p.sp*3+p.drift);
-            cx.globalAlpha=twinkle*0.5;
-            cx.fillStyle='rgba(212,168,87,0.7)';
-            cx.beginPath();cx.arc(px,p.y*h,p.s,0,Math.PI*2);cx.fill();
-        });
-        cx.globalAlpha=1;
-        gateAnim=requestAnimationFrame(drawGatePreview);
-    }
-    drawGatePreview();
-
-    /* Fullscreen overlay for The Gate */
-    const gateOverlay=document.createElement('div');
-    gateOverlay.id='gateOverlay';
-    gateOverlay.style.cssText='display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column';
-    gateOverlay.innerHTML=`<div style="position:absolute;top:12px;right:12px;z-index:10000"><button id="gateClose" style="background:rgba(212,168,87,0.12);backdrop-filter:blur(8px);border:1px solid rgba(212,168,87,0.25);color:#d4a857;font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 16px;border-radius:20px;cursor:pointer;letter-spacing:1px">✕ CLOSE</button></div><iframe id="gateFrame" src="" style="width:100%;height:100%;border:none;flex:1" allow="accelerometer;gyroscope"></iframe>`;
-    document.body.appendChild(gateOverlay);
-
-    let gateOpen=false;
-    gateCard.addEventListener('click',()=>{
-        if(gateOpen)return;gateOpen=true;
-        gateOverlay.style.display='flex';
-        document.getElementById('gateFrame').src='king.html';
-        document.body.style.overflow='hidden';
-        if(gateAnim){cancelAnimationFrame(gateAnim);gateAnim=null}
-    });
-    document.getElementById('gateClose').addEventListener('click',()=>{
-        gateOpen=false;
-        document.getElementById('gateFrame').src='';
-        gateOverlay.style.display='none';
-        document.body.style.overflow='';
-        if(!gateAnim)drawGatePreview();
-    });
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&gateOpen)document.getElementById('gateClose').click()});
-
-    grid.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
-})();
-
-/* 7. GALLERY */
-(function(){
-    const items=[
-        {t:'Digital Horizons',c:'A vast digital landscape where light and shadow converge — neural networks painting horizons that exist only in silicon dreams.',cat:'pictures',img:'pictures/100.JPG'},
-        {t:'Ethereal Bloom',c:'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.',cat:'pictures',img:'pictures/101.JPG'},
-        {t:'Neon Reverie',c:'Luminous abstractions pulse with electric energy — the visual echo of data streams flowing through hidden layers.',cat:'pictures',img:'pictures/102.JPG'},
-        {t:'Synthetic Aurora',c:'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.',cat:'pictures',img:'pictures/103.JPG'},
-        {t:'Phantom Architecture',c:'Impossible structures materialize from latent space — buildings that defy physics, rendered in crystalline detail.',cat:'pictures',img:'pictures/104.JPG'},
-        {t:'Quantum Garden',c:'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.',cat:'pictures',img:'pictures/105.JPG'},
-        {t:'Chrome Solitude',c:'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.',cat:'pictures',img:'pictures/106.JPG'},
-        {t:'Prismatic Depths',c:'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.',cat:'pictures',img:'pictures/107.JPG'},
-        {t:'Celestial Drift',c:'Cosmic formations born from generative adversarial networks — nebulae and star fields that never existed, yet feel profoundly real.',cat:'pictures',img:'pictures/108.JPG'},
-    ];
-    const grid=document.getElementById('galleryGrid');
-    function render(f){grid.innerHTML='';const list=f==='all'?items:items.filter(i=>i.cat===f);
-    list.forEach((item,idx)=>{const d=document.createElement('div');d.className='gallery-item cursor-pointer';
-    d.innerHTML=`<div class="gallery-inner rounded-xl overflow-hidden relative" style="border:1px solid rgba(255,255,255,0.04)"><img src="${item.img}" alt="${item.t}" style="width:100%;display:block;object-fit:cover" loading="lazy"><div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px"><div><h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${item.t}</h4><p style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;text-transform:capitalize">${item.cat}</p><span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full →</span></div></div></div>`;
-    d.addEventListener('click',()=>openModal(item));grid.appendChild(d)})}
-    render('all');
-    document.querySelectorAll('.filter-btn').forEach(b=>{b.addEventListener('click',()=>{document.querySelectorAll('.filter-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');render(b.dataset.filter)})});
-    window.openModal=function(item){const mi=document.getElementById('modalImage');mi.style.background='#0D1B2A';mi.innerHTML=`<img src="${item.img}" alt="${item.t}" style="width:100%;height:100%;object-fit:contain;display:block">`;document.getElementById('modalTitle').textContent=item.t;document.getElementById('modalCaption').textContent=item.c;document.getElementById('galleryModal').classList.add('active');document.body.style.overflow='hidden'};
-    window.closeModal=function(){document.getElementById('galleryModal').classList.remove('active');document.body.style.overflow=''};
-})();
-
-/* 8. SOUND LAB */
-(function(){
-    const tracks=[
-        {t:'Cosmic Sea',file:'music/cosmic-sea.mp3'},
-        {t:'Zufall und Notwendigkeit',file:'music/zufall-und-notwendigkeit.mp3'},
-        {t:'Relativity',file:'music/relativity.mp3'},
-        {t:'Tiny Hearts',file:'music/tiny-hearts.mp3'},
-        {t:"Grok's Groove Remix",file:"music/grok.mp3"},
-    ];
-    const ctn=document.getElementById('soundLabTracks');
-    const audios=[];
-    tracks.forEach((tr,idx)=>{
-        const audio=new Audio(tr.file);audio.preload='metadata';audios.push(audio);
-        const d=document.createElement('div');d.className='reveal';
-        d.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 20px;display:flex;align-items:center;gap:14px;transition:border-color 0.3s';
-        d.onmouseenter=()=>d.style.borderColor='rgba(0,240,255,0.15)';d.onmouseleave=()=>{if(activeIdx!==idx)d.style.borderColor='rgba(255,255,255,0.06)'};
-        d.innerHTML=`<button class="snd-play" data-idx="${idx}" style="width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s"><svg class="pi" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="pa" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tr.t}</h4><span class="snd-time" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px">0:00</span></div><div class="snd-bar" style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer"><div class="snd-prog" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#00F0FF,#FFB300);border-radius:2px;transition:width 0.1s linear"></div></div></div><div class="eq-wrap" style="display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0"><div class="eq-bar" style="animation:eqBar1 0.8s ease-in-out infinite paused;height:6px"></div><div class="eq-bar" style="animation:eqBar2 0.6s ease-in-out infinite paused;height:12px"></div><div class="eq-bar" style="animation:eqBar3 0.7s ease-in-out infinite paused;height:4px"></div><div class="eq-bar" style="animation:eqBar1 0.9s ease-in-out infinite paused;height:8px"></div><div class="eq-bar" style="animation:eqBar2 0.55s ease-in-out infinite paused;height:10px"></div></div>`;
-        ctn.appendChild(d);
-    });
-    function fmt(s){if(isNaN(s))return'0:00';const m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec}
-    let activeIdx=null;
-
-    /* highlight active row */
-    function highlightRow(idx){
-        for(let i=0;i<ctn.children.length;i++){
-            const row=ctn.children[i];if(!row)continue;
-            if(i===idx){row.style.borderColor='rgba(0,240,255,0.2)';row.style.background='rgba(0,240,255,0.04)'}
-            else{row.style.borderColor='rgba(255,255,255,0.06)';row.style.background='rgba(13,27,42,0.45)'}
-        }
-    }
-
-    function stopAll(){audios.forEach((a,i)=>{a.pause();const row=ctn.children[i];if(!row)return;row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='paused');row.querySelector('.pi').style.display='';row.querySelector('.pa').style.display='none'});activeIdx=null;highlightRow(-1);plUpdate()}
-
-    function playTrack(idx){
-        if(idx<0||idx>=tracks.length)return;
-        stopAll();
-        const audio=audios[idx],row=ctn.children[idx];
-        audio.play();activeIdx=idx;
-        row.querySelector('.pi').style.display='none';row.querySelector('.pa').style.display='';
-        row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='running');
-        highlightRow(idx);plUpdate();
-    }
-
-    function pauseTrack(){
-        if(activeIdx===null)return;
-        const audio=audios[activeIdx],row=ctn.children[activeIdx];
-        audio.pause();
-        row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='paused');
-        row.querySelector('.pi').style.display='';row.querySelector('.pa').style.display='none';
-        plUpdate();
-    }
-
-    document.querySelectorAll('.snd-play').forEach(btn=>{btn.addEventListener('click',()=>{
-        const idx=parseInt(btn.dataset.idx);
-        if(activeIdx===idx&&!audios[idx].paused){pauseTrack();return}
-        if(activeIdx===idx&&audios[idx].paused){audios[idx].play();const row=ctn.children[idx];row.querySelector('.pi').style.display='none';row.querySelector('.pa').style.display='';row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='running');plUpdate();return}
-        playTrack(idx);
-    })});
-
-    // Seek on progress bar click
-    ctn.querySelectorAll('.snd-bar').forEach((bar,idx)=>{bar.addEventListener('click',e=>{const audio=audios[idx];if(audio.duration){const rect=bar.getBoundingClientRect();audio.currentTime=(e.clientX-rect.left)/rect.width*audio.duration}})});
-
-    // Update progress + time display
-    function tick(){audios.forEach((a,i)=>{const row=ctn.children[i];if(!row)return;const prog=row.querySelector('.snd-prog'),time=row.querySelector('.snd-time');if(a.duration){prog.style.width=(a.currentTime/a.duration*100)+'%';time.textContent=fmt(a.currentTime)+' / '+fmt(a.duration)}});plTickProgress();requestAnimationFrame(tick)}tick();
-
-    // Auto-advance when track ends
-    audios.forEach((a,i)=>{a.addEventListener('ended',()=>{
-        const row=ctn.children[i];
-        row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='paused');
-        row.querySelector('.pi').style.display='';row.querySelector('.pa').style.display='none';
-        row.querySelector('.snd-prog').style.width='0%';
-        /* auto-advance to next track */
-        if(i<tracks.length-1){playTrack(i+1)}
-        else{activeIdx=null;highlightRow(-1);plUpdate()}
-    })});
-
-    /* ═══ PLAYLIST PLAYER ═══ */
-    const plEl=document.getElementById('playlistPlayer');
-    plEl.style.cssText='background:rgba(13,27,42,0.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,240,255,0.1);border-radius:14px;padding:16px 20px;transition:border-color 0.3s';
-    plEl.innerHTML=`
-    <div style="display:flex;align-items:center;gap:14px">
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <button id="plPrev" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s" title="Previous">
-                <svg width="12" height="12" fill="rgba(255,255,255,0.5)" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-            </button>
-            <button id="plPlay" style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,rgba(0,240,255,0.12),rgba(255,179,0,0.08));border:1px solid rgba(0,240,255,0.2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 0 20px rgba(0,240,255,0.08)" title="Play All">
-                <svg id="plPlayIcon" width="16" height="16" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                <svg id="plPauseIcon" width="16" height="16" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-            </button>
-            <button id="plNext" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s" title="Next">
-                <svg width="12" height="12" fill="rgba(255,255,255,0.5)" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-            </button>
-        </div>
-        <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <span id="plTitle" style="font-family:'Playfair Display',serif;font-weight:600;font-size:13px;color:rgba(255,255,255,0.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Play All — ${tracks.length} Tracks</span>
-                <span id="plTime" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px"></span>
-            </div>
-            <div id="plBar" style="position:relative;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer">
-                <div id="plProg" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#00F0FF,#FFB300);border-radius:2px;transition:width 0.1s linear"></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
-                <span id="plTrackNum" style="font-size:9px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.15);letter-spacing:1px"></span>
-                <div style="display:flex;align-items:center;gap:6px">
-                    <svg width="10" height="10" fill="rgba(255,255,255,0.2)" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                    <input id="plVol" type="range" min="0" max="100" value="80" style="width:60px;height:3px;accent-color:#00F0FF;cursor:pointer;opacity:0.5">
-                </div>
-            </div>
-        </div>
-    </div>`;
-
-    /* Playlist player controls */
-    function plUpdate(){
-        const playIcon=document.getElementById('plPlayIcon'),pauseIcon=document.getElementById('plPauseIcon');
-        const titleEl=document.getElementById('plTitle'),numEl=document.getElementById('plTrackNum');
-        if(!playIcon||!pauseIcon||!titleEl||!numEl)return;
-        const isPlaying=activeIdx!==null&&!audios[activeIdx].paused;
-        playIcon.style.display=isPlaying?'none':'';
-        pauseIcon.style.display=isPlaying?'':'none';
-        if(activeIdx!==null){
-            titleEl.textContent=tracks[activeIdx].t;
-            numEl.textContent='Track '+(activeIdx+1)+' / '+tracks.length;
-        }else{
-            titleEl.textContent='Play All — '+tracks.length+' Tracks';
-            numEl.textContent='';
-        }
-    }
-
-    function plTickProgress(){
-        const progEl=document.getElementById('plProg'),timeEl=document.getElementById('plTime');
-        if(!progEl||!timeEl)return;
-        if(activeIdx===null){progEl.style.width='0%';timeEl.textContent='';return}
-        const a=audios[activeIdx];if(!a.duration)return;
-        progEl.style.width=(a.currentTime/a.duration*100)+'%';
-        timeEl.textContent=fmt(a.currentTime)+' / '+fmt(a.duration);
-    }
-
-    document.getElementById('plPlay').addEventListener('click',()=>{
-        if(activeIdx===null){playTrack(0);return}
-        if(audios[activeIdx].paused){audios[activeIdx].play();const row=ctn.children[activeIdx];row.querySelector('.pi').style.display='none';row.querySelector('.pa').style.display='';row.querySelectorAll('.eq-bar').forEach(b=>b.style.animationPlayState='running');plUpdate()}
-        else{pauseTrack()}
-    });
-    document.getElementById('plNext').addEventListener('click',()=>{
-        const next=activeIdx===null?0:(activeIdx+1)%tracks.length;
-        playTrack(next);
-    });
-    document.getElementById('plPrev').addEventListener('click',()=>{
-        if(activeIdx!==null&&audios[activeIdx].currentTime>3){audios[activeIdx].currentTime=0;return}
-        const prev=activeIdx===null?tracks.length-1:(activeIdx-1+tracks.length)%tracks.length;
-        playTrack(prev);
-    });
-    /* Seek on playlist bar */
-    document.getElementById('plBar').addEventListener('click',e=>{
-        if(activeIdx===null)return;
-        const a=audios[activeIdx];if(!a.duration)return;
-        const rect=e.currentTarget.getBoundingClientRect();
-        a.currentTime=(e.clientX-rect.left)/rect.width*a.duration;
-    });
-    /* Volume */
-    document.getElementById('plVol').addEventListener('input',e=>{
-        const vol=e.target.value/100;
-        audios.forEach(a=>a.volume=vol);
-    });
-    /* Set initial volume */
-    audios.forEach(a=>a.volume=0.8);
-
-    /* Hover effect */
-    plEl.onmouseenter=()=>plEl.style.borderColor='rgba(0,240,255,0.2)';
-    plEl.onmouseleave=()=>plEl.style.borderColor='rgba(0,240,255,0.1)';
-
-    ctn.querySelectorAll('.reveal').forEach(el=>revealObs.observe(el));
-    revealObs.observe(plEl);
-})();
-
-/* 9. LIVE MARKETS */
-(function(){
-    const ctn=document.getElementById('marketCards');
-    const assets=[{sym:'BTC',name:'Bitcoin',id:'bitcoin',type:'crypto'},{sym:'ETH',name:'Ethereum',id:'ethereum',type:'crypto'},{sym:'SOL',name:'Solana',id:'solana',type:'crypto'},{sym:'AAPL',name:'Apple',type:'stock',fake:243.67},{sym:'TSLA',name:'Tesla',type:'stock',fake:412.35}];
-    const hist={};assets.forEach(a=>hist[a.sym]=[]);
-    function spark(data,up){if(data.length<2)return'';const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1,w=120,h=36;const pts=data.map((v,i)=>`${(i/(data.length-1))*w},${h-((v-mn)/rng)*h*.8-h*.1}`);const col=up?'#22c55e':'#ef4444',colA=up?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)';return`<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:36px;display:block" preserveAspectRatio="none"><polygon points="${[...pts,`${w},${h}`,`0,${h}`].join(' ')}" fill="${colA}"/><polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`}
-    function render(prices){ctn.innerHTML='';assets.forEach(a=>{const p=prices[a.sym]||0,h=hist[a.sym],prev=h.length>1?h[h.length-2]:p,chg=prev?((p-prev)/prev*100):0,up=chg>=0;
-    const card=document.createElement('div');card.style.cssText='background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:14px;transition:border-color 0.3s';
-    card.onmouseenter=()=>card.style.borderColor='rgba(0,240,255,0.15)';card.onmouseleave=()=>card.style.borderColor='rgba(255,255,255,0.06)';
-    card.innerHTML=`<div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:10px"><div><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.35)">${a.sym}</span><h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:13px;color:rgba(255,255,255,0.85)">${a.name}</h4></div><span style="font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:10px;background:${up?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)'};color:${up?'#22c55e':'#ef4444'}">${up?'▲':'▼'} ${Math.abs(chg).toFixed(2)}%</span></div><div style="font-size:18px;font-family:'JetBrains Mono',monospace;font-weight:700;color:${up?'#22c55e':'#ef4444'};margin-bottom:10px">$${p.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>${spark(h,up)}`;
-    ctn.appendChild(card)})}
-    async function fetchPrices(){const prices={};try{const r=await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd');if(r.ok){const d=await r.json();if(d.bitcoin)prices.BTC=d.bitcoin.usd;if(d.ethereum)prices.ETH=d.ethereum.usd;if(d.solana)prices.SOL=d.solana.usd}}catch(e){}
-    if(!prices.BTC)prices.BTC=95000+(Math.random()-.5)*2000;if(!prices.ETH)prices.ETH=3200+(Math.random()-.5)*100;if(!prices.SOL)prices.SOL=190+(Math.random()-.5)*10;
-    assets.filter(a=>a.type==='stock').forEach(a=>{const last=hist[a.sym].length?hist[a.sym][hist[a.sym].length-1]:a.fake;prices[a.sym]=last+(Math.random()-.5)*last*.004});
-    assets.forEach(a=>{if(prices[a.sym]){hist[a.sym].push(prices[a.sym]);if(hist[a.sym].length>20)hist[a.sym].shift()}});render(prices)}
-    fetchPrices();setInterval(fetchPrices,30000);
-})();
-
-/* 10. INSPIRATION */
-
-/* 11. BINARY FOOTER */
-(function(){let s='';for(let i=0;i<800;i++)s+=Math.round(Math.random());document.getElementById('binaryFooter').textContent=s})();
-
-/* 12. SMOOTH SCROLL */
-document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();const t=document.querySelector(a.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'})})});
-
-/* 13. ESC closes modals */
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal()}});
-
-/* 14. COOKIE CONSENT BANNER (EU only, GDPR-compliant) */
-(function(){
-    const CONSENT_KEY='bitbi_cookie_consent';
-    const CONSENT_VERSION='1';
-
-    function getConsent(){
-        try{const c=JSON.parse(localStorage.getItem(CONSENT_KEY));if(c&&c.v===CONSENT_VERSION)return c}catch(e){}
-        return null;
-    }
-    function saveConsent(prefs){
-        const data={v:CONSENT_VERSION,ts:Date.now(),necessary:true,analytics:!!prefs.analytics,marketing:!!prefs.marketing};
-        localStorage.setItem(CONSENT_KEY,JSON.stringify(data));
-        applyConsent(data);
-    }
-    function applyConsent(c){
-        document.dispatchEvent(new CustomEvent('cookieConsent',{detail:c}));
-        /* Control YouTube iframe based on marketing consent */
-        const frame=document.getElementById('ytFrame');
-        const placeholder=document.getElementById('ytPlaceholder');
-        if(frame&&placeholder){
-            if(c.marketing){
-                frame.src=frame.getAttribute('data-src');
-                frame.style.display='';
-                placeholder.style.display='none';
-            }else{
-                frame.removeAttribute('src');
-                frame.style.display='none';
-                placeholder.style.display='flex';
-            }
-        }
-    }
-
-    function createBanner(){
-        const overlay=document.createElement('div');
-        overlay.id='cookieBanner';
-        overlay.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:16px;pointer-events:none;';
-        overlay.innerHTML=`
-        <div style="max-width:680px;margin:0 auto;background:rgba(13,27,42,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(0,240,255,0.12);border-radius:16px;padding:20px 24px;pointer-events:auto;box-shadow:0 -4px 40px rgba(0,0,0,0.5)">
-            <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
-                <svg style="width:20px;height:20px;flex-shrink:0;margin-top:2px;color:rgba(0,240,255,0.7)" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                <div>
-                    <h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:15px;color:rgba(255,255,255,0.9);margin:0 0 6px 0">Cookie Preferences</h3>
-                    <p style="font-size:12px;color:rgba(255,255,255,0.45);line-height:1.5;margin:0">We use cookies to enhance your experience. Necessary cookies are always active. You can choose to enable analytics and marketing cookies. <a href="privacy.html" style="color:rgba(0,240,255,0.6);text-decoration:underline">Privacy Policy</a></p>
-                </div>
-            </div>
-            <div id="cookieDetails" style="display:none;margin-bottom:14px;padding:12px 16px;background:rgba(0,0,0,0.2);border-radius:10px;font-size:12px">
-                <label style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.5);margin-bottom:8px;cursor:default">
-                    <input type="checkbox" checked disabled style="accent-color:#00F0FF;width:14px;height:14px">
-                    <span><strong style="color:rgba(255,255,255,0.7)">Necessary</strong> — Required for the website to function (consent storage)</span>
-                </label>
-                <label style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.5);margin-bottom:8px;cursor:pointer">
-                    <input type="checkbox" id="ckAnalytics" style="accent-color:#00F0FF;width:14px;height:14px">
-                    <span><strong style="color:rgba(255,255,255,0.7)">Analytics</strong> — Performance measurement (Cloudflare RUM)</span>
-                </label>
-                <label style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.5);cursor:pointer">
-                    <input type="checkbox" id="ckMarketing" style="accent-color:#00F0FF;width:14px;height:14px">
-                    <span><strong style="color:rgba(255,255,255,0.7)">Marketing</strong> — Embedded content (YouTube)</span>
-                </label>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px">
-                <button id="ckAcceptAll" style="flex:1;min-width:120px;padding:9px 16px;border-radius:10px;border:none;background:rgba(0,240,255,0.12);color:#00F0FF;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s">Accept All</button>
-                <button id="ckSavePrefs" style="display:none;flex:1;min-width:120px;padding:9px 16px;border-radius:10px;border:none;background:rgba(0,240,255,0.12);color:#00F0FF;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s">Save Preferences</button>
-                <button id="ckCustomize" style="flex:1;min-width:120px;padding:9px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:rgba(255,255,255,0.5);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s">Customize</button>
-                <button id="ckRejectAll" style="flex:1;min-width:120px;padding:9px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:rgba(255,255,255,0.5);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s">Reject All</button>
-            </div>
-        </div>`;
-        document.body.appendChild(overlay);
-
-        const details=overlay.querySelector('#cookieDetails');
-        const saveBtn=overlay.querySelector('#ckSavePrefs');
-        const customBtn=overlay.querySelector('#ckCustomize');
-
-        overlay.querySelector('#ckAcceptAll').addEventListener('click',()=>{
-            saveConsent({analytics:true,marketing:true});removeBanner();
-        });
-        overlay.querySelector('#ckRejectAll').addEventListener('click',()=>{
-            saveConsent({analytics:false,marketing:false});removeBanner();
-        });
-        customBtn.addEventListener('click',()=>{
-            const open=details.style.display!=='none';
-            details.style.display=open?'none':'block';
-            saveBtn.style.display=open?'none':'inline-block';
-            customBtn.textContent=open?'Customize':'Hide Details';
-        });
-        saveBtn.addEventListener('click',()=>{
-            saveConsent({
-                analytics:document.getElementById('ckAnalytics').checked,
-                marketing:document.getElementById('ckMarketing').checked
-            });
-            removeBanner();
-        });
-    }
-    function removeBanner(){
-        const b=document.getElementById('cookieBanner');
-        if(b)b.remove();
-    }
-    function showBanner(){
-        removeBanner();
-        createBanner();
-        /* Populate checkboxes with existing prefs if reopened */
-        const c=getConsent();
-        if(c){
-            const a=document.getElementById('ckAnalytics'),m=document.getElementById('ckMarketing');
-            if(a)a.checked=c.analytics;
-            if(m)m.checked=c.marketing;
-        }
-    }
-
-    /* "Enable Marketing Cookies" button inside YouTube placeholder */
-    const ytEnableBtn=document.getElementById('ytEnableBtn');
-    if(ytEnableBtn){
-        ytEnableBtn.addEventListener('click',function(){showBanner()});
-    }
-
-    /* Footer "Cookie Settings" link */
-    const settingsLink=document.getElementById('openCookieSettings');
-    if(settingsLink){
-        settingsLink.addEventListener('click',function(e){e.preventDefault();showBanner()});
-    }
-
-    /* Detect EU via timezone heuristic (no external API, instant, privacy-friendly) */
-    function isLikelyEU(){
-        try{
-            const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';
-            const euZones=['Europe/','Atlantic/Canary','Atlantic/Faroe','Atlantic/Madeira','Atlantic/Reykjavik'];
-            return euZones.some(z=>tz.startsWith(z));
-        }catch(e){return true}/* Default to showing banner if detection fails */
-    }
-
-    /* Show banner only if EU and no consent stored */
-    if(isLikelyEU()&&!getConsent()){
-        showBanner();
-    }
-    /* Always apply stored consent on load, or block if no consent */
-    const stored=getConsent();
-    if(stored){
-        applyConsent(stored);
-    }else{
-        /* No consent yet — block YouTube iframe by default */
-        applyConsent({necessary:true,analytics:false,marketing:false});
-    }
-})();
-</script>
+<script type="module" src="js/pages/index/main.js"></script>
 </body>
 </html>

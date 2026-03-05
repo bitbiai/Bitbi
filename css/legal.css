@@ -1,13 +1,58 @@
 /* ============================================================
    BITBI — Legal Page Styles
-   Used by: privacy.html
+   @layer pages — policy-section styling
+   Used by: privacy.html, imprint.html
    ============================================================ */
 
-.policy-section h3 { font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 16px; color: rgba(255,255,255,0.85); margin-bottom: 12px; }
-.policy-section p, .policy-section li { color: rgba(255,255,255,0.45); font-size: 13px; line-height: 1.75; }
-.policy-section p + p { margin-top: 10px; }
-.policy-section ul { list-style: none; padding: 0; margin-top: 8px; }
-.policy-section ul li { padding-left: 16px; position: relative; margin-bottom: 4px; }
-.policy-section ul li::before { content: ''; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; }
-.policy-section a { color: var(--color-cyan); transition: color 0.3s; }
-.policy-section a:hover { color: rgba(0,240,255,0.7); }
+@layer pages {
+    .policy-section {
+        h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.85);
+            margin-block-end: var(--space-3);
+        }
+
+        p, li {
+            color: rgba(255, 255, 255, 0.45);
+            font-size: 13px;
+            line-height: 1.75;
+        }
+
+        p + p {
+            margin-block-start: 10px;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin-block-start: var(--space-2);
+        }
+
+        ul li {
+            padding-inline-start: var(--space-4);
+            position: relative;
+            margin-block-end: var(--space-1);
+
+            &::before {
+                content: '';
+                position: absolute;
+                inset-inline-start: 0;
+                inset-block-start: 9px;
+                inline-size: 5px;
+                block-size: 5px;
+                border-radius: var(--radius-full);
+            }
+        }
+
+        a {
+            color: var(--color-cyan);
+            transition: color 0.3s var(--ease-default);
+
+            &:hover {
+                color: rgba(0, 240, 255, 0.7);
+            }
+        }
+    }
+}
