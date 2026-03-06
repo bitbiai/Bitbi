@@ -3,15 +3,15 @@
    ============================================================ */
 
 const items = [
-    { t: 'Digital Horizons', c: 'A vast digital landscape where light and shadow converge \u2014 neural networks painting horizons that exist only in silicon dreams.', cat: 'pictures', img: 'pictures/100.JPG' },
-    { t: 'Ethereal Bloom', c: 'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.', cat: 'pictures', img: 'pictures/101.JPG' },
-    { t: 'Neon Reverie', c: 'Luminous abstractions pulse with electric energy \u2014 the visual echo of data streams flowing through hidden layers.', cat: 'pictures', img: 'pictures/102.JPG' },
-    { t: 'Synthetic Aurora', c: 'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.', cat: 'pictures', img: 'pictures/103.JPG' },
-    { t: 'Phantom Architecture', c: 'Impossible structures materialize from latent space \u2014 buildings that defy physics, rendered in crystalline detail.', cat: 'pictures', img: 'pictures/104.JPG' },
-    { t: 'Quantum Garden', c: 'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.', cat: 'pictures', img: 'pictures/105.JPG' },
-    { t: 'Chrome Solitude', c: 'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.', cat: 'pictures', img: 'pictures/106.JPG' },
-    { t: 'Prismatic Depths', c: 'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.', cat: 'pictures', img: 'pictures/107.JPG' },
-    { t: 'Celestial Drift', c: 'Cosmic formations born from generative adversarial networks \u2014 nebulae and star fields that never existed, yet feel profoundly real.', cat: 'pictures', img: 'pictures/108.JPG' },
+    { t: 'Digital Horizons', c: 'A vast digital landscape where light and shadow converge \u2014 neural networks painting horizons that exist only in silicon dreams.', cat: 'pictures', img: '/assets/images/100.JPG' },
+    { t: 'Ethereal Bloom', c: 'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.', cat: 'pictures', img: '/assets/images/101.JPG' },
+    { t: 'Neon Reverie', c: 'Luminous abstractions pulse with electric energy \u2014 the visual echo of data streams flowing through hidden layers.', cat: 'pictures', img: '/assets/images/102.JPG' },
+    { t: 'Synthetic Aurora', c: 'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.', cat: 'pictures', img: '/assets/images/103.JPG' },
+    { t: 'Phantom Architecture', c: 'Impossible structures materialize from latent space \u2014 buildings that defy physics, rendered in crystalline detail.', cat: 'pictures', img: '/assets/images/104.JPG' },
+    { t: 'Quantum Garden', c: 'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.', cat: 'pictures', img: '/assets/images/105.JPG' },
+    { t: 'Chrome Solitude', c: 'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.', cat: 'pictures', img: '/assets/images/106.JPG' },
+    { t: 'Prismatic Depths', c: 'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.', cat: 'pictures', img: '/assets/images/107.JPG' },
+    { t: 'Celestial Drift', c: 'Cosmic formations born from generative adversarial networks \u2014 nebulae and star fields that never existed, yet feel profoundly real.', cat: 'pictures', img: '/assets/images/108.JPG' },
 ];
 
 let focusTrapCleanup = null;

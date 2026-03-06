@@ -17,18 +17,24 @@ Bitbi is a static portfolio website showcasing digital art and experimental web 
 - `skyfall.html` — Arcade-style falling objects game (Canvas API)
 - `privacy.html`, `imprint.html` — Legal/GDPR pages
 
-### Shared Modules (`js/shared/`)
-ES6 modules imported via `<script type="module">` in HTML pages:
+### JavaScript Structure
+**Shared modules** (`js/shared/`) — reusable ES6 modules imported across pages:
 - `cookie-consent.js` — GDPR cookie banner (EU timezone detection, localStorage, Cloudflare RUM gating)
 - `particles.js` — Configurable hero canvas particle system
 - `scroll-reveal.js` — IntersectionObserver scroll animations
 - `binary-footer.js` — Random binary string generator for footers
 - `binary-rain.js` — Matrix-style falling binary rain effect
 
+**Page modules** (`js/pages/<page>/`) — page-specific logic, e.g. `js/pages/index/main.js` is the entry point for `index.html`, importing both shared modules and page-specific modules (navbar, gallery, soundlab, markets, experiments, smooth-scroll).
+
+Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>` blocks rather than the module system.
+
 ### Styling
 - **Tailwind CSS** loaded from CDN (not installed locally)
-- Custom CSS in `css/base.css` (shared), `css/index.css`, `css/legal.css`
-- CSS custom properties define the color palette: `--color-midnight`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
+- CSS uses `@layer` cascade layers: `tokens` → `reset` → `components` → `utilities`
+- `css/tokens.css` — design tokens using `@property` and oklch colors with hex fallbacks
+- `css/base.css` (shared), `css/index.css`, `css/legal.css`, `css/reset.css`, `css/components.css`, `css/utilities.css`
+- Color palette: `--color-midnight`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
 
 ### Third-Party Dependencies (all CDN-loaded)
