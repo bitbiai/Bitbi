@@ -244,15 +244,44 @@
                 <p class="section__desc">Want to collaborate or just say hi? Drop a message below.</p>
             </div>
         </div>
-        <form class="glass rounded-2xl contact-form reveal" style="padding:var(--space-6)" onsubmit="event.preventDefault();const b=this.querySelector('button[type=submit]');b.textContent='Sent! \u2728';setTimeout(()=>b.textContent='Send Message',2500)">
+        <form id="contactForm" class="glass rounded-2xl contact-form reveal" style="padding:var(--space-6)">
             <div class="grid-form">
-                <input type="text" placeholder="Name" required class="form-input" autocomplete="name">
-                <input type="email" placeholder="Email" required class="form-input" autocomplete="email">
+                <input type="text" name="name" placeholder="Name" required class="form-input" autocomplete="name">
+                <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
             </div>
-            <input type="text" placeholder="Subject" class="form-input">
-            <textarea rows="5" placeholder="Your message..." class="form-input form-textarea"></textarea>
+            <input type="text" name="subject" placeholder="Subject" class="form-input">
+            <textarea name="message" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
         </form>
+        <script>
+        document.getElementById('contactForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = this.querySelector('button[type=submit]');
+            const orig = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            try {
+                const res = await fetch('https://contact.bitbi.ai/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: this.name.value,
+                        email: this.email.value,
+                        subject: this.subject.value,
+                        message: this.message.value
+                    })
+                });
+                if (!res.ok) throw new Error('Failed');
+                btn.textContent = 'Sent!';
+                this.reset();
+                setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+            } catch {
+                btn.textContent = 'Error - try again';
+                btn.disabled = false;
+                setTimeout(() => { btn.textContent = orig; }, 3000);
+            }
+        });
+        </script>
     </div>
 </section>
 
