@@ -45,11 +45,14 @@ Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>`
 
 ## Development
 
-No build tools, package manager, test framework, or linter are configured. Development workflow:
+No build tools, test framework, or linter are configured. Development workflow:
 
 1. Edit HTML/CSS/JS files directly
-2. Open in browser to test locally
+2. `npm run dev` — starts a local server on port 3000 (`npx serve -l 3000`)
 3. Commit and push to `main` for automatic GitHub Pages deployment
+
+### Cloudflare Worker
+`worker/contact-worker.js` — Contact form email handler, deployed separately on Cloudflare Workers (not part of the static site). Uses Resend API with `RESEND_API_KEY` secret.
 
 ## Key Conventions
 
