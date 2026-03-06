@@ -956,7 +956,7 @@
         inline-size: 100vw;
         block-size: 100vh;
         object-fit: contain;
-        opacity: 0.13;
+        opacity: 0.18;
         filter: blur(30px);
         user-select: none;
         -webkit-user-drag: none;
