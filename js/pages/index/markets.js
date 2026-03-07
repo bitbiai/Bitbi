@@ -67,5 +67,4 @@ export function initMarkets() {
     }
 
     fetchCoins();
-    setInterval(fetchCoins, 60000);
 }
