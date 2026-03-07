@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/legal.css">
     <link rel="stylesheet" href="css/utilities.css">
+    <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
@@ -175,11 +176,11 @@
     import { initScrollReveal } from './js/shared/scroll-reveal.js';
     import { initCookieConsent } from './js/shared/cookie-consent.js';
 
-    initParticles('heroCanvas');
-    initBinaryRain('binaryRain');
-    initBinaryFooter('binaryFooter');
-    initScrollReveal();
-    initCookieConsent();
+    try { initParticles('heroCanvas'); } catch(e) { console.warn(e); }
+    try { initBinaryRain('binaryRain'); } catch(e) { console.warn(e); }
+    try { initBinaryFooter('binaryFooter'); } catch(e) { console.warn(e); }
+    try { initScrollReveal(); } catch(e) { console.warn(e); }
+    try { initCookieConsent(); } catch(e) { console.warn(e); }
 </script>
 </body>
 </html>

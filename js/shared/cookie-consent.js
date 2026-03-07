@@ -23,7 +23,7 @@ function saveConsent(prefs, onConsent) {
         analytics: !!prefs.analytics,
         marketing: !!prefs.marketing
     };
-    localStorage.setItem(CONSENT_KEY, JSON.stringify(data));
+    try { localStorage.setItem(CONSENT_KEY, JSON.stringify(data)); } catch { /* storage unavailable */ }
     onConsent?.(data);
     document.dispatchEvent(new CustomEvent('cookieConsent', { detail: data }));
 }

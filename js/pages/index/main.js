@@ -16,41 +16,42 @@ import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
 /* Hero particles (index uses more particles, nebulae, connections) */
-initParticles('heroCanvas', {
+try { initParticles('heroCanvas', {
     maxParticles: 100,
     particleDensity: 15000,
     nebulaCount: 7,
     showConnections: true,
     connectionDistance: 280,
-});
+}); } catch (e) { console.warn('particles:', e); }
 
 /* Binary rain (index uses more columns) */
-initBinaryRain('binaryRain', {
+try { initBinaryRain('binaryRain', {
     maxCols: 30,
     colDivisor: 40,
     charCount: 40,
     minDuration: 14,
     durationRange: 18,
-});
+}); } catch (e) { console.warn('binaryRain:', e); }
 
 /* Navbar */
-initNavbar();
-initMobileNav();
+try { initNavbar(); } catch (e) { console.warn('navbar:', e); }
+try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
 
 /* Scroll reveal */
-const revealObserver = initScrollReveal();
+let revealObserver = null;
+try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollReveal:', e); }
 
 /* Sections */
-initExperiments(revealObserver);
-initGallery();
-initSoundLab(revealObserver);
-initMarkets();
+try { initExperiments(revealObserver); } catch (e) { console.warn('experiments:', e); }
+try { initGallery(); } catch (e) { console.warn('gallery:', e); }
+try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }
+try { initMarkets(); } catch (e) { console.warn('markets:', e); }
 
 /* Binary footer */
-initBinaryFooter('binaryFooter');
+try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn('binaryFooter:', e); }
 
 /* Smooth scroll */
-initSmoothScroll();
+try { initSmoothScroll(); } catch (e) { console.warn('smoothScroll:', e); }
 
 /* Cookie consent with YouTube control */
 function applyConsent(c) {
@@ -69,7 +70,7 @@ function applyConsent(c) {
     }
 }
 
-initCookieConsent({
+try { initCookieConsent({
     onConsent: applyConsent,
     ytEnableBtnId: 'ytEnableBtn',
-});
+}); } catch (e) { console.warn('cookieConsent:', e); }
