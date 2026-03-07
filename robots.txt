@@ -1,0 +1,35 @@
+# =========================================================
+# robots.txt for https://bitbi.ai
+#
+# This file tells web crawlers and AI bots which parts of
+# the site they are allowed to access. All content on this
+# site is publicly available and crawling is welcome.
+#
+# Sitemap location is provided below for discovery.
+# =========================================================
+
+# All standard crawlers
+User-agent: *
+Allow: /
+
+# AI search and training bots — explicitly welcome
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+# Sitemap
+Sitemap: https://bitbi.ai/sitemap.xml
