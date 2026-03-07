@@ -17,8 +17,11 @@
 - Cookie consent banner UI (`js/shared/cookie-consent.js`) was already narrow (only mentions "consent storage") — no change needed there.
 
 ### 3. CoinGecko — Accurate Proxy Description (Sections 10 + 12)
-- **Section 10 (Live Markets):** Already correctly described the proxy architecture. No change needed.
-- **Section 12 (International Transfers):** Removed the misleading SCCs reference for CoinGecko. Now clarifies that CoinGecko is solely a content data source for server-side retrieval and is not a recipient of personal visitor data under GDPR.
+- **Section 10 (Live Markets):** Removed unverifiable entity designation "CoinGecko, Inc., USA". CoinGecko is now referenced neutrally by service name only.
+- **Section 12 (International Transfers):** CoinGecko entry removed entirely. Since no personal visitor data is transmitted to CoinGecko (server-side proxy only), listing it as a data transfer recipient was misleading.
+
+### 4. Typo Fix (Section 7 DE)
+- Fixed "Einschleuseungsversuche" → "Einschleusungsversuche" in the German RUM passage.
 
 ## Technical Verification
 - `worker/crypto-worker.js`: Confirmed — Worker sends only `Accept: application/json` header to CoinGecko API. No client headers, IP addresses, or personal data are forwarded.
