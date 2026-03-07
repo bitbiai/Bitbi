@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## PERMANENT PROJECT RULES – ALWAYS FOLLOW THESE FIRST
+
+From now on, for this entire project:
+- ALWAYS prioritize self-hosted content first.
+- Never suggest or use external CDNs (Google Fonts, jsDelivr, cdnjs, unpkg, aframe.io, etc.) if self-hosting is technically possible.
+- Always prefer local files in the /assets/ folder (fonts in /assets/fonts/, JS libraries in /assets/js/, images in /assets/images/, etc.).
+- If a library like A-Frame, Three.js or any other asset is needed, instruct me to download and self-host it locally — never link to a CDN.
+- Only use external sources when it is technically impossible to self-host (e.g. Resend API or payment providers).
+- This rule overrides everything else and applies permanently to all future work on this project.
+
 ## Project Overview
 
 Bitbi is a static portfolio website showcasing digital art and experimental web projects. It's hosted on GitHub Pages with automatic deployment via GitHub Actions on push to `main`.
