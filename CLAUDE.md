@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 From now on, for this entire project:
 - ALWAYS prioritize self-hosted content first.
 - Never suggest or use external CDNs (Google Fonts, jsDelivr, cdnjs, unpkg, aframe.io, etc.) if self-hosting is technically possible.
-- Always prefer local files in the /assets/ folder (fonts in /assets/fonts/, JS libraries in /assets/js/, images in /assets/images/, etc.).
+- Always prefer local files (fonts in `fonts/`, JS libraries in `js/vendor/`, images in `assets/images/`, favicons in `assets/favicons/`).
 - If a library like A-Frame, Three.js or any other asset is needed, instruct me to download and self-host it locally — never link to a CDN.
 - Only use external sources when it is technically impossible to self-host (e.g. Resend API or payment providers).
 - This rule overrides everything else and applies permanently to all future work on this project.
@@ -47,11 +47,17 @@ Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>`
 - Color palette: `--color-midnight`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
 
-### Third-Party Dependencies (all CDN-loaded)
-- Tailwind CSS v3+
-- A-Frame.io (VR/WebXR in cosmic.html)
-- Google Fonts
+### Self-Hosted Vendor Libraries (`js/vendor/`)
+- `aframe-1.5.0.min.js` — A-Frame WebXR framework (used by `cosmic.html`)
+- `aframe-extras-7.2.0.min.js` — A-Frame movement/animation extras (used by `cosmic.html`)
+- `three-r128.min.js` — Three.js 3D library (used by `king.html`)
+
+### Remaining External Dependencies (CDN-loaded)
+- Tailwind CSS v3+ (CDN)
 - Cloudflare RUM (consent-gated analytics)
+
+### Self-Hosted Fonts (`fonts/`)
+All fonts are self-hosted as woff2 files — no Google Fonts CDN connections. Includes Inter, Playfair Display, JetBrains Mono, Cinzel Decorative, MedievalSharp, Orbitron, Exo 2.
 
 ## Development
 
