@@ -3,15 +3,15 @@
    ============================================================ */
 
 const items = [
-    { t: 'Digital Horizons', c: 'A vast digital landscape where light and shadow converge \u2014 neural networks painting horizons that exist only in silicon dreams.', cat: 'pictures', img: '/assets/images/100.JPG' },
-    { t: 'Ethereal Bloom', c: 'Organic forms emerge from algorithmic chaos. Generative petals unfold in a dance between mathematics and nature.', cat: 'creepy', img: '/assets/images/101.JPG' },
-    { t: 'Neon Reverie', c: 'Luminous abstractions pulse with electric energy \u2014 the visual echo of data streams flowing through hidden layers.', cat: 'creepy', img: '/assets/images/102.JPG' },
-    { t: 'Synthetic Aurora', c: 'Chromatic waves ripple across a synthetic sky. AI reimagines the northern lights as pure digital poetry.', cat: 'creepy', img: '/assets/images/103.JPG' },
-    { t: 'Phantom Architecture', c: 'Impossible structures materialize from latent space \u2014 buildings that defy physics, rendered in crystalline detail.', cat: 'creepy', img: '/assets/images/104.JPG' },
-    { t: 'Quantum Garden', c: 'A surreal garden where fractal flowers bloom in quantum superposition. Every petal holds infinite variations.', cat: 'creepy', img: '/assets/images/105.JPG' },
-    { t: 'Chrome Solitude', c: 'A solitary figure rendered in liquid chrome reflects distorted worlds. Portrait of consciousness in the machine age.', cat: 'creepy', img: '/assets/images/106.JPG' },
-    { t: 'Prismatic Depths', c: 'Deep-sea visions reimagined through diffusion models. Bioluminescent creatures swim through oceans of noise.', cat: 'creepy', img: '/assets/images/107.JPG' },
-    { t: 'Celestial Drift', c: 'Cosmic formations born from generative adversarial networks \u2014 nebulae and star fields that never existed, yet feel profoundly real.', cat: 'experimental', img: '/assets/images/108.JPG' },
+    { t: 'The Letter B Goes Interstellar', c: 'A glowing glass letter B floats in deep space, orbited by rings of binary code and neon data streams \u2014 because even the alphabet deserves its own solar system.', cat: 'pictures', img: '/assets/images/100.JPG' },
+    { t: 'Coral Reef Nightmare Buddy', c: 'A chubby blue-and-purple blob creature with mismatched googly eyes, an open mouth full of confusion, and way too many orange tentacles \u2014 sitting on a mossy rock like it owns the place.', cat: 'creepy', img: '/assets/images/101.JPG' },
+    { t: 'The Friendliest Virus You Ever Saw', c: 'A round, spiky, ice-blue germ ball with three shiny black eyes and a massive toothy grin, floating in a teal abyss surrounded by its equally cheerful germ friends. Disturbingly adorable.', cat: 'creepy', img: '/assets/images/102.JPG' },
+    { t: 'Angry Ant from Hell', c: 'A massive red ant-like beast with glowing crimson eyes, gnarly fangs, and twitching antennae perches on a mossy branch in a jungle \u2014 looking personally offended that you exist.', cat: 'creepy', img: '/assets/images/103.JPG' },
+    { t: 'Swamp Thing\u2019s Ugly Cousin', c: 'A slimy green amphibious monstrosity crawls out of murky swamp water with fangs bared and reddish tentacles dangling from its mouth. Looks like it just ate something it regrets.', cat: 'creepy', img: '/assets/images/104.JPG' },
+    { t: 'Mossgirl Stares Into Your Soul', c: 'Close-up portrait of a face half-consumed by green moss and twisted branches, with piercing icy blue eyes peering out. She is judging you, and you deserve it.', cat: 'creepy', img: '/assets/images/105.JPG' },
+    { t: 'Monday Morning Demon', c: 'A grey-skinned, red-eyed demon with massive curved horns and a permanent scowl sits among dead tree branches wearing a button-up shirt. Corporate evil has never looked this literal.', cat: 'creepy', img: '/assets/images/106.JPG' },
+    { t: 'Entomologist\u2019s Fever Dream', c: 'A furry blue moth-creature with red eyes and fangs stands center stage, surrounded by dozens of meticulously arranged bizarre insects, spiders, and spiky orbs on a teal background \u2014 like a natural history museum designed by a madman.', cat: 'creepy', img: '/assets/images/107.JPG' },
+    { t: 'Planetary Meltdown in Green', c: 'A massive green planet crumbles apart in a blinding explosion of sparks, flying rocks, and cosmic debris \u2014 captured in that split second where everything goes spectacularly wrong.', cat: 'experimental', img: '/assets/images/108.JPG' },
 ];
 
 let focusTrapCleanup = null;
@@ -79,6 +79,9 @@ export function initGallery() {
         document.body.style.overflow = '';
         if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
     };
+
+    const closeBtn = modal.querySelector('.modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => window.closeModal());
 
     modal.addEventListener('click', (e) => {
         if (e.target === modal) window.closeModal();

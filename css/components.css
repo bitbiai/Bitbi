@@ -985,21 +985,26 @@
 
     .modal-content {
         position: relative;
-        max-inline-size: var(--container-text);
+        max-inline-size: min(96vw, 1100px);
         inline-size: 100%;
         margin-inline: var(--space-5);
+        max-block-size: 96vh;
+        overflow-y: auto;
     }
 
     .modal-close {
         position: absolute;
-        inset-block-start: -2.5rem;
+        inset-block-start: -2.75rem;
         inset-inline-end: 0;
-        color: rgba(255, 255, 255, 0.5);
-        font-size: 0.875rem;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 1rem;
+        font-weight: 600;
         transition: color 0.3s var(--ease-default);
         cursor: pointer;
         background: none;
         border: none;
+        padding: 0.5rem 0.75rem;
+        z-index: 10;
 
         &:hover { color: var(--color-white); }
     }
