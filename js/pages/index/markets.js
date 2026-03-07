@@ -43,11 +43,9 @@ export function initMarkets() {
         });
     }
 
-    const COIN_IDS = 'bitcoin,ethereum,binancecoin,solana,world-liberty-financial';
-
     async function fetchCoins() {
         try {
-            const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COIN_IDS}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`);
+            const r = await fetch(`/api/crypto`);
             if (r.ok) {
                 const coins = await r.json();
                 if (Array.isArray(coins) && coins.length) {
