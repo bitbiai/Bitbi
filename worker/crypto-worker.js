@@ -4,7 +4,7 @@
  *
  * SETUP:
  * 1. Deploy this worker on Cloudflare Workers
- * 2. Add route: api.bitbi.ai/crypto -> this worker
+ * 2. Add route: api.bitbi.ai -> this worker
  * 3. In DNS, add a AAAA record for "api" pointing to 100:: (proxied)
  */
 

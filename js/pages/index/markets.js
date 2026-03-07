@@ -45,7 +45,7 @@ export function initMarkets() {
 
     async function fetchCoins() {
         try {
-            const r = await fetch(`https://api.bitbi.ai/crypto`);
+            const r = await fetch(`https://api.bitbi.ai`);
             if (r.ok) {
                 const coins = await r.json();
                 if (Array.isArray(coins) && coins.length) {
