@@ -1,0 +1,132 @@
+/* ============================================================
+   Standalone Cookie Banner Styles
+   For pages that don't use tokens.css (game pages, cosmic).
+   Values are hardcoded equivalents of the design tokens.
+   ============================================================ */
+
+.cookie-banner {
+    position: fixed;
+    inset-block-end: 0;
+    inset-inline: 0;
+    z-index: 99999;
+    padding: 16px;
+    pointer-events: none;
+}
+
+.cookie-banner__card {
+    max-inline-size: 680px;
+    margin-inline: auto;
+    background: rgba(13, 27, 42, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    border-radius: 16px;
+    padding: 20px 24px;
+    pointer-events: auto;
+    box-shadow: 0 -4px 40px rgba(0, 0, 0, 0.5);
+}
+
+.cookie-banner__header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-block-end: 12px;
+}
+
+.cookie-banner__icon {
+    inline-size: 20px;
+    block-size: 20px;
+    flex-shrink: 0;
+    margin-block-start: 2px;
+    color: rgba(0, 240, 255, 0.7);
+}
+
+.cookie-banner__title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 6px 0;
+}
+
+.cookie-banner__desc {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.cookie-banner__desc a {
+    color: rgba(0, 240, 255, 0.6);
+    text-decoration: underline;
+}
+
+.cookie-banner__details {
+    display: none;
+    margin-block-end: 12px;
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    font-size: 0.75rem;
+}
+
+.cookie-banner__details--open {
+    display: block;
+}
+
+.cookie-banner__label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-block-end: 8px;
+    cursor: pointer;
+}
+
+.cookie-banner__label:last-child {
+    margin-block-end: 0;
+}
+
+.cookie-banner__label--disabled {
+    cursor: default;
+}
+
+.cookie-banner__label input[type="checkbox"] {
+    accent-color: #00F0FF;
+    inline-size: 14px;
+    block-size: 14px;
+}
+
+.cookie-banner__label strong {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.cookie-banner__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.cookie-banner__btn {
+    flex: 1;
+    min-inline-size: 120px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cookie-banner__btn--accept {
+    border: none;
+    background: rgba(0, 240, 255, 0.12);
+    color: #00F0FF;
+    font-weight: 600;
+}
+
+.cookie-banner__btn--secondary {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+}

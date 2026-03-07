@@ -44,10 +44,26 @@ export default {
         }
 
         try {
-            const { name, email, subject, message } = await request.json();
+            const { name, email, subject, message, website } = await request.json();
+
+            /* Honeypot — bots fill this hidden field; silently discard */
+            if (website) {
+                return new Response(JSON.stringify({ ok: true }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+                });
+            }
 
             if (!name || !email || !message) {
                 return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+                    status: 400,
+                    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+                });
+            }
+
+            /* Basic email format validation */
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                return new Response(JSON.stringify({ error: 'Invalid email format' }), {
                     status: 400,
                     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
                 });

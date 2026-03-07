@@ -16,6 +16,7 @@
     <meta name="twitter:title" content="BITBI | My Digital Playground">
     <meta name="twitter:description" content="Experimental websites • AI art • YouTube journeys • VR worlds • Live markets">
     <meta name="theme-color" content="#0A0A0A">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
     <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
     <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
@@ -25,7 +26,6 @@
     <link rel="preload" href="fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
 
-    <link rel="dns-prefetch" href="https://www.youtube-nocookie.com">
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
     <link rel="stylesheet" href="css/tokens.css">
     <link rel="stylesheet" href="css/reset.css">
@@ -244,12 +244,17 @@
             </div>
         </div>
         <form id="contactForm" class="glass rounded-2xl contact-form reveal" style="padding:var(--space-6)">
+            <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
+                <label for="hp_website">Website</label>
+                <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
+            </div>
             <div class="grid-form">
                 <input type="text" name="name" placeholder="Name" required class="form-input" autocomplete="name">
                 <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
             </div>
             <input type="text" name="subject" placeholder="Subject" class="form-input">
             <textarea name="message" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
+            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
         </form>
         <script>
@@ -267,7 +272,8 @@
                         name: this.name.value,
                         email: this.email.value,
                         subject: this.subject.value,
-                        message: this.message.value
+                        message: this.message.value,
+                        website: this.website.value
                     })
                 });
                 if (!res.ok) throw new Error('Failed');

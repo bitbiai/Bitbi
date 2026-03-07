@@ -7,6 +7,36 @@
 const CONSENT_KEY = 'bitbi_cookie_consent';
 const CONSENT_VERSION = '1';
 
+let rumObserver = null;
+
+function enforceRumConsent(analyticsAllowed) {
+    if (!analyticsAllowed) {
+        /* Remove any existing RUM scripts */
+        document.querySelectorAll('script[src*="beacon.min.js"], script[src*="cloudflareinsights"]').forEach(s => s.remove());
+
+        /* Watch for future injection attempts */
+        if (!rumObserver) {
+            rumObserver = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    for (const node of m.addedNodes) {
+                        if (node.tagName === 'SCRIPT' && node.src &&
+                            (node.src.includes('beacon.min.js') || node.src.includes('cloudflareinsights'))) {
+                            node.remove();
+                        }
+                    }
+                }
+            });
+            rumObserver.observe(document.documentElement, { childList: true, subtree: true });
+        }
+    } else {
+        /* Analytics consented — stop blocking */
+        if (rumObserver) {
+            rumObserver.disconnect();
+            rumObserver = null;
+        }
+    }
+}
+
 function getConsent() {
     try {
         const c = JSON.parse(localStorage.getItem(CONSENT_KEY));
@@ -25,6 +55,7 @@ function saveConsent(prefs, onConsent) {
     };
     try { localStorage.setItem(CONSENT_KEY, JSON.stringify(data)); } catch { /* storage unavailable */ }
     onConsent?.(data);
+    enforceRumConsent(data.analytics);
     document.dispatchEvent(new CustomEvent('cookieConsent', { detail: data }));
 }
 
@@ -144,8 +175,10 @@ export function initCookieConsent(options = {}) {
     const stored = getConsent();
     if (stored) {
         onConsent?.(stored);
+        enforceRumConsent(stored.analytics);
         document.dispatchEvent(new CustomEvent('cookieConsent', { detail: stored }));
     } else {
         onConsent?.({ necessary: true, analytics: false, marketing: false });
+        enforceRumConsent(false);
     }
 }

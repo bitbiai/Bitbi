@@ -7,6 +7,7 @@
     <meta name="description" content="Privacy Policy for BITBI — Information about data processing on this website.">
     <meta name="robots" content="noindex, follow">
     <meta name="theme-color" content="#0A0A0A">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <link rel="canonical" href="https://bitbi.ai/privacy.html">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
     <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
@@ -165,6 +166,7 @@
                     <li><strong class="text-strong">Optional field:</strong> Subject</li>
                 </ul>
                 <p>The data you enter is transmitted via a <strong class="text-strong">Cloudflare Worker</strong> (Cloudflare, Inc., USA) to the email delivery service <strong class="text-strong">Resend, Inc.</strong> (USA), which sends the message to our mailbox. No data is stored permanently on the Worker; it acts only as a transit relay.</p>
+                <p>The form includes a hidden anti-spam field (honeypot). If this field is filled (typically by automated bots), the submission is silently discarded and no email is sent. A privacy notice is displayed directly above the submit button, informing you about the third-party processors involved.</p>
                 <p>Legal basis: Art.&nbsp;6(1)(b) GDPR (processing necessary for pre-contractual measures at your request).</p>
                 <p>Provision of the required fields is necessary to process your inquiry. If you do not provide this data, we cannot respond to your request (Art.&nbsp;13(2)(e) GDPR).</p>
                 <p>Retention: Contact form submissions are retained for 6 months after final response, then deleted unless a legal obligation requires longer retention.</p>
@@ -185,7 +187,7 @@
                 <p>The banner is displayed to visitors in the European Economic Area (EEA) upon first visit. You can change or revoke your consent at any time via the "Cookie Settings" link in the footer.</p>
                 <p>Categories:</p>
                 <ul>
-                    <li><strong class="text-strong">Necessary</strong> (always active) — consent storage, game score storage</li>
+                    <li><strong class="text-strong">Necessary</strong> (always active) — Consent preference storage. On game pages, local game progress (e.g. high scores) is stored in your browser's localStorage and never transmitted to any server.</li>
                     <li><strong class="text-strong">Analytics</strong> — performance measurement (Cloudflare RUM)</li>
                     <li><strong class="text-strong">Marketing</strong> — embedded content (YouTube videos)</li>
                 </ul>
@@ -205,7 +207,7 @@
             <div class="glass-card__body policy-section">
                 <p>This website uses <strong class="text-strong">Cloudflare Real User Measurements (RUM)</strong> to measure and improve real-world performance (e.g., load times, Core Web Vitals, error rates).</p>
                 <p>Provider: Cloudflare, Inc. (USA). When activated, a JavaScript snippet collects performance and technical usage data (page URL, referrer, timestamp, device/browser information, performance metrics). Cloudflare may also process network data (including IP address) for providing the service and for security purposes.</p>
-                <p>This service is <strong class="text-strong">only activated after you give consent</strong> in the "Analytics" category of the cookie banner.</p>
+                <p>This service is <strong class="text-strong">only activated after you give consent</strong> in the "Analytics" category of the cookie banner. As a defensive measure, our client-side code actively removes any Cloudflare RUM scripts that may be injected before consent is given and monitors for future injection attempts.</p>
                 <p>Legal basis: Art.&nbsp;6(1)(a) GDPR (consent); &sect;25(1) TDDDG (consent required for access to device information not strictly necessary).</p>
                 <p>You can withdraw your consent at any time with future effect via the "Cookie Settings" link in the footer (Art.&nbsp;7(3) GDPR).</p>
                 <p>More info: <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare Privacy Policy</a></p>
@@ -246,26 +248,42 @@
             </div>
         </div>
 
-        <!-- 10. SSL/TLS ENCRYPTION -->
+        <!-- 10. LIVE MARKETS DATA -->
+        <div class="glass glass-card reveal policy-section">
+            <div class="glass-card__header">
+                <div class="glass-card__icon glass-card__icon--gold">
+                    <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                </div>
+                <h2 class="glass-card__title">10. Live Markets Data</h2>
+            </div>
+            <div class="glass-card__body policy-section">
+                <p>The main page displays live cryptocurrency market data. This data is fetched <strong class="text-strong">server-side via a Cloudflare Worker proxy</strong> from the <strong class="text-strong">CoinGecko API</strong> (CoinGecko, Inc., USA). Your browser never contacts CoinGecko directly; all requests are routed through our proxy at <code>api.bitbi.ai</code>.</p>
+                <p>The proxy forwards no client headers or personal data to CoinGecko. Only aggregated market data (prices, market caps, sparkline charts) is returned to your browser.</p>
+                <p>Legal basis: Art.&nbsp;6(1)(f) GDPR (legitimate interest in providing relevant market information to visitors).</p>
+                <p>More info: <a href="https://www.coingecko.com/en/privacy" target="_blank" rel="noopener noreferrer">CoinGecko Privacy Policy</a></p>
+            </div>
+        </div>
+
+        <!-- 11. SSL/TLS ENCRYPTION -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                 </div>
-                <h2 class="glass-card__title">10. SSL / TLS Encryption</h2>
+                <h2 class="glass-card__title">11. SSL / TLS Encryption</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>This website uses SSL/TLS encryption (HTTPS) for all connections, provided by Cloudflare. This protects the confidentiality of data transmitted between your browser and the website.</p>
             </div>
         </div>
 
-        <!-- 11. INTERNATIONAL DATA TRANSFERS -->
+        <!-- 12. INTERNATIONAL DATA TRANSFERS -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--magenta">
                     <svg class="icon--magenta" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
-                <h2 class="glass-card__title">11. International Data Transfers (Art.&nbsp;13(1)(f) GDPR)</h2>
+                <h2 class="glass-card__title">12. International Data Transfers (Art.&nbsp;13(1)(f) GDPR)</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Some of the processors listed in this policy are based in the United States. The following safeguards ensure an adequate level of data protection for transfers to the USA:</p>
@@ -274,18 +292,19 @@
                     <li><strong class="text-strong">GitHub, Inc. / Microsoft Corp.</strong> — certified under the EU-U.S. Data Privacy Framework (DPF); SCCs apply.</li>
                     <li><strong class="text-strong">Google Ireland Limited / Alphabet Inc.</strong> — certified under the EU-U.S. Data Privacy Framework (DPF); SCCs apply for transfers to Alphabet Inc.</li>
                     <li><strong class="text-strong">Resend, Inc.</strong> — Standard Contractual Clauses (SCCs) pursuant to Art.&nbsp;46(2)(c) GDPR.</li>
+                    <li><strong class="text-strong">CoinGecko, Inc.</strong> — Data is processed server-side via our proxy; no direct browser contact. Standard Contractual Clauses (SCCs) pursuant to Art.&nbsp;46(2)(c) GDPR.</li>
                 </ul>
                 <p>More info on the DPF: <a href="https://www.dataprivacyframework.gov/" target="_blank" rel="noopener noreferrer">dataprivacyframework.gov</a></p>
             </div>
         </div>
 
-        <!-- 12. DATA RETENTION -->
+        <!-- 13. DATA RETENTION -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
-                <h2 class="glass-card__title">12. Data Retention</h2>
+                <h2 class="glass-card__title">13. Data Retention</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>We delete or anonymize personal data as soon as the purpose for its collection no longer applies, unless a legal retention obligation prevents deletion. Specific retention periods:</p>
@@ -300,13 +319,13 @@
             </div>
         </div>
 
-        <!-- 13. YOUR RIGHTS UNDER GDPR -->
+        <!-- 14. YOUR RIGHTS UNDER GDPR -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                 </div>
-                <h2 class="glass-card__title">13. Your Rights Under GDPR</h2>
+                <h2 class="glass-card__title">14. Your Rights Under GDPR</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>You have the following rights regarding your personal data. To exercise any of these rights, contact us at <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>.</p>
@@ -331,30 +350,30 @@
             </div>
         </div>
 
-        <!-- 14. AUTOMATED DECISION-MAKING -->
+        <!-- 15. AUTOMATED DECISION-MAKING -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--magenta">
                     <svg class="icon--magenta" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                 </div>
-                <h2 class="glass-card__title">14. Automated Decision-Making (Art.&nbsp;13(2)(f) GDPR)</h2>
+                <h2 class="glass-card__title">15. Automated Decision-Making (Art.&nbsp;13(2)(f) GDPR)</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>No automated decision-making or profiling within the meaning of Art.&nbsp;22 GDPR takes place on this website.</p>
             </div>
         </div>
 
-        <!-- 15. CHANGES TO THIS POLICY -->
+        <!-- 16. CHANGES TO THIS POLICY -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </div>
-                <h2 class="glass-card__title">15. Changes to This Policy</h2>
+                <h2 class="glass-card__title">16. Changes to This Policy</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>We may update this privacy policy to reflect changes in our data processing practices or legal requirements. The current version is always available on this page. We encourage you to review this policy periodically.</p>
-                <p class="last-updated">Last updated: 6 March 2026</p>
+                <p class="last-updated">Last updated: 7 March 2026</p>
             </div>
         </div>
 

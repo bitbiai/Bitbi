@@ -41,6 +41,7 @@ Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>`
 
 ### Styling
 - **Tailwind CSS** loaded from CDN (not installed locally)
+- `css/cookie-banner.css` — standalone cookie banner styles for game pages (no CSS variable dependencies)
 - CSS uses `@layer` cascade layers: `tokens` → `reset` → `components` → `utilities`
 - `css/tokens.css` — design tokens using `@property` and oklch colors with hex fallbacks
 - `css/base.css` (shared), `css/index.css`, `css/legal.css`, `css/reset.css`, `css/components.css`, `css/utilities.css`
@@ -53,7 +54,6 @@ Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>`
 - `three-r128.min.js` — Three.js 3D library (used by `king.html`)
 
 ### Remaining External Dependencies (CDN-loaded)
-- Tailwind CSS v3+ (CDN)
 - Cloudflare RUM (consent-gated analytics)
 
 ### Self-Hosted Fonts (`fonts/`)

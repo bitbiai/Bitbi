@@ -7,6 +7,8 @@
   <meta property="og:title" content="Cosmic Dreamscape — VR Experience">
   <meta property="og:description" content="An immersive WebXR cosmic art gallery for Quest 3">
   <meta name="theme-color" content="#000000">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="stylesheet" href="css/cookie-banner.css">
   <script src="js/vendor/aframe-1.5.0.min.js"></script>
   <script src="js/vendor/aframe-extras-7.2.0.min.js"></script>
   <style>
@@ -848,8 +850,12 @@ AFRAME.registerComponent('spider-crawl', {
 
 <div style="position:fixed;bottom:4px;left:0;right:0;text-align:center;font-size:0.65rem;opacity:0.4;color:#888;z-index:10;pointer-events:auto">
   <a href="imprint.html" style="color:#888;text-decoration:none">Imprint / Impressum</a> &bull;
-  <a href="privacy.html" style="color:#888;text-decoration:none">Privacy Policy</a> / <a href="datenschutz.html" style="color:#888;text-decoration:none">Datenschutz</a>
+  <a href="privacy.html" style="color:#888;text-decoration:none">Privacy Policy</a> / <a href="datenschutz.html" style="color:#888;text-decoration:none">Datenschutz</a> &bull; <a href="#" id="openCookieSettings" style="color:#888;text-decoration:none">Cookie Settings</a>
 </div>
 
+<script type="module">
+  import { initCookieConsent } from './js/shared/cookie-consent.js';
+  try { initCookieConsent(); } catch(e) { console.warn(e); }
+</script>
 </body>
 </html>
