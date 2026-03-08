@@ -174,20 +174,68 @@
             </div>
         </div>
 
-        <!-- 6. EINWILLIGUNGSVERWALTUNG -->
+        <!-- 6. BENUTZERKONTEN -->
+        <div class="glass glass-card reveal policy-section">
+            <div class="glass-card__header">
+                <div class="glass-card__icon glass-card__icon--cyan">
+                    <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                </div>
+                <h2 class="glass-card__title">6. Benutzerkonten (Registrierung &amp; Anmeldung)</h2>
+            </div>
+            <div class="glass-card__body policy-section">
+                <p>Diese Website bietet ein <strong class="text-strong">kostenloses, optionales Benutzerkonto</strong> an. Die Registrierung schaltet zus&auml;tzliche Inhaltsbereiche frei; alle &uuml;brigen Inhalte bleiben ohne Benutzerkonto vollst&auml;ndig zug&auml;nglich.</p>
+
+                <h3>Erhobene Daten</h3>
+                <p>Bei der Registrierung werden folgende Daten erhoben und gespeichert:</p>
+                <ul>
+                    <li><strong class="text-strong">E-Mail-Adresse</strong> &mdash; dient als eindeutige Anmeldekennung. Die Adresse wird vor der Speicherung normalisiert (Leerzeichen entfernt, Kleinschreibung).</li>
+                    <li><strong class="text-strong">Passwort</strong> &mdash; wird niemals im Klartext gespeichert. Ihr Passwort wird mittels <strong class="text-strong">PBKDF2-SHA-256</strong> mit 100.000 Iterationen und einem kryptographisch zuf&auml;lligen 128-Bit-Salt gehasht, bevor es in die Datenbank geschrieben wird. Das urspr&uuml;ngliche Passwort wird unmittelbar nach dem Hashing verworfen.</li>
+                </ul>
+                <p>Zus&auml;tzlich werden ein Registrierungszeitstempel und ein Kontostatus-Feld (Standard: &bdquo;aktiv&ldquo;) gespeichert.</p>
+
+                <h3 class="h3-margin">Sitzungsverwaltung</h3>
+                <p>Bei der Anmeldung wird ein kryptographisch zuf&auml;lliges Sitzungstoken erzeugt. Nur ein <strong class="text-strong">SHA-256-Hash</strong> dieses Tokens (kombiniert mit einem serverseitigen Geheimnis) wird in der Datenbank gespeichert &mdash; das Token selbst wird niemals auf dem Server persistiert. Das Token wird als Cookie an Ihren Browser gesendet:</p>
+                <ul>
+                    <li><strong class="text-strong">Cookie-Name:</strong> <code>bitbi_session</code></li>
+                    <li><strong class="text-strong">Attribute:</strong> <code>HttpOnly</code>, <code>Secure</code> (nur HTTPS), <code>SameSite=Lax</code>, <code>Path=/</code></li>
+                    <li><strong class="text-strong">G&uuml;ltigkeitsdauer:</strong> 30 Tage (serverseitig durchgesetzt)</li>
+                </ul>
+                <p>Der Sitzungsdatensatz enth&auml;lt einen &bdquo;Zuletzt gesehen&ldquo;-Zeitstempel, der bei jeder authentifizierten Anfrage aktualisiert wird. Bei der Abmeldung wird der Sitzungsdatensatz aus der Datenbank gel&ouml;scht und das Cookie entfernt.</p>
+
+                <h3 class="h3-margin">Speicherung und Verarbeitung</h3>
+                <p>Konto- und Sitzungsdaten werden in einer <strong class="text-strong">Cloudflare-D1-Datenbank</strong> (Cloudflare, Inc., USA) gespeichert und von einem <strong class="text-strong">Cloudflare Worker</strong> verarbeitet. Kontodaten werden nicht an andere Dritte weitergegeben. Die zugrundeliegende Infrastruktur ist bereits in &sect;&nbsp;3 dieser Erkl&auml;rung beschrieben.</p>
+
+                <h3 class="h3-margin">Zweck</h3>
+                <p>Die Daten werden zu folgenden Zwecken verarbeitet: Kontoerstellung und -verwaltung, Authentifizierung, Sitzungspersistenz &uuml;ber Seitenneuladen hinweg sowie Zugriffskontrolle f&uuml;r registrierungspflichtige Inhalte.</p>
+
+                <h3 class="h3-margin">Rechtsgrundlage</h3>
+                <p>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO (Verarbeitung zur Erf&uuml;llung eines Vertrags &mdash; Bereitstellung des von Ihnen angeforderten Benutzerkonto-Dienstes). F&uuml;r das Sitzungs-Cookie: &sect;&nbsp;25 Abs.&nbsp;2 Nr.&nbsp;2 TDDDG (das Cookie ist zur Erbringung des vom Nutzer ausdr&uuml;cklich gew&uuml;nschten Anmeldedienstes unbedingt erforderlich).</p>
+
+                <h3 class="h3-margin">Erforderlichkeit der Datenangabe</h3>
+                <p>Die Angabe Ihrer E-Mail-Adresse und die Wahl eines Passworts sind zur Kontoerstellung und Nutzung der Anmeldefunktion erforderlich. Ohne diese Angaben ist keine Registrierung m&ouml;glich; Sie k&ouml;nnen die Website jedoch weiterhin ohne Benutzerkonto nutzen (Art.&nbsp;13 Abs.&nbsp;2 lit.&nbsp;e DSGVO).</p>
+
+                <h3 class="h3-margin">Kontol&ouml;schung</h3>
+                <p>Um die L&ouml;schung Ihres Benutzerkontos und aller damit verbundenen Daten zu beantragen, kontaktieren Sie uns unter <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>. Wir l&ouml;schen Ihre Kontodaten unverz&uuml;glich gem&auml;&szlig; Art.&nbsp;17 DSGVO.</p>
+
+                <h3 class="h3-margin">Speicherdauer</h3>
+                <p>Kontodaten werden gespeichert, solange Ihr Benutzerkonto besteht. Sitzungsdatens&auml;tze laufen automatisch nach 30 Tagen ab und werden bei der Abmeldung gel&ouml;scht. Bei L&ouml;schung Ihres Kontos werden auch alle zugeh&ouml;rigen Sitzungsdatens&auml;tze entfernt.</p>
+            </div>
+        </div>
+
+        <!-- 7. EINWILLIGUNGSVERWALTUNG -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--magenta">
                     <svg class="icon--magenta" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                 </div>
-                <h2 class="glass-card__title">6. Einwilligungsverwaltung</h2>
+                <h2 class="glass-card__title">7. Einwilligungsverwaltung</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Diese Website verwendet einen <strong class="text-strong">eigenen Cookie-Consent-Banner</strong> zur Verwaltung Ihrer Pr&auml;ferenzen f&uuml;r Cookies und &auml;hnliche Technologien (einschlie&szlig;lich localStorage-Zugriff).</p>
                 <p>Der Banner wird Besuchern im Europ&auml;ischen Wirtschaftsraum (EWR) beim ersten Besuch angezeigt. Sie k&ouml;nnen Ihre Einwilligung jederzeit &uuml;ber den Link &bdquo;Cookie Settings&ldquo; im Fu&szlig;bereich der Seite &auml;ndern oder widerrufen.</p>
                 <p>Kategorien:</p>
                 <ul>
-                    <li><strong class="text-strong">Notwendig</strong> (immer aktiv) &mdash; Speicherung Ihrer Einwilligungspr&auml;ferenz (unbedingt erforderlich f&uuml;r den Betrieb der Einwilligungsverwaltung). Auf einzelnen interaktiven Seiten k&ouml;nnen zus&auml;tzlich Spielst&auml;nde oder Highscores lokal im Browser gespeichert werden, soweit dies f&uuml;r die jeweilige Spielfunktion erforderlich ist; diese Daten werden niemals an einen Server &uuml;bermittelt.</li>
+                    <li><strong class="text-strong">Notwendig</strong> (immer aktiv) &mdash; Speicherung Ihrer Einwilligungspr&auml;ferenz (unbedingt erforderlich f&uuml;r den Betrieb der Einwilligungsverwaltung); das <code>bitbi_session</code>-Cookie f&uuml;r angemeldete Nutzer (unbedingt erforderlich f&uuml;r den Anmeldedienst, siehe &sect;&nbsp;6). Auf einzelnen interaktiven Seiten k&ouml;nnen zus&auml;tzlich Spielst&auml;nde oder Highscores lokal im Browser gespeichert werden, soweit dies f&uuml;r die jeweilige Spielfunktion erforderlich ist; diese Daten werden niemals an einen Server &uuml;bermittelt.</li>
                     <li><strong class="text-strong">Analyse</strong> &mdash; Leistungsmessung (Cloudflare RUM)</li>
                     <li><strong class="text-strong">Marketing</strong> &mdash; eingebettete Inhalte (YouTube-Videos)</li>
                 </ul>
@@ -196,13 +244,13 @@
             </div>
         </div>
 
-        <!-- 7. ANALYSE — CLOUDFLARE RUM -->
+        <!-- 8. ANALYSE — CLOUDFLARE RUM -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                 </div>
-                <h2 class="glass-card__title">7. Analyse &mdash; Cloudflare RUM</h2>
+                <h2 class="glass-card__title">8. Analyse &mdash; Cloudflare RUM</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Diese Website nutzt <strong class="text-strong">Cloudflare Real User Measurements (RUM)</strong> zur Messung und Verbesserung der tats&auml;chlichen Performance (z.&nbsp;B. Ladezeiten, Core Web Vitals, Fehlerraten).</p>
@@ -214,13 +262,13 @@
             </div>
         </div>
 
-        <!-- 8. EXTERNE CDN-RESSOURCEN -->
+        <!-- 9. EXTERNE CDN-RESSOURCEN -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                 </div>
-                <h2 class="glass-card__title">8. Externe CDN-Ressourcen</h2>
+                <h2 class="glass-card__title">9. Externe CDN-Ressourcen</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <h3>Schriftarten (selbst gehostet)</h3>
@@ -231,13 +279,13 @@
             </div>
         </div>
 
-        <!-- 9. EINGEBETTETE INHALTE — YOUTUBE -->
+        <!-- 10. EINGEBETTETE INHALTE — YOUTUBE -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
-                <h2 class="glass-card__title">9. Eingebettete Inhalte &mdash; YouTube</h2>
+                <h2 class="glass-card__title">10. Eingebettete Inhalte &mdash; YouTube</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>YouTube-Videos werden im <strong class="text-strong">erweiterten Datenschutzmodus</strong> (<code>youtube-nocookie.com</code>) eingebettet. Videos werden <strong class="text-strong">erst nach Ihrer Einwilligung</strong> in der Kategorie &bdquo;Marketing&ldquo; des Cookie-Banners geladen.</p>
@@ -248,13 +296,13 @@
             </div>
         </div>
 
-        <!-- 10. LIVE-MARKTDATEN -->
+        <!-- 11. LIVE-MARKTDATEN -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                 </div>
-                <h2 class="glass-card__title">10. Live-Marktdaten</h2>
+                <h2 class="glass-card__title">11. Live-Marktdaten</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Die Hauptseite zeigt aktuelle Kryptow&auml;hrungs-Marktdaten an. Diese Daten werden <strong class="text-strong">serverseitig &uuml;ber einen Cloudflare-Worker-Proxy</strong> von der <strong class="text-strong">CoinGecko-API</strong> abgerufen. Ihr Browser kontaktiert CoinGecko niemals direkt; alle Anfragen werden &uuml;ber unseren Proxy unter <code>api.bitbi.ai</code> geleitet.</p>
@@ -264,26 +312,26 @@
             </div>
         </div>
 
-        <!-- 11. SSL/TLS-VERSCHLÜSSELUNG -->
+        <!-- 12. SSL/TLS-VERSCHLÜSSELUNG -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                 </div>
-                <h2 class="glass-card__title">11. SSL-/TLS-Verschl&uuml;sselung</h2>
+                <h2 class="glass-card__title">12. SSL-/TLS-Verschl&uuml;sselung</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Diese Website nutzt f&uuml;r alle Verbindungen eine SSL-/TLS-Verschl&uuml;sselung (HTTPS), bereitgestellt durch Cloudflare. Dies sch&uuml;tzt die Vertraulichkeit der zwischen Ihrem Browser und der Website &uuml;bertragenen Daten.</p>
             </div>
         </div>
 
-        <!-- 12. INTERNATIONALE DATENÜBERMITTLUNGEN -->
+        <!-- 13. INTERNATIONALE DATENÜBERMITTLUNGEN -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--magenta">
                     <svg class="icon--magenta" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
-                <h2 class="glass-card__title">12. Internationale Daten&uuml;bermittlungen (Art.&nbsp;13 Abs.&nbsp;1 lit.&nbsp;f DSGVO)</h2>
+                <h2 class="glass-card__title">13. Internationale Daten&uuml;bermittlungen (Art.&nbsp;13 Abs.&nbsp;1 lit.&nbsp;f DSGVO)</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Einige der in dieser Erkl&auml;rung genannten Auftragsverarbeiter haben ihren Sitz in den Vereinigten Staaten. Folgende Garantien gew&auml;hrleisten ein angemessenes Datenschutzniveau f&uuml;r &Uuml;bermittlungen in die USA:</p>
@@ -297,13 +345,13 @@
             </div>
         </div>
 
-        <!-- 13. DATENSPEICHERUNG -->
+        <!-- 14. DATENSPEICHERUNG -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 </div>
-                <h2 class="glass-card__title">13. Speicherdauer</h2>
+                <h2 class="glass-card__title">14. Speicherdauer</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Wir l&ouml;schen oder anonymisieren personenbezogene Daten, sobald der Zweck ihrer Erhebung entf&auml;llt, es sei denn, eine gesetzliche Aufbewahrungspflicht steht der L&ouml;schung entgegen. Konkrete Speicherdauern:</p>
@@ -311,6 +359,8 @@
                     <li><strong class="text-strong">Cloudflare-Server-Logs:</strong> bis zu 72 Stunden</li>
                     <li><strong class="text-strong">GitHub-Pages-Server-Logs:</strong> bis zu 30 Tage</li>
                     <li><strong class="text-strong">Kontaktformular-Einsendungen:</strong> 6 Monate nach letzter Antwort</li>
+                    <li><strong class="text-strong">Benutzerkonto-Daten:</strong> bis Sie die L&ouml;schung Ihres Kontos beantragen (siehe &sect;&nbsp;6)</li>
+                    <li><strong class="text-strong">Sitzungsdatens&auml;tze:</strong> 30 Tage (automatischer Ablauf) oder bis zur Abmeldung, je nachdem, was zuerst eintritt</li>
                     <li><strong class="text-strong">Einwilligungspr&auml;ferenzen (localStorage):</strong> bis Sie Ihre Browserdaten l&ouml;schen oder die Einwilligung widerrufen</li>
                     <li><strong class="text-strong">Spielst&auml;nde (localStorage):</strong> bis Sie Ihre Browserdaten l&ouml;schen</li>
                     <li><strong class="text-strong">Cloudflare-RUM-Daten:</strong> gem&auml;&szlig; den Aufbewahrungsrichtlinien von Cloudflare</li>
@@ -318,13 +368,13 @@
             </div>
         </div>
 
-        <!-- 14. IHRE RECHTE NACH DER DSGVO -->
+        <!-- 15. IHRE RECHTE NACH DER DSGVO -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--gold">
                     <svg class="icon--gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                 </div>
-                <h2 class="glass-card__title">14. Ihre Rechte nach der DSGVO</h2>
+                <h2 class="glass-card__title">15. Ihre Rechte nach der DSGVO</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Sie haben folgende Rechte in Bezug auf Ihre personenbezogenen Daten. Zur Aus&uuml;bung dieser Rechte kontaktieren Sie uns unter <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>.</p>
@@ -349,30 +399,30 @@
             </div>
         </div>
 
-        <!-- 15. AUTOMATISIERTE ENTSCHEIDUNGSFINDUNG -->
+        <!-- 16. AUTOMATISIERTE ENTSCHEIDUNGSFINDUNG -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--magenta">
                     <svg class="icon--magenta" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                 </div>
-                <h2 class="glass-card__title">15. Automatisierte Entscheidungsfindung (Art.&nbsp;13 Abs.&nbsp;2 lit.&nbsp;f DSGVO)</h2>
+                <h2 class="glass-card__title">16. Automatisierte Entscheidungsfindung (Art.&nbsp;13 Abs.&nbsp;2 lit.&nbsp;f DSGVO)</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Auf dieser Website findet keine automatisierte Entscheidungsfindung oder Profiling im Sinne von Art.&nbsp;22 DSGVO statt.</p>
             </div>
         </div>
 
-        <!-- 16. ÄNDERUNGEN DIESER ERKLÄRUNG -->
+        <!-- 17. ÄNDERUNGEN DIESER ERKLÄRUNG -->
         <div class="glass glass-card reveal policy-section">
             <div class="glass-card__header">
                 <div class="glass-card__icon glass-card__icon--cyan">
                     <svg class="icon--cyan" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </div>
-                <h2 class="glass-card__title">16. &Auml;nderungen dieser Erkl&auml;rung</h2>
+                <h2 class="glass-card__title">17. &Auml;nderungen dieser Erkl&auml;rung</h2>
             </div>
             <div class="glass-card__body policy-section">
                 <p>Wir k&ouml;nnen diese Datenschutzerkl&auml;rung aktualisieren, um &Auml;nderungen unserer Datenverarbeitungspraktiken oder rechtlicher Anforderungen widerzuspiegeln. Die aktuelle Fassung ist stets auf dieser Seite verf&uuml;gbar. Wir empfehlen Ihnen, diese Erkl&auml;rung regelm&auml;&szlig;ig zu &uuml;berpr&uuml;fen.</p>
-                <p class="last-updated">Zuletzt aktualisiert: 7. M&auml;rz 2026</p>
+                <p class="last-updated">Zuletzt aktualisiert: 8. M&auml;rz 2026</p>
             </div>
         </div>
 
