@@ -3,6 +3,7 @@ function json(data, init = {}) {
     status: init.status || 200,
     headers: {
       "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
       ...init.headers,
     },
   });
