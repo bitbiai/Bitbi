@@ -1,0 +1,3 @@
+workers/auth/.dev.vars*
+workers/auth/.env*
+workers/auth/node_modules/

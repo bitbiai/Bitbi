@@ -1,11 +1,28 @@
 {
-  "name": "bitbi-auth",
-  "main": "src/index.js",
-  "compatibility_date": "2026-03-08",
-  "routes": [
-    {
-      "pattern": "bitbi.ai/api/*",
-      "zone_name": "bitbi.ai"
-    }
-  ]
+	"name": "bitbi-auth",
+	"main": "src/index.js",
+	"compatibility_date": "2026-03-08",
+	"vars": {
+		"APP_NAME": "bitbi"
+	},
+	"routes": [
+		{
+			"pattern": "bitbi.ai/api/*",
+			"zone_name": "bitbi.ai"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "bitbi-auth-db",
+			"database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
+			"preview_database_id": "local-bitbi-auth-db"
+		},
+		{
+			"binding": "bitbi_auth_db",
+			"database_name": "bitbi-auth-db",
+			"database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
+			"remote": true
+		}
+	]
 }
