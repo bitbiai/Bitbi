@@ -96,7 +96,7 @@ function buildExpiredSessionCookie(isSecure) {
 async function hashPassword(password) {
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iterations = 210000;
+  const iterations = 100000;
 
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
