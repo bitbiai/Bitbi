@@ -1,11 +1,15 @@
 /* ============================================================
    BITBI — Auth modal: login/register UI with focus trap
+   Forms are injected only when modal opens (prevents Safari
+   password autofill prompt on page load).
    ============================================================ */
 
 import { authLogin, authRegister } from './auth-state.js';
 
 let overlay = null;
+let formsContainer = null;
 let focusTrapCleanup = null;
+let formsInjected = false;
 
 const LOCK_SVG = `<svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:rgba(0,240,255,0.5);margin-bottom:8px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -13,6 +17,7 @@ export function initAuthModal() {
     const container = document.getElementById('authModal');
     if (!container) return;
 
+    /* Build shell only — no form inputs in the DOM yet */
     container.innerHTML = `
     <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="Anmeldung">
         <div class="auth-modal__content">
@@ -27,39 +32,63 @@ export function initAuthModal() {
                     <button class="auth-modal__tab active" data-tab="login">Sign In</button>
                     <button class="auth-modal__tab" data-tab="register">Create Account</button>
                 </div>
-                <form class="auth-modal__form active" id="authLoginForm" novalidate>
-                    <div class="auth-modal__msg" id="authLoginMsg"></div>
-                    <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
-                    <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="10">
-                    <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
-                </form>
-                <form class="auth-modal__form" id="authRegisterForm" novalidate>
-                    <div class="auth-modal__msg" id="authRegisterMsg"></div>
-                    <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
-                    <input type="password" name="password" placeholder="Password (min. 10 characters)" required class="form-input" autocomplete="new-password" minlength="10">
-                    <p class="auth-modal__hint">Minimum 10 characters</p>
-                    <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Create Account</button>
-                </form>
+                <div id="authFormsContainer"></div>
             </div>
         </div>
     </div>`;
 
     overlay = container.querySelector('.auth-modal__overlay');
-    const tabs = container.querySelectorAll('.auth-modal__tab');
+    formsContainer = document.getElementById('authFormsContainer');
+
+    /* Close button */
+    container.querySelector('.auth-modal__close').addEventListener('click', closeAuthModal);
+
+    /* Backdrop click */
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeAuthModal();
+    });
+
+    /* Escape */
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) closeAuthModal();
+    });
+
+    /* Tab switching (delegated — works even after forms are re-injected) */
+    overlay.addEventListener('click', (e) => {
+        const tab = e.target.closest('.auth-modal__tab');
+        if (!tab) return;
+        const target = tab.dataset.tab;
+        overlay.querySelectorAll('.auth-modal__tab').forEach(t => t.classList.toggle('active', t.dataset.tab === target));
+        const loginForm = document.getElementById('authLoginForm');
+        const registerForm = document.getElementById('authRegisterForm');
+        if (loginForm) loginForm.classList.toggle('active', target === 'login');
+        if (registerForm) registerForm.classList.toggle('active', target === 'register');
+    });
+}
+
+function injectForms() {
+    if (formsInjected) return;
+    formsInjected = true;
+
+    formsContainer.innerHTML = `
+        <form class="auth-modal__form active" id="authLoginForm" novalidate>
+            <div class="auth-modal__msg" id="authLoginMsg"></div>
+            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
+            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="10">
+            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
+        </form>
+        <form class="auth-modal__form" id="authRegisterForm" novalidate>
+            <div class="auth-modal__msg" id="authRegisterMsg"></div>
+            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
+            <input type="password" name="password" placeholder="Password (min. 10 characters)" required class="form-input" autocomplete="new-password" minlength="10">
+            <p class="auth-modal__hint">Minimum 10 characters</p>
+            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Create Account</button>
+        </form>`;
+
     const loginForm = document.getElementById('authLoginForm');
     const registerForm = document.getElementById('authRegisterForm');
     const loginMsg = document.getElementById('authLoginMsg');
     const registerMsg = document.getElementById('authRegisterMsg');
-
-    /* Tab switching */
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const target = tab.dataset.tab;
-            tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === target));
-            loginForm.classList.toggle('active', target === 'login');
-            registerForm.classList.toggle('active', target === 'register');
-        });
-    });
 
     /* Login */
     loginForm.addEventListener('submit', async (e) => {
@@ -99,7 +128,7 @@ export function initAuthModal() {
             showMsg(registerMsg, 'success', 'Account erstellt! Du kannst dich jetzt anmelden.');
             registerForm.reset();
             setTimeout(() => {
-                tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === 'login'));
+                overlay.querySelectorAll('.auth-modal__tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'login'));
                 loginForm.classList.add('active');
                 registerForm.classList.remove('active');
                 clearMsg(registerMsg);
@@ -108,20 +137,12 @@ export function initAuthModal() {
             showMsg(registerMsg, 'error', res.error);
         }
     });
+}
 
-    /* Close button */
-    const closeBtn = container.querySelector('.auth-modal__close');
-    closeBtn.addEventListener('click', closeAuthModal);
-
-    /* Backdrop click */
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) closeAuthModal();
-    });
-
-    /* Escape */
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && overlay.classList.contains('active')) closeAuthModal();
-    });
+function removeForms() {
+    if (!formsInjected) return;
+    formsContainer.innerHTML = '';
+    formsInjected = false;
 }
 
 function showMsg(el, type, text) {
@@ -136,13 +157,17 @@ function clearMsg(el) {
 
 export function openAuthModal(tab) {
     if (!overlay) return;
+
+    /* Inject forms into the DOM only now */
+    injectForms();
+
     if (tab) {
         const tabs = overlay.querySelectorAll('.auth-modal__tab');
         const loginForm = document.getElementById('authLoginForm');
         const registerForm = document.getElementById('authRegisterForm');
         tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-        loginForm.classList.toggle('active', tab === 'login');
-        registerForm.classList.toggle('active', tab === 'register');
+        if (loginForm) loginForm.classList.toggle('active', tab === 'login');
+        if (registerForm) registerForm.classList.toggle('active', tab === 'register');
     }
     clearMsg(document.getElementById('authLoginMsg'));
     clearMsg(document.getElementById('authRegisterMsg'));
@@ -156,6 +181,9 @@ export function closeAuthModal() {
     overlay.classList.remove('active');
     document.body.style.overflow = '';
     if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
+
+    /* Remove forms from the DOM so Safari won't re-scan them */
+    removeForms();
 }
 
 function setupFocusTrap(container) {
