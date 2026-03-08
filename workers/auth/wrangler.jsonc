@@ -1,0 +1,11 @@
+{
+  "name": "bitbi-auth",
+  "main": "src/index.js",
+  "compatibility_date": "2026-03-08",
+  "routes": [
+    {
+      "pattern": "bitbi.ai/api/*",
+      "zone_name": "bitbi.ai"
+    }
+  ]
+}
