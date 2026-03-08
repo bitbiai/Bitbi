@@ -14,10 +14,10 @@ import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
-import { initAuth } from '../../shared/auth-state.js';
-import { initAuthModal } from '../../shared/auth-modal.js';
-import { initAuthNav } from './auth-nav.js';
-import { initLockedSections } from './locked-sections.js';
+import { initAuth } from '../../shared/auth-state.js?v=20260308';
+import { initAuthModal } from '../../shared/auth-modal.js?v=20260308';
+import { initAuthNav } from './auth-nav.js?v=20260308';
+import { initLockedSections } from './locked-sections.js?v=20260308';
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
