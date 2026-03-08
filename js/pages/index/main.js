@@ -14,6 +14,12 @@ import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
+import { initAuth } from '../../shared/auth-state.js';
+import { initAuthModal } from '../../shared/auth-modal.js';
+import { initAuthNav } from './auth-nav.js';
+import { initLockedSections } from './locked-sections.js';
+
+const authReady = initAuth().catch(e => console.warn('auth:', e));
 
 /* Hero particles (index uses more particles, nebulae, connections) */
 try { initParticles('heroCanvas', {
@@ -74,3 +80,9 @@ try { initCookieConsent({
     onConsent: applyConsent,
     ytEnableBtnId: 'ytEnableBtn',
 }); } catch (e) { console.warn('cookieConsent:', e); }
+
+/* Auth UI (non-blocking — awaited after all visual content renders) */
+await authReady;
+try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
+try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
+try { initLockedSections(revealObserver); } catch (e) { console.warn('lockedSections:', e); }

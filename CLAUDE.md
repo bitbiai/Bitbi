@@ -67,8 +67,15 @@ No build tools, test framework, or linter are configured. Development workflow:
 2. `npm run dev` — starts a local server on port 3000 (`npx serve -l 3000`)
 3. Commit and push to `main` for automatic GitHub Pages deployment
 
-### Cloudflare Worker
-`worker/contact-worker.js` — Contact form email handler, deployed separately on Cloudflare Workers (not part of the static site). Uses Resend API with `RESEND_API_KEY` secret.
+### Cloudflare Workers
+
+Workers are deployed separately on Cloudflare — they are not part of the static site.
+
+- `worker/contact-worker.js` — Contact form email handler. Uses Resend API with `RESEND_API_KEY` secret.
+- `worker/crypto-worker.js` — CoinGecko proxy for crypto market data. CORS-locked to `https://bitbi.ai`.
+- `workers/auth/` — Auth API (register, login, logout, session management). Uses Cloudflare D1 database (`bitbi-auth-db`) with PBKDF2 password hashing and cookie-based sessions. Configured via `workers/auth/wrangler.jsonc`. Routes: `/api/health`, `/api/me`, `/api/register`, `/api/login`, `/api/logout`. Error messages are in German. Requires `SESSION_SECRET` env var.
+  - Dev: `cd workers/auth && npx wrangler dev`
+  - Deploy: `cd workers/auth && npx wrangler deploy`
 
 ## Key Conventions
 

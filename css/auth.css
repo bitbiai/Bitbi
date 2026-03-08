@@ -1,0 +1,338 @@
+/* ============================================================
+   BITBI — Auth styles (modal, nav button, locked areas)
+   @layer components — all classes prefixed auth- or locked-
+   ============================================================ */
+
+@layer components {
+
+    /* ── Auth Nav Button (Desktop) ── */
+    .auth-nav__wrap {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .auth-nav__btn {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.5);
+        border-radius: var(--radius-full);
+        padding-inline: var(--space-3);
+        padding-block: var(--space-1);
+        user-select: none;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: none;
+        cursor: pointer;
+        transition: all 0.3s var(--ease-default);
+    }
+
+    .auth-nav__btn:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+        color: var(--color-cyan);
+    }
+
+    .auth-nav__email {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.6);
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .auth-nav__logout {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.35);
+        background: none;
+        border: none;
+        cursor: pointer;
+        transition: color 0.3s var(--ease-default);
+    }
+
+    .auth-nav__logout:hover {
+        color: var(--color-ember);
+    }
+
+    /* ── Auth Nav (Mobile) ── */
+    .auth-nav__mobile-link {
+        font-size: 1.25rem;
+        font-family: var(--font-display);
+        font-weight: 700;
+        color: rgba(0, 240, 255, 0.7);
+        cursor: pointer;
+        background: none;
+        border: none;
+        transition: color 0.3s var(--ease-default);
+    }
+
+    .auth-nav__mobile-link:hover {
+        color: var(--color-cyan);
+    }
+
+    .auth-nav__mobile-email {
+        font-size: 0.875rem;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.5);
+    }
+
+    .auth-nav__mobile-logout {
+        font-size: 1.125rem;
+        font-family: var(--font-display);
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.5);
+        cursor: pointer;
+        background: none;
+        border: none;
+        transition: color 0.3s var(--ease-default);
+    }
+
+    .auth-nav__mobile-logout:hover {
+        color: var(--color-ember);
+    }
+
+    /* ── Auth Modal ── */
+    .auth-modal__overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.88);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.35s var(--ease-smooth);
+    }
+
+    .auth-modal__overlay.active {
+        opacity: 1;
+        pointer-events: all;
+    }
+
+    .auth-modal__content {
+        position: relative;
+        max-inline-size: min(96vw, 420px);
+        inline-size: 100%;
+        margin-inline: var(--space-5);
+        max-block-size: 96vh;
+        overflow-y: auto;
+    }
+
+    .auth-modal__close {
+        position: absolute;
+        inset-block-start: -2.75rem;
+        inset-inline-end: 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 1rem;
+        font-weight: 600;
+        transition: color 0.3s var(--ease-default);
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0.5rem 0.75rem;
+        z-index: 10;
+    }
+
+    .auth-modal__close:hover {
+        color: var(--color-white);
+    }
+
+    .auth-modal__card {
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        background: rgba(13, 27, 42, 0.95);
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border: var(--border-subtle);
+        padding: var(--space-6);
+    }
+
+    @media (min-width: 640px) {
+        .auth-modal__card {
+            padding: var(--space-8);
+        }
+    }
+
+    /* ── Tab Switcher ── */
+    .auth-modal__tabs {
+        display: flex;
+        gap: 0;
+        margin-block-end: var(--space-6);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .auth-modal__tab {
+        flex: 1;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 0.875rem;
+        color: rgba(255, 255, 255, 0.35);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.3s var(--ease-default);
+        text-align: center;
+    }
+
+    .auth-modal__tab:hover {
+        color: rgba(255, 255, 255, 0.6);
+    }
+
+    .auth-modal__tab.active {
+        color: var(--color-cyan);
+        border-bottom-color: var(--color-cyan);
+    }
+
+    /* ── Forms ── */
+    .auth-modal__form {
+        display: none;
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+
+    .auth-modal__form.active {
+        display: flex;
+    }
+
+    .auth-modal__msg {
+        font-size: 0.75rem;
+        font-family: var(--font-mono);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-md);
+        display: none;
+        line-height: 1.5;
+    }
+
+    .auth-modal__msg--error {
+        display: block;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
+
+    .auth-modal__msg--success {
+        display: block;
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+    }
+
+    .auth-modal__hint {
+        font-size: 0.7rem;
+        color: rgba(255, 255, 255, 0.25);
+        font-family: var(--font-mono);
+        margin-block-start: calc(var(--space-1) * -1);
+    }
+
+    /* ── Locked Area ── */
+    .locked-area {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .locked-area__content {
+        transition: filter 0.4s var(--ease-default);
+    }
+
+    .locked-area[data-locked="true"] .locked-area__content {
+        filter: blur(3px);
+        pointer-events: none;
+        user-select: none;
+    }
+
+    .locked-area[data-locked="false"] .locked-area__content {
+        filter: none;
+    }
+
+    .locked-area__overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 10, 10, 0.6);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border-radius: inherit;
+        cursor: pointer;
+        transition: opacity 0.4s var(--ease-default);
+        z-index: 2;
+    }
+
+    .locked-area[data-locked="false"] .locked-area__overlay {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .locked-area__badge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-2);
+        text-align: center;
+    }
+
+    .locked-area__badge svg {
+        width: 28px;
+        height: 28px;
+        color: rgba(0, 240, 255, 0.6);
+    }
+
+    .locked-area__badge span {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.5);
+        letter-spacing: 0.05em;
+    }
+
+    /* ── Locked Experiment Card ── */
+    .locked-area.locked-area--card {
+        border-radius: 14px;
+    }
+
+    /* ── Locked Glass Card (Sound Lab / Markets) ── */
+    .locked-area--glass {
+        background: rgba(13, 27, 42, 0.45);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        margin-block-start: var(--space-4);
+    }
+
+    /* ── Locked Filter Button ── */
+    .auth-filter-btn {
+        padding: var(--space-2) var(--space-5);
+        border-radius: var(--radius-full);
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        cursor: pointer;
+        transition: all 0.3s var(--ease-default);
+    }
+
+    .auth-filter-btn:hover {
+        border-color: rgba(0, 240, 255, 0.2);
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    .auth-filter-btn--unlocked {
+        color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .auth-filter-btn--unlocked.active {
+        background: rgba(0, 240, 255, 0.12);
+        border-color: rgba(0, 240, 255, 0.4);
+        color: var(--color-cyan);
+    }
+}
