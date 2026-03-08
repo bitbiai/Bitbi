@@ -16,8 +16,8 @@ export function getAuthState() {
 
 export async function initAuth() {
     const res = await apiGetMe();
-    if (res.ok && res.data?.email) {
-        state = { loggedIn: true, user: res.data };
+    if (res.ok && res.data?.loggedIn && res.data?.user) {
+        state = { loggedIn: true, user: res.data.user };
     } else {
         state = { loggedIn: false, user: null };
     }
@@ -27,7 +27,7 @@ export async function initAuth() {
 export async function authLogin(email, password) {
     const res = await apiLogin(email, password);
     if (res.ok) {
-        state = { loggedIn: true, user: res.data || { email } };
+        state = { loggedIn: true, user: res.data?.user || { email } };
         dispatch();
     }
     return res;
