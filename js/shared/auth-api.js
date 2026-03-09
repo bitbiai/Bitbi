@@ -67,3 +67,17 @@ export function apiAdminRevokeSessions(userId) {
 export function apiAdminDeleteUser(userId) {
     return request('DELETE', `/admin/users/${userId}`);
 }
+
+/* ── Password Reset ── */
+
+export function apiForgotPassword(email) {
+    return request('POST', '/forgot-password', { email });
+}
+
+export function apiValidateResetToken(token) {
+    return request('GET', `/reset-password/validate?token=${encodeURIComponent(token)}`);
+}
+
+export function apiResetPassword(token, password) {
+    return request('POST', '/reset-password', { token, password });
+}

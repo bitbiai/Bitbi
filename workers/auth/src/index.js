@@ -44,6 +44,12 @@ function addDaysIso(days) {
   return d.toISOString();
 }
 
+function addMinutesIso(minutes) {
+  const d = new Date();
+  d.setUTCMinutes(d.getUTCMinutes() + minutes);
+  return d.toISOString();
+}
+
 function parseCookies(cookieHeader) {
   const cookies = {};
   if (!cookieHeader) return cookies;
@@ -165,6 +171,50 @@ async function sha256Hex(input) {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sendResetEmail(env, toEmail, resetLink) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.RESEND_FROM_EMAIL,
+      to: [toEmail],
+      subject: "BITBI — Passwort zurücksetzen",
+      text: [
+        "Hallo,",
+        "",
+        "du hast eine Passwort-Zurücksetzung für dein BITBI-Konto angefordert.",
+        "",
+        "Klicke auf den folgenden Link, um ein neues Passwort zu vergeben:",
+        resetLink,
+        "",
+        "Dieser Link ist 60 Minuten gültig und kann nur einmal verwendet werden.",
+        "",
+        "Falls du diese Anfrage nicht gestellt hast, kannst du diese E-Mail ignorieren.",
+        "",
+        "— BITBI",
+      ].join("\n"),
+      html: [
+        "<div style=\"font-family:sans-serif;max-width:480px;margin:0 auto;color:#d4d4d4;background:#0a0a0a;padding:32px;border-radius:12px\">",
+        "<h2 style=\"color:#FFB300;margin-top:0\">Passwort zurücksetzen</h2>",
+        "<p>Hallo,</p>",
+        "<p>du hast eine Passwort-Zurücksetzung für dein BITBI-Konto angefordert.</p>",
+        `<p><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#00F0FF;color:#0a0a0a;text-decoration:none;border-radius:8px;font-weight:600">Neues Passwort vergeben</a></p>`,
+        "<p style=\"font-size:13px;color:#888\">Oder kopiere diesen Link:</p>",
+        `<p style="font-size:13px;word-break:break-all;color:#00F0FF">${resetLink}</p>`,
+        "<p style=\"font-size:13px;color:#888\">Dieser Link ist 60 Minuten gültig und kann nur einmal verwendet werden.</p>",
+        "<p style=\"font-size:13px;color:#888\">Falls du diese Anfrage nicht gestellt hast, kannst du diese E-Mail ignorieren.</p>",
+        "<p style=\"margin-top:24px;color:#555\">— BITBI</p>",
+        "</div>",
+      ].join(""),
+    }),
+  });
+
+  return res.ok;
 }
 
 async function readJsonBody(request) {
@@ -504,6 +554,8 @@ export default {
       response.headers.set("Set-Cookie", buildExpiredSessionCookie(isSecure));
       return response;
     }
+
+    // ── Admin Endpoints ──────────────────────────────────────
 
     if (pathname === "/api/admin/me" && method === "GET") {
       const result = await requireAdmin(request, env);
@@ -899,6 +951,151 @@ export default {
       return json({
         ok: true,
         deletedUserId: targetUserId,
+      });
+    }
+
+    // ── Password Reset ──────────────────────────────────────
+
+    if (pathname === "/api/forgot-password" && method === "POST") {
+      const body = await readJsonBody(request);
+
+      // Always return generic success to prevent user enumeration
+      const genericOk = json({
+        ok: true,
+        message:
+          "Falls ein Konto mit dieser E-Mail existiert, wurde ein Link zum Zurücksetzen gesendet.",
+      });
+
+      if (!body) return genericOk;
+
+      const email = normalizeEmail(body.email);
+      if (!email || !isValidEmail(email)) return genericOk;
+
+      const user = await env.DB.prepare(
+        "SELECT id, email, status FROM users WHERE email = ? LIMIT 1"
+      )
+        .bind(email)
+        .first();
+
+      if (!user || user.status !== "active") return genericOk;
+
+      // Generate token, store only the hash
+      const rawToken = randomTokenHex(32);
+      const tokenHash = await sha256Hex(rawToken);
+      const tokenId = crypto.randomUUID();
+      const now = nowIso();
+      const expiresAt = addMinutesIso(60);
+
+      await env.DB.prepare(
+        `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+        .bind(tokenId, user.id, tokenHash, expiresAt, now)
+        .run();
+
+      // Send email (fire-and-forget — don't leak failures)
+      const resetLink = `${env.APP_BASE_URL}/reset-password.html?token=${rawToken}`;
+      try {
+        await sendResetEmail(env, user.email, resetLink);
+      } catch (e) {
+        console.error("Reset email failed:", e);
+      }
+
+      return genericOk;
+    }
+
+    if (pathname === "/api/reset-password/validate" && method === "GET") {
+      const rawToken = url.searchParams.get("token");
+
+      if (!rawToken) {
+        return json({ ok: true, valid: false });
+      }
+
+      const tokenHash = await sha256Hex(rawToken);
+      const now = nowIso();
+
+      const row = await env.DB.prepare(
+        `SELECT id FROM password_reset_tokens
+         WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+         LIMIT 1`
+      )
+        .bind(tokenHash, now)
+        .first();
+
+      return json({ ok: true, valid: !!row });
+    }
+
+    if (pathname === "/api/reset-password" && method === "POST") {
+      const body = await readJsonBody(request);
+
+      if (!body) {
+        return json(
+          { ok: false, error: "Ungültiger JSON-Body." },
+          { status: 400 }
+        );
+      }
+
+      const rawToken = String(body.token || "");
+      const password = String(body.password || "");
+
+      if (!rawToken) {
+        return json(
+          { ok: false, error: "Token fehlt." },
+          { status: 400 }
+        );
+      }
+
+      if (password.length < 10) {
+        return json(
+          {
+            ok: false,
+            error: "Das Passwort muss mindestens 10 Zeichen lang sein.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const tokenHash = await sha256Hex(rawToken);
+      const now = nowIso();
+
+      const tokenRow = await env.DB.prepare(
+        `SELECT id, user_id FROM password_reset_tokens
+         WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+         LIMIT 1`
+      )
+        .bind(tokenHash, now)
+        .first();
+
+      if (!tokenRow) {
+        return json(
+          {
+            ok: false,
+            error:
+              "Dieser Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // Hash new password and update user
+      const newHash = await hashPassword(password);
+
+      await env.DB.batch([
+        env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(
+          newHash,
+          tokenRow.user_id
+        ),
+        env.DB.prepare(
+          "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?"
+        ).bind(now, tokenRow.id),
+        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(
+          tokenRow.user_id
+        ),
+      ]);
+
+      return json({
+        ok: true,
+        message: "Passwort erfolgreich geändert. Du kannst dich jetzt einloggen.",
       });
     }
 
