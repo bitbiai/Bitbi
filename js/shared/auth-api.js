@@ -40,3 +40,30 @@ export function apiGetMe() {
 export function apiLogout() {
     return request('POST', '/logout');
 }
+
+/* ── Admin API ── */
+
+export function apiAdminMe() {
+    return request('GET', '/admin/me');
+}
+
+export function apiAdminUsers(search) {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return request('GET', `/admin/users${qs}`);
+}
+
+export function apiAdminChangeRole(userId, role) {
+    return request('PATCH', `/admin/users/${userId}/role`, { role });
+}
+
+export function apiAdminChangeStatus(userId, status) {
+    return request('PATCH', `/admin/users/${userId}/status`, { status });
+}
+
+export function apiAdminRevokeSessions(userId) {
+    return request('POST', `/admin/users/${userId}/revoke-sessions`);
+}
+
+export function apiAdminDeleteUser(userId) {
+    return request('DELETE', `/admin/users/${userId}`);
+}
