@@ -215,11 +215,13 @@ async function init() {
 
     if (!me.ok) {
         $denied.style.display = '';
+        $denied.classList.add('visible');
         return;
     }
 
     // Show admin panel
     $panel.style.display = '';
+    $panel.classList.add('visible');
 
     // Search form
     $searchForm.addEventListener('submit', (e) => {
