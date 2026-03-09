@@ -76,17 +76,17 @@ $form.addEventListener('submit', async (e) => {
     const confirm  = $confirm.value;
 
     if (password.length < 10) {
-        showMsg('Das Passwort muss mindestens 10 Zeichen lang sein.', 'error');
+        showMsg('Password must be at least 10 characters long.', 'error');
         return;
     }
 
     if (password !== confirm) {
-        showMsg('Die Passwörter stimmen nicht überein.', 'error');
+        showMsg('Passwords do not match.', 'error');
         return;
     }
 
     $submit.disabled = true;
-    $submit.textContent = 'Wird geändert...';
+    $submit.textContent = 'Changing...';
 
     const res = await apiResetPassword(token, password);
 
@@ -94,7 +94,7 @@ $form.addEventListener('submit', async (e) => {
         showState($success);
     } else {
         $submit.disabled = false;
-        $submit.textContent = 'Passwort ändern';
+        $submit.textContent = 'Change Password';
         showMsg(res.error, 'error');
     }
 });

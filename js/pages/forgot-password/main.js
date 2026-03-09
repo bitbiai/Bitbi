@@ -36,17 +36,17 @@ $form.addEventListener('submit', async (e) => {
     if (!email) return;
 
     $submit.disabled = true;
-    $submit.textContent = 'Wird gesendet...';
+    $submit.textContent = 'Sending...';
 
     const res = await apiForgotPassword(email);
 
     $submit.disabled = false;
-    $submit.textContent = 'Link senden';
+    $submit.textContent = 'Send Reset Link';
 
     // Always show generic success (even on network error, to not leak info)
     showMsg(
         res.data?.message ||
-        'Falls ein Konto mit dieser E-Mail existiert, wurde ein Link zum Zurücksetzen gesendet.',
+        'If an account with this email exists, a reset link has been sent.',
         'success'
     );
 
