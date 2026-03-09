@@ -750,6 +750,158 @@ export default {
       });
     }
 
+    // POST /api/admin/users/:id/revoke-sessions
+    if (
+      pathname.startsWith("/api/admin/users/") &&
+      pathname.endsWith("/revoke-sessions") &&
+      method === "POST"
+    ) {
+      const result = await requireAdmin(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const parts = pathname.split("/");
+      // ["", "api", "admin", "users", ":id", "revoke-sessions"]
+      const targetUserId = parts[4];
+
+      if (!targetUserId || parts.length !== 6) {
+        return json(
+          { ok: false, error: "Ungültiger Pfad." },
+          { status: 400 }
+        );
+      }
+
+      if (targetUserId === result.user.id) {
+        return json(
+          { ok: false, error: "Du kannst deine eigenen Sitzungen hier nicht widerrufen." },
+          { status: 400 }
+        );
+      }
+
+      const targetUser = await env.DB.prepare(
+        "SELECT id FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      if (!targetUser) {
+        return json(
+          { ok: false, error: "Benutzer nicht gefunden." },
+          { status: 404 }
+        );
+      }
+
+      const deleteResult = await env.DB.prepare(
+        "DELETE FROM sessions WHERE user_id = ?"
+      )
+        .bind(targetUserId)
+        .run();
+
+      const now = nowIso();
+
+      await env.DB.prepare(
+        `
+        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `
+      )
+        .bind(
+          crypto.randomUUID(),
+          result.user.id,
+          "revoke_sessions",
+          targetUserId,
+          JSON.stringify({ revokedSessions: deleteResult.meta.changes }),
+          now
+        )
+        .run();
+
+      return json({
+        ok: true,
+        revokedSessions: deleteResult.meta.changes,
+        targetUserId,
+      });
+    }
+
+    // DELETE /api/admin/users/:id
+    if (
+      pathname.startsWith("/api/admin/users/") &&
+      method === "DELETE"
+    ) {
+      const result = await requireAdmin(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const parts = pathname.split("/");
+      // ["", "api", "admin", "users", ":id"]
+      const targetUserId = parts[4];
+
+      if (!targetUserId || parts.length !== 5) {
+        return json(
+          { ok: false, error: "Ungültiger Pfad." },
+          { status: 400 }
+        );
+      }
+
+      if (targetUserId === result.user.id) {
+        return json(
+          { ok: false, error: "Du kannst dein eigenes Konto nicht löschen." },
+          { status: 400 }
+        );
+      }
+
+      const targetUser = await env.DB.prepare(
+        "SELECT id FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      if (!targetUser) {
+        return json(
+          { ok: false, error: "Benutzer nicht gefunden." },
+          { status: 404 }
+        );
+      }
+
+      await env.DB.prepare(
+        "DELETE FROM sessions WHERE user_id = ?"
+      )
+        .bind(targetUserId)
+        .run();
+
+      await env.DB.prepare(
+        "DELETE FROM users WHERE id = ?"
+      )
+        .bind(targetUserId)
+        .run();
+
+      const now = nowIso();
+
+      await env.DB.prepare(
+        `
+        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `
+      )
+        .bind(
+          crypto.randomUUID(),
+          result.user.id,
+          "delete_user",
+          targetUserId,
+          JSON.stringify({ deletedUserId: targetUserId }),
+          now
+        )
+        .run();
+
+      return json({
+        ok: true,
+        deletedUserId: targetUserId,
+      });
+    }
+
     return json(
       {
         ok: false,
