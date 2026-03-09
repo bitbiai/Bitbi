@@ -76,6 +76,7 @@ function injectForms() {
             <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
             <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="10">
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
+            <p style="text-align:center;margin-top:var(--space-3)"><a href="forgot-password.html" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">Passwort vergessen?</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
             <div class="auth-modal__msg" id="authRegisterMsg"></div>
