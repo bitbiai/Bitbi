@@ -3,7 +3,9 @@
 	"main": "src/index.js",
 	"compatibility_date": "2026-03-08",
 	"vars": {
-		"APP_NAME": "bitbi"
+		"APP_NAME": "bitbi",
+		"APP_BASE_URL": "https://bitbi.ai",
+		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>"
 	},
 	"routes": [
 		{
