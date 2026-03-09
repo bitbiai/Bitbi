@@ -518,6 +518,238 @@ export default {
       });
     }
 
+    if (pathname === "/api/admin/users" && method === "GET") {
+      const result = await requireAdmin(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const search = url.searchParams.get("search");
+
+      let rows;
+      if (search) {
+        rows = await env.DB.prepare(
+          `
+          SELECT id, email, role, status, created_at, updated_at
+          FROM users
+          WHERE email LIKE ?
+          ORDER BY created_at DESC
+          `
+        )
+          .bind(`%${search}%`)
+          .all();
+      } else {
+        rows = await env.DB.prepare(
+          `
+          SELECT id, email, role, status, created_at, updated_at
+          FROM users
+          ORDER BY created_at DESC
+          `
+        )
+          .all();
+      }
+
+      return json({
+        ok: true,
+        users: rows.results,
+      });
+    }
+
+    // PATCH /api/admin/users/:id/role
+    if (
+      pathname.startsWith("/api/admin/users/") &&
+      pathname.endsWith("/role") &&
+      method === "PATCH"
+    ) {
+      const result = await requireAdmin(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const parts = pathname.split("/");
+      // ["", "api", "admin", "users", ":id", "role"]
+      const targetUserId = parts[4];
+
+      if (!targetUserId || parts.length !== 6) {
+        return json(
+          { ok: false, error: "Ungültiger Pfad." },
+          { status: 400 }
+        );
+      }
+
+      const body = await readJsonBody(request);
+
+      if (!body) {
+        return json(
+          { ok: false, error: "Ungültiger JSON-Body." },
+          { status: 400 }
+        );
+      }
+
+      const newRole = body.role;
+
+      if (newRole !== "user" && newRole !== "admin") {
+        return json(
+          { ok: false, error: "Ungültige Rolle. Erlaubt: \"user\" oder \"admin\"." },
+          { status: 400 }
+        );
+      }
+
+      if (targetUserId === result.user.id && newRole !== "admin") {
+        return json(
+          { ok: false, error: "Du kannst deine eigene Admin-Rolle nicht entfernen." },
+          { status: 400 }
+        );
+      }
+
+      const targetUser = await env.DB.prepare(
+        "SELECT id FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      if (!targetUser) {
+        return json(
+          { ok: false, error: "Benutzer nicht gefunden." },
+          { status: 404 }
+        );
+      }
+
+      const now = nowIso();
+
+      await env.DB.prepare(
+        "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
+      )
+        .bind(newRole, now, targetUserId)
+        .run();
+
+      await env.DB.prepare(
+        `
+        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `
+      )
+        .bind(
+          crypto.randomUUID(),
+          result.user.id,
+          "change_role",
+          targetUserId,
+          JSON.stringify({ role: newRole }),
+          now
+        )
+        .run();
+
+      const updatedUser = await env.DB.prepare(
+        "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      return json({
+        ok: true,
+        user: updatedUser,
+      });
+    }
+
+    // PATCH /api/admin/users/:id/status
+    if (
+      pathname.startsWith("/api/admin/users/") &&
+      pathname.endsWith("/status") &&
+      method === "PATCH"
+    ) {
+      const result = await requireAdmin(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const parts = pathname.split("/");
+      // ["", "api", "admin", "users", ":id", "status"]
+      const targetUserId = parts[4];
+
+      if (!targetUserId || parts.length !== 6) {
+        return json(
+          { ok: false, error: "Ungültiger Pfad." },
+          { status: 400 }
+        );
+      }
+
+      const body = await readJsonBody(request);
+
+      if (!body) {
+        return json(
+          { ok: false, error: "Ungültiger JSON-Body." },
+          { status: 400 }
+        );
+      }
+
+      const newStatus = body.status;
+
+      if (newStatus !== "active" && newStatus !== "disabled") {
+        return json(
+          { ok: false, error: "Ungültiger Status. Erlaubt: \"active\" oder \"disabled\"." },
+          { status: 400 }
+        );
+      }
+
+      if (targetUserId === result.user.id && newStatus === "disabled") {
+        return json(
+          { ok: false, error: "Du kannst dein eigenes Konto nicht deaktivieren." },
+          { status: 400 }
+        );
+      }
+
+      const targetUser = await env.DB.prepare(
+        "SELECT id FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      if (!targetUser) {
+        return json(
+          { ok: false, error: "Benutzer nicht gefunden." },
+          { status: 404 }
+        );
+      }
+
+      const now = nowIso();
+
+      await env.DB.prepare(
+        "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
+      )
+        .bind(newStatus, now, targetUserId)
+        .run();
+
+      await env.DB.prepare(
+        `
+        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `
+      )
+        .bind(
+          crypto.randomUUID(),
+          result.user.id,
+          "change_status",
+          targetUserId,
+          JSON.stringify({ status: newStatus }),
+          now
+        )
+        .run();
+
+      const updatedUser = await env.DB.prepare(
+        "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
+      )
+        .bind(targetUserId)
+        .first();
+
+      return json({
+        ok: true,
+        user: updatedUser,
+      });
+    }
+
     return json(
       {
         ok: false,
