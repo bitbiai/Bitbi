@@ -47,7 +47,7 @@
     }
 
     ::selection {
-        background: rgba(0, 240, 255, 0.25);
+        background: rgba(0, 220, 240, 0.22);
         color: var(--color-white);
     }
 

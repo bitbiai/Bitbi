@@ -27,12 +27,12 @@
     @property --color-gold {
         syntax: '<color>';
         inherits: true;
-        initial-value: #FFB300;
+        initial-value: #FFAA00;
     }
     @property --color-ember {
         syntax: '<color>';
         inherits: true;
-        initial-value: #FF6B00;
+        initial-value: #FF6200;
     }
     @property --color-magenta {
         syntax: '<color>';
@@ -46,8 +46,8 @@
         --color-navy: oklch(0.16 0.03 250);       /* #0D1B2A */
         --color-navy-light: oklch(0.20 0.04 250); /* #152238 */
         --color-cyan: oklch(0.85 0.15 195);       /* #00F0FF */
-        --color-gold: oklch(0.80 0.16 80);        /* #FFB300 */
-        --color-ember: oklch(0.68 0.20 50);       /* #FF6B00 */
+        --color-gold: oklch(0.82 0.17 75);        /* #FFAA00 */
+        --color-ember: oklch(0.70 0.21 48);       /* #FF6200 */
         --color-magenta: oklch(0.53 0.24 320);    /* #C026D3 */
         --color-text: oklch(0.87 0 0);            /* #d4d4d4 */
         --color-white: #fff;

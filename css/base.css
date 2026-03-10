@@ -106,7 +106,7 @@
 
     /* --- Gradient Text --- */
     .gt-hero {
-        background: linear-gradient(135deg, #FFB300 0%, #FF6B00 25%, #00F0FF 65%, #C026D3 100%);
+        background: linear-gradient(135deg, #00F0FF 0%, #FFAA00 35%, #FF6200 60%, #C026D3 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -174,7 +174,7 @@
         block-size: 1px;
         margin-inline: auto;
         max-inline-size: 90%;
-        background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.15) 30%, rgba(255, 179, 0, 0.15) 70%, transparent);
+        background: linear-gradient(90deg, transparent, rgba(0,240,255,0.15) 25%, rgba(255,255,255,0.08) 50%, rgba(255,170,0,0.18) 75%, transparent);
         position: relative;
         z-index: 1;
     }

@@ -13,7 +13,7 @@
 
         &:hover {
             transform: translateY(-6px) scale(1.01);
-            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 240, 255, 0.06);
+            box-shadow: 0 24px 48px rgba(0,0,0,0.4), 0 0 30px rgba(0,240,255,0.06), 0 0 40px rgba(255,170,0,0.03);
         }
     }
 
@@ -40,8 +40,8 @@
 
     /* --- Animations --- */
     @keyframes pulseGlow {
-        0%, 100% { box-shadow: 0 0 12px rgba(0, 240, 255, 0.25), 0 0 24px rgba(0, 240, 255, 0.08); }
-        50% { box-shadow: 0 0 20px rgba(0, 240, 255, 0.45), 0 0 40px rgba(0, 240, 255, 0.15); }
+        0%, 100% { box-shadow: 0 0 12px rgba(0,240,255,0.25), 0 0 24px rgba(0,240,255,0.08), 0 0 32px rgba(255,170,0,0.04); }
+        50% { box-shadow: 0 0 20px rgba(0,240,255,0.45), 0 0 40px rgba(0,240,255,0.15), 0 0 50px rgba(255,170,0,0.06); }
     }
 
     @keyframes eqBar1 { 0%, 100% { height: 6px; } 50% { height: 24px; } }
