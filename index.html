@@ -25,6 +25,7 @@
     <link rel="manifest" href="/assets/favicons/site.webmanifest">
     <link rel="preload" href="fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/images/1.png" as="image" fetchpriority="high">
 
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
     <link rel="stylesheet" href="css/tokens.css?v=20260308">
@@ -108,7 +109,10 @@
 
     <div class="hero__content">
         <div class="hero__title-wrap float-anim">
-            <h1 class="hero__title gt-hero">BITBI</h1>
+            <h1 class="hero__title">
+                <img src="assets/images/1.png" alt="BITBI" class="hero__title-img"
+                     width="600" height="391" fetchpriority="high">
+            </h1>
         </div>
         <p class="hero__subtitle">My Digital Playground</p>
         <p class="hero__desc">Experimental websites &bull; AI art &bull; YouTube journeys &bull; VR worlds &bull; Live markets</p>

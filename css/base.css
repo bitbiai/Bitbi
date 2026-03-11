@@ -106,7 +106,7 @@
 
     /* --- Gradient Text --- */
     .gt-hero {
-        background: linear-gradient(135deg, #00F0FF 0%, #FFAA00 35%, #FF6200 60%, #C026D3 100%);
+        background: linear-gradient(135deg, #00F0FF 0%, #0088FF 20%, #8B5CF6 40%, #C026D3 60%, #FF6200 80%, #FFAA00 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;

@@ -19,6 +19,7 @@ import { initAuthModal } from '../../shared/auth-modal.js';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 
+
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
 /* Hero particles (index uses more particles, nebulae, connections) */
