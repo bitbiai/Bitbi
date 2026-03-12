@@ -201,6 +201,9 @@
         font-weight: 700;
         color: var(--color-midnight);
         background: var(--color-cyan);
+        transition: all 0.3s var(--ease-default);
+
+        &:hover { background: var(--color-white); }
     }
 
     /* ── Hero Section ── */
@@ -288,10 +291,11 @@
 
     .hero__title-img {
         display: block;
-        width: clamp(280px, 55vw, 600px);
+        width: clamp(294px, 57.75vw, 630px);
         height: auto;
         aspect-ratio: 600 / 391;
         margin-inline: auto;
+        margin-block-start: 0.5rem;
         mix-blend-mode: lighten;
         -webkit-mask-image:
             linear-gradient(to right, transparent, black 18%, black 82%, transparent),

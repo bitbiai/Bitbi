@@ -40,7 +40,7 @@ function renderDesktop() {
         wrap.appendChild(logout);
     } else {
         const btn = document.createElement('button');
-        btn.className = 'auth-nav__btn';
+        btn.className = 'site-nav__cta pulse-glow';
         btn.textContent = 'Sign In';
         btn.addEventListener('click', () => openAuthModal('login'));
         wrap.appendChild(btn);
@@ -86,7 +86,7 @@ function renderMobile() {
         }
     } else {
         const link = document.createElement('button');
-        link.className = 'auth-nav__mobile-link';
+        link.className = 'mobile-nav__cta pulse-glow';
         link.textContent = 'Sign In';
         link.addEventListener('click', () => openAuthModal('login'));
 
