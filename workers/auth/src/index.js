@@ -994,35 +994,25 @@ export default {
         );
       }
 
-      await env.DB.prepare(
-        "DELETE FROM sessions WHERE user_id = ?"
-      )
-        .bind(targetUserId)
-        .run();
-
-      await env.DB.prepare(
-        "DELETE FROM users WHERE id = ?"
-      )
-        .bind(targetUserId)
-        .run();
-
       const now = nowIso();
 
-      await env.DB.prepare(
-        `
-        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        `
-      )
-        .bind(
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
+        env.DB.prepare(
+          `INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).bind(
           crypto.randomUUID(),
           result.user.id,
           "delete_user",
           targetUserId,
           JSON.stringify({ deletedUserId: targetUserId }),
           now
-        )
-        .run();
+        ),
+      ]);
 
       return json({
         ok: true,
