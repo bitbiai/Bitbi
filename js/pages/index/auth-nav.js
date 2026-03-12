@@ -22,6 +22,11 @@ function renderDesktop() {
     let wrap = actions.querySelector('.auth-nav__wrap');
     if (wrap) wrap.remove();
 
+    // Remove any previous admin link
+    const navLinks = document.querySelector('.site-nav__links');
+    const oldAdminLink = navLinks?.querySelector('.auth-nav__admin-link');
+    if (oldAdminLink) oldAdminLink.remove();
+
     wrap = document.createElement('span');
     wrap.className = 'auth-nav__wrap';
 
@@ -38,6 +43,15 @@ function renderDesktop() {
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
         wrap.appendChild(logout);
+
+        // Admin link — only for admin role
+        if (user?.role === 'admin' && navLinks) {
+            const adminLink = document.createElement('a');
+            adminLink.href = 'admin.html';
+            adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
+            adminLink.textContent = 'Admin_space';
+            navLinks.appendChild(adminLink);
+        }
     } else {
         const btn = document.createElement('button');
         btn.className = 'site-nav__cta pulse-glow';
@@ -58,10 +72,10 @@ function renderMobile() {
     const mobileNav = document.getElementById('mobileNav');
     if (!mobileNav) return;
 
-    let existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout');
+    let existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout, .auth-nav__mobile-admin');
     while (existing) {
         existing.remove();
-        existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout');
+        existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout, .auth-nav__mobile-admin');
     }
 
     const cta = mobileNav.querySelector('.mobile-nav__cta');
@@ -83,6 +97,16 @@ function renderMobile() {
         } else {
             mobileNav.appendChild(email);
             mobileNav.appendChild(logout);
+        }
+
+        // Admin link — only for admin role
+        if (user?.role === 'admin') {
+            const adminLink = document.createElement('a');
+            adminLink.href = 'admin.html';
+            adminLink.className = 'mobile-nav__link auth-nav__mobile-admin';
+            adminLink.textContent = 'Admin_space';
+            // Insert before logout
+            logout.parentNode.insertBefore(adminLink, logout);
         }
     } else {
         const link = document.createElement('button');
