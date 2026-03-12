@@ -173,6 +173,73 @@ async function sha256Hex(input) {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function sendVerificationEmail(env, toEmail, verifyLink) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.RESEND_FROM_EMAIL,
+      to: [toEmail],
+      subject: "BITBI — Verify your email address",
+      text: [
+        "Hello,",
+        "",
+        "Thank you for registering at BITBI!",
+        "",
+        "Please verify your email address by clicking the following link:",
+        verifyLink,
+        "",
+        "This link is valid for 60 minutes and can only be used once.",
+        "",
+        "If you did not register at BITBI, you can ignore this email.",
+        "",
+        "— BITBI",
+      ].join("\n"),
+      html: [
+        '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#d4d4d4;background:#0a0a0a;padding:32px;border-radius:12px">',
+        '<h2 style="color:#00F0FF;margin-top:0">Verify your email</h2>',
+        "<p>Hello,</p>",
+        "<p>Thank you for registering at BITBI!</p>",
+        "<p>Please verify your email address:</p>",
+        `<p><a href="${verifyLink}" style="display:inline-block;padding:12px 24px;background:#00F0FF;color:#0a0a0a;text-decoration:none;border-radius:8px;font-weight:600">Verify Email</a></p>`,
+        '<p style="font-size:13px;color:#888">Or copy this link:</p>',
+        `<p style="font-size:13px;word-break:break-all;color:#00F0FF">${verifyLink}</p>`,
+        '<p style="font-size:13px;color:#888">This link is valid for 60 minutes and can only be used once.</p>',
+        '<p style="font-size:13px;color:#888">If you did not register at BITBI, you can ignore this email.</p>',
+        '<p style="margin-top:24px;color:#555">— BITBI</p>',
+        "</div>",
+      ].join(""),
+    }),
+  });
+
+  return res.ok;
+}
+
+async function createAndSendVerificationToken(env, userId, email) {
+  const rawToken = randomTokenHex(32);
+  const tokenHash = await sha256Hex(rawToken);
+  const tokenId = crypto.randomUUID();
+  const now = nowIso();
+  const expiresAt = addMinutesIso(60);
+
+  await env.DB.prepare(
+    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  )
+    .bind(tokenId, userId, tokenHash, expiresAt, now)
+    .run();
+
+  const verifyLink = `${env.APP_BASE_URL}/verify-email.html?token=${rawToken}`;
+  try {
+    await sendVerificationEmail(env, email, verifyLink);
+  } catch (e) {
+    console.error("Verification email failed:", e);
+  }
+}
+
 async function sendResetEmail(env, toEmail, resetLink) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -183,31 +250,31 @@ async function sendResetEmail(env, toEmail, resetLink) {
     body: JSON.stringify({
       from: env.RESEND_FROM_EMAIL,
       to: [toEmail],
-      subject: "BITBI — Passwort zurücksetzen",
+      subject: "BITBI — Reset your password",
       text: [
-        "Hallo,",
+        "Hello,",
         "",
-        "du hast eine Passwort-Zurücksetzung für dein BITBI-Konto angefordert.",
+        "You requested a password reset for your BITBI account.",
         "",
-        "Klicke auf den folgenden Link, um ein neues Passwort zu vergeben:",
+        "Click the following link to set a new password:",
         resetLink,
         "",
-        "Dieser Link ist 60 Minuten gültig und kann nur einmal verwendet werden.",
+        "This link is valid for 60 minutes and can only be used once.",
         "",
-        "Falls du diese Anfrage nicht gestellt hast, kannst du diese E-Mail ignorieren.",
+        "If you did not request this, you can ignore this email.",
         "",
         "— BITBI",
       ].join("\n"),
       html: [
         "<div style=\"font-family:sans-serif;max-width:480px;margin:0 auto;color:#d4d4d4;background:#0a0a0a;padding:32px;border-radius:12px\">",
-        "<h2 style=\"color:#FFB300;margin-top:0\">Passwort zurücksetzen</h2>",
-        "<p>Hallo,</p>",
-        "<p>du hast eine Passwort-Zurücksetzung für dein BITBI-Konto angefordert.</p>",
-        `<p><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#00F0FF;color:#0a0a0a;text-decoration:none;border-radius:8px;font-weight:600">Neues Passwort vergeben</a></p>`,
-        "<p style=\"font-size:13px;color:#888\">Oder kopiere diesen Link:</p>",
+        "<h2 style=\"color:#FFB300;margin-top:0\">Reset Password</h2>",
+        "<p>Hello,</p>",
+        "<p>You requested a password reset for your BITBI account.</p>",
+        `<p><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background:#00F0FF;color:#0a0a0a;text-decoration:none;border-radius:8px;font-weight:600">Set New Password</a></p>`,
+        "<p style=\"font-size:13px;color:#888\">Or copy this link:</p>",
         `<p style="font-size:13px;word-break:break-all;color:#00F0FF">${resetLink}</p>`,
-        "<p style=\"font-size:13px;color:#888\">Dieser Link ist 60 Minuten gültig und kann nur einmal verwendet werden.</p>",
-        "<p style=\"font-size:13px;color:#888\">Falls du diese Anfrage nicht gestellt hast, kannst du diese E-Mail ignorieren.</p>",
+        "<p style=\"font-size:13px;color:#888\">This link is valid for 60 minutes and can only be used once.</p>",
+        "<p style=\"font-size:13px;color:#888\">If you did not request this, you can ignore this email.</p>",
         "<p style=\"margin-top:24px;color:#555\">— BITBI</p>",
         "</div>",
       ].join(""),
@@ -283,14 +350,14 @@ async function requireUser(request, env) {
 
   if (!session) {
     return json(
-      { ok: false, error: "Nicht authentifiziert." },
+      { ok: false, error: "Not authenticated." },
       { status: 401 }
     );
   }
 
   if (session.user.status !== "active") {
     return json(
-      { ok: false, error: "Dieses Konto ist nicht aktiv." },
+      { ok: false, error: "This account is not active." },
       { status: 403 }
     );
   }
@@ -307,7 +374,7 @@ async function requireAdmin(request, env) {
 
   if (result.user.role !== "admin") {
     return json(
-      { ok: false, error: "Keine Administratorberechtigung." },
+      { ok: false, error: "Admin privileges required." },
       { status: 403 }
     );
   }
@@ -353,7 +420,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Ungültiger JSON-Body.",
+            error: "Invalid JSON body.",
           },
           { status: 400 }
         );
@@ -366,7 +433,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "E-Mail und Passwort sind erforderlich.",
+            error: "Email and password are required.",
           },
           { status: 400 }
         );
@@ -376,7 +443,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Bitte eine gültige E-Mail-Adresse angeben.",
+            error: "Please enter a valid email address.",
           },
           { status: 400 }
         );
@@ -386,7 +453,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Das Passwort muss mindestens 10 Zeichen lang sein.",
+            error: "Password must be at least 10 characters long.",
           },
           { status: 400 }
         );
@@ -402,7 +469,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Diese E-Mail ist bereits registriert.",
+            error: "This email is already registered.",
           },
           { status: 409 }
         );
@@ -421,16 +488,14 @@ export default {
         .bind(userId, email, passwordHash, createdAt)
         .run();
 
+      // Send verification email (do not auto-login)
+      await createAndSendVerificationToken(env, userId, email);
+
       return json(
         {
           ok: true,
-          message: "Registrierung erfolgreich.",
-          user: {
-            id: userId,
-            email,
-            createdAt,
-            status: "active",
-          },
+          message: "Registration successful. Please check your inbox and verify your email address.",
+          needsVerification: true,
         },
         { status: 201 }
       );
@@ -443,7 +508,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Ungültiger JSON-Body.",
+            error: "Invalid JSON body.",
           },
           { status: 400 }
         );
@@ -456,7 +521,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "E-Mail und Passwort sind erforderlich.",
+            error: "Email and password are required.",
           },
           { status: 400 }
         );
@@ -464,7 +529,7 @@ export default {
 
       const user = await env.DB.prepare(
         `
-        SELECT id, email, password_hash, created_at, status
+        SELECT id, email, password_hash, created_at, status, email_verified_at
         FROM users
         WHERE email = ?
         LIMIT 1
@@ -477,7 +542,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Ungültige E-Mail oder Passwort.",
+            error: "Invalid email or password.",
           },
           { status: 401 }
         );
@@ -487,7 +552,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Dieses Konto ist nicht aktiv.",
+            error: "This account is not active.",
           },
           { status: 403 }
         );
@@ -499,9 +564,20 @@ export default {
         return json(
           {
             ok: false,
-            error: "Ungültige E-Mail oder Passwort.",
+            error: "Invalid email or password.",
           },
           { status: 401 }
+        );
+      }
+
+      if (!user.email_verified_at) {
+        return json(
+          {
+            ok: false,
+            error: "Please verify your email address first. Check your inbox (and spam folder).",
+            code: "EMAIL_NOT_VERIFIED",
+          },
+          { status: 403 }
         );
       }
 
@@ -522,7 +598,7 @@ export default {
 
       const response = json({
         ok: true,
-        message: "Login erfolgreich.",
+        message: "Login successful.",
         user: {
           id: user.id,
           email: user.email,
@@ -548,7 +624,7 @@ export default {
 
       const response = json({
         ok: true,
-        message: "Logout erfolgreich.",
+        message: "Logout successful.",
       });
 
       response.headers.set("Set-Cookie", buildExpiredSessionCookie(isSecure));
@@ -626,7 +702,7 @@ export default {
 
       if (!targetUserId || parts.length !== 6) {
         return json(
-          { ok: false, error: "Ungültiger Pfad." },
+          { ok: false, error: "Invalid path." },
           { status: 400 }
         );
       }
@@ -635,7 +711,7 @@ export default {
 
       if (!body) {
         return json(
-          { ok: false, error: "Ungültiger JSON-Body." },
+          { ok: false, error: "Invalid JSON body." },
           { status: 400 }
         );
       }
@@ -644,14 +720,14 @@ export default {
 
       if (newRole !== "user" && newRole !== "admin") {
         return json(
-          { ok: false, error: "Ungültige Rolle. Erlaubt: \"user\" oder \"admin\"." },
+          { ok: false, error: "Invalid role. Allowed: \"user\" or \"admin\"." },
           { status: 400 }
         );
       }
 
       if (targetUserId === result.user.id && newRole !== "admin") {
         return json(
-          { ok: false, error: "Du kannst deine eigene Admin-Rolle nicht entfernen." },
+          { ok: false, error: "You cannot remove your own admin role." },
           { status: 400 }
         );
       }
@@ -664,7 +740,7 @@ export default {
 
       if (!targetUser) {
         return json(
-          { ok: false, error: "Benutzer nicht gefunden." },
+          { ok: false, error: "User not found." },
           { status: 404 }
         );
       }
@@ -723,7 +799,7 @@ export default {
 
       if (!targetUserId || parts.length !== 6) {
         return json(
-          { ok: false, error: "Ungültiger Pfad." },
+          { ok: false, error: "Invalid path." },
           { status: 400 }
         );
       }
@@ -732,7 +808,7 @@ export default {
 
       if (!body) {
         return json(
-          { ok: false, error: "Ungültiger JSON-Body." },
+          { ok: false, error: "Invalid JSON body." },
           { status: 400 }
         );
       }
@@ -741,14 +817,14 @@ export default {
 
       if (newStatus !== "active" && newStatus !== "disabled") {
         return json(
-          { ok: false, error: "Ungültiger Status. Erlaubt: \"active\" oder \"disabled\"." },
+          { ok: false, error: "Invalid status. Allowed: \"active\" or \"disabled\"." },
           { status: 400 }
         );
       }
 
       if (targetUserId === result.user.id && newStatus === "disabled") {
         return json(
-          { ok: false, error: "Du kannst dein eigenes Konto nicht deaktivieren." },
+          { ok: false, error: "You cannot disable your own account." },
           { status: 400 }
         );
       }
@@ -761,7 +837,7 @@ export default {
 
       if (!targetUser) {
         return json(
-          { ok: false, error: "Benutzer nicht gefunden." },
+          { ok: false, error: "User not found." },
           { status: 404 }
         );
       }
@@ -820,14 +896,14 @@ export default {
 
       if (!targetUserId || parts.length !== 6) {
         return json(
-          { ok: false, error: "Ungültiger Pfad." },
+          { ok: false, error: "Invalid path." },
           { status: 400 }
         );
       }
 
       if (targetUserId === result.user.id) {
         return json(
-          { ok: false, error: "Du kannst deine eigenen Sitzungen hier nicht widerrufen." },
+          { ok: false, error: "You cannot revoke your own sessions here." },
           { status: 400 }
         );
       }
@@ -840,7 +916,7 @@ export default {
 
       if (!targetUser) {
         return json(
-          { ok: false, error: "Benutzer nicht gefunden." },
+          { ok: false, error: "User not found." },
           { status: 404 }
         );
       }
@@ -893,14 +969,14 @@ export default {
 
       if (!targetUserId || parts.length !== 5) {
         return json(
-          { ok: false, error: "Ungültiger Pfad." },
+          { ok: false, error: "Invalid path." },
           { status: 400 }
         );
       }
 
       if (targetUserId === result.user.id) {
         return json(
-          { ok: false, error: "Du kannst dein eigenes Konto nicht löschen." },
+          { ok: false, error: "You cannot delete your own account." },
           { status: 400 }
         );
       }
@@ -913,7 +989,7 @@ export default {
 
       if (!targetUser) {
         return json(
-          { ok: false, error: "Benutzer nicht gefunden." },
+          { ok: false, error: "User not found." },
           { status: 404 }
         );
       }
@@ -963,7 +1039,7 @@ export default {
       const genericOk = json({
         ok: true,
         message:
-          "Falls ein Konto mit dieser E-Mail existiert, wurde ein Link zum Zurücksetzen gesendet.",
+          "If an account with this email exists, a reset link has been sent.",
       });
 
       if (!body) return genericOk;
@@ -1030,7 +1106,7 @@ export default {
 
       if (!body) {
         return json(
-          { ok: false, error: "Ungültiger JSON-Body." },
+          { ok: false, error: "Invalid JSON body." },
           { status: 400 }
         );
       }
@@ -1040,7 +1116,7 @@ export default {
 
       if (!rawToken) {
         return json(
-          { ok: false, error: "Token fehlt." },
+          { ok: false, error: "Token is missing." },
           { status: 400 }
         );
       }
@@ -1049,7 +1125,7 @@ export default {
         return json(
           {
             ok: false,
-            error: "Das Passwort muss mindestens 10 Zeichen lang sein.",
+            error: "Password must be at least 10 characters long.",
           },
           { status: 400 }
         );
@@ -1071,7 +1147,7 @@ export default {
           {
             ok: false,
             error:
-              "Dieser Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.",
+              "This link is invalid or expired. Please request a new one.",
           },
           { status: 400 }
         );
@@ -1095,8 +1171,87 @@ export default {
 
       return json({
         ok: true,
-        message: "Passwort erfolgreich geändert. Du kannst dich jetzt einloggen.",
+        message: "Password changed successfully. You can now log in.",
       });
+    }
+
+    // ── Email Verification ─────────────────────────────────
+
+    if (pathname === "/api/verify-email" && method === "GET") {
+      const rawToken = url.searchParams.get("token");
+
+      if (!rawToken) {
+        return json(
+          { ok: false, error: "Token is missing." },
+          { status: 400 }
+        );
+      }
+
+      const tokenHash = await sha256Hex(rawToken);
+      const now = nowIso();
+
+      const tokenRow = await env.DB.prepare(
+        `SELECT id, user_id FROM email_verification_tokens
+         WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+         LIMIT 1`
+      )
+        .bind(tokenHash, now)
+        .first();
+
+      if (!tokenRow) {
+        return json(
+          {
+            ok: false,
+            error: "This verification link is invalid or expired.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE users SET email_verified_at = ? WHERE id = ?"
+        ).bind(now, tokenRow.user_id),
+        env.DB.prepare(
+          "UPDATE email_verification_tokens SET used_at = ? WHERE id = ?"
+        ).bind(now, tokenRow.id),
+        // Invalidate all other unused verification tokens for this user
+        env.DB.prepare(
+          "UPDATE email_verification_tokens SET used_at = ? WHERE user_id = ? AND id != ? AND used_at IS NULL"
+        ).bind(now, tokenRow.user_id, tokenRow.id),
+      ]);
+
+      return json({
+        ok: true,
+        message: "Email address verified successfully. You can now log in.",
+      });
+    }
+
+    if (pathname === "/api/resend-verification" && method === "POST") {
+      const body = await readJsonBody(request);
+
+      // Always return generic success to prevent user enumeration
+      const genericOk = json({
+        ok: true,
+        message: "If an account with this email exists and is not yet verified, a new verification email has been sent.",
+      });
+
+      if (!body) return genericOk;
+
+      const email = normalizeEmail(body.email);
+      if (!email || !isValidEmail(email)) return genericOk;
+
+      const user = await env.DB.prepare(
+        "SELECT id, email, status, email_verified_at FROM users WHERE email = ? LIMIT 1"
+      )
+        .bind(email)
+        .first();
+
+      if (!user || user.status !== "active" || user.email_verified_at) return genericOk;
+
+      await createAndSendVerificationToken(env, user.id, user.email);
+
+      return genericOk;
     }
 
     return json(

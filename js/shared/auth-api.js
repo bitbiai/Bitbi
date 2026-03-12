@@ -19,9 +19,9 @@ async function request(method, path, body) {
         let data;
         try { data = await res.json(); } catch { data = null; }
         if (res.ok) return { ok: true, data };
-        return { ok: false, error: data?.error || `Error ${res.status}` };
+        return { ok: false, error: data?.error || `Error ${res.status}`, data };
     } catch (e) {
-        return { ok: false, error: 'Netzwerkfehler. Bitte versuche es erneut.' };
+        return { ok: false, error: 'Network error. Please try again.' };
     }
 }
 
@@ -66,6 +66,16 @@ export function apiAdminRevokeSessions(userId) {
 
 export function apiAdminDeleteUser(userId) {
     return request('DELETE', `/admin/users/${userId}`);
+}
+
+/* ── Email Verification ── */
+
+export function apiVerifyEmail(token) {
+    return request('GET', `/verify-email?token=${encodeURIComponent(token)}`);
+}
+
+export function apiResendVerification(email) {
+    return request('POST', '/resend-verification', { email });
 }
 
 /* ── Password Reset ── */

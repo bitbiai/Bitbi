@@ -5,6 +5,7 @@
    ============================================================ */
 
 import { authLogin, authRegister } from './auth-state.js';
+import { apiResendVerification } from './auth-api.js';
 
 let overlay = null;
 let formsContainer = null;
@@ -19,7 +20,7 @@ export function initAuthModal() {
 
     /* Build shell only — no form inputs in the DOM yet */
     container.innerHTML = `
-    <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="Anmeldung">
+    <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="Sign In">
         <div class="auth-modal__content">
             <button class="auth-modal__close" aria-label="Close auth modal">&times; Close</button>
             <div class="auth-modal__card">
@@ -97,7 +98,7 @@ function injectForms() {
         clearMsg(loginMsg);
         const email = loginForm.email.value.trim();
         const password = loginForm.password.value;
-        if (!email || !password) { showMsg(loginMsg, 'error', 'Bitte fülle alle Felder aus.'); return; }
+        if (!email || !password) { showMsg(loginMsg, 'error', 'Please fill in all fields.'); return; }
         const btn = loginForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Signing in...';
@@ -106,6 +107,8 @@ function injectForms() {
         btn.textContent = 'Sign In';
         if (res.ok) {
             closeAuthModal();
+        } else if (res.data?.code === 'EMAIL_NOT_VERIFIED') {
+            showMsgWithResend(loginMsg, res.error, email);
         } else {
             showMsg(loginMsg, 'error', res.error);
         }
@@ -117,8 +120,8 @@ function injectForms() {
         clearMsg(registerMsg);
         const email = registerForm.email.value.trim();
         const password = registerForm.password.value;
-        if (!email || !password) { showMsg(registerMsg, 'error', 'Bitte fülle alle Felder aus.'); return; }
-        if (password.length < 10) { showMsg(registerMsg, 'error', 'Passwort muss mindestens 10 Zeichen lang sein.'); return; }
+        if (!email || !password) { showMsg(registerMsg, 'error', 'Please fill in all fields.'); return; }
+        if (password.length < 10) { showMsg(registerMsg, 'error', 'Password must be at least 10 characters long.'); return; }
         const btn = registerForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Creating account...';
@@ -126,14 +129,8 @@ function injectForms() {
         btn.disabled = false;
         btn.textContent = 'Create Account';
         if (res.ok) {
-            showMsg(registerMsg, 'success', 'Account erstellt! Du kannst dich jetzt anmelden.');
+            showMsg(registerMsg, 'success', 'Account created! Please check your inbox (and spam folder) and verify your email address.');
             registerForm.reset();
-            setTimeout(() => {
-                overlay.querySelectorAll('.auth-modal__tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'login'));
-                loginForm.classList.add('active');
-                registerForm.classList.remove('active');
-                clearMsg(registerMsg);
-            }, 2000);
         } else {
             showMsg(registerMsg, 'error', res.error);
         }
@@ -149,6 +146,25 @@ function removeForms() {
 function showMsg(el, type, text) {
     el.textContent = text;
     el.className = `auth-modal__msg auth-modal__msg--${type}`;
+}
+
+function showMsgWithResend(el, text, email) {
+    el.className = 'auth-modal__msg auth-modal__msg--error';
+    el.innerHTML = '';
+    el.appendChild(document.createTextNode(text + ' '));
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = 'Resend';
+    link.style.cssText = 'color:rgba(0,240,255,0.8);text-decoration:underline;cursor:pointer';
+    link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        link.textContent = 'Sending...';
+        link.style.pointerEvents = 'none';
+        await apiResendVerification(email);
+        el.className = 'auth-modal__msg auth-modal__msg--success';
+        el.textContent = 'Verification email has been resent. Please check your inbox (and spam folder).';
+    });
+    el.appendChild(link);
 }
 
 function clearMsg(el) {
