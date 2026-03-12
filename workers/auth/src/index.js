@@ -529,7 +529,7 @@ export default {
 
       const user = await env.DB.prepare(
         `
-        SELECT id, email, password_hash, created_at, status, email_verified_at
+        SELECT id, email, password_hash, created_at, status, role, email_verified_at
         FROM users
         WHERE email = ?
         LIMIT 1
@@ -604,6 +604,7 @@ export default {
           email: user.email,
           createdAt: user.created_at,
           status: user.status,
+          role: user.role,
         },
       });
 
