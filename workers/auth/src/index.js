@@ -1245,6 +1245,38 @@ export default {
       return genericOk;
     }
 
+    // ── Protected Music ────────────────────────────────────
+
+    if (pathname === "/api/music/exclusive-track-01" && method === "GET") {
+      const result = await requireUser(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const object = await env.PRIVATE_MEDIA.get("music/exclusive-track-01.mp3");
+
+      if (!object) {
+        return json(
+          { ok: false, error: "Track not found." },
+          { status: 404 }
+        );
+      }
+
+      const headers = new Headers();
+      headers.set("Content-Type", "audio/mpeg");
+      if (object.httpMetadata?.contentType) {
+        headers.set("Content-Type", object.httpMetadata.contentType);
+      }
+      if (object.size) {
+        headers.set("Content-Length", String(object.size));
+      }
+      headers.set("Cache-Control", "private, no-store");
+      headers.set("Accept-Ranges", "bytes");
+
+      return new Response(object.body, { headers });
+    }
+
     return json(
       {
         ok: false,

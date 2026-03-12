@@ -109,7 +109,7 @@ function setupGalleryFilter() {
     filterBar.appendChild(btn);
 }
 
-/* ── Placement 3: Sound Lab — Exclusive Tracks card ── */
+/* ── Placement 3: Sound Lab — Exclusive Track player ── */
 function setupSoundLabCard() {
     const player = document.getElementById('playlistPlayer');
     if (!player) return;
@@ -120,20 +120,135 @@ function setupSoundLabCard() {
 
     const content = document.createElement('div');
     content.className = 'locked-area__content';
-    content.style.cssText = 'padding:20px;min-height:80px;display:flex;align-items:center;gap:14px';
+    content.style.cssText = 'padding:16px 20px;display:flex;align-items:center;gap:14px;background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;transition:border-color 0.3s';
     content.innerHTML = `
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,rgba(0,240,255,0.12),rgba(255,179,0,0.08));border:1px solid rgba(0,240,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <svg width="16" height="16" fill="rgba(0,240,255,0.8)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        <button class="excl-play" aria-label="Play Exclusive Track 01" style="width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s">
+            <svg class="excl-pi" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="excl-pa" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    <h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Exclusive Track 01</h4>
+                    <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px;flex-shrink:0">MEMBERS</span>
+                </div>
+                <span class="excl-time" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px">0:00</span>
+            </div>
+            <div class="excl-bar" style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer">
+                <div class="excl-prog" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#FFB300,#00F0FF);border-radius:2px;transition:width 0.1s linear"></div>
+            </div>
         </div>
-        <div>
-            <h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85)">Exclusive Tracks</h4>
-            <p style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:2px">Bonus tracks and unreleased audio experiments for members</p>
+        <div class="excl-eq" style="display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0">
+            <div class="eq-bar" style="animation:eqBar1 0.8s ease-in-out infinite paused;height:6px"></div>
+            <div class="eq-bar" style="animation:eqBar2 0.6s ease-in-out infinite paused;height:12px"></div>
+            <div class="eq-bar" style="animation:eqBar3 0.7s ease-in-out infinite paused;height:4px"></div>
+            <div class="eq-bar" style="animation:eqBar1 0.9s ease-in-out infinite paused;height:8px"></div>
+            <div class="eq-bar" style="animation:eqBar2 0.55s ease-in-out infinite paused;height:10px"></div>
         </div>`;
 
     wrapper.appendChild(content);
     wrapper.appendChild(makeOverlay());
     player.after(wrapper);
     lockedAreas.push(wrapper);
+
+    /* ── Exclusive track audio player (only works when unlocked) ── */
+    let audio = null;
+    let playing = false;
+    let animFrame = null;
+
+    const playBtn = content.querySelector('.excl-play');
+    const playIcon = content.querySelector('.excl-pi');
+    const pauseIcon = content.querySelector('.excl-pa');
+    const timeEl = content.querySelector('.excl-time');
+    const progEl = content.querySelector('.excl-prog');
+    const barEl = content.querySelector('.excl-bar');
+    const eqBars = content.querySelectorAll('.eq-bar');
+
+    function fmt(s) {
+        if (isNaN(s)) return '0:00';
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function tick() {
+        if (!audio) return;
+        if (audio.duration) {
+            progEl.style.width = (audio.currentTime / audio.duration * 100) + '%';
+            timeEl.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+        }
+        animFrame = requestAnimationFrame(tick);
+    }
+
+    function setPlaying(state) {
+        playing = state;
+        playIcon.style.display = state ? 'none' : '';
+        pauseIcon.style.display = state ? '' : 'none';
+        eqBars.forEach(b => b.style.animationPlayState = state ? 'running' : 'paused');
+        if (state) {
+            content.style.borderColor = 'rgba(0,240,255,0.2)';
+            content.style.background = 'rgba(0,240,255,0.04)';
+        } else {
+            content.style.borderColor = 'rgba(255,255,255,0.06)';
+            content.style.background = 'rgba(13,27,42,0.45)';
+        }
+    }
+
+    function ensureAudio() {
+        if (audio) return audio;
+        audio = new Audio('/api/music/exclusive-track-01');
+        audio.crossOrigin = 'use-credentials';
+        audio.addEventListener('ended', () => {
+            setPlaying(false);
+            progEl.style.width = '0%';
+            if (animFrame) cancelAnimationFrame(animFrame);
+        });
+        audio.addEventListener('error', () => {
+            setPlaying(false);
+            if (animFrame) cancelAnimationFrame(animFrame);
+        });
+        return audio;
+    }
+
+    playBtn.addEventListener('click', () => {
+        const { loggedIn } = getAuthState();
+        if (!loggedIn) { openAuthModal('register'); return; }
+
+        const a = ensureAudio();
+        if (playing) {
+            a.pause();
+            setPlaying(false);
+            if (animFrame) cancelAnimationFrame(animFrame);
+        } else {
+            a.play();
+            setPlaying(true);
+            tick();
+        }
+    });
+
+    barEl.addEventListener('click', (e) => {
+        if (!audio || !audio.duration) return;
+        const rect = barEl.getBoundingClientRect();
+        audio.currentTime = (e.clientX - rect.left) / rect.width * audio.duration;
+    });
+
+    content.onmouseenter = () => { if (!playing) content.style.borderColor = 'rgba(0,240,255,0.15)'; };
+    content.onmouseleave = () => { if (!playing) content.style.borderColor = 'rgba(255,255,255,0.06)'; };
+
+    /* Reset audio when user logs out */
+    document.addEventListener('bitbi:auth-change', () => {
+        const { loggedIn } = getAuthState();
+        if (!loggedIn && audio) {
+            audio.pause();
+            audio.src = '';
+            audio = null;
+            playing = false;
+            setPlaying(false);
+            progEl.style.width = '0%';
+            timeEl.textContent = '0:00';
+            if (animFrame) cancelAnimationFrame(animFrame);
+        }
+    });
 }
 
 /* ── Placement 4: Markets — Portfolio Tracker card ── */
