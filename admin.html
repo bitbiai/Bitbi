@@ -72,8 +72,8 @@
         <div id="adminDenied" class="glass glass-card reveal" style="display:none">
             <div class="admin-denied">
                 <div class="admin-denied__icon" aria-hidden="true">&#128274;</div>
-                <h2 class="admin-denied__title">Zugriff verweigert</h2>
-                <p class="admin-denied__text">Du hast keine Berechtigung, auf diesen Bereich zuzugreifen. Bitte melde dich mit einem Admin-Konto an.</p>
+                <h2 class="admin-denied__title">Access Denied</h2>
+                <p class="admin-denied__text">You do not have permission to access this area. Please sign in with an admin account.</p>
             </div>
         </div>
 
@@ -83,15 +83,15 @@
 
                 <!-- Search -->
                 <form id="searchForm" class="admin-search">
-                    <input type="text" id="searchInput" class="admin-search__input" placeholder="E-Mail suchen..." autocomplete="off">
-                    <button type="submit" class="admin-search__btn">Suchen</button>
+                    <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off">
+                    <button type="submit" class="admin-search__btn">Search</button>
                 </form>
 
                 <!-- Loading State -->
-                <div id="loadingState" class="admin-state">Lade Benutzer...</div>
+                <div id="loadingState" class="admin-state">Loading users...</div>
 
                 <!-- Empty State -->
-                <div id="emptyState" class="admin-state" style="display:none">Keine Benutzer gefunden.</div>
+                <div id="emptyState" class="admin-state" style="display:none">No users found.</div>
 
                 <!-- User Table -->
                 <div class="admin-table-wrap">
@@ -100,6 +100,7 @@
                             <th>Email</th>
                             <th>Role</th>
                             <th>Status</th>
+                            <th>Verified</th>
                             <th class="hide-mobile">Created</th>
                             <th>Actions</th>
                         </tr></thead>

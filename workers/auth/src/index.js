@@ -659,7 +659,7 @@ export default {
       if (search) {
         rows = await env.DB.prepare(
           `
-          SELECT id, email, role, status, created_at, updated_at
+          SELECT id, email, role, status, created_at, updated_at, email_verified_at
           FROM users
           WHERE email LIKE ?
           ORDER BY created_at DESC
@@ -670,7 +670,7 @@ export default {
       } else {
         rows = await env.DB.prepare(
           `
-          SELECT id, email, role, status, created_at, updated_at
+          SELECT id, email, role, status, created_at, updated_at, email_verified_at
           FROM users
           ORDER BY created_at DESC
           `

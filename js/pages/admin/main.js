@@ -96,6 +96,12 @@ function renderUsers(users) {
         tdStatus.appendChild(createBadge(user.status, user.status === 'active' ? 'active' : 'disabled'));
         tr.appendChild(tdStatus);
 
+        // Verified badge
+        const tdVerified = document.createElement('td');
+        const isVerified = !!user.email_verified_at;
+        tdVerified.appendChild(createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled'));
+        tr.appendChild(tdVerified);
+
         // Created date
         const tdCreated = document.createElement('td');
         tdCreated.className = 'hide-mobile';
@@ -163,7 +169,7 @@ async function loadUsers(search) {
 async function handleChangeRole(userId, newRole) {
     const res = await apiAdminChangeRole(userId, newRole);
     if (res.ok) {
-        showToast(res.data?.message || 'Rolle geändert', 'success');
+        showToast(res.data?.message || 'Role changed', 'success');
         loadUsers($searchInput.value.trim());
     } else {
         showToast(res.error, 'error');
@@ -173,7 +179,7 @@ async function handleChangeRole(userId, newRole) {
 async function handleChangeStatus(userId, newStatus) {
     const res = await apiAdminChangeStatus(userId, newStatus);
     if (res.ok) {
-        showToast(res.data?.message || 'Status geändert', 'success');
+        showToast(res.data?.message || 'Status changed', 'success');
         loadUsers($searchInput.value.trim());
     } else {
         showToast(res.error, 'error');
@@ -181,20 +187,20 @@ async function handleChangeStatus(userId, newStatus) {
 }
 
 async function handleRevokeSessions(userId) {
-    if (!confirm('Alle Sessions dieses Benutzers widerrufen?')) return;
+    if (!confirm('Revoke all sessions for this user?')) return;
     const res = await apiAdminRevokeSessions(userId);
     if (res.ok) {
-        showToast(res.data?.message || 'Sessions widerrufen', 'success');
+        showToast(res.data?.message || 'Sessions revoked', 'success');
     } else {
         showToast(res.error, 'error');
     }
 }
 
 async function handleDeleteUser(userId, email) {
-    if (!confirm(`Benutzer "${email}" unwiderruflich löschen?`)) return;
+    if (!confirm(`Permanently delete user "${email}"?`)) return;
     const res = await apiAdminDeleteUser(userId);
     if (res.ok) {
-        showToast(res.data?.message || 'Benutzer gelöscht', 'success');
+        showToast(res.data?.message || 'User deleted', 'success');
         loadUsers($searchInput.value.trim());
     } else {
         showToast(res.error, 'error');
