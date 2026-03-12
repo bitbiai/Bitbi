@@ -88,22 +88,26 @@ function setupGalleryFilter() {
             openAuthModal('register');
             return;
         }
-        /* When logged in, toggle active state — for now just visual feedback */
         const isActive = btn.classList.contains('active');
-        /* Deselect all existing filter buttons */
+        /* Deselect all filter buttons (both regular and exclusive) */
         filterBar.querySelectorAll('.filter-btn').forEach(b => {
             b.classList.remove('active');
             b.setAttribute('aria-selected', 'false');
         });
+        btn.classList.remove('active');
+        btn.setAttribute('aria-selected', 'false');
+
         if (isActive) {
-            btn.classList.remove('active');
-            btn.setAttribute('aria-selected', 'false');
-            /* Re-activate "All" */
+            /* Toggle off: re-activate "All" */
             const allBtn = filterBar.querySelector('[data-filter="all"]');
             if (allBtn) { allBtn.classList.add('active'); allBtn.setAttribute('aria-selected', 'true'); allBtn.click(); }
         } else {
+            /* Toggle on: show exclusive only */
             btn.classList.add('active');
             btn.setAttribute('aria-selected', 'true');
+            /* Dispatch a custom event so gallery.js render('exclusive') is triggered */
+            const grid = document.getElementById('galleryGrid');
+            if (grid) grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
         }
     });
 

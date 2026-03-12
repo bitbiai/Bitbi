@@ -22,7 +22,24 @@ export function initGallery() {
     if (!grid || !modal) return;
 
     function render(filter) {
+        /* Preserve exclusive card injected by locked-sections.js */
+        const exclusiveCard = grid.querySelector('.locked-area.gallery-item');
+        if (exclusiveCard) exclusiveCard.remove();
+
         grid.innerHTML = '';
+
+        /* "exclusive" filter: show only the exclusive card, no regular items */
+        if (filter === 'exclusive') {
+            if (exclusiveCard) grid.appendChild(exclusiveCard);
+            return;
+        }
+
+        /* Re-insert exclusive card first for "all", hide for category filters */
+        if (exclusiveCard) {
+            exclusiveCard.style.display = filter === 'all' ? '' : 'none';
+            grid.appendChild(exclusiveCard);
+        }
+
         const list = filter === 'all' ? items : items.filter(i => i.cat === filter);
         list.forEach((item) => {
             const d = document.createElement('div');
@@ -34,6 +51,11 @@ export function initGallery() {
     }
 
     render('all');
+
+    /* Listen for exclusive filter from locked-sections.js */
+    grid.addEventListener('gallery:filter', (e) => {
+        render(e.detail);
+    });
 
     /* Filter buttons with keyboard navigation */
     const filterBtns = document.querySelectorAll('.filter-btn');
