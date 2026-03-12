@@ -75,15 +75,15 @@ function injectForms() {
         <form class="auth-modal__form active" id="authLoginForm" novalidate>
             <div class="auth-modal__msg" id="authLoginMsg"></div>
             <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
-            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="10">
+            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="6">
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
             <p style="text-align:center;margin-top:var(--space-3)"><a href="forgot-password.html" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">Forgot password?</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
             <div class="auth-modal__msg" id="authRegisterMsg"></div>
             <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
-            <input type="password" name="password" placeholder="Password (min. 10 characters)" required class="form-input" autocomplete="new-password" minlength="10">
-            <p class="auth-modal__hint">Minimum 10 characters</p>
+            <input type="password" name="password" placeholder="Password (min. 6 characters)" required class="form-input" autocomplete="new-password" minlength="6">
+            <p class="auth-modal__hint">Minimum 6 characters</p>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Create Account</button>
         </form>`;
 
@@ -121,7 +121,7 @@ function injectForms() {
         const email = registerForm.email.value.trim();
         const password = registerForm.password.value;
         if (!email || !password) { showMsg(registerMsg, 'error', 'Please fill in all fields.'); return; }
-        if (password.length < 10) { showMsg(registerMsg, 'error', 'Password must be at least 10 characters long.'); return; }
+        if (password.length < 6) { showMsg(registerMsg, 'error', 'Password must be at least 6 characters long.'); return; }
         const btn = registerForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Creating account...';

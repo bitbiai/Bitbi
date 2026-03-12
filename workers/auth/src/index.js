@@ -449,11 +449,11 @@ export default {
         );
       }
 
-      if (password.length < 10) {
+      if (password.length < 6) {
         return json(
           {
             ok: false,
-            error: "Password must be at least 10 characters long.",
+            error: "Password must be at least 6 characters long.",
           },
           { status: 400 }
         );
@@ -1112,11 +1112,11 @@ export default {
         );
       }
 
-      if (password.length < 10) {
+      if (password.length < 6) {
         return json(
           {
             ok: false,
-            error: "Password must be at least 10 characters long.",
+            error: "Password must be at least 6 characters long.",
           },
           { status: 400 }
         );
