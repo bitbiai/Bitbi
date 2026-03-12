@@ -1245,6 +1245,37 @@ export default {
       return genericOk;
     }
 
+    // ── Protected Media ─────────────────────────────────────
+
+    if (pathname === "/api/images/little-monster" && method === "GET") {
+      const result = await requireUser(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const object = await env.PRIVATE_MEDIA.get("images/little-monster.png");
+
+      if (!object) {
+        return json(
+          { ok: false, error: "Image not found." },
+          { status: 404 }
+        );
+      }
+
+      const headers = new Headers();
+      headers.set("Content-Type", "image/png");
+      if (object.httpMetadata?.contentType) {
+        headers.set("Content-Type", object.httpMetadata.contentType);
+      }
+      if (object.size) {
+        headers.set("Content-Length", String(object.size));
+      }
+      headers.set("Cache-Control", "private, no-store");
+
+      return new Response(object.body, { headers });
+    }
+
     // ── Protected Music ────────────────────────────────────
 
     if (pathname === "/api/music/exclusive-track-01" && method === "GET") {
