@@ -158,7 +158,8 @@ function setupGalleryExclusiveCard() {
 
     for (let i = 1; i <= 15; i++) {
         const num = String(i).padStart(2, '0');
-        const api = `/api/images/little-monster-${num}`;
+        const thumb = `/api/thumbnails/little-monster-${num}`;
+        const full = `/api/images/little-monster-${num}`;
         const title = `Little Monster #${num}`;
 
         const card = document.createElement('div');
@@ -181,13 +182,14 @@ function setupGalleryExclusiveCard() {
 
         const imgEl = inner.querySelector('.excl-img-real');
         const placeholderEl = inner.querySelector('.excl-img-placeholder');
-        const state = { loaded: false, imgEl, placeholderEl, api, title };
+        const state = { loaded: false, imgEl, placeholderEl, thumb, title };
         cardStates.push(state);
 
+        /* Click opens full-size image in modal */
         inner.addEventListener('click', () => {
             const mi = document.getElementById('modalImage');
             mi.style.background = '#0D1B2A';
-            mi.innerHTML = `<img src="${api}" crossorigin="use-credentials" alt="${title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
+            mi.innerHTML = `<img src="${full}" crossorigin="use-credentials" alt="${title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
             modal.classList.add('active');
@@ -231,7 +233,7 @@ function setupGalleryExclusiveCard() {
                     state.placeholderEl.style.display = 'none';
                     state.loaded = true;
                 };
-                img.src = state.api;
+                img.src = state.thumb;
             }
         });
         imageCards.forEach(card => grid.appendChild(card));
