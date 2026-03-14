@@ -56,40 +56,47 @@
     }
 
     /* ── Auth Nav (Mobile) ── */
-    .auth-nav__mobile-link {
-        font-size: 1.25rem;
-        font-family: var(--font-display);
-        font-weight: 700;
-        color: rgba(0, 240, 255, 0.7);
-        cursor: pointer;
-        background: none;
-        border: none;
-        transition: color 0.3s var(--ease-default);
-    }
-
-    .auth-nav__mobile-link:hover {
-        color: var(--color-cyan);
-    }
-
     .auth-nav__mobile-email {
-        font-size: 0.875rem;
+        display: block;
+        font-size: 0.8125rem;
         font-family: var(--font-mono);
         color: rgba(0, 240, 255, 0.5);
+        margin-block-end: var(--space-3);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .auth-nav__mobile-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
     }
 
     .auth-nav__mobile-logout {
-        font-size: 1.125rem;
-        font-family: var(--font-display);
-        font-weight: 700;
-        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.875rem;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.4);
         cursor: pointer;
         background: none;
         border: none;
+        padding: 0;
         transition: color 0.3s var(--ease-default);
     }
 
     .auth-nav__mobile-logout:hover {
         color: var(--color-ember);
+    }
+
+    .auth-nav__mobile-admin {
+        font-size: 0.875rem;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.5);
+        transition: color 0.3s var(--ease-default);
+    }
+
+    .auth-nav__mobile-admin:hover {
+        color: var(--color-cyan);
     }
 
     /* ── Auth Modal ── */

@@ -69,55 +69,42 @@ function renderDesktop() {
 }
 
 function renderMobile() {
-    const mobileNav = document.getElementById('mobileNav');
-    if (!mobileNav) return;
+    const authContainer = document.getElementById('mobileNavAuth');
+    if (!authContainer) return;
 
-    let existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout, .auth-nav__mobile-admin');
-    while (existing) {
-        existing.remove();
-        existing = mobileNav.querySelector('.auth-nav__mobile-link, .auth-nav__mobile-email, .auth-nav__mobile-logout, .auth-nav__mobile-admin');
-    }
+    authContainer.innerHTML = '';
 
-    const cta = mobileNav.querySelector('.mobile-nav__cta');
     const { loggedIn, user } = getAuthState();
 
     if (loggedIn) {
         const email = document.createElement('span');
         email.className = 'auth-nav__mobile-email';
         email.textContent = user?.email || 'Member';
+        authContainer.appendChild(email);
+
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'auth-nav__mobile-actions';
 
         const logout = document.createElement('button');
         logout.className = 'auth-nav__mobile-logout';
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
+        actionsWrap.appendChild(logout);
 
-        if (cta) {
-            mobileNav.insertBefore(logout, cta);
-            mobileNav.insertBefore(email, logout);
-        } else {
-            mobileNav.appendChild(email);
-            mobileNav.appendChild(logout);
-        }
-
-        // Admin link — only for admin role
         if (user?.role === 'admin') {
             const adminLink = document.createElement('a');
             adminLink.href = 'admin.html';
-            adminLink.className = 'mobile-nav__link auth-nav__mobile-admin';
-            adminLink.textContent = 'Admin_space';
-            // Insert before logout
-            logout.parentNode.insertBefore(adminLink, logout);
+            adminLink.className = 'auth-nav__mobile-admin';
+            adminLink.textContent = 'Admin';
+            actionsWrap.appendChild(adminLink);
         }
-    } else {
-        const link = document.createElement('button');
-        link.className = 'mobile-nav__cta pulse-glow';
-        link.textContent = 'Sign In';
-        link.addEventListener('click', () => openAuthModal('login'));
 
-        if (cta) {
-            mobileNav.insertBefore(link, cta);
-        } else {
-            mobileNav.appendChild(link);
-        }
+        authContainer.appendChild(actionsWrap);
+    } else {
+        const btn = document.createElement('button');
+        btn.className = 'mobile-nav__cta pulse-glow';
+        btn.textContent = 'Sign In';
+        btn.addEventListener('click', () => openAuthModal('login'));
+        authContainer.appendChild(btn);
     }
 }
