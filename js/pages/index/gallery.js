@@ -30,7 +30,10 @@ export function initGallery() {
 
         /* "exclusive" filter: show only the exclusive cards, no regular items */
         if (filter === 'exclusive') {
-            exclusiveCards.forEach(card => grid.appendChild(card));
+            exclusiveCards.forEach(card => {
+                card.style.display = '';
+                grid.appendChild(card);
+            });
             return;
         }
 
