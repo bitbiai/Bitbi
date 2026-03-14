@@ -68,6 +68,12 @@ export function initGallery() {
                 x.classList.remove('active');
                 x.setAttribute('aria-selected', 'false');
             });
+            /* Also deselect the Exclusive button so it doesn't think it's still active */
+            const exclBtn = document.querySelector('.auth-filter-btn');
+            if (exclBtn) {
+                exclBtn.classList.remove('active');
+                exclBtn.setAttribute('aria-selected', 'false');
+            }
             btn.classList.add('active');
             btn.setAttribute('aria-selected', 'true');
             render(btn.dataset.filter);

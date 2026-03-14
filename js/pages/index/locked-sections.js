@@ -195,24 +195,28 @@ function setupGalleryExclusiveCard() {
     }
 
     /* ── Open subcategory: show back button + 15 images ── */
-    let subcategoryOpen = false;
-
     function openSubcategory() {
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) { openAuthModal('register'); return; }
+        if (!getAuthState().loggedIn) { openAuthModal('register'); return; }
 
-        subcategoryOpen = true;
-
-        /* Remove folder from grid (keep reference), clear grid */
-        if (folderWrapper.parentNode) folderWrapper.remove();
+        /*
+         * Clear grid but keep folderWrapper in DOM (hidden).
+         * This way gallery.js render() always finds it via
+         * querySelectorAll('.locked-area.gallery-item') no matter
+         * which filter the user clicks next.
+         */
         grid.innerHTML = '';
+        folderWrapper.style.display = 'none';
+        grid.appendChild(folderWrapper);
 
-        /* Back button styled like the Exclusive filter button */
+        /* Back button */
         const backBtn = document.createElement('button');
         backBtn.className = 'auth-filter-btn auth-filter-btn--unlocked active';
         backBtn.style.cssText = 'margin-bottom:16px;display:inline-flex;align-items:center;gap:6px';
         backBtn.innerHTML = `<span style="font-size:14px">←</span> Exclusive`;
-        backBtn.addEventListener('click', closeSubcategory);
+        backBtn.addEventListener('click', () => {
+            /* Let gallery.js render('exclusive') handle cleanup */
+            grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
+        });
         grid.appendChild(backBtn);
 
         /* Load and show images */
@@ -229,42 +233,17 @@ function setupGalleryExclusiveCard() {
                 img.src = state.api;
             }
         });
-
         imageCards.forEach(card => grid.appendChild(card));
     }
 
-    function closeSubcategory() {
-        subcategoryOpen = false;
-        /* Clear subcategory view, re-insert folder, trigger exclusive filter */
-        grid.innerHTML = '';
-        grid.appendChild(folderWrapper);
-        grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
-    }
-
     folderContent.addEventListener('click', () => {
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) { openAuthModal('register'); return; }
+        if (!getAuthState().loggedIn) { openAuthModal('register'); return; }
         openSubcategory();
     });
 
-    /* When any filter button is clicked while subcategory is open,
-       re-attach the folder card so gallery.js render() can find it */
-    const filterBar = document.querySelector('.filter-bar');
-    if (filterBar) {
-        filterBar.addEventListener('click', () => {
-            if (subcategoryOpen) {
-                subcategoryOpen = false;
-                if (!folderWrapper.parentNode) grid.appendChild(folderWrapper);
-            }
-        });
-    }
-
     /* React to auth changes */
     document.addEventListener('bitbi:auth-change', () => {
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) {
-            subcategoryOpen = false;
-            if (!folderWrapper.parentNode) grid.appendChild(folderWrapper);
+        if (!getAuthState().loggedIn) {
             cardStates.forEach(state => {
                 state.imgEl.src = '';
                 state.imgEl.style.display = 'none';
