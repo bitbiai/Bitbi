@@ -34,9 +34,9 @@ export function initGallery() {
             return;
         }
 
-        /* Re-insert exclusive cards first for "all", hide for category filters */
+        /* Exclusive cards only visible in exclusive view, hidden for all other filters */
         exclusiveCards.forEach(card => {
-            card.style.display = filter === 'all' ? '' : 'none';
+            card.style.display = 'none';
             grid.appendChild(card);
         });
 

@@ -114,114 +114,164 @@ function setupGalleryFilter() {
     filterBar.appendChild(btn);
 }
 
-/* ── Placement 2b: Gallery — Exclusive Image cards (Little Monster) ── */
+/* ── Placement 2b: Gallery — Exclusive folder + Little Monster subcategory ── */
 function setupGalleryExclusiveCard() {
     const grid = document.getElementById('galleryGrid');
     const modal = document.getElementById('galleryModal');
     if (!grid || !modal) return;
 
-    const LITTLE_MONSTER_IMAGES = [];
-    for (let i = 1; i <= 15; i++) {
-        const num = String(i).padStart(2, '0');
-        LITTLE_MONSTER_IMAGES.push({
-            id: `little-monster-${num}`,
-            title: `Little Monster #${num}`,
-            api: `/api/images/little-monster-${num}`,
-        });
-    }
+    /* ── Folder card (shown in exclusive view) ── */
+    const FOLDER_ICON = `<svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
+    const folderWrapper = document.createElement('div');
+    folderWrapper.className = 'locked-area gallery-item';
+    folderWrapper.setAttribute('data-locked', 'true');
+
+    const folderContent = document.createElement('div');
+    folderContent.className = 'locked-area__content gallery-inner rounded-xl overflow-hidden relative';
+    folderContent.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
+    folderContent.innerHTML = `
+        <div style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">
+            ${FOLDER_ICON}
+            <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:rgba(0,240,255,0.5)">15 images</span>
+        </div>
+        <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
+            <div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">Little Monster</h4>
+                    <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
+                </div>
+                <p style="font-size:10px;color:rgba(255,255,255,0.4)">exclusive collection</p>
+                <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">Open →</span>
+            </div>
+        </div>`;
+
+    folderWrapper.appendChild(folderContent);
+    folderWrapper.appendChild(makeOverlay());
+    grid.prepend(folderWrapper);
+    lockedAreas.push(folderWrapper);
+
+    /* ── Build 15 Little Monster image cards (not in DOM yet) ── */
+    const imageCards = [];
     const cardStates = [];
 
-    LITTLE_MONSTER_IMAGES.forEach((item) => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'locked-area gallery-item';
-        wrapper.setAttribute('data-locked', 'true');
+    for (let i = 1; i <= 15; i++) {
+        const num = String(i).padStart(2, '0');
+        const api = `/api/images/little-monster-${num}`;
+        const title = `Little Monster #${num}`;
 
-        const content = document.createElement('div');
-        content.className = 'locked-area__content gallery-inner rounded-xl overflow-hidden relative';
-        content.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
-
-        const placeholder = `<div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>`;
-
-        content.innerHTML = `
-            ${placeholder}
-            <img class="excl-img-real" src="" alt="${item.title}" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
+        const card = document.createElement('div');
+        card.className = 'gallery-item';
+        const inner = document.createElement('div');
+        inner.className = 'gallery-inner rounded-xl overflow-hidden relative';
+        inner.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
+        inner.innerHTML = `
+            <div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>
+            <img class="excl-img-real" src="" alt="${title}" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
             <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
                 <div>
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                        <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${item.title}</h4>
-                        <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
-                    </div>
-                    <p style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:capitalize">Little Monster</p>
+                    <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${title}</h4>
+                    <p style="font-size:10px;color:rgba(255,255,255,0.4)">Little Monster</p>
                     <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full →</span>
                 </div>
             </div>`;
+        card.appendChild(inner);
+        imageCards.push(card);
 
-        wrapper.appendChild(content);
-        wrapper.appendChild(makeOverlay());
-        grid.prepend(wrapper);
-        lockedAreas.push(wrapper);
-
-        const imgEl = content.querySelector('.excl-img-real');
-        const placeholderEl = content.querySelector('.excl-img-placeholder');
-        const state = { loaded: false, imgEl, placeholderEl, api: item.api };
+        const imgEl = inner.querySelector('.excl-img-real');
+        const placeholderEl = inner.querySelector('.excl-img-placeholder');
+        const state = { loaded: false, imgEl, placeholderEl, api, title };
         cardStates.push(state);
 
-        function loadImage() {
-            if (state.loaded) return;
-            const { loggedIn } = getAuthState();
-            if (!loggedIn) return;
-
-            const img = new Image();
-            img.crossOrigin = 'use-credentials';
-            img.onload = () => {
-                imgEl.src = img.src;
-                imgEl.style.display = 'block';
-                placeholderEl.style.display = 'none';
-                state.loaded = true;
-            };
-            img.src = item.api;
-        }
-
-        content.addEventListener('click', () => {
-            const { loggedIn } = getAuthState();
-            if (!loggedIn) { openAuthModal('register'); return; }
-
+        inner.addEventListener('click', () => {
             const mi = document.getElementById('modalImage');
             mi.style.background = '#0D1B2A';
-            mi.innerHTML = `<img src="${item.api}" crossorigin="use-credentials" alt="${item.title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
-            document.getElementById('modalTitle').textContent = item.title;
+            mi.innerHTML = `<img src="${api}" crossorigin="use-credentials" alt="${title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
+            document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
         });
+    }
 
-        loadImage();
+    /* ── Open subcategory: show back button + 15 images ── */
+    let subcategoryOpen = false;
+
+    function openSubcategory() {
+        const { loggedIn } = getAuthState();
+        if (!loggedIn) { openAuthModal('register'); return; }
+
+        subcategoryOpen = true;
+
+        /* Remove folder from grid (keep reference), clear grid */
+        if (folderWrapper.parentNode) folderWrapper.remove();
+        grid.innerHTML = '';
+
+        /* Back button styled like the Exclusive filter button */
+        const backBtn = document.createElement('button');
+        backBtn.className = 'auth-filter-btn auth-filter-btn--unlocked active';
+        backBtn.style.cssText = 'margin-bottom:16px;display:inline-flex;align-items:center;gap:6px';
+        backBtn.innerHTML = `<span style="font-size:14px">←</span> Exclusive`;
+        backBtn.addEventListener('click', closeSubcategory);
+        grid.appendChild(backBtn);
+
+        /* Load and show images */
+        cardStates.forEach(state => {
+            if (!state.loaded) {
+                const img = new Image();
+                img.crossOrigin = 'use-credentials';
+                img.onload = () => {
+                    state.imgEl.src = img.src;
+                    state.imgEl.style.display = 'block';
+                    state.placeholderEl.style.display = 'none';
+                    state.loaded = true;
+                };
+                img.src = state.api;
+            }
+        });
+
+        imageCards.forEach(card => grid.appendChild(card));
+    }
+
+    function closeSubcategory() {
+        subcategoryOpen = false;
+        /* Clear subcategory view, re-insert folder, trigger exclusive filter */
+        grid.innerHTML = '';
+        grid.appendChild(folderWrapper);
+        grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
+    }
+
+    folderContent.addEventListener('click', () => {
+        const { loggedIn } = getAuthState();
+        if (!loggedIn) { openAuthModal('register'); return; }
+        openSubcategory();
     });
 
-    /* React to auth changes for all Little Monster cards */
+    /* When any filter button is clicked while subcategory is open,
+       re-attach the folder card so gallery.js render() can find it */
+    const filterBar = document.querySelector('.filter-bar');
+    if (filterBar) {
+        filterBar.addEventListener('click', () => {
+            if (subcategoryOpen) {
+                subcategoryOpen = false;
+                if (!folderWrapper.parentNode) grid.appendChild(folderWrapper);
+            }
+        });
+    }
+
+    /* React to auth changes */
     document.addEventListener('bitbi:auth-change', () => {
         const { loggedIn } = getAuthState();
-        cardStates.forEach(state => {
-            if (loggedIn) {
-                if (!state.loaded) {
-                    const img = new Image();
-                    img.crossOrigin = 'use-credentials';
-                    img.onload = () => {
-                        state.imgEl.src = img.src;
-                        state.imgEl.style.display = 'block';
-                        state.placeholderEl.style.display = 'none';
-                        state.loaded = true;
-                    };
-                    img.src = state.api;
-                }
-            } else {
+        if (!loggedIn) {
+            subcategoryOpen = false;
+            if (!folderWrapper.parentNode) grid.appendChild(folderWrapper);
+            cardStates.forEach(state => {
                 state.imgEl.src = '';
                 state.imgEl.style.display = 'none';
                 state.placeholderEl.style.display = 'flex';
                 state.loaded = false;
-            }
-        });
+            });
+        }
     });
 }
 
