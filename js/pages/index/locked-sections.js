@@ -121,29 +121,27 @@ function setupGalleryExclusiveCard() {
     if (!grid || !modal) return;
 
     /* ── Folder card (shown in exclusive view) ── */
-    const FOLDER_ICON = `<svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
-
     const folderWrapper = document.createElement('div');
     folderWrapper.className = 'locked-area gallery-item';
     folderWrapper.setAttribute('data-locked', 'true');
 
     const folderContent = document.createElement('div');
-    folderContent.className = 'locked-area__content gallery-inner rounded-xl overflow-hidden relative';
-    folderContent.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
+    folderContent.className = 'locked-area__content';
+    folderContent.style.cssText = 'cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px';
     folderContent.innerHTML = `
-        <div style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">
-            ${FOLDER_ICON}
-            <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:rgba(0,240,255,0.5)">15 images</span>
+        <div class="folder-circle" style="width:80%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;border:2px solid rgba(0,240,255,0.15);background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr">
+            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
         </div>
-        <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
-            <div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                    <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">Little Monster</h4>
-                    <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
-                </div>
-                <p style="font-size:10px;color:rgba(255,255,255,0.4)">exclusive collection</p>
-                <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">Open →</span>
+        <div style="text-align:center">
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px">
+                <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">Little Monster</h4>
+                <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
             </div>
+            <p style="font-size:10px;color:rgba(255,255,255,0.4)">15 images</p>
+            <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">Open →</span>
         </div>`;
 
     folderWrapper.appendChild(folderContent);
@@ -151,6 +149,36 @@ function setupGalleryExclusiveCard() {
     folderWrapper.style.display = 'none';
     grid.prepend(folderWrapper);
     lockedAreas.push(folderWrapper);
+
+    /* Load 4 cover thumbnails when logged in */
+    const folderThumbs = folderContent.querySelectorAll('.folder-thumb');
+    let folderThumbsLoaded = false;
+
+    function loadFolderThumbs() {
+        if (folderThumbsLoaded) return;
+        if (!getAuthState().loggedIn) return;
+        folderThumbsLoaded = true;
+        for (let t = 0; t < 4; t++) {
+            const num = String(t + 1).padStart(2, '0');
+            const img = new Image();
+            img.crossOrigin = 'use-credentials';
+            img.onload = () => {
+                folderThumbs[t].src = img.src;
+                folderThumbs[t].style.display = 'block';
+            };
+            img.src = `/api/thumbnails/little-monster-${num}`;
+        }
+    }
+
+    document.addEventListener('bitbi:auth-change', () => {
+        if (getAuthState().loggedIn) {
+            loadFolderThumbs();
+        } else {
+            folderThumbsLoaded = false;
+            folderThumbs.forEach(t => { t.src = ''; t.style.display = 'none'; });
+        }
+    });
+    loadFolderThumbs();
 
     /* ── Build 15 Little Monster image cards (not in DOM yet) ── */
     const imageCards = [];
