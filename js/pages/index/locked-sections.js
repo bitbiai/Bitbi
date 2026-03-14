@@ -148,6 +148,7 @@ function setupGalleryExclusiveCard() {
 
     folderWrapper.appendChild(folderContent);
     folderWrapper.appendChild(makeOverlay());
+    folderWrapper.style.display = 'none';
     grid.prepend(folderWrapper);
     lockedAreas.push(folderWrapper);
 
