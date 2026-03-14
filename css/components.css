@@ -179,6 +179,26 @@
         &.open { transform: translateX(0); }
     }
 
+    .mobile-nav__close {
+        position: absolute;
+        inset-block-start: var(--space-5);
+        inset-inline-end: var(--space-5);
+        z-index: 1;
+        background: none;
+        border: none;
+        font-size: 1.75rem;
+        line-height: 1;
+        cursor: pointer;
+        color: var(--color-cyan);
+        text-shadow: 0 0 8px rgba(0, 240, 255, 0.6), 0 0 20px rgba(239, 68, 68, 0.4);
+        transition: color 0.3s var(--ease-default), text-shadow 0.3s var(--ease-default);
+
+        &:hover {
+            color: var(--color-white);
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 0 0 28px rgba(239, 68, 68, 0.6);
+        }
+    }
+
     .mobile-nav__inner {
         display: flex;
         flex-direction: column;

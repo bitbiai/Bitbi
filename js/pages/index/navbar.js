@@ -58,6 +58,9 @@ export function initMobileNav() {
 
     btn.addEventListener('click', () => toggle());
 
+    const closeBtn = document.getElementById('mobileNavClose');
+    if (closeBtn) closeBtn.addEventListener('click', () => toggle(false));
+
     // Event delegation for all clickable items in the panel
     panel.addEventListener('click', (e) => {
         const link = e.target.closest('.mobile-nav__link, .mobile-nav__link--primary');
