@@ -114,93 +114,115 @@ function setupGalleryFilter() {
     filterBar.appendChild(btn);
 }
 
-/* ── Placement 2b: Gallery — Exclusive Image card ── */
+/* ── Placement 2b: Gallery — Exclusive Image cards (Little Monster) ── */
 function setupGalleryExclusiveCard() {
     const grid = document.getElementById('galleryGrid');
     const modal = document.getElementById('galleryModal');
     if (!grid || !modal) return;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'locked-area gallery-item';
-    wrapper.setAttribute('data-locked', 'true');
-
-    const content = document.createElement('div');
-    content.className = 'locked-area__content gallery-inner rounded-xl overflow-hidden relative';
-    content.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
-
-    /* Placeholder shown before image loads or when locked */
-    const placeholder = `<div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>`;
-
-    content.innerHTML = `
-        ${placeholder}
-        <img class="excl-img-real" src="" alt="Little Monster" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
-        <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
-            <div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                    <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">Little Monster</h4>
-                    <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
-                </div>
-                <p style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:capitalize">exclusive</p>
-                <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full →</span>
-            </div>
-        </div>`;
-
-    wrapper.appendChild(content);
-    wrapper.appendChild(makeOverlay());
-    grid.prepend(wrapper);
-    lockedAreas.push(wrapper);
-
-    const imgEl = content.querySelector('.excl-img-real');
-    const placeholderEl = content.querySelector('.excl-img-placeholder');
-    let imageLoaded = false;
-
-    /* Load image from protected endpoint when user logs in */
-    function loadImage() {
-        if (imageLoaded) return;
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) return;
-
-        const img = new Image();
-        img.crossOrigin = 'use-credentials';
-        img.onload = () => {
-            imgEl.src = img.src;
-            imgEl.style.display = 'block';
-            placeholderEl.style.display = 'none';
-            imageLoaded = true;
-        };
-        img.src = '/api/images/little-monster';
+    const LITTLE_MONSTER_IMAGES = [];
+    for (let i = 1; i <= 15; i++) {
+        const num = String(i).padStart(2, '0');
+        LITTLE_MONSTER_IMAGES.push({
+            id: `little-monster-${num}`,
+            title: `Little Monster #${num}`,
+            api: `/api/images/little-monster-${num}`,
+        });
     }
 
-    /* Open in gallery modal when clicked (only if logged in) */
-    content.addEventListener('click', () => {
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) { openAuthModal('register'); return; }
+    const cardStates = [];
 
-        const mi = document.getElementById('modalImage');
-        mi.style.background = '#0D1B2A';
-        mi.innerHTML = `<img src="/api/images/little-monster" crossorigin="use-credentials" alt="Little Monster" style="width:100%;height:100%;object-fit:contain;display:block">`;
-        document.getElementById('modalTitle').textContent = 'Little Monster';
-        document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
+    LITTLE_MONSTER_IMAGES.forEach((item) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'locked-area gallery-item';
+        wrapper.setAttribute('data-locked', 'true');
+
+        const content = document.createElement('div');
+        content.className = 'locked-area__content gallery-inner rounded-xl overflow-hidden relative';
+        content.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
+
+        const placeholder = `<div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>`;
+
+        content.innerHTML = `
+            ${placeholder}
+            <img class="excl-img-real" src="" alt="${item.title}" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
+            <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                        <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${item.title}</h4>
+                        <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
+                    </div>
+                    <p style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:capitalize">Little Monster</p>
+                    <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full →</span>
+                </div>
+            </div>`;
+
+        wrapper.appendChild(content);
+        wrapper.appendChild(makeOverlay());
+        grid.prepend(wrapper);
+        lockedAreas.push(wrapper);
+
+        const imgEl = content.querySelector('.excl-img-real');
+        const placeholderEl = content.querySelector('.excl-img-placeholder');
+        const state = { loaded: false, imgEl, placeholderEl, api: item.api };
+        cardStates.push(state);
+
+        function loadImage() {
+            if (state.loaded) return;
+            const { loggedIn } = getAuthState();
+            if (!loggedIn) return;
+
+            const img = new Image();
+            img.crossOrigin = 'use-credentials';
+            img.onload = () => {
+                imgEl.src = img.src;
+                imgEl.style.display = 'block';
+                placeholderEl.style.display = 'none';
+                state.loaded = true;
+            };
+            img.src = item.api;
+        }
+
+        content.addEventListener('click', () => {
+            const { loggedIn } = getAuthState();
+            if (!loggedIn) { openAuthModal('register'); return; }
+
+            const mi = document.getElementById('modalImage');
+            mi.style.background = '#0D1B2A';
+            mi.innerHTML = `<img src="${item.api}" crossorigin="use-credentials" alt="${item.title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
+            document.getElementById('modalTitle').textContent = item.title;
+            document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+
+        loadImage();
     });
 
-    /* React to auth changes */
+    /* React to auth changes for all Little Monster cards */
     document.addEventListener('bitbi:auth-change', () => {
         const { loggedIn } = getAuthState();
-        if (loggedIn) {
-            loadImage();
-        } else {
-            /* Reset to placeholder on logout */
-            imgEl.src = '';
-            imgEl.style.display = 'none';
-            placeholderEl.style.display = 'flex';
-            imageLoaded = false;
-        }
+        cardStates.forEach(state => {
+            if (loggedIn) {
+                if (!state.loaded) {
+                    const img = new Image();
+                    img.crossOrigin = 'use-credentials';
+                    img.onload = () => {
+                        state.imgEl.src = img.src;
+                        state.imgEl.style.display = 'block';
+                        state.placeholderEl.style.display = 'none';
+                        state.loaded = true;
+                    };
+                    img.src = state.api;
+                }
+            } else {
+                state.imgEl.src = '';
+                state.imgEl.style.display = 'none';
+                state.placeholderEl.style.display = 'flex';
+                state.loaded = false;
+            }
+        });
     });
-
-    /* Try loading immediately in case user is already logged in */
-    loadImage();
 }
 
 /* ── Placement 3: Sound Lab — Exclusive Track player ── */

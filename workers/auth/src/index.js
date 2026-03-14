@@ -1276,6 +1276,45 @@ export default {
       return new Response(object.body, { headers });
     }
 
+    // GET /api/images/little-monster-NN (01–15)
+    if (pathname.startsWith("/api/images/little-monster-") && method === "GET") {
+      const result = await requireUser(request, env);
+
+      if (result instanceof Response) {
+        return result;
+      }
+
+      const num = pathname.replace("/api/images/little-monster-", "");
+      const valid = ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15"];
+      if (!valid.includes(num)) {
+        return json(
+          { ok: false, error: "Image not found." },
+          { status: 404 }
+        );
+      }
+
+      const object = await env.PRIVATE_MEDIA.get(`images/Little_Monster/little-monster_${num}.png`);
+
+      if (!object) {
+        return json(
+          { ok: false, error: "Image not found." },
+          { status: 404 }
+        );
+      }
+
+      const headers = new Headers();
+      headers.set("Content-Type", "image/png");
+      if (object.httpMetadata?.contentType) {
+        headers.set("Content-Type", object.httpMetadata.contentType);
+      }
+      if (object.size) {
+        headers.set("Content-Length", String(object.size));
+      }
+      headers.set("Cache-Control", "private, no-store");
+
+      return new Response(object.body, { headers });
+    }
+
     // ── Protected Music ────────────────────────────────────
 
     if (pathname === "/api/music/exclusive-track-01" && method === "GET") {

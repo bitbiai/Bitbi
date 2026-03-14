@@ -22,23 +22,23 @@ export function initGallery() {
     if (!grid || !modal) return;
 
     function render(filter) {
-        /* Preserve exclusive card injected by locked-sections.js */
-        const exclusiveCard = grid.querySelector('.locked-area.gallery-item');
-        if (exclusiveCard) exclusiveCard.remove();
+        /* Preserve exclusive cards injected by locked-sections.js */
+        const exclusiveCards = Array.from(grid.querySelectorAll('.locked-area.gallery-item'));
+        exclusiveCards.forEach(card => card.remove());
 
         grid.innerHTML = '';
 
-        /* "exclusive" filter: show only the exclusive card, no regular items */
+        /* "exclusive" filter: show only the exclusive cards, no regular items */
         if (filter === 'exclusive') {
-            if (exclusiveCard) grid.appendChild(exclusiveCard);
+            exclusiveCards.forEach(card => grid.appendChild(card));
             return;
         }
 
-        /* Re-insert exclusive card first for "all", hide for category filters */
-        if (exclusiveCard) {
-            exclusiveCard.style.display = filter === 'all' ? '' : 'none';
-            grid.appendChild(exclusiveCard);
-        }
+        /* Re-insert exclusive cards first for "all", hide for category filters */
+        exclusiveCards.forEach(card => {
+            card.style.display = filter === 'all' ? '' : 'none';
+            grid.appendChild(card);
+        });
 
         const list = filter === 'all' ? items : items.filter(i => i.cat === filter);
         list.forEach((item) => {
