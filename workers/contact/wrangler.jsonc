@@ -1,11 +1,12 @@
 {
-	"name": "bitbi-contact",
-	"main": "src/index.js",
-	"compatibility_date": "2026-03-08",
-	"routes": [
-		{
-			"pattern": "contact.bitbi.ai/*",
-			"zone_name": "bitbi.ai"
-		}
-	]
+  "name": "bitbi-contact",
+  "main": "src/index.js",
+  "compatibility_date": "2026-03-08",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "contact.bitbi.ai",
+      "custom_domain": true
+    }
+  ]
 }
