@@ -139,7 +139,12 @@ export function initParticles(canvasId, options = {}) {
             }
         }
 
-        if (visible) requestAnimationFrame(loop);
+        if (visible && !document.hidden) requestAnimationFrame(loop);
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && visible) requestAnimationFrame(loop);
+    });
+
     requestAnimationFrame(loop);
 }

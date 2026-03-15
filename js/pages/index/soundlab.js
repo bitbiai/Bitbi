@@ -21,8 +21,8 @@ export function initSoundLab(revealObserver) {
     let activeIdx = null;
 
     tracks.forEach((tr, idx) => {
-        const audio = new Audio(tr.file);
-        audio.preload = 'metadata';
+        const audio = new Audio();
+        audio.preload = 'none';
         audios.push(audio);
 
         const d = document.createElement('div');
@@ -259,6 +259,25 @@ export function initSoundLab(revealObserver) {
     });
 
     audios.forEach(a => a.volume = 0.8);
+
+    // Defer audio metadata loading until soundlab section is visible
+    if (typeof IntersectionObserver !== 'undefined') {
+        const audioIo = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting) {
+                tracks.forEach((tr, idx) => {
+                    audios[idx].src = tr.file;
+                    audios[idx].preload = 'metadata';
+                });
+                audioIo.disconnect();
+            }
+        });
+        audioIo.observe(ctn);
+    } else {
+        tracks.forEach((tr, idx) => {
+            audios[idx].src = tr.file;
+            audios[idx].preload = 'metadata';
+        });
+    }
 
     plEl.onmouseenter = () => plEl.style.borderColor = 'rgba(0,240,255,0.2)';
     plEl.onmouseleave = () => plEl.style.borderColor = 'rgba(0,240,255,0.1)';

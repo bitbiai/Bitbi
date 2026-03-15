@@ -2,6 +2,8 @@
    BITBI — Navbar scroll handler & mobile toggle
    ============================================================ */
 
+import { setupFocusTrap } from '../../shared/focus-trap.js';
+
 export function initNavbar() {
     const nav = document.getElementById('navbar');
     if (!nav) return;
@@ -27,12 +29,7 @@ export function initMobileNav() {
     if (!btn || !panel) return;
 
     let open = false;
-
-    function getFocusableElements() {
-        return panel.querySelectorAll(
-            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        );
-    }
+    let removeFocusTrap = null;
 
     function toggle(force) {
         open = force !== undefined ? force : !open;
@@ -48,10 +45,10 @@ export function initMobileNav() {
 
         if (open) {
             panel.setAttribute('aria-hidden', 'false');
-            const focusable = getFocusableElements();
-            if (focusable.length) focusable[0].focus();
+            removeFocusTrap = setupFocusTrap(panel);
         } else {
             panel.setAttribute('aria-hidden', 'true');
+            if (removeFocusTrap) { removeFocusTrap(); removeFocusTrap = null; }
             btn.focus();
         }
     }
@@ -88,26 +85,4 @@ export function initMobileNav() {
         if (e.key === 'Escape' && open) toggle(false);
     });
 
-    // Focus trap
-    panel.addEventListener('keydown', (e) => {
-        if (e.key !== 'Tab' || !open) return;
-
-        const focusable = getFocusableElements();
-        if (!focusable.length) return;
-
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-
-        if (e.shiftKey) {
-            if (document.activeElement === first) {
-                e.preventDefault();
-                last.focus();
-            }
-        } else {
-            if (document.activeElement === last) {
-                e.preventDefault();
-                first.focus();
-            }
-        }
-    });
 }

@@ -75,8 +75,10 @@ Migrations in `migrations/` — numbered sequentially. Note: there are two `0002
 
 ## Conventions
 
-- All user-facing error messages are in **German**
+- All user-facing error messages are in **English**
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
-- Sessions expire after 30 days; `last_seen_at` is updated on each authenticated request
+- Sessions expire after 30 days; `last_seen_at` is updated at most every 5 minutes per session
+- Rate limiting: login (10/15min), register (5/hr), forgot-password (5/hr), resend-verification (3/hr) per IP (in-memory, per-isolate)
+- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions and used/expired tokens
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`

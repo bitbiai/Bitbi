@@ -7,6 +7,9 @@
 		"APP_BASE_URL": "https://bitbi.ai",
 		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>"
 	},
+	"triggers": {
+		"crons": ["0 3 * * *"]
+	},
 	"routes": [
 		{
 			"pattern": "bitbi.ai/api/*",

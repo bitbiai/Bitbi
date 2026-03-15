@@ -73,7 +73,7 @@ Workers are deployed separately on Cloudflare — they are not part of the stati
 
 - `worker/contact-worker.js` — Contact form email handler. Uses Resend API with `RESEND_API_KEY` secret.
 - `worker/crypto-worker.js` — CoinGecko proxy for crypto market data. CORS-locked to `https://bitbi.ai`.
-- `workers/auth/` — Auth API (register, login, logout, session management). Uses Cloudflare D1 database (`bitbi-auth-db`) with PBKDF2 password hashing and cookie-based sessions. Configured via `workers/auth/wrangler.jsonc`. Routes: `/api/health`, `/api/me`, `/api/register`, `/api/login`, `/api/logout`. Error messages are in German. Requires `SESSION_SECRET` env var.
+- `workers/auth/` — Auth API (register, login, logout, session management). Uses Cloudflare D1 database (`bitbi-auth-db`) with PBKDF2 password hashing and cookie-based sessions. Configured via `workers/auth/wrangler.jsonc`. Routes: `/api/health`, `/api/me`, `/api/register`, `/api/login`, `/api/logout`. Error messages are in English. Requires `SESSION_SECRET` env var.
   - Dev: `cd workers/auth && npx wrangler dev`
   - Deploy: `cd workers/auth && npx wrangler deploy`
 

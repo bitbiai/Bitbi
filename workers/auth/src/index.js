@@ -35,10 +35,10 @@ function base64ToBytes(base64) {
 }
 
 function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  const len = Math.max(a.length, b.length);
+  let result = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    result |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   }
   return result === 0;
 }
@@ -318,6 +318,7 @@ async function getSessionUser(request, env) {
       sessions.id AS session_id,
       sessions.user_id AS user_id,
       sessions.expires_at AS expires_at,
+      sessions.last_seen_at AS last_seen_at,
       users.email AS email,
       users.created_at AS created_at,
       users.status AS status,
@@ -336,11 +337,15 @@ async function getSessionUser(request, env) {
     return null;
   }
 
-  await env.DB.prepare(
-    `UPDATE sessions SET last_seen_at = ? WHERE id = ?`
-  )
-    .bind(currentTime, sessionRow.session_id)
-    .run();
+  // Only update last_seen_at if older than 5 minutes to reduce write load
+  const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+  if (!sessionRow.last_seen_at || sessionRow.last_seen_at < fiveMinAgo) {
+    await env.DB.prepare(
+      `UPDATE sessions SET last_seen_at = ? WHERE id = ?`
+    )
+      .bind(currentTime, sessionRow.session_id)
+      .run();
+  }
 
   return {
     sessionId: sessionRow.session_id,
@@ -391,6 +396,47 @@ async function requireAdmin(request, env) {
   return result;
 }
 
+// ── Per-isolate sliding window rate limiter ──
+const rateLimitBuckets = new Map();
+const RATE_LIMIT_CLEANUP_INTERVAL = 60_000;
+let lastRateLimitCleanup = Date.now();
+
+function isRateLimited(key, maxRequests, windowMs) {
+  const now = Date.now();
+  if (now - lastRateLimitCleanup > RATE_LIMIT_CLEANUP_INTERVAL) {
+    lastRateLimitCleanup = now;
+    for (const [k, entries] of rateLimitBuckets) {
+      if (entries.length === 0 || entries[entries.length - 1] <= now - windowMs) {
+        rateLimitBuckets.delete(k);
+      }
+    }
+  }
+  let entries = rateLimitBuckets.get(key);
+  if (!entries) {
+    entries = [];
+    rateLimitBuckets.set(key, entries);
+  }
+  const windowStart = now - windowMs;
+  while (entries.length > 0 && entries[0] <= windowStart) entries.shift();
+  if (entries.length >= maxRequests) return true;
+  entries.push(now);
+  return false;
+}
+
+function getClientIp(request) {
+  return request.headers.get("CF-Connecting-IP") || "unknown";
+}
+
+function rateLimitResponse() {
+  return json(
+    { ok: false, error: "Too many requests. Please try again later." },
+    { status: 429 }
+  );
+}
+
+// Valid monster image IDs (shared across thumbnail and full-image routes)
+const VALID_MONSTER_IDS = ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15"];
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -423,6 +469,9 @@ export default {
     }
 
     if (pathname === "/api/register" && method === "POST") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`register:${ip}`, 5, 3600_000)) return rateLimitResponse();
+
       const body = await readJsonBody(request);
 
       if (!body) {
@@ -458,11 +507,11 @@ export default {
         );
       }
 
-      if (password.length < 6) {
+      if (password.length < 8) {
         return json(
           {
             ok: false,
-            error: "Password must be at least 6 characters long.",
+            error: "Password must be at least 8 characters long.",
           },
           { status: 400 }
         );
@@ -511,6 +560,9 @@ export default {
     }
 
     if (pathname === "/api/login" && method === "POST") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`login:${ip}`, 10, 900_000)) return rateLimitResponse();
+
       const body = await readJsonBody(request);
 
       if (!body) {
@@ -673,6 +725,7 @@ export default {
           FROM users
           WHERE email LIKE ?
           ORDER BY created_at DESC
+          LIMIT 100
           `
         )
           .bind(`%${search}%`)
@@ -683,6 +736,7 @@ export default {
           SELECT id, email, role, status, created_at, updated_at, email_verified_at
           FROM users
           ORDER BY created_at DESC
+          LIMIT 100
           `
         )
           .all();
@@ -1033,6 +1087,9 @@ export default {
     // ── Password Reset ──────────────────────────────────────
 
     if (pathname === "/api/forgot-password" && method === "POST") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`forgot:${ip}`, 5, 3600_000)) return rateLimitResponse();
+
       const body = await readJsonBody(request);
 
       // Always return generic success to prevent user enumeration
@@ -1121,11 +1178,11 @@ export default {
         );
       }
 
-      if (password.length < 6) {
+      if (password.length < 8) {
         return json(
           {
             ok: false,
-            error: "Password must be at least 6 characters long.",
+            error: "Password must be at least 8 characters long.",
           },
           { status: 400 }
         );
@@ -1228,6 +1285,9 @@ export default {
     }
 
     if (pathname === "/api/resend-verification" && method === "POST") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`resend:${ip}`, 3, 3600_000)) return rateLimitResponse();
+
       const body = await readJsonBody(request);
 
       // Always return generic success to prevent user enumeration
@@ -1265,8 +1325,7 @@ export default {
       }
 
       const num = pathname.replace("/api/thumbnails/little-monster-", "");
-      const valid = ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15"];
-      if (!valid.includes(num)) {
+      if (!VALID_MONSTER_IDS.includes(num)) {
         return json(
           { ok: false, error: "Image not found." },
           { status: 404 }
@@ -1304,8 +1363,7 @@ export default {
       }
 
       const num = pathname.replace("/api/images/little-monster-", "");
-      const valid = ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15"];
-      if (!valid.includes(num)) {
+      if (!VALID_MONSTER_IDS.includes(num)) {
         return json(
           { ok: false, error: "Image not found." },
           { status: 404 }
@@ -1373,5 +1431,14 @@ export default {
       },
       { status: 404 }
     );
+  },
+
+  async scheduled(event, env, ctx) {
+    const now = nowIso();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
+      env.DB.prepare("DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
+      env.DB.prepare("DELETE FROM email_verification_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
+    ]);
   },
 };

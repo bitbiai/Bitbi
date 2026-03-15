@@ -244,13 +244,15 @@ function initSynth(klangCard) {
 
 /* ── Sine Wave Preview ── */
 let sineAnim = null;
+let sineActive = false;
 
 function initSinePreview() {
-    if (sineAnim) return;
-    drawSineFrame();
+    sineActive = true;
+    if (!sineAnim) drawSineFrame();
 }
 
 function cancelSinePreview() {
+    sineActive = false;
     if (sineAnim) { cancelAnimationFrame(sineAnim); sineAnim = null; }
 }
 
@@ -286,7 +288,7 @@ function drawSineFrame() {
     cx.strokeStyle = 'rgba(42,155,176,0.08)';
     cx.lineWidth = 1;
     cx.stroke();
-    sineAnim = requestAnimationFrame(drawSineFrame);
+    sineAnim = (sineActive && !document.hidden) ? requestAnimationFrame(drawSineFrame) : null;
 }
 
 /* ── Sky Fall Preview ── */
@@ -329,7 +331,7 @@ function drawSfFrame() {
         cx.stroke();
     }
     cx.globalAlpha = 1;
-    sfPreviewAnim = requestAnimationFrame(drawSfFrame);
+    sfPreviewAnim = document.hidden ? null : requestAnimationFrame(drawSfFrame);
 }
 
 /* ── Gate Preview ── */
@@ -382,8 +384,17 @@ function drawGateFrame() {
         cx.fill();
     });
     cx.globalAlpha = 1;
-    gatePreviewAnim = requestAnimationFrame(drawGateFrame);
+    gatePreviewAnim = document.hidden ? null : requestAnimationFrame(drawGateFrame);
 }
+
+/* Resume paused preview loops when tab becomes visible */
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        if (sineActive && !sineAnim) drawSineFrame();
+        if (!sfPreviewAnim && document.getElementById('sfPreviewCanvas')) drawSfFrame();
+        if (!gatePreviewAnim && document.getElementById('gatePreviewCanvas')) drawGateFrame();
+    }
+});
 
 /* ── Game Overlay Factory ── */
 function initGameOverlay(card, overlayId, frameId, closeId, src, bg, previewCanvasId, previewInit, warmStyle = false) {

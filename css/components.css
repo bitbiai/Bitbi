@@ -359,14 +359,6 @@
         background: radial-gradient(circle, rgba(200, 50, 200, 0.04), transparent 70%);
     }
 
-    .hero__glow--cyan-sm {
-        background: radial-gradient(circle, rgba(0, 240, 255, 0.04), transparent 70%);
-    }
-
-    .hero__glow--gold-sm {
-        background: radial-gradient(circle, rgba(255, 179, 0, 0.03), transparent 70%);
-    }
-
     .hero__binary-rain {
         position: absolute;
         inset: 0;
@@ -382,10 +374,6 @@
         padding-inline: var(--space-5);
         max-inline-size: var(--container-wide);
         margin-inline: auto;
-    }
-
-    .hero__content--narrow {
-        max-inline-size: var(--container-text);
     }
 
     .hero__title-wrap {
@@ -678,10 +666,6 @@
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
-    }
-
-    .card-stack--lg {
-        gap: var(--space-6);
     }
 
     .card-stack--legal {
@@ -1187,10 +1171,6 @@
         inset: 0;
         z-index: 9999;
         flex-direction: column;
-    }
-
-    .game-overlay--active {
-        display: flex;
     }
 
     .game-overlay__close-wrap {
