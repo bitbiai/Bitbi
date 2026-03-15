@@ -1,0 +1,110 @@
+import { json } from "../lib/response.js";
+import { requireUser } from "../lib/session.js";
+import { VALID_MONSTER_IDS } from "../lib/constants.js";
+
+export async function handleMedia(ctx) {
+  const { request, env, pathname } = ctx;
+
+  // GET /api/thumbnails/little-monster-NN (01–15)
+  if (pathname.startsWith("/api/thumbnails/little-monster-")) {
+    const result = await requireUser(request, env);
+
+    if (result instanceof Response) {
+      return result;
+    }
+
+    const num = pathname.replace("/api/thumbnails/little-monster-", "");
+    if (!VALID_MONSTER_IDS.includes(num)) {
+      return json(
+        { ok: false, error: "Image not found." },
+        { status: 404 }
+      );
+    }
+
+    const object = await env.PRIVATE_MEDIA.get(`images/Little_Monster/thumbnails/little-monster_${num}.webp`);
+
+    if (!object) {
+      return json(
+        { ok: false, error: "Image not found." },
+        { status: 404 }
+      );
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", object.httpMetadata?.contentType || "image/webp");
+    if (object.size) {
+      headers.set("Content-Length", String(object.size));
+    }
+    headers.set("Cache-Control", "private, max-age=3600");
+    headers.set("X-Content-Type-Options", "nosniff");
+
+    return new Response(object.body, { headers });
+  }
+
+  // GET /api/images/little-monster-NN (01–15)
+  if (pathname.startsWith("/api/images/little-monster-")) {
+    const result = await requireUser(request, env);
+
+    if (result instanceof Response) {
+      return result;
+    }
+
+    const num = pathname.replace("/api/images/little-monster-", "");
+    if (!VALID_MONSTER_IDS.includes(num)) {
+      return json(
+        { ok: false, error: "Image not found." },
+        { status: 404 }
+      );
+    }
+
+    const object = await env.PRIVATE_MEDIA.get(`images/Little_Monster/little-monster_${num}.png`);
+
+    if (!object) {
+      return json(
+        { ok: false, error: "Image not found." },
+        { status: 404 }
+      );
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", object.httpMetadata?.contentType || "image/png");
+    if (object.size) {
+      headers.set("Content-Length", String(object.size));
+    }
+    headers.set("Cache-Control", "private, no-store");
+    headers.set("X-Content-Type-Options", "nosniff");
+
+    return new Response(object.body, { headers });
+  }
+
+  // GET /api/music/exclusive-track-01
+  if (pathname === "/api/music/exclusive-track-01") {
+    const result = await requireUser(request, env);
+
+    if (result instanceof Response) {
+      return result;
+    }
+
+    const object = await env.PRIVATE_MEDIA.get("music/exclusive-track-01.mp3");
+
+    if (!object) {
+      return json(
+        { ok: false, error: "Track not found." },
+        { status: 404 }
+      );
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", object.httpMetadata?.contentType || "audio/mpeg");
+    if (object.size) {
+      headers.set("Content-Length", String(object.size));
+    }
+    headers.set("Cache-Control", "private, no-store");
+    headers.set("Accept-Ranges", "bytes");
+    headers.set("X-Content-Type-Options", "nosniff");
+
+    return new Response(object.body, { headers });
+  }
+
+  return null;
+}

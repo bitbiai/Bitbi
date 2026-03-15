@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Cloudflare Worker providing auth API for bitbi.ai. Single-file worker (`src/index.js`, ~1450 lines) using Cloudflare D1 (SQLite) for persistence, R2 for protected media, and cookie-based sessions. No framework — pure request/response handling with manual route matching.
+Cloudflare Worker providing auth API for bitbi.ai. Modular ES module architecture using Cloudflare D1 (SQLite) for persistence, R2 for protected media, and cookie-based sessions. No framework — pure request/response handling with manual route matching. Wrangler v4 bundles all ES module imports via esbuild automatically.
 
 ## Commands
 
@@ -26,9 +26,33 @@ No test framework is configured.
 
 ## Architecture
 
-**Single entry point**: `src/index.js` exports a `fetch` handler with a `scheduled` handler for cron cleanup. All routes, helpers, and business logic live in this one file, organized top-to-bottom as: utility functions → crypto/auth helpers → rate limiter → `export default { fetch(), scheduled() }`.
+**Module structure**: `src/index.js` is a thin router (~60 lines) that dispatches to handler modules in `src/routes/`. Shared utilities live in `src/lib/`.
 
-**Route matching**: Manual `pathname + method` checks in the fetch handler — no router library. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters.
+```
+src/
+├── index.js              ← thin router + scheduled handler
+├── lib/
+│   ├── response.js       ← json() helper
+│   ├── request.js        ← normalizeEmail, isValidEmail, readJsonBody
+│   ├── cookies.js        ← parseCookies, buildSessionCookie, buildExpiredSessionCookie
+│   ├── passwords.js      ← hashPassword, verifyPassword (PBKDF2-SHA256)
+│   ├── tokens.js         ← nowIso, addDaysIso, addMinutesIso, randomTokenHex, sha256Hex
+│   ├── session.js        ← getSessionUser, requireUser, requireAdmin
+│   ├── rate-limit.js     ← isRateLimited, getClientIp, rateLimitResponse (per-isolate state)
+│   ├── email.js          ← sendVerificationEmail, sendResetEmail, createAndSendVerificationToken
+│   └── constants.js      ← VALID_MONSTER_IDS
+└── routes/
+    ├── health.js         ← GET /api/health
+    ├── auth.js           ← GET /api/me, POST /api/register, /login, /logout
+    ├── password.js       ← POST /api/forgot-password, GET /api/reset-password/validate, POST /api/reset-password
+    ├── verification.js   ← GET /api/verify-email, POST /api/resend-verification
+    ├── admin.js          ← all /api/admin/* (single dispatcher)
+    └── media.js          ← GET /api/thumbnails/*, /api/images/*, /api/music/*
+```
+
+**Handler signature**: All route handlers receive a context object `{ request, env, url, pathname, method, isSecure }` built once in index.js. Exceptions: `handleHealth()` takes no args; `handleAdmin(ctx)` and `handleMedia(ctx)` do internal sub-routing and return `null` for unmatched paths.
+
+**Route matching**: Manual `pathname + method` checks in index.js dispatch to route modules. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters inside `admin.js`.
 
 **Auth flow**: PBKDF2-SHA256 password hashing (100k iterations). Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1.
 
