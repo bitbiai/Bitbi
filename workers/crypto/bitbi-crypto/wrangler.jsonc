@@ -1,0 +1,18 @@
+{
+  "name": "bitbi-crypto",
+  "main": "src/index.js",
+  "workers_dev": false,
+  "preview_urls": false,
+  "compatibility_date": "2026-03-08",
+  "routes": [
+    {
+      "pattern": "api.bitbi.ai/*",
+      "zone_name": "bitbi.ai"
+    },
+    {
+      "pattern": "api.bitbi.ai",
+      "zone_name": "bitbi.ai",
+      "custom_domain": true
+    }
+  ]
+}
