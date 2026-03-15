@@ -32,21 +32,13 @@ export default {
       });
 
       if (!res.ok) {
-        const body = await res.text();
-        return new Response(
-          JSON.stringify({
-            error: "Upstream error",
-            status: res.status,
-            body
-          }),
-          {
-            status: 502,
-            headers: {
-              "Content-Type": "application/json",
-              ...corsHeaders
-            }
+        return new Response(JSON.stringify({ error: "Upstream error" }), {
+          status: 502,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders
           }
-        );
+        });
       }
 
       const data = await res.text();
