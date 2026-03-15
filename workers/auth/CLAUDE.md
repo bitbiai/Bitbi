@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Cloudflare Worker providing auth API for bitbi.ai. Single-file worker (`src/index.js`, ~1300 lines) using Cloudflare D1 (SQLite) for persistence, R2 for protected media, and cookie-based sessions. No framework — pure request/response handling with manual route matching.
+Cloudflare Worker providing auth API for bitbi.ai. Single-file worker (`src/index.js`, ~1450 lines) using Cloudflare D1 (SQLite) for persistence, R2 for protected media, and cookie-based sessions. No framework — pure request/response handling with manual route matching.
 
 ## Commands
 
@@ -26,7 +26,7 @@ No test framework is configured.
 
 ## Architecture
 
-**Single entry point**: `src/index.js` exports a `fetch` handler. All routes, helpers, and business logic live in this one file.
+**Single entry point**: `src/index.js` exports a `fetch` handler with a `scheduled` handler for cron cleanup. All routes, helpers, and business logic live in this one file, organized top-to-bottom as: utility functions → crypto/auth helpers → rate limiter → `export default { fetch(), scheduled() }`.
 
 **Route matching**: Manual `pathname + method` checks in the fetch handler — no router library. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters.
 
@@ -34,7 +34,7 @@ No test framework is configured.
 
 **Password reset**: Token-based flow via Resend API email. Raw token sent in email link, only hash stored in DB. Tokens expire after 60 minutes, single-use.
 
-**Email verification**: Token-based flow via Resend API. Verification email sent on registration. Tokens expire after 24 hours (configured via `addDaysIso`). Users can resend verification emails.
+**Email verification**: Token-based flow via Resend API. Verification email sent on registration. Tokens expire after 60 minutes (configured via `addMinutesIso(60)`). Users can resend verification emails. Login is blocked until email is verified (`EMAIL_NOT_VERIFIED` error code).
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
@@ -52,7 +52,8 @@ No test framework is configured.
 - `POST /api/reset-password` — set new password with token
 - `GET /api/verify-email?token=` — verify email address
 - `POST /api/resend-verification` — resend verification email (requires auth)
-- `GET /api/images/little-monster` — protected image from R2 (requires auth)
+- `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
+- `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
 - `GET /api/admin/me` — admin identity check
 - `GET /api/admin/users?search=` — list/search users
@@ -69,7 +70,7 @@ No test framework is configured.
 
 **Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`
 
-**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images and audio files.
+**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images and audio files. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `music/exclusive-track-01.mp3`. Valid IDs are `VALID_MONSTER_IDS` constant: 01–15.
 
 Migrations in `migrations/` — numbered sequentially. Note: there are two `0002_*` migrations (admin role and password reset tokens) that were applied separately.
 
