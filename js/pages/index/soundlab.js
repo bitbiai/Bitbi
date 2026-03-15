@@ -119,16 +119,14 @@ export function initSoundLab(revealObserver) {
     let tickRunning = false;
 
     function tick() {
-        audios.forEach((a, i) => {
-            const row = ctn.children[i];
-            if (!row) return;
-            const prog = row.querySelector('.snd-prog');
-            const time = row.querySelector('.snd-time');
-            if (a.duration) {
-                prog.style.width = (a.currentTime / a.duration * 100) + '%';
-                time.textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration);
+        if (activeIdx !== null) {
+            const a = audios[activeIdx];
+            const row = ctn.children[activeIdx];
+            if (row && a.duration) {
+                row.querySelector('.snd-prog').style.width = (a.currentTime / a.duration * 100) + '%';
+                row.querySelector('.snd-time').textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration);
             }
-        });
+        }
         plTickProgress();
         if (audios.some(a => !a.paused)) {
             requestAnimationFrame(tick);

@@ -2,26 +2,23 @@
    BITBI — Experiments section: card rendering, synth, game overlays
    ============================================================ */
 
+import { makeTags } from '../../shared/make-tags.js';
+
+const TAG_COLORS = {
+    WebGL: '0,240,255', AI: '192,38,211', 'Three.js': '255,179,0',
+    Python: '0,240,255', WebXR: '255,179,0', 'A-Frame': '0,240,255',
+    Canvas: '0,240,255', 'Audio API': '192,38,211'
+};
+
 export function initExperiments(revealObserver) {
-    const tc = {
-        WebGL: '0,240,255', AI: '192,38,211', 'Three.js': '255,179,0',
-        Python: '0,240,255', WebXR: '255,179,0', 'A-Frame': '0,240,255',
-        Canvas: '0,240,255', 'Audio API': '192,38,211'
-    };
     const grid = document.getElementById('experimentsGrid');
     if (!grid) return;
-
-    function makeTags(tags) {
-        return tags.map(t =>
-            `<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t] || '0,240,255'},0.08);color:rgba(${tc[t] || '0,240,255'},0.8);padding:2px 8px;border-radius:20px">${t}</span>`
-        ).join('');
-    }
 
     /* Card 1: Cosmic VR */
     const vrCard = document.createElement('div');
     vrCard.className = 'tilt-card rounded-2xl overflow-hidden reveal';
     vrCard.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06)';
-    vrCard.innerHTML = `<div style="height:180px;position:relative;overflow:hidden"><img src="/assets/images/1.jpg" alt="Cosmic Dreamscape" loading="lazy" decoding="async" width="600" height="180" style="width:100%;height:100%;object-fit:cover;display:block"><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['WebXR', 'A-Frame'])}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Cosmic Dreamscape VR</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Immersive WebXR experience transforming space imagery into 3D worlds for Quest 3. Navigate cosmic spider webs and animated nebulae.</p><a href="cosmic.html" style="color:#00F0FF;font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">View Live <span style="font-size:14px">\u2192</span></a></div>`;
+    vrCard.innerHTML = `<div style="height:180px;position:relative;overflow:hidden"><img src="/assets/images/1.jpg" alt="Cosmic Dreamscape" loading="lazy" decoding="async" width="600" height="180" style="width:100%;height:100%;object-fit:cover;display:block"><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['WebXR', 'A-Frame'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Cosmic Dreamscape VR</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Immersive WebXR experience transforming space imagery into 3D worlds for Quest 3. Navigate cosmic spider webs and animated nebulae.</p><a href="cosmic.html" style="color:#00F0FF;font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">View Live <span style="font-size:14px">\u2192</span></a></div>`;
     grid.appendChild(vrCard);
 
     /* Card 2: Sound & Color — synth */
@@ -29,7 +26,7 @@ export function initExperiments(revealObserver) {
     klangCard.className = 'tilt-card rounded-2xl overflow-hidden reveal';
     klangCard.id = 'klangCard';
     klangCard.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    klangCard.innerHTML = `<div id="klangPreview" style="height:180px;background:rgba(10,14,18,0.9);position:relative;overflow:hidden"><canvas id="sinePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.5),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Audio API', 'Canvas'])}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sound & Color</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Interactive audiovisual synth \u2014 click to play notes, each key triggers a unique tone with real-time waveform visualization. Keyboard keys A\u2013K supported.</p><span id="klangToggle" style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Open Synth <span style="font-size:14px">\u2192</span></span></div><div id="klangSynth" style="display:none;padding:0 20px 24px 20px"></div>`;
+    klangCard.innerHTML = `<div id="klangPreview" style="height:180px;background:rgba(10,14,18,0.9);position:relative;overflow:hidden"><canvas id="sinePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.5),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Audio API', 'Canvas'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sound & Color</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Interactive audiovisual synth \u2014 click to play notes, each key triggers a unique tone with real-time waveform visualization. Keyboard keys A\u2013K supported.</p><span id="klangToggle" style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Open Synth <span style="font-size:14px">\u2192</span></span></div><div id="klangSynth" style="display:none;padding:0 20px 24px 20px"></div>`;
     grid.appendChild(klangCard);
 
     initSynth(klangCard);
@@ -39,7 +36,7 @@ export function initExperiments(revealObserver) {
     const sfCard = document.createElement('div');
     sfCard.className = 'tilt-card rounded-2xl overflow-hidden reveal';
     sfCard.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    sfCard.innerHTML = `<div style="height:180px;background:radial-gradient(ellipse at center,#0d1b3e,#050a15);position:relative;overflow:hidden"><canvas id="sfPreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Canvas', 'Audio API'])}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sky Fall</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Tilt your device to dodge clouds as a falling gear. Procedural music, gyro controls, and endless descent \u2014 how long can you survive?</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Play Game <span style="font-size:14px">\u2192</span></span></div>`;
+    sfCard.innerHTML = `<div style="height:180px;background:radial-gradient(ellipse at center,#0d1b3e,#050a15);position:relative;overflow:hidden"><canvas id="sfPreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Canvas', 'Audio API'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">Sky Fall</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Tilt your device to dodge clouds as a falling gear. Procedural music, gyro controls, and endless descent \u2014 how long can you survive?</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Play Game <span style="font-size:14px">\u2192</span></span></div>`;
     grid.appendChild(sfCard);
 
     initGameOverlay(sfCard, 'sfOverlay', 'sfFrame', 'sfClose', 'skyfall.html', '#050a15', 'sfPreviewCanvas', initSfPreview);
@@ -48,7 +45,7 @@ export function initExperiments(revealObserver) {
     const gateCard = document.createElement('div');
     gateCard.className = 'tilt-card rounded-2xl overflow-hidden reveal';
     gateCard.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:all 0.5s cubic-bezier(0.23,1,0.32,1)';
-    gateCard.innerHTML = `<div style="height:180px;background:radial-gradient(ellipse at center,#1a0f05,#060302);position:relative;overflow:hidden"><canvas id="gatePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Three.js', 'Canvas'])}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">The Gate</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">A dark knight approaches a gothic gate. Solve the riddle to open the doors and step into the light. 3D cinematic puzzle experience.</p><span style="color:#d4a857;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Enter Gate <span style="font-size:14px">\u2192</span></span></div>`;
+    gateCard.innerHTML = `<div style="height:180px;background:radial-gradient(ellipse at center,#1a0f05,#060302);position:relative;overflow:hidden"><canvas id="gatePreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.6),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['Three.js', 'Canvas'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">The Gate</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">A dark knight approaches a gothic gate. Solve the riddle to open the doors and step into the light. 3D cinematic puzzle experience.</p><span style="color:#d4a857;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer">Enter Gate <span style="font-size:14px">\u2192</span></span></div>`;
     grid.appendChild(gateCard);
 
     initGameOverlay(gateCard, 'gateOverlay', 'gateFrame', 'gateClose', 'king.html', '#000', 'gatePreviewCanvas', initGatePreview, true);

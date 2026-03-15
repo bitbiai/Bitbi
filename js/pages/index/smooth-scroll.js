@@ -8,8 +8,10 @@ export function initSmoothScroll() {
             const href = a.getAttribute('href');
             if (href === '#') return;
             e.preventDefault();
-            const target = document.querySelector(href);
-            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            try {
+                const target = document.querySelector(href);
+                target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch { /* invalid selector */ }
         });
     });
 }

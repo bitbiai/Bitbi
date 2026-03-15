@@ -5,6 +5,7 @@
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { formatTime } from '../../shared/format-time.js';
+import { makeTags } from '../../shared/make-tags.js';
 
 const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -47,12 +48,7 @@ function setupExperimentCard(revealObserver) {
     const grid = document.getElementById('experimentsGrid');
     if (!grid) return;
 
-    const tc = { YouTube: '239,68,68', Video: '255,179,0' };
-    function makeTags(tags) {
-        return tags.map(t =>
-            `<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(${tc[t] || '0,240,255'},0.08);color:rgba(${tc[t] || '0,240,255'},0.8);padding:2px 8px;border-radius:20px">${t}</span>`
-        ).join('');
-    }
+    const TAG_COLORS = { YouTube: '239,68,68', Video: '255,179,0' };
 
     const wrapper = document.createElement('div');
     wrapper.className = 'locked-area locked-area--card tilt-card rounded-2xl overflow-hidden reveal';
@@ -61,7 +57,7 @@ function setupExperimentCard(revealObserver) {
 
     const content = document.createElement('div');
     content.className = 'locked-area__content';
-    content.innerHTML = `<div style="height:180px;position:relative;overflow:hidden;background:radial-gradient(ellipse at center,#1a0510,#0a0205)"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(239,68,68,0.3)" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></div><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['YouTube', 'Video'])}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">YouTube Exclusives</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Behind-the-scenes footage, extended cuts, and exclusive video content only available to registered members.</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px">View Content <span style="font-size:14px">\u2192</span></span></div>`;
+    content.innerHTML = `<div style="height:180px;position:relative;overflow:hidden;background:radial-gradient(ellipse at center,#1a0510,#0a0205)"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(239,68,68,0.3)" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></div><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['YouTube', 'Video'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">YouTube Exclusives</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Behind-the-scenes footage, extended cuts, and exclusive video content only available to registered members.</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px">View Content <span style="font-size:14px">\u2192</span></span></div>`;
 
     wrapper.appendChild(content);
     wrapper.appendChild(makeOverlay());
@@ -167,6 +163,9 @@ function setupGalleryExclusiveCard() {
                 folderThumbs[t].src = img.src;
                 folderThumbs[t].style.display = 'block';
             };
+            img.onerror = () => {
+                folderThumbs[t].style.display = 'none';
+            };
             img.src = `/api/thumbnails/little-monster-${num}`;
         }
     }
@@ -261,6 +260,9 @@ function setupGalleryExclusiveCard() {
                     state.imgEl.style.display = 'block';
                     state.placeholderEl.style.display = 'none';
                     state.loaded = true;
+                };
+                img.onerror = () => {
+                    state.placeholderEl.style.display = 'flex';
                 };
                 img.src = state.thumb;
             }

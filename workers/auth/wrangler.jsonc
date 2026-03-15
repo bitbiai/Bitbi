@@ -29,12 +29,6 @@
 			"database_name": "bitbi-auth-db",
 			"database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
 			"preview_database_id": "local-bitbi-auth-db"
-		},
-		{
-			"binding": "bitbi_auth_db",
-			"database_name": "bitbi-auth-db",
-			"database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
-			"remote": true
 		}
 	]
 }

@@ -19,6 +19,24 @@ const ALLOWED_ORIGIN = 'https://bitbi.ai';
 const TO_EMAIL = 'bit@bitbi.ai';
 const FROM_EMAIL = 'contact@bitbi.ai';
 
+/* In-memory rate limiter (per-isolate, best-effort) */
+const rateLimitBuckets = new Map();
+
+function isRateLimited(key, maxRequests, windowMs) {
+    const now = Date.now();
+    let bucket = rateLimitBuckets.get(key);
+    if (!bucket || now - bucket.start > windowMs) {
+        bucket = { start: now, count: 0 };
+        rateLimitBuckets.set(key, bucket);
+    }
+    bucket.count++;
+    return bucket.count > maxRequests;
+}
+
+function getClientIp(request) {
+    return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Real-IP') || 'unknown';
+}
+
 function corsHeaders(origin) {
     return {
         'Access-Control-Allow-Origin': origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
@@ -41,6 +59,15 @@ export default {
 
         if (origin !== ALLOWED_ORIGIN) {
             return new Response('Forbidden', { status: 403 });
+        }
+
+        /* Rate limit: 5 submissions per hour per IP */
+        const ip = getClientIp(request);
+        if (isRateLimited(`contact:${ip}`, 5, 3600000)) {
+            return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+            });
         }
 
         try {

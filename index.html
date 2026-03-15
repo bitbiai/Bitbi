@@ -286,36 +286,6 @@
             <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
         </form>
-        <script>
-        document.getElementById('contactForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const btn = this.querySelector('button[type=submit]');
-            const orig = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Sending...';
-            try {
-                const res = await fetch('https://contact.bitbi.ai/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: this.name.value,
-                        email: this.email.value,
-                        subject: this.subject.value,
-                        message: this.message.value,
-                        website: this.website.value
-                    })
-                });
-                if (!res.ok) throw new Error('Failed');
-                btn.textContent = 'Sent!';
-                this.reset();
-                setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
-            } catch {
-                btn.textContent = 'Error - try again';
-                btn.disabled = false;
-                setTimeout(() => { btn.textContent = orig; }, 3000);
-            }
-        });
-        </script>
     </div>
 </section>
 

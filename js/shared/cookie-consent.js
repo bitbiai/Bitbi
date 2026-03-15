@@ -26,7 +26,8 @@ function enforceRumConsent(analyticsAllowed) {
                     }
                 }
             });
-            rumObserver.observe(document.documentElement, { childList: true, subtree: true });
+            rumObserver.observe(document.head, { childList: true });
+            rumObserver.observe(document.body, { childList: true });
         }
     } else {
         /* Analytics consented — stop blocking */

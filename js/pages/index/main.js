@@ -18,6 +18,7 @@ import { initAuth } from '../../shared/auth-state.js';
 import { initAuthModal } from '../../shared/auth-modal.js';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
+import { initContact } from './contact.js';
 
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
@@ -59,6 +60,9 @@ try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn('binaryFooter
 
 /* Smooth scroll */
 try { initSmoothScroll(); } catch (e) { console.warn('smoothScroll:', e); }
+
+/* Contact form */
+try { initContact(); } catch (e) { console.warn('contact:', e); }
 
 /* Cookie consent with YouTube control */
 function applyConsent(c) {
