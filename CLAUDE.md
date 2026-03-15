@@ -4,7 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## PERMANENT PROJECT RULES – ALWAYS FOLLOW THESE FIRST
 
-From now on, for this entire project:
 - ALWAYS prioritize self-hosted content first.
 - Never suggest or use external CDNs (Google Fonts, jsDelivr, cdnjs, unpkg, aframe.io, etc.) if self-hosting is technically possible.
 - Always prefer local files (fonts in `fonts/`, JS libraries in `js/vendor/`, images in `assets/images/`, favicons in `assets/favicons/`).
@@ -14,73 +13,88 @@ From now on, for this entire project:
 
 ## Project Overview
 
-Bitbi is a static portfolio website showcasing digital art and experimental web projects. It's hosted on GitHub Pages with automatic deployment via GitHub Actions on push to `main`.
+Bitbi is a static portfolio website showcasing digital art and experimental web projects. Live at `https://bitbi.ai`, hosted on GitHub Pages with automatic deployment via GitHub Actions on push to `main`.
 
-**No build step required.** All development is direct HTML/CSS/JS — push to `main` triggers deployment.
+**No build step.** All development is direct HTML/CSS/JS. No test framework or linter.
+
+## Development
+
+```bash
+# Local dev server (port 3000)
+npm run dev
+
+# Auth worker (workers/auth/)
+cd workers/auth && npx wrangler dev                                          # local dev
+cd workers/auth && npx wrangler deploy                                       # deploy to Cloudflare
+cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --local    # run migrations locally
+cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --remote   # run migrations in prod
+```
+
+Contact (`worker/contact-worker.js`) and crypto (`worker/crypto-worker.js`) workers have no wrangler config in this repo — they are deployed separately via Cloudflare dashboard or standalone wrangler commands.
+
+### Deployment
+
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `music/`. The `worker/` and `workers/` directories are **not** deployed to Pages.
 
 ## Architecture
 
 ### Pages
-- `index.html` — Main landing page with particle effects, gallery, cookie consent
-- `cosmic.html` — A-Frame WebXR/VR art gallery experience
-- `king.html` — Medieval-themed 3D puzzle game (Canvas API)
-- `skyfall.html` — Arcade-style falling objects game (Canvas API)
-- `privacy.html`, `imprint.html` — Legal/GDPR pages
+- `index.html` — Main landing page (particle effects, gallery, experiments, soundlab, markets, auth-gated sections)
+- `cosmic.html` — A-Frame WebXR/VR art gallery
+- `king.html` — Medieval-themed 3D puzzle game (Canvas + Three.js)
+- `skyfall.html` — Arcade falling objects game (Canvas)
+- `admin.html` — Admin dashboard (user management, requires admin role)
+- `forgot-password.html`, `reset-password.html`, `verify-email.html` — Auth flow pages
+- `privacy.html`, `datenschutz.html`, `imprint.html` — Legal/GDPR pages
 
-### JavaScript Structure
-**Shared modules** (`js/shared/`) — reusable ES6 modules imported across pages:
-- `cookie-consent.js` — GDPR cookie banner (EU timezone detection, localStorage, Cloudflare RUM gating)
-- `particles.js` — Configurable hero canvas particle system
-- `scroll-reveal.js` — IntersectionObserver scroll animations
-- `binary-footer.js` — Random binary string generator for footers
-- `binary-rain.js` — Matrix-style falling binary rain effect
+### JavaScript
 
-**Page modules** (`js/pages/<page>/`) — page-specific logic, e.g. `js/pages/index/main.js` is the entry point for `index.html`, importing both shared modules and page-specific modules (navbar, gallery, soundlab, markets, experiments, smooth-scroll).
+Vanilla ES6 modules — no frameworks or bundlers.
 
-Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>` blocks rather than the module system.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>` blocks instead of the module system.
 
-### Styling
-- **Tailwind CSS** loaded from CDN (not installed locally)
-- `css/cookie-banner.css` — standalone cookie banner styles for game pages (no CSS variable dependencies)
-- CSS uses `@layer` cascade layers: `tokens` → `reset` → `components` → `utilities`
+**Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
+- `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
+- `auth-modal.js` injects login/register forms only when the modal opens (not on page load) — this is intentional to prevent Safari autofill on page load. Do not "optimize" by pre-rendering the forms
+- `auth-api.js` wraps all `/api/*` fetch calls with `credentials: 'include'`
+
+**Index page initialization** (`js/pages/index/main.js`): Auth is started as a non-blocking promise, visual content (particles, binary rain, navbar) renders first, then `await authReady` gates the auth UI. This ordering is intentional for perceived performance.
+
+**Locked sections** (`js/pages/index/locked-sections.js`): Injects 5 auth-gated placements into the index page — an experiment card, a gallery filter button, an exclusive gallery folder (Little Monster, 15 images), a soundlab track, and a markets portfolio card. All listen to `'bitbi:auth-change'` and toggle `data-locked` attribute.
+
+**Vendor libraries** (`js/vendor/`): Self-hosted `aframe-1.5.0.min.js`, `aframe-extras-7.2.0.min.js` (cosmic.html), `three-r128.min.js` (king.html).
+
+### CSS
+
+- **Tailwind CSS** loaded from CDN (only remaining CDN dependency besides Cloudflare RUM)
+- `@layer` cascade order: `tokens → reset → base → components → pages → utilities`
 - `css/tokens.css` — design tokens using `@property` and oklch colors with hex fallbacks
-- `css/base.css` (shared), `css/index.css`, `css/legal.css`, `css/reset.css`, `css/components.css`, `css/utilities.css`
-- Color palette: `--color-midnight`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
+- `css/base.css` — @font-face declarations, gradient text utilities, glass effects, reveal animations, keyframes
+- `css/index.css` — index page styles
+- `css/cookie-banner.css` — standalone cookie banner styles for game pages (hardcoded values, no CSS variable dependencies — this is intentional so game pages don't need tokens.css)
+- `css/auth.css` — auth modal, locked-area overlays, auth flow page styles
+- `css/pages/` — page-specific styles (admin, forgot-password, reset-password)
+- Color palette: `--color-midnight`, `--color-navy`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
-
-### Self-Hosted Vendor Libraries (`js/vendor/`)
-- `aframe-1.5.0.min.js` — A-Frame WebXR framework (used by `cosmic.html`)
-- `aframe-extras-7.2.0.min.js` — A-Frame movement/animation extras (used by `cosmic.html`)
-- `three-r128.min.js` — Three.js 3D library (used by `king.html`)
-
-### Remaining External Dependencies (CDN-loaded)
-- Cloudflare RUM (consent-gated analytics)
-
-### Self-Hosted Fonts (`fonts/`)
-All fonts are self-hosted as woff2 files — no Google Fonts CDN connections. Includes Inter, Playfair Display, JetBrains Mono, Cinzel Decorative, MedievalSharp, Orbitron, Exo 2.
-
-## Development
-
-No build tools, test framework, or linter are configured. Development workflow:
-
-1. Edit HTML/CSS/JS files directly
-2. `npm run dev` — starts a local server on port 3000 (`npx serve -l 3000`)
-3. Commit and push to `main` for automatic GitHub Pages deployment
+- All fonts self-hosted as woff2 in `fonts/`
 
 ### Cloudflare Workers
 
-Workers are deployed separately on Cloudflare — they are not part of the static site.
+Three workers, deployed separately from the static site:
 
-- `worker/contact-worker.js` — Contact form email handler. Uses Resend API with `RESEND_API_KEY` secret.
-- `worker/crypto-worker.js` — CoinGecko proxy for crypto market data. CORS-locked to `https://bitbi.ai`.
-- `workers/auth/` — Auth API (register, login, logout, session management). Uses Cloudflare D1 database (`bitbi-auth-db`) with PBKDF2 password hashing and cookie-based sessions. Configured via `workers/auth/wrangler.jsonc`. Routes: `/api/health`, `/api/me`, `/api/register`, `/api/login`, `/api/logout`. Error messages are in English. Requires `SESSION_SECRET` env var.
-  - Dev: `cd workers/auth && npx wrangler dev`
-  - Deploy: `cd workers/auth && npx wrangler deploy`
+| Worker | Endpoint | Purpose |
+|--------|----------|---------|
+| `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. Has its own `CLAUDE.md` with full route docs |
+| `worker/contact-worker.js` | `contact.bitbi.ai` | Contact form email via Resend API |
+| `worker/crypto-worker.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
+
+All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
 
 ## Key Conventions
 
-- JavaScript uses vanilla ES6 modules — no frameworks or bundlers
 - GDPR cookie consent uses timezone-based EU detection (no API calls)
-- Canvas-based effects and games use inline `<script>` blocks within their HTML pages
-- Shared functionality is extracted to `js/shared/` as ES6 exports
 - Legal pages follow German law requirements (§ 5 DDG, § 18 MStV)
+- Auth error messages are in English
+- Protected content (gallery images, music) served from R2 bucket, requires authentication
+- Accessibility: all modals use `focus-trap.js`, keyboard navigation (Escape closes, arrow keys cycle), `prefers-reduced-motion` respected in particles and scroll animations, ARIA attributes on interactive elements
+- Admin date formatting uses German locale (`Intl.DateTimeFormat('de-DE')`)
