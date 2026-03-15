@@ -1,3 +1,25 @@
-workers/auth/.dev.vars*
-workers/auth/.env*
-workers/auth/node_modules/
+# macOS
+*.DS_Store
+
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env*
+.dev.vars*
+
+# Cloudflare Workers local state
+.wrangler/
+
+# Session cookie files (curl test artifacts)
+cookies*.txt
+*-cookies.txt
+
+# SQLite databases
+*.sqlite*
+
+# Claude Code
+.claude/
+
+# GitHub Pages build
+_site/

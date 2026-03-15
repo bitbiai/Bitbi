@@ -2,6 +2,8 @@
    BITBI — Gallery rendering, filtering, modal with focus trap
    ============================================================ */
 
+import { setupFocusTrap } from '../../shared/focus-trap.js';
+
 const items = [
     { t: 'The Letter B Goes Interstellar', c: 'A glowing glass letter B floats in deep space, orbited by rings of binary code and neon data streams \u2014 because even the alphabet deserves its own solar system.', cat: 'pictures', img: '/assets/images/100.JPG' },
     { t: 'Coral Reef Nightmare Buddy', c: 'A chubby blue-and-purple blob creature with mismatched googly eyes, an open mouth full of confusion, and way too many orange tentacles \u2014 sitting on a mossy rock like it owns the place.', cat: 'creepy', img: '/assets/images/101.JPG' },
@@ -102,42 +104,23 @@ export function initGallery() {
         document.getElementById('modalCaption').textContent = item.c;
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
-        setupFocusTrap(modal);
+        focusTrapCleanup = setupFocusTrap(modal);
     }
 
-    window.closeModal = function () {
+    function closeModal() {
         modal.classList.remove('active');
         document.body.style.overflow = '';
         if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
-    };
+    }
 
     const closeBtn = modal.querySelector('.modal-close');
-    if (closeBtn) closeBtn.addEventListener('click', () => window.closeModal());
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
 
     modal.addEventListener('click', (e) => {
-        if (e.target === modal) window.closeModal();
+        if (e.target === modal) closeModal();
     });
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.classList.contains('active')) window.closeModal();
+        if (e.key === 'Escape' && modal.classList.contains('active')) closeModal();
     });
-}
-
-function setupFocusTrap(container) {
-    const focusable = container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    first?.focus();
-
-    function handler(e) {
-        if (e.key !== 'Tab') return;
-        if (e.shiftKey) {
-            if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
-        } else {
-            if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
-        }
-    }
-
-    container.addEventListener('keydown', handler);
-    focusTrapCleanup = () => container.removeEventListener('keydown', handler);
 }

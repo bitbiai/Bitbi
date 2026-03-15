@@ -6,6 +6,7 @@
 
 import { authLogin, authRegister } from './auth-state.js';
 import { apiResendVerification } from './auth-api.js';
+import { setupFocusTrap } from './focus-trap.js';
 
 let overlay = null;
 let formsContainer = null;
@@ -190,7 +191,7 @@ export function openAuthModal(tab) {
     clearMsg(document.getElementById('authRegisterMsg'));
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
-    setupFocusTrap(overlay);
+    focusTrapCleanup = setupFocusTrap(overlay);
 }
 
 export function closeAuthModal() {
@@ -201,23 +202,4 @@ export function closeAuthModal() {
 
     /* Remove forms from the DOM so Safari won't re-scan them */
     removeForms();
-}
-
-function setupFocusTrap(container) {
-    const focusable = container.querySelectorAll('button, input, [tabindex]:not([tabindex="-1"])');
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    first?.focus();
-
-    function handler(e) {
-        if (e.key !== 'Tab') return;
-        if (e.shiftKey) {
-            if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
-        } else {
-            if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
-        }
-    }
-
-    container.addEventListener('keydown', handler);
-    focusTrapCleanup = () => container.removeEventListener('keydown', handler);
 }

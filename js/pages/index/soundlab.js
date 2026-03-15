@@ -2,6 +2,8 @@
    BITBI — Sound Lab: audio player, playlist, seek, volume
    ============================================================ */
 
+import { formatTime } from '../../shared/format-time.js';
+
 const tracks = [
     { t: 'Cosmic Sea', file: 'music/cosmic-sea.mp3' },
     { t: 'Zufall und Notwendigkeit', file: 'music/zufall-und-notwendigkeit.mp3' },
@@ -31,13 +33,6 @@ export function initSoundLab(revealObserver) {
         d.innerHTML = `<button class="snd-play" data-idx="${idx}" aria-label="Play ${tr.t}" style="width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s"><svg class="pi" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="pa" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tr.t}</h4><span class="snd-time" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px">0:00</span></div><div class="snd-bar" style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer"><div class="snd-prog" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#00F0FF,#FFB300);border-radius:2px;transition:width 0.1s linear"></div></div></div><div class="eq-wrap" style="display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0"><div class="eq-bar" style="animation:eqBar1 0.8s ease-in-out infinite paused;height:6px"></div><div class="eq-bar" style="animation:eqBar2 0.6s ease-in-out infinite paused;height:12px"></div><div class="eq-bar" style="animation:eqBar3 0.7s ease-in-out infinite paused;height:4px"></div><div class="eq-bar" style="animation:eqBar1 0.9s ease-in-out infinite paused;height:8px"></div><div class="eq-bar" style="animation:eqBar2 0.55s ease-in-out infinite paused;height:10px"></div></div>`;
         ctn.appendChild(d);
     });
-
-    function fmt(s) {
-        if (isNaN(s)) return '0:00';
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return m + ':' + (sec < 10 ? '0' : '') + sec;
-    }
 
     function highlightRow(idx) {
         for (let i = 0; i < ctn.children.length; i++) {
@@ -74,6 +69,7 @@ export function initSoundLab(revealObserver) {
         const row = ctn.children[idx];
         audio.play();
         activeIdx = idx;
+        startTick();
         row.querySelector('.pi').style.display = 'none';
         row.querySelector('.pa').style.display = '';
         row.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = 'running');
@@ -98,6 +94,7 @@ export function initSoundLab(revealObserver) {
             if (activeIdx === idx && !audios[idx].paused) { pauseTrack(); return; }
             if (activeIdx === idx && audios[idx].paused) {
                 audios[idx].play();
+                startTick();
                 const row = ctn.children[idx];
                 row.querySelector('.pi').style.display = 'none';
                 row.querySelector('.pa').style.display = '';
@@ -119,6 +116,8 @@ export function initSoundLab(revealObserver) {
         });
     });
 
+    let tickRunning = false;
+
     function tick() {
         audios.forEach((a, i) => {
             const row = ctn.children[i];
@@ -127,13 +126,23 @@ export function initSoundLab(revealObserver) {
             const time = row.querySelector('.snd-time');
             if (a.duration) {
                 prog.style.width = (a.currentTime / a.duration * 100) + '%';
-                time.textContent = fmt(a.currentTime) + ' / ' + fmt(a.duration);
+                time.textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration);
             }
         });
         plTickProgress();
-        requestAnimationFrame(tick);
+        if (audios.some(a => !a.paused)) {
+            requestAnimationFrame(tick);
+        } else {
+            tickRunning = false;
+        }
     }
-    tick();
+
+    function startTick() {
+        if (!tickRunning) {
+            tickRunning = true;
+            requestAnimationFrame(tick);
+        }
+    }
 
     audios.forEach((a, i) => {
         a.addEventListener('ended', () => {
@@ -207,13 +216,14 @@ export function initSoundLab(revealObserver) {
         const a = audios[activeIdx];
         if (!a.duration) return;
         progEl.style.width = (a.currentTime / a.duration * 100) + '%';
-        timeEl.textContent = fmt(a.currentTime) + ' / ' + fmt(a.duration);
+        timeEl.textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration);
     }
 
     document.getElementById('plPlay').addEventListener('click', () => {
         if (activeIdx === null) { playTrack(0); return; }
         if (audios[activeIdx].paused) {
             audios[activeIdx].play();
+            startTick();
             const row = ctn.children[activeIdx];
             row.querySelector('.pi').style.display = 'none';
             row.querySelector('.pa').style.display = '';

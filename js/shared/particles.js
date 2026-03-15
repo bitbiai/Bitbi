@@ -104,7 +104,18 @@ export function initParticles(canvasId, options = {}) {
     }
 
     let t = 0;
-    (function loop() {
+    let visible = true;
+
+    if (typeof IntersectionObserver !== 'undefined') {
+        const io = new IntersectionObserver(([entry]) => {
+            const wasVisible = visible;
+            visible = entry.isIntersecting;
+            if (visible && !wasVisible) requestAnimationFrame(loop);
+        });
+        io.observe(c.parentElement);
+    }
+
+    function loop() {
         t++;
         ctx.clearRect(0, 0, W, H);
         ps.forEach((p) => { p.update(); p.draw(); });
@@ -128,6 +139,7 @@ export function initParticles(canvasId, options = {}) {
             }
         }
 
-        requestAnimationFrame(loop);
-    })();
+        if (visible) requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
 }

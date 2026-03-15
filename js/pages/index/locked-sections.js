@@ -4,6 +4,7 @@
 
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { formatTime } from '../../shared/format-time.js';
 
 const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -340,18 +341,11 @@ function setupSoundLabCard() {
     const barEl = content.querySelector('.excl-bar');
     const eqBars = content.querySelectorAll('.eq-bar');
 
-    function fmt(s) {
-        if (isNaN(s)) return '0:00';
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return m + ':' + (sec < 10 ? '0' : '') + sec;
-    }
-
     function tick() {
         if (!audio) return;
         if (audio.duration) {
             progEl.style.width = (audio.currentTime / audio.duration * 100) + '%';
-            timeEl.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+            timeEl.textContent = formatTime(audio.currentTime) + ' / ' + formatTime(audio.duration);
         }
         animFrame = requestAnimationFrame(tick);
     }

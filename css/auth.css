@@ -12,25 +12,6 @@
         gap: var(--space-2);
     }
 
-    .auth-nav__btn {
-        font-size: 10px;
-        font-family: var(--font-mono);
-        color: rgba(255, 255, 255, 0.5);
-        border-radius: var(--radius-full);
-        padding-inline: var(--space-3);
-        padding-block: var(--space-1);
-        user-select: none;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: none;
-        cursor: pointer;
-        transition: all 0.3s var(--ease-default);
-    }
-
-    .auth-nav__btn:hover {
-        border-color: rgba(0, 240, 255, 0.3);
-        color: var(--color-cyan);
-    }
-
     .auth-nav__email {
         font-size: 10px;
         font-family: var(--font-mono);

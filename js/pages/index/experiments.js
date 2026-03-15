@@ -87,8 +87,9 @@ function initSynth(klangCard) {
 
     function drawViz() {
         if (!vizCanvas) return;
-        vizCanvas.width = vizCanvas.parentElement.clientWidth;
-        vizCanvas.height = vizCanvas.parentElement.clientHeight;
+        const pw = vizCanvas.parentElement.clientWidth;
+        const ph = vizCanvas.parentElement.clientHeight;
+        if (vizCanvas.width !== pw || vizCanvas.height !== ph) { vizCanvas.width = pw; vizCanvas.height = ph; }
         const w = vizCanvas.width, h = vizCanvas.height;
         vizCtx.fillStyle = 'rgba(10,14,18,0.15)';
         vizCtx.fillRect(0, 0, w, h);
@@ -256,8 +257,9 @@ function cancelSinePreview() {
 function drawSineFrame() {
     const c = document.getElementById('sinePreviewCanvas');
     if (!c) return;
-    c.width = c.parentElement.clientWidth;
-    c.height = c.parentElement.clientHeight;
+    const pw = c.parentElement.clientWidth;
+    const ph = c.parentElement.clientHeight;
+    if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
     const cx = c.getContext('2d'), w = c.width, h = c.height, t = performance.now() * 0.001;
     cx.clearRect(0, 0, w, h);
     const waves = [
@@ -300,8 +302,9 @@ function initSfPreview() {
 function drawSfFrame() {
     const c = document.getElementById('sfPreviewCanvas');
     if (!c) return;
-    c.width = c.parentElement.clientWidth;
-    c.height = c.parentElement.clientHeight;
+    const pw = c.parentElement.clientWidth;
+    const ph = c.parentElement.clientHeight;
+    if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
     const cx = c.getContext('2d'), w = c.width, h = c.height, t = performance.now() * 0.001;
     cx.clearRect(0, 0, w, h);
     sfParticles.forEach(p => {
@@ -342,8 +345,9 @@ function initGatePreview() {
 function drawGateFrame() {
     const c = document.getElementById('gatePreviewCanvas');
     if (!c) return;
-    c.width = c.parentElement.clientWidth;
-    c.height = c.parentElement.clientHeight;
+    const pw = c.parentElement.clientWidth;
+    const ph = c.parentElement.clientHeight;
+    if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
     const cx = c.getContext('2d'), w = c.width, h = c.height, t = performance.now() * 0.001;
     cx.clearRect(0, 0, w, h);
     const glowL = cx.createRadialGradient(w * 0.2, h * 0.35, 0, w * 0.2, h * 0.35, w * 0.25);
