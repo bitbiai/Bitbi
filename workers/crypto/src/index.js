@@ -12,7 +12,7 @@ const ALLOWED_ORIGIN = 'https://bitbi.ai';
 const COINGECKO_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&sparkline=true';
 
 export default {
-    async fetch(request) {
+    async fetch(request, env) {
         const origin = request.headers.get('Origin') || '';
         const corsHeaders = {
             'Access-Control-Allow-Origin': origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
@@ -30,7 +30,7 @@ export default {
 
         try {
             const res = await fetch(COINGECKO_URL, {
-                headers: { 'Accept': 'application/json' },
+                headers: { 'Accept': 'application/json', 'x-cg-demo-api-key': env.COINGECKO_API_KEY },
             });
 
             if (!res.ok) {
