@@ -17,7 +17,7 @@
 
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
 const TO_EMAIL = 'bit@bitbi.ai';
-const FROM_EMAIL = 'contact@bitbi.ai';
+const FROM_EMAIL = 'contact@contact.bitbi.ai';
 
 /* In-memory rate limiter (per-isolate, best-effort) */
 const rateLimitBuckets = new Map();
@@ -105,7 +105,7 @@ export default {
                 body: JSON.stringify({
                     from: `${name} <${FROM_EMAIL}>`,
                     to: [TO_EMAIL],
-                    reply_to: email,
+                    replyTo: [email],
                     subject: subject || `Contact from ${name}`,
                     text: `Name: ${name}\nEmail: ${email}\nSubject: ${subject || '(none)'}\n\n${message}`,
                 }),
