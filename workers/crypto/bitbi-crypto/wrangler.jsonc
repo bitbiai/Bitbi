@@ -6,12 +6,7 @@
   "compatibility_date": "2026-03-08",
   "routes": [
     {
-      "pattern": "api.bitbi.ai/*",
-      "zone_name": "bitbi.ai"
-    },
-    {
       "pattern": "api.bitbi.ai",
-      "zone_name": "bitbi.ai",
       "custom_domain": true
     }
   ]
