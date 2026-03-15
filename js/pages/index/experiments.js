@@ -410,7 +410,6 @@ function initGameOverlay(card, overlayId, frameId, closeId, src, bg, previewCanv
     document.body.appendChild(overlay);
 
     let isOpen = false;
-    let previewAnim = null;
 
     previewInit();
 

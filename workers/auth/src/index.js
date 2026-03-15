@@ -295,6 +295,8 @@ async function sendResetEmail(env, toEmail, resetLink) {
 
 async function readJsonBody(request) {
   try {
+    const ct = request.headers.get("Content-Type") || "";
+    if (!ct.includes("application/json")) return null;
     return await request.json();
   } catch {
     return null;
@@ -517,6 +519,16 @@ export default {
         );
       }
 
+      if (password.length > 128) {
+        return json(
+          {
+            ok: false,
+            error: "Password must not exceed 128 characters.",
+          },
+          { status: 400 }
+        );
+      }
+
       const existingUser = await env.DB.prepare(
         "SELECT id FROM users WHERE email = ? LIMIT 1"
       )
@@ -524,12 +536,14 @@ export default {
         .first();
 
       if (existingUser) {
+        // Return same response as success to prevent email enumeration
         return json(
           {
-            ok: false,
-            error: "This email is already registered.",
+            ok: true,
+            message: "Registration successful. Please check your inbox and verify your email address.",
+            needsVerification: true,
           },
-          { status: 409 }
+          { status: 201 }
         );
       }
 
@@ -811,27 +825,22 @@ export default {
 
       const now = nowIso();
 
-      await env.DB.prepare(
-        "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
-      )
-        .bind(newRole, now, targetUserId)
-        .run();
-
-      await env.DB.prepare(
-        `
-        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        `
-      )
-        .bind(
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
+        ).bind(newRole, now, targetUserId),
+        env.DB.prepare(
+          `INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).bind(
           crypto.randomUUID(),
           result.user.id,
           "change_role",
           targetUserId,
           JSON.stringify({ role: newRole }),
           now
-        )
-        .run();
+        ),
+      ]);
 
       const updatedUser = await env.DB.prepare(
         "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
@@ -908,27 +917,22 @@ export default {
 
       const now = nowIso();
 
-      await env.DB.prepare(
-        "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
-      )
-        .bind(newStatus, now, targetUserId)
-        .run();
-
-      await env.DB.prepare(
-        `
-        INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        `
-      )
-        .bind(
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
+        ).bind(newStatus, now, targetUserId),
+        env.DB.prepare(
+          `INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).bind(
           crypto.randomUUID(),
           result.user.id,
           "change_status",
           targetUserId,
           JSON.stringify({ status: newStatus }),
           now
-        )
-        .run();
+        ),
+      ]);
 
       const updatedUser = await env.DB.prepare(
         "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
@@ -1138,6 +1142,9 @@ export default {
     }
 
     if (pathname === "/api/reset-password/validate" && method === "GET") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`reset-validate:${ip}`, 10, 900_000)) return rateLimitResponse();
+
       const rawToken = url.searchParams.get("token");
 
       if (!rawToken) {
@@ -1159,6 +1166,9 @@ export default {
     }
 
     if (pathname === "/api/reset-password" && method === "POST") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`reset:${ip}`, 5, 3600_000)) return rateLimitResponse();
+
       const body = await readJsonBody(request);
 
       if (!body) {
@@ -1183,6 +1193,16 @@ export default {
           {
             ok: false,
             error: "Password must be at least 8 characters long.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (password.length > 128) {
+        return json(
+          {
+            ok: false,
+            error: "Password must not exceed 128 characters.",
           },
           { status: 400 }
         );
@@ -1235,6 +1255,9 @@ export default {
     // ── Email Verification ─────────────────────────────────
 
     if (pathname === "/api/verify-email" && method === "GET") {
+      const ip = getClientIp(request);
+      if (isRateLimited(`verify:${ip}`, 10, 900_000)) return rateLimitResponse();
+
       const rawToken = url.searchParams.get("token");
 
       if (!rawToken) {
@@ -1342,14 +1365,12 @@ export default {
       }
 
       const headers = new Headers();
-      headers.set("Content-Type", "image/webp");
-      if (object.httpMetadata?.contentType) {
-        headers.set("Content-Type", object.httpMetadata.contentType);
-      }
+      headers.set("Content-Type", object.httpMetadata?.contentType || "image/webp");
       if (object.size) {
         headers.set("Content-Length", String(object.size));
       }
       headers.set("Cache-Control", "private, max-age=3600");
+      headers.set("X-Content-Type-Options", "nosniff");
 
       return new Response(object.body, { headers });
     }
@@ -1380,14 +1401,12 @@ export default {
       }
 
       const headers = new Headers();
-      headers.set("Content-Type", "image/png");
-      if (object.httpMetadata?.contentType) {
-        headers.set("Content-Type", object.httpMetadata.contentType);
-      }
+      headers.set("Content-Type", object.httpMetadata?.contentType || "image/png");
       if (object.size) {
         headers.set("Content-Length", String(object.size));
       }
       headers.set("Cache-Control", "private, no-store");
+      headers.set("X-Content-Type-Options", "nosniff");
 
       return new Response(object.body, { headers });
     }
@@ -1411,15 +1430,13 @@ export default {
       }
 
       const headers = new Headers();
-      headers.set("Content-Type", "audio/mpeg");
-      if (object.httpMetadata?.contentType) {
-        headers.set("Content-Type", object.httpMetadata.contentType);
-      }
+      headers.set("Content-Type", object.httpMetadata?.contentType || "audio/mpeg");
       if (object.size) {
         headers.set("Content-Length", String(object.size));
       }
       headers.set("Cache-Control", "private, no-store");
       headers.set("Accept-Ranges", "bytes");
+      headers.set("X-Content-Type-Options", "nosniff");
 
       return new Response(object.body, { headers });
     }

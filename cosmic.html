@@ -549,10 +549,14 @@ function createShootingStar() {
   setTimeout(() => star.remove(), 2000);
 }
 
-// Launch a shooting star every 4-8 seconds
-setInterval(() => {
-  createShootingStar();
-}, Math.random() * 4000 + 4000);
+// Launch a shooting star every 4-8 seconds (randomized per interval)
+function scheduleShootingStar() {
+  setTimeout(() => {
+    createShootingStar();
+    scheduleShootingStar();
+  }, Math.random() * 4000 + 4000);
+}
+scheduleShootingStar();
 
 // First one after 3 seconds
 setTimeout(createShootingStar, 3000);
