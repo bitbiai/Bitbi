@@ -28,13 +28,21 @@ cd workers/auth && npx wrangler dev                                          # l
 cd workers/auth && npx wrangler deploy                                       # deploy to Cloudflare
 cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --local    # run migrations locally
 cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --remote   # run migrations in prod
+
+# Contact worker (workers/contact/)
+cd workers/contact && npx wrangler dev                                       # local dev
+cd workers/contact && npx wrangler deploy                                    # deploy to Cloudflare
+
+# Crypto worker (workers/crypto/)
+cd workers/crypto && npx wrangler dev                                        # local dev
+cd workers/crypto && npx wrangler deploy                                     # deploy to Cloudflare
 ```
 
-Contact (`worker/contact-worker.js`) and crypto (`worker/crypto-worker.js`) workers have no wrangler config in this repo — they are deployed separately via Cloudflare dashboard or standalone wrangler commands.
+Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API_KEY` before first CLI deploy).
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `music/`. The `worker/` and `workers/` directories are **not** deployed to Pages.
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `music/`. The `workers/` directory is **not** deployed to Pages.
 
 ## Architecture
 
@@ -85,8 +93,8 @@ Three workers, deployed separately from the static site:
 | Worker | Endpoint | Purpose |
 |--------|----------|---------|
 | `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. Has its own `CLAUDE.md` with full route docs |
-| `worker/contact-worker.js` | `contact.bitbi.ai` | Contact form email via Resend API |
-| `worker/crypto-worker.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
+| `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
+| `workers/crypto/src/index.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
 
 All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
 

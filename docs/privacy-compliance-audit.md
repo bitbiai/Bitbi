@@ -20,11 +20,11 @@
 **Fix:** Removed `<link rel="dns-prefetch" href="https://www.youtube-nocookie.com">`.
 
 ### 4. Contact form lacks privacy notice and spam protection (MEDIUM)
-**Files:** `index.html`, `worker/contact-worker.js`
+**Files:** `index.html`, `workers/contact/src/index.js`
 **Fix:** Added honeypot hidden field, privacy notice text above submit button, `website` field in fetch body. Worker silently discards submissions with filled honeypot. Added basic email format validation.
 
 ### 5. CoinGecko API called directly from browser (MEDIUM)
-**Files:** `js/pages/index/markets.js`, `worker/crypto-worker.js` (NEW)
+**Files:** `js/pages/index/markets.js`, `workers/crypto/src/index.js`
 **Fix:** Created CoinGecko proxy worker. Updated markets.js to call `https://api.bitbi.ai/crypto` instead of `/api/crypto`.
 
 ### 6. No security meta headers (LOW)
@@ -54,7 +54,7 @@
 | File | Purpose |
 |------|---------|
 | `css/cookie-banner.css` | Standalone cookie banner styles for game/VR pages |
-| `worker/crypto-worker.js` | CoinGecko proxy worker |
+| `workers/crypto/src/index.js` | CoinGecko proxy worker |
 | `docs/privacy-compliance-audit.md` | This file |
 
 ---

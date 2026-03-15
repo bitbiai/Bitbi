@@ -24,7 +24,7 @@
 - Fixed "Einschleuseungsversuche" → "Einschleusungsversuche" in the German RUM passage.
 
 ## Technical Verification
-- `worker/crypto-worker.js`: Confirmed — Worker sends only `Accept: application/json` header to CoinGecko API. No client headers, IP addresses, or personal data are forwarded.
+- `workers/crypto/src/index.js`: Confirmed — Worker sends only `Accept: application/json` header to CoinGecko API. No client headers, IP addresses, or personal data are forwarded.
 - `js/pages/index/markets.js`: Confirmed — Browser only calls `https://api.bitbi.ai/crypto`, never CoinGecko directly.
 - `king.html`: No localStorage usage found.
 - `skyfall.html`: Uses `localStorage.setItem('skyfall_best_v3', ...)` for best times — local only, never transmitted.
