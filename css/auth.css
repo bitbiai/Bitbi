@@ -69,14 +69,16 @@
         color: var(--color-ember);
     }
 
-    .auth-nav__mobile-admin {
+    .auth-nav__mobile-admin,
+    .auth-nav__mobile-profile {
         font-size: 0.875rem;
         font-family: var(--font-mono);
         color: rgba(0, 240, 255, 0.5);
         transition: color 0.3s var(--ease-default);
     }
 
-    .auth-nav__mobile-admin:hover {
+    .auth-nav__mobile-admin:hover,
+    .auth-nav__mobile-profile:hover {
         color: var(--color-cyan);
     }
 

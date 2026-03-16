@@ -22,10 +22,12 @@ function renderDesktop() {
     let wrap = actions.querySelector('.auth-nav__wrap');
     if (wrap) wrap.remove();
 
-    // Remove any previous admin link
+    // Remove any previous injected links
     const navLinks = document.querySelector('.site-nav__links');
     const oldAdminLink = navLinks?.querySelector('.auth-nav__admin-link');
     if (oldAdminLink) oldAdminLink.remove();
+    const oldProfileLink = navLinks?.querySelector('.auth-nav__profile-link');
+    if (oldProfileLink) oldProfileLink.remove();
 
     wrap = document.createElement('span');
     wrap.className = 'auth-nav__wrap';
@@ -43,6 +45,15 @@ function renderDesktop() {
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
         wrap.appendChild(logout);
+
+        // Profile link — all logged-in users
+        if (navLinks) {
+            const profileLink = document.createElement('a');
+            profileLink.href = 'profile.html';
+            profileLink.className = 'site-nav__link nav-link auth-nav__profile-link';
+            profileLink.textContent = 'Profile';
+            navLinks.appendChild(profileLink);
+        }
 
         // Admin link — only for admin role
         if (user?.role === 'admin' && navLinks) {
@@ -90,6 +101,12 @@ function renderMobile() {
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
         actionsWrap.appendChild(logout);
+
+        const profileLink = document.createElement('a');
+        profileLink.href = 'profile.html';
+        profileLink.className = 'auth-nav__mobile-profile';
+        profileLink.textContent = 'Profile';
+        actionsWrap.appendChild(profileLink);
 
         if (user?.role === 'admin') {
             const adminLink = document.createElement('a');

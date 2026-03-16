@@ -6,6 +6,7 @@ import { handleForgotPassword, handleValidateReset, handleResetPassword } from "
 import { handleVerifyEmail, handleResendVerification } from "./routes/verification.js";
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
+import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 
 export default {
   async fetch(request, env) {
@@ -20,6 +21,10 @@ export default {
     if (pathname === "/api/register" && method === "POST") return handleRegister(ctx);
     if (pathname === "/api/login" && method === "POST") return handleLogin(ctx);
     if (pathname === "/api/logout" && method === "POST") return handleLogout(ctx);
+
+    // Profile
+    if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
+    if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
 
     // Admin routes
     if (pathname.startsWith("/api/admin/")) {

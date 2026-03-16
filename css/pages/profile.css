@@ -1,0 +1,283 @@
+/* ============================================================
+   BITBI — Profile Page Styles
+   @layer pages — member profile card + edit form
+   Used by: profile.html
+   ============================================================ */
+
+@layer pages {
+
+    /* ── Cards ── */
+    .profile__card {
+        max-inline-size: 480px;
+        margin-inline: auto;
+        padding: var(--space-8);
+        background: rgba(13, 27, 42, 0.95);
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border: var(--border-subtle);
+        border-radius: var(--radius-xl);
+    }
+
+    .profile__card + .profile__card {
+        margin-block-start: var(--space-6);
+    }
+
+    .profile__title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 1.25rem;
+        color: rgba(255, 255, 255, 0.9);
+        margin-block-end: var(--space-6);
+    }
+
+    /* ── Summary Rows ── */
+    .profile__row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--space-3) 0;
+        border-block-end: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .profile__row:last-child {
+        border-block-end: none;
+    }
+
+    .profile__label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .profile__value {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.75);
+        text-align: end;
+    }
+
+    /* ── Badges ── */
+    .profile__badge {
+        display: inline-block;
+        padding: 2px var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-radius: var(--radius-full);
+        line-height: 1.6;
+    }
+
+    .profile__badge--role {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.2);
+    }
+
+    .profile__badge--verified {
+        color: var(--color-success);
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.25);
+    }
+
+    .profile__badge--unverified {
+        color: var(--color-danger);
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+
+    /* ── Form ── */
+    .profile__form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+
+    .profile__form-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.4);
+        margin-block-end: var(--space-2);
+        display: block;
+    }
+
+    .profile__input {
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--color-text);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition: border-color 0.3s var(--ease-default);
+    }
+
+    .profile__input::placeholder {
+        color: rgba(255, 255, 255, 0.2);
+    }
+
+    .profile__input:focus {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .profile__textarea {
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--color-text);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        outline: none;
+        resize: vertical;
+        min-block-size: 80px;
+        transition: border-color 0.3s var(--ease-default);
+    }
+
+    .profile__textarea::placeholder {
+        color: rgba(255, 255, 255, 0.2);
+    }
+
+    .profile__textarea:focus {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .profile__hint {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.2);
+        margin-block-start: calc(var(--space-1) * -1);
+    }
+
+    .profile__submit {
+        padding: var(--space-3) var(--space-5);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-midnight);
+        background: var(--color-cyan);
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: opacity 0.3s var(--ease-default);
+    }
+
+    .profile__submit:hover {
+        opacity: 0.85;
+    }
+
+    .profile__submit:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* ── Messages ── */
+    .profile__msg {
+        font-size: 12px;
+        font-family: var(--font-mono);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-sm);
+        line-height: 1.6;
+        display: none;
+    }
+
+    .profile__msg--success {
+        display: block;
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        color: var(--color-success);
+    }
+
+    .profile__msg--error {
+        display: block;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        color: var(--color-danger);
+    }
+
+    /* ── Account Actions ── */
+    .profile__actions {
+        max-inline-size: 480px;
+        margin-inline: auto;
+        margin-block-start: var(--space-6);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .profile__logout {
+        padding: var(--space-2) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .profile__logout:hover {
+        color: rgba(255, 255, 255, 0.85);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .profile__link {
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.6);
+        transition: color 0.3s var(--ease-default);
+    }
+
+    .profile__link:hover {
+        color: var(--color-cyan);
+    }
+
+    /* ── Denied State ── */
+    .profile-denied {
+        text-align: center;
+        padding: var(--space-12) var(--space-6);
+    }
+
+    .profile-denied__icon {
+        font-size: 3rem;
+        margin-block-end: var(--space-4);
+    }
+
+    .profile-denied__title {
+        font-family: var(--font-display);
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--color-danger);
+        margin-block-end: var(--space-3);
+    }
+
+    .profile-denied__text {
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 13px;
+        max-inline-size: 28rem;
+        margin-inline: auto;
+        line-height: 1.7;
+    }
+
+    /* ── Loading State ── */
+    .profile-loading {
+        text-align: center;
+        padding: var(--space-10) var(--space-4);
+        color: rgba(255, 255, 255, 0.35);
+        font-family: var(--font-mono);
+        font-size: 13px;
+    }
+}

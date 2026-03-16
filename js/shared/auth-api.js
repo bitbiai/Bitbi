@@ -41,6 +41,16 @@ export function apiLogout() {
     return request('POST', '/logout');
 }
 
+/* ── Profile ── */
+
+export function apiGetProfile() {
+    return request('GET', '/profile');
+}
+
+export function apiUpdateProfile(fields) {
+    return request('PATCH', '/profile', fields);
+}
+
 /* ── Admin API ── */
 
 export function apiAdminMe() {
