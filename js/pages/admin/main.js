@@ -25,6 +25,7 @@ const $loading     = document.getElementById('loadingState');
 const $empty       = document.getElementById('emptyState');
 const $table       = document.getElementById('userTable');
 const $tbody       = document.getElementById('userTbody');
+const $mobileList  = document.getElementById('userMobileList');
 const $searchForm  = document.getElementById('searchForm');
 const $searchInput = document.getElementById('searchInput');
 const $toast       = document.getElementById('adminToast');
@@ -65,18 +66,150 @@ function createActionBtn(label, onClick, danger) {
     return btn;
 }
 
+/* ── Build mobile card ── */
+function buildMobileCard(user) {
+    const card = document.createElement('div');
+    card.className = 'admin-mobile-card';
+
+    const isVerified = !!user.email_verified_at;
+    const primaryName = user.display_name || user.email;
+    const secondaryLine = user.display_name ? user.email : null;
+
+    /* Header (always visible) */
+    const header = document.createElement('div');
+    header.className = 'admin-mobile-card__header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+
+    const identity = document.createElement('div');
+    identity.className = 'admin-mobile-card__identity';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'admin-mobile-card__name';
+    nameEl.textContent = primaryName;
+    identity.appendChild(nameEl);
+
+    if (secondaryLine) {
+        const subEl = document.createElement('div');
+        subEl.className = 'admin-mobile-card__sub';
+        subEl.textContent = secondaryLine;
+        identity.appendChild(subEl);
+    }
+
+    const badges = document.createElement('div');
+    badges.className = 'admin-mobile-card__badges';
+    badges.appendChild(createBadge(user.role, user.role === 'admin' ? 'admin' : 'user'));
+    badges.appendChild(createBadge(user.status, user.status === 'active' ? 'active' : 'disabled'));
+    badges.appendChild(createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled'));
+
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    chevron.classList.add('admin-mobile-card__chevron');
+    chevron.setAttribute('width', '16');
+    chevron.setAttribute('height', '16');
+    chevron.setAttribute('viewBox', '0 0 24 24');
+    chevron.setAttribute('fill', 'none');
+    chevron.setAttribute('stroke', 'currentColor');
+    chevron.setAttribute('stroke-width', '2');
+    chevron.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('d', 'M19 9l-7 7-7-7');
+    chevron.appendChild(path);
+
+    header.appendChild(identity);
+    header.appendChild(badges);
+    header.appendChild(chevron);
+
+    /* Body (expandable accordion) */
+    const body = document.createElement('div');
+    body.className = 'admin-mobile-card__body';
+
+    const bodyInner = document.createElement('div');
+    bodyInner.className = 'admin-mobile-card__body-inner';
+
+    const content = document.createElement('div');
+    content.className = 'admin-mobile-card__content';
+
+    // Created date
+    const meta = document.createElement('div');
+    meta.className = 'admin-mobile-card__meta';
+    const metaLabel = document.createElement('span');
+    metaLabel.className = 'admin-mobile-card__label';
+    metaLabel.textContent = 'Created';
+    const metaValue = document.createElement('span');
+    metaValue.className = 'admin-mobile-card__value';
+    metaValue.textContent = formatDate(user.created_at);
+    meta.appendChild(metaLabel);
+    meta.appendChild(metaValue);
+
+    // Actions (same logic as desktop)
+    const actions = document.createElement('div');
+    actions.className = 'admin-mobile-card__actions';
+
+    const newRole = user.role === 'admin' ? 'user' : 'admin';
+    actions.appendChild(createActionBtn(
+        newRole === 'admin' ? 'Make Admin' : 'Make User',
+        () => handleChangeRole(user.id, newRole),
+    ));
+
+    const newStatus = user.status === 'active' ? 'disabled' : 'active';
+    actions.appendChild(createActionBtn(
+        newStatus === 'disabled' ? 'Disable' : 'Enable',
+        () => handleChangeStatus(user.id, newStatus),
+    ));
+
+    actions.appendChild(createActionBtn(
+        'Revoke Sessions',
+        () => handleRevokeSessions(user.id),
+    ));
+
+    actions.appendChild(createActionBtn(
+        'Delete',
+        () => handleDeleteUser(user.id, user.email),
+        true,
+    ));
+
+    content.appendChild(meta);
+    content.appendChild(actions);
+    bodyInner.appendChild(content);
+    body.appendChild(bodyInner);
+
+    card.appendChild(header);
+    card.appendChild(body);
+
+    /* Toggle expand/collapse */
+    const toggle = () => {
+        const isOpen = card.classList.toggle('admin-mobile-card--open');
+        header.setAttribute('aria-expanded', String(isOpen));
+    };
+    header.addEventListener('click', toggle);
+    header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle();
+        }
+    });
+
+    return card;
+}
+
 /* ── Render user rows ── */
 function renderUsers(users) {
     $tbody.replaceChildren();
+    $mobileList.replaceChildren();
 
     if (!users || users.length === 0) {
         $table.style.display = 'none';
+        $mobileList.style.display = 'none';
         $empty.style.display = '';
         return;
     }
 
     $empty.style.display = 'none';
     $table.style.display = '';
+    $mobileList.style.display = '';
 
     for (const user of users) {
         const tr = document.createElement('tr');
@@ -144,6 +277,9 @@ function renderUsers(users) {
         tdActions.appendChild(actionsWrap);
         tr.appendChild(tdActions);
         $tbody.appendChild(tr);
+
+        // Mobile card
+        $mobileList.appendChild(buildMobileCard(user));
     }
 }
 
@@ -152,6 +288,7 @@ async function loadUsers(search) {
     $loading.style.display = '';
     $empty.style.display = 'none';
     $table.style.display = 'none';
+    $mobileList.style.display = 'none';
 
     const res = await apiAdminUsers(search || undefined);
 
