@@ -313,6 +313,83 @@ export async function handleAdmin(ctx) {
     });
   }
 
+  // GET /api/admin/avatars/latest
+  if (pathname === "/api/admin/avatars/latest" && method === "GET") {
+    const result = await requireAdmin(request, env);
+    if (result instanceof Response) return result;
+
+    const listed = await env.PRIVATE_MEDIA.list({ prefix: "avatars/", limit: 1000 });
+
+    if (!listed.objects.length) {
+      return json({ ok: true, avatars: [] });
+    }
+
+    const newest = listed.objects
+      .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
+      .slice(0, 4);
+
+    const userIds = newest.map((obj) => obj.key.replace("avatars/", ""));
+    const placeholders = userIds.map(() => "?").join(",");
+    const users = await env.DB.prepare(
+      `SELECT u.id, u.email, p.display_name
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.id IN (${placeholders})`
+    )
+      .bind(...userIds)
+      .all();
+
+    const userMap = new Map();
+    for (const u of users.results) {
+      userMap.set(u.id, u);
+    }
+
+    const avatars = newest.map((obj) => {
+      const userId = obj.key.replace("avatars/", "");
+      const user = userMap.get(userId);
+      return {
+        userId,
+        email: user?.email || null,
+        displayName: user?.display_name || null,
+        uploadedAt: obj.uploaded.toISOString(),
+      };
+    });
+
+    return json({ ok: true, avatars });
+  }
+
+  // GET /api/admin/avatars/:userId (serve image)
+  if (
+    pathname.startsWith("/api/admin/avatars/") &&
+    method === "GET"
+  ) {
+    const result = await requireAdmin(request, env);
+    if (result instanceof Response) return result;
+
+    const parts = pathname.split("/");
+    const targetUserId = parts[4];
+
+    if (!targetUserId || parts.length !== 5) {
+      return json({ ok: false, error: "Invalid path." }, { status: 400 });
+    }
+
+    const object = await env.PRIVATE_MEDIA.get(`avatars/${targetUserId}`);
+    if (!object) {
+      return new Response(null, { status: 404 });
+    }
+
+    const headers = new Headers();
+    headers.set(
+      "Content-Type",
+      object.httpMetadata?.contentType || "image/png"
+    );
+    if (object.size) headers.set("Content-Length", String(object.size));
+    headers.set("Cache-Control", "private, no-store");
+    headers.set("X-Content-Type-Options", "nosniff");
+
+    return new Response(object.body, { headers });
+  }
+
   // DELETE /api/admin/users/:id
   if (
     pathname.startsWith("/api/admin/users/") &&

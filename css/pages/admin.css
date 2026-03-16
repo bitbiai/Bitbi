@@ -225,6 +225,155 @@
         line-height: 1.7;
     }
 
+    /* ── Avatar Dropdown ── */
+    .admin-avatars {
+        margin-block-end: var(--space-6);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-avatars__toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.5);
+        background: none;
+        border: none;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 0.2s var(--ease-default);
+    }
+
+    .admin-avatars__toggle:hover {
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+    .admin-avatars__chevron {
+        color: rgba(255, 255, 255, 0.2);
+        transition: transform 0.25s var(--ease-default);
+    }
+
+    .admin-avatars--open .admin-avatars__chevron {
+        transform: rotate(180deg);
+    }
+
+    .admin-avatars__body {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 0.3s var(--ease-default);
+    }
+
+    .admin-avatars--open .admin-avatars__body {
+        grid-template-rows: 1fr;
+    }
+
+    .admin-avatars__body-inner {
+        overflow: hidden;
+    }
+
+    .admin-avatars__grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-3);
+        padding: 0 var(--space-4) var(--space-4);
+    }
+
+    @media (min-width: 640px) {
+        .admin-avatars__grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    .admin-avatars__item {
+        aspect-ratio: 1;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        border: var(--border-subtle);
+        background: rgba(255, 255, 255, 0.04);
+        cursor: pointer;
+        padding: 0;
+        transition: border-color 0.2s var(--ease-default);
+    }
+
+    .admin-avatars__item:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .admin-avatars__thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .admin-avatars__empty {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: var(--space-4);
+        color: rgba(255, 255, 255, 0.3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+    }
+
+    /* ── Avatar Lightbox ── */
+    .admin-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s var(--ease-default);
+        padding: var(--space-6);
+    }
+
+    .admin-lightbox--visible {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .admin-lightbox__content {
+        position: relative;
+        max-width: min(90vw, 480px);
+        max-height: 80vh;
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        border: 1px solid rgba(0, 240, 255, 0.15);
+    }
+
+    .admin-lightbox__img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 80vh;
+        object-fit: contain;
+    }
+
+    .admin-lightbox__label {
+        position: absolute;
+        inset-block-end: 0;
+        inset-inline: 0;
+        padding: var(--space-6) var(--space-4) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: rgba(255, 255, 255, 0.9);
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    }
+
     /* ── State (loading / empty) ── */
     .admin-state {
         text-align: center;

@@ -81,6 +81,19 @@
         <div id="adminPanel" class="glass glass-card reveal" style="display:none">
             <div class="glass-card__body">
 
+                <!-- Newest Avatars -->
+                <div id="avatarDropdown" class="admin-avatars">
+                    <button type="button" id="avatarToggle" class="admin-avatars__toggle" aria-expanded="false">
+                        <span class="admin-avatars__title">Latest Uploads</span>
+                        <svg class="admin-avatars__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div class="admin-avatars__body">
+                        <div class="admin-avatars__body-inner">
+                            <div id="avatarGrid" class="admin-avatars__grid"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Search -->
                 <form id="searchForm" class="admin-search">
                     <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off">
@@ -155,6 +168,14 @@
         <p class="site-footer__copy">BITBI Studio &bull; All experiments are mine &bull; Built with love &amp; code &bull; &copy; 2026</p>
     </div>
 </footer>
+
+<!-- Avatar Lightbox -->
+<div id="avatarLightbox" class="admin-lightbox" aria-hidden="true">
+    <div class="admin-lightbox__content">
+        <img id="lightboxImg" class="admin-lightbox__img" src="" alt="">
+        <div id="lightboxLabel" class="admin-lightbox__label"></div>
+    </div>
+</div>
 
 <script type="module" src="js/pages/admin/main.js?v=20260309"></script>
 </body>

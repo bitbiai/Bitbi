@@ -16,6 +16,7 @@ import {
     apiAdminChangeStatus,
     apiAdminRevokeSessions,
     apiAdminDeleteUser,
+    apiAdminLatestAvatars,
 } from '../../shared/auth-api.js';
 
 /* ── DOM refs ── */
@@ -30,6 +31,16 @@ const $mobileSec   = document.getElementById('mobileSection');
 const $searchForm  = document.getElementById('searchForm');
 const $searchInput = document.getElementById('searchInput');
 const $toast       = document.getElementById('adminToast');
+
+/* Avatar dropdown refs */
+const $avatarDropdown = document.getElementById('avatarDropdown');
+const $avatarToggle   = document.getElementById('avatarToggle');
+const $avatarGrid     = document.getElementById('avatarGrid');
+
+/* Lightbox refs */
+const $lightbox      = document.getElementById('avatarLightbox');
+const $lightboxImg   = document.getElementById('lightboxImg');
+const $lightboxLabel = document.getElementById('lightboxLabel');
 
 /* ── Toast ── */
 function showToast(message, type = 'success') {
@@ -345,6 +356,88 @@ async function handleDeleteUser(userId, email) {
     }
 }
 
+/* ── Avatar Dropdown ── */
+let avatarsLoaded = false;
+
+async function loadLatestAvatars() {
+    $avatarGrid.replaceChildren();
+    const msg = document.createElement('div');
+    msg.className = 'admin-avatars__empty';
+    msg.textContent = 'Loading...';
+    $avatarGrid.appendChild(msg);
+
+    const res = await apiAdminLatestAvatars();
+    avatarsLoaded = true;
+
+    if (!res.ok) {
+        msg.textContent = 'Failed to load avatars.';
+        return;
+    }
+
+    const avatars = res.data?.avatars ?? [];
+
+    if (avatars.length === 0) {
+        msg.textContent = 'No avatars uploaded yet.';
+        return;
+    }
+
+    $avatarGrid.replaceChildren();
+
+    for (const avatar of avatars) {
+        const item = document.createElement('button');
+        item.className = 'admin-avatars__item';
+        item.type = 'button';
+        item.setAttribute('aria-label', `View avatar for ${avatar.displayName || avatar.email}`);
+
+        const img = document.createElement('img');
+        img.className = 'admin-avatars__thumb';
+        img.src = `/api/admin/avatars/${avatar.userId}`;
+        img.alt = '';
+        img.loading = 'lazy';
+
+        item.appendChild(img);
+        item.addEventListener('click', () => openLightbox(avatar));
+        $avatarGrid.appendChild(item);
+    }
+}
+
+function initAvatarDropdown() {
+    $avatarToggle.addEventListener('click', async () => {
+        const isOpen = $avatarDropdown.classList.toggle('admin-avatars--open');
+        $avatarToggle.setAttribute('aria-expanded', String(isOpen));
+
+        if (isOpen && !avatarsLoaded) {
+            await loadLatestAvatars();
+        }
+    });
+}
+
+/* ── Lightbox ── */
+function openLightbox(avatar) {
+    $lightboxImg.src = `/api/admin/avatars/${avatar.userId}`;
+    $lightboxImg.alt = `Avatar of ${avatar.displayName || avatar.email}`;
+    $lightboxLabel.textContent = avatar.displayName || avatar.email;
+    $lightbox.classList.add('admin-lightbox--visible');
+    $lightbox.setAttribute('aria-hidden', 'false');
+}
+
+function closeLightbox() {
+    $lightbox.classList.remove('admin-lightbox--visible');
+    $lightbox.setAttribute('aria-hidden', 'true');
+    $lightboxImg.src = '';
+}
+
+function initLightbox() {
+    $lightbox.addEventListener('click', (e) => {
+        if (e.target === $lightbox) closeLightbox();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && $lightbox.classList.contains('admin-lightbox--visible')) {
+            closeLightbox();
+        }
+    });
+}
+
 /* ── Init ── */
 async function init() {
     // Shared modules
@@ -366,6 +459,10 @@ async function init() {
     // Show admin panel
     $panel.style.display = '';
     $panel.classList.add('visible');
+
+    // Avatar dropdown + lightbox
+    initAvatarDropdown();
+    initLightbox();
 
     // Search form
     $searchForm.addEventListener('submit', (e) => {

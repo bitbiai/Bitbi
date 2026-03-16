@@ -102,6 +102,10 @@ export function apiAdminDeleteUser(userId) {
     return request('DELETE', `/admin/users/${userId}`);
 }
 
+export function apiAdminLatestAvatars() {
+    return request('GET', '/admin/avatars/latest');
+}
+
 /* ── Email Verification ── */
 
 export function apiVerifyEmail(token) {
