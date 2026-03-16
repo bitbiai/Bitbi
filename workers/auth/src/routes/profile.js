@@ -107,8 +107,14 @@ export async function handleUpdateProfile(ctx) {
   };
 
   await env.DB.prepare(
-    `INSERT OR REPLACE INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       display_name = excluded.display_name,
+       bio          = excluded.bio,
+       website      = excluded.website,
+       youtube_url  = excluded.youtube_url,
+       updated_at   = excluded.updated_at`
   )
     .bind(
       userId,
@@ -116,7 +122,7 @@ export async function handleUpdateProfile(ctx) {
       merged.bio,
       merged.website,
       merged.youtube_url,
-      current?.created_at ?? now,
+      now,
       now
     )
     .run();
