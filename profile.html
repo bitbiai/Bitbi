@@ -86,6 +86,29 @@
         <!-- Profile Content -->
         <div id="profileContent" style="display:none">
 
+            <!-- Avatar Card -->
+            <div class="profile__card profile__avatar-card reveal">
+                <div class="profile__avatar-wrap">
+                    <div class="profile__avatar-frame" id="avatarFrame">
+                        <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+                            <circle cx="40" cy="40" r="40" fill="rgba(255,255,255,0.04)"/>
+                            <circle cx="40" cy="30" r="12" fill="rgba(255,255,255,0.15)"/>
+                            <ellipse cx="40" cy="58" rx="20" ry="14" fill="rgba(255,255,255,0.15)"/>
+                        </svg>
+                        <img id="avatarImg" class="profile__avatar-img" alt="Your avatar" style="display:none">
+                    </div>
+                    <div class="profile__avatar-actions">
+                        <label class="profile__avatar-btn" id="avatarUploadLabel">
+                            <span id="avatarUploadText">Change Photo</span>
+                            <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
+                        </label>
+                        <button type="button" id="avatarRemoveBtn" class="profile__avatar-remove" style="display:none">Remove</button>
+                    </div>
+                    <p class="profile__hint">JPG, PNG or WebP. Max 2 MB.</p>
+                </div>
+                <div id="avatarMsg" class="profile__msg" role="status"></div>
+            </div>
+
             <!-- Account Info Card -->
             <div class="profile__card reveal">
                 <h2 class="profile__title">Account Info</h2>

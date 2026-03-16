@@ -51,6 +51,30 @@ export function apiUpdateProfile(fields) {
     return request('PATCH', '/profile', fields);
 }
 
+/* ── Avatar ── */
+
+export async function apiUploadAvatar(file) {
+    try {
+        const formData = new FormData();
+        formData.append('avatar', file);
+        const res = await fetch(BASE + '/profile/avatar', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+        });
+        let data;
+        try { data = await res.json(); } catch { data = null; }
+        if (res.ok) return { ok: true, data };
+        return { ok: false, error: data?.error || `Error ${res.status}`, data };
+    } catch (e) {
+        return { ok: false, error: 'Network error. Please try again.' };
+    }
+}
+
+export function apiDeleteAvatar() {
+    return request('DELETE', '/profile/avatar');
+}
+
 /* ── Admin API ── */
 
 export function apiAdminMe() {

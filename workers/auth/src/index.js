@@ -7,6 +7,7 @@ import { handleVerifyEmail, handleResendVerification } from "./routes/verificati
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
+import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 
 export default {
   async fetch(request, env) {
@@ -25,6 +26,11 @@ export default {
     // Profile
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
     if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
+
+    // Avatar
+    if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);
+    if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar(ctx);
+    if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar(ctx);
 
     // Admin routes
     if (pathname.startsWith("/api/admin/")) {

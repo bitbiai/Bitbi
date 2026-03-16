@@ -9,7 +9,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
-import { apiGetProfile, apiUpdateProfile, apiLogout } from '../../shared/auth-api.js';
+import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar } from '../../shared/auth-api.js';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -31,6 +31,14 @@ const $submitBtn      = document.getElementById('submitBtn');
 const $formMsg        = document.getElementById('formMsg');
 const $logoutBtn      = document.getElementById('logoutBtn');
 
+const $avatarImg         = document.getElementById('avatarImg');
+const $avatarPlaceholder = document.getElementById('avatarPlaceholder');
+const $avatarInput       = document.getElementById('avatarInput');
+const $avatarRemoveBtn   = document.getElementById('avatarRemoveBtn');
+const $avatarUploadText  = document.getElementById('avatarUploadText');
+const $avatarUploadLabel = document.getElementById('avatarUploadLabel');
+const $avatarMsg         = document.getElementById('avatarMsg');
+
 /* ── Date formatter ── */
 const dtf = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -50,6 +58,38 @@ function showMsg(text, type) {
 function hideMsg() {
     $formMsg.className = 'profile__msg';
     $formMsg.textContent = '';
+}
+
+/* ── Avatar helpers ── */
+const AVATAR_URL = '/api/profile/avatar';
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function showAvatarMsg(text, type) {
+    $avatarMsg.textContent = text;
+    $avatarMsg.className = `profile__msg profile__msg--${type}`;
+}
+
+function hideAvatarMsg() {
+    $avatarMsg.className = 'profile__msg';
+    $avatarMsg.textContent = '';
+}
+
+function loadAvatar(bustCache) {
+    const src = bustCache ? `${AVATAR_URL}?t=${Date.now()}` : AVATAR_URL;
+    const img = new Image();
+    img.onload = () => {
+        $avatarImg.src = img.src;
+        $avatarImg.style.display = '';
+        $avatarPlaceholder.style.display = 'none';
+        $avatarRemoveBtn.style.display = '';
+    };
+    img.onerror = () => {
+        $avatarImg.style.display = 'none';
+        $avatarPlaceholder.style.display = '';
+        $avatarRemoveBtn.style.display = 'none';
+    };
+    img.src = src;
 }
 
 /* ── State switching ── */
@@ -108,6 +148,63 @@ async function init() {
     // Show profile content
     showState($content);
     renderProfile(res.data.profile, res.data.account);
+    loadAvatar(false);
+
+    // Avatar upload
+    $avatarInput.addEventListener('change', async () => {
+        const file = $avatarInput.files[0];
+        if (!file) return;
+
+        hideAvatarMsg();
+
+        if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+            showAvatarMsg('Invalid file type. Allowed: JPEG, PNG, WebP.', 'error');
+            $avatarInput.value = '';
+            return;
+        }
+        if (file.size > MAX_AVATAR_SIZE) {
+            showAvatarMsg('File too large. Maximum size is 2 MB.', 'error');
+            $avatarInput.value = '';
+            return;
+        }
+
+        $avatarUploadLabel.style.pointerEvents = 'none';
+        $avatarUploadLabel.style.opacity = '0.5';
+        $avatarUploadText.textContent = 'Uploading\u2026';
+
+        const result = await apiUploadAvatar(file);
+
+        $avatarUploadLabel.style.pointerEvents = '';
+        $avatarUploadLabel.style.opacity = '';
+        $avatarUploadText.textContent = 'Change Photo';
+        $avatarInput.value = '';
+
+        if (result.ok) {
+            showAvatarMsg('Photo updated.', 'success');
+            loadAvatar(true);
+        } else {
+            showAvatarMsg(result.error, 'error');
+        }
+    });
+
+    // Avatar remove
+    $avatarRemoveBtn.addEventListener('click', async () => {
+        hideAvatarMsg();
+        $avatarRemoveBtn.disabled = true;
+        $avatarRemoveBtn.textContent = 'Removing\u2026';
+
+        const result = await apiDeleteAvatar();
+
+        $avatarRemoveBtn.disabled = false;
+        $avatarRemoveBtn.textContent = 'Remove';
+
+        if (result.ok) {
+            showAvatarMsg('Photo removed.', 'success');
+            loadAvatar(true);
+        } else {
+            showAvatarMsg(result.error, 'error');
+        }
+    });
 
     // Form submission
     $form.addEventListener('submit', async (e) => {

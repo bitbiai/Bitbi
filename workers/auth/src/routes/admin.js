@@ -365,6 +365,9 @@ export async function handleAdmin(ctx) {
       auditStatement(env, result.user.id, "delete_user", targetUserId, { deletedUserId: targetUserId }, now),
     ]);
 
+    // Clean up avatar from R2 (idempotent, no error if absent)
+    await env.PRIVATE_MEDIA.delete(`avatars/${targetUserId}`);
+
     return json({
       ok: true,
       deletedUserId: targetUserId,

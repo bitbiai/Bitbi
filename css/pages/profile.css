@@ -22,6 +22,91 @@
         margin-block-start: var(--space-6);
     }
 
+    /* ── Avatar ── */
+    .profile__avatar-card {
+        text-align: center;
+    }
+
+    .profile__avatar-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-4);
+    }
+
+    .profile__avatar-frame {
+        width: 96px;
+        height: 96px;
+        border-radius: var(--radius-full);
+        overflow: hidden;
+        border: 2px solid rgba(0, 240, 255, 0.15);
+        flex-shrink: 0;
+    }
+
+    .profile__avatar-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .profile__avatar-placeholder {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .profile__avatar-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+    }
+
+    .profile__avatar-btn {
+        padding: var(--space-2) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.06);
+        border: 1px solid rgba(0, 240, 255, 0.15);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .profile__avatar-btn:hover {
+        background: rgba(0, 240, 255, 0.12);
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .profile__avatar-remove {
+        padding: var(--space-2) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: rgba(255, 255, 255, 0.4);
+        background: transparent;
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .profile__avatar-remove:hover {
+        color: var(--color-danger);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .profile__avatar-remove:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
     .profile__title {
         font-family: var(--font-display);
         font-weight: 700;

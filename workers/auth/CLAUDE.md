@@ -47,6 +47,7 @@ src/
     ├── password.js       ← POST /api/forgot-password, GET /api/reset-password/validate, POST /api/reset-password
     ├── verification.js   ← GET /api/verify-email, POST /api/resend-verification
     ├── admin.js          ← all /api/admin/* (single dispatcher)
+    ├── avatar.js         ← GET/POST/DELETE /api/profile/avatar
     └── media.js          ← GET /api/thumbnails/*, /api/images/*, /api/music/*
 ```
 
@@ -76,6 +77,11 @@ src/
 - `POST /api/reset-password` — set new password with token
 - `GET /api/verify-email?token=` — verify email address
 - `POST /api/resend-verification` — resend verification email (requires auth)
+- `GET /api/profile` — user profile data (requires auth)
+- `PATCH /api/profile` — update profile fields (requires auth)
+- `GET /api/profile/avatar` — user's avatar image from R2, or 404 (requires auth)
+- `POST /api/profile/avatar` — upload avatar via FormData (requires auth, rate-limited 10/hr)
+- `DELETE /api/profile/avatar` — delete avatar from R2 (requires auth)
 - `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
 - `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
@@ -92,9 +98,9 @@ src/
 - `DB` — primary binding (local preview in dev)
 - `bitbi_auth_db` — remote-only binding for direct production queries
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`
 
-**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images and audio files. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `music/exclusive-track-01.mp3`. Valid IDs are `VALID_MONSTER_IDS` constant: 01–15.
+**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, audio, and avatars. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `music/exclusive-track-01.mp3`, `avatars/{userId}` (user avatars, one per user, content type in httpMetadata). Valid monster IDs are `VALID_MONSTER_IDS` constant: 01–15.
 
 Migrations in `migrations/` — numbered sequentially. Note: there are two `0002_*` migrations (admin role and password reset tokens) that were applied separately.
 
@@ -104,6 +110,6 @@ Migrations in `migrations/` — numbered sequentially. Note: there are two `0002
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 5 minutes per session
-- Rate limiting: login (10/15min), register (5/hr), forgot-password (5/hr), resend-verification (3/hr) per IP (in-memory, per-isolate)
+- Rate limiting: login (10/15min), register (5/hr), forgot-password (5/hr), resend-verification (3/hr), avatar-upload (10/hr) per IP (in-memory, per-isolate)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions and used/expired tokens
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
