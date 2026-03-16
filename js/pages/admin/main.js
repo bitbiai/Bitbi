@@ -26,6 +26,7 @@ const $empty       = document.getElementById('emptyState');
 const $table       = document.getElementById('userTable');
 const $tbody       = document.getElementById('userTbody');
 const $mobileList  = document.getElementById('userMobileList');
+const $mobileSec   = document.getElementById('mobileSection');
 const $searchForm  = document.getElementById('searchForm');
 const $searchInput = document.getElementById('searchInput');
 const $toast       = document.getElementById('adminToast');
@@ -97,11 +98,9 @@ function buildMobileCard(user) {
         identity.appendChild(subEl);
     }
 
-    const badges = document.createElement('div');
-    badges.className = 'admin-mobile-card__badges';
-    badges.appendChild(createBadge(user.role, user.role === 'admin' ? 'admin' : 'user'));
-    badges.appendChild(createBadge(user.status, user.status === 'active' ? 'active' : 'disabled'));
-    badges.appendChild(createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled'));
+    const badgeRole = createBadge(user.role, user.role === 'admin' ? 'admin' : 'user');
+    const badgeStatus = createBadge(user.status, user.status === 'active' ? 'active' : 'disabled');
+    const badgeVerified = createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled');
 
     const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     chevron.classList.add('admin-mobile-card__chevron');
@@ -119,7 +118,9 @@ function buildMobileCard(user) {
     chevron.appendChild(path);
 
     header.appendChild(identity);
-    header.appendChild(badges);
+    header.appendChild(badgeRole);
+    header.appendChild(badgeStatus);
+    header.appendChild(badgeVerified);
     header.appendChild(chevron);
 
     /* Body (expandable accordion) */
@@ -202,14 +203,14 @@ function renderUsers(users) {
 
     if (!users || users.length === 0) {
         $table.style.display = 'none';
-        $mobileList.style.display = 'none';
+        $mobileSec.style.display = 'none';
         $empty.style.display = '';
         return;
     }
 
     $empty.style.display = 'none';
     $table.style.display = '';
-    $mobileList.style.display = '';
+    $mobileSec.style.display = '';
 
     for (const user of users) {
         const tr = document.createElement('tr');
@@ -288,7 +289,7 @@ async function loadUsers(search) {
     $loading.style.display = '';
     $empty.style.display = 'none';
     $table.style.display = 'none';
-    $mobileList.style.display = 'none';
+    $mobileSec.style.display = 'none';
 
     const res = await apiAdminUsers(search || undefined);
 
