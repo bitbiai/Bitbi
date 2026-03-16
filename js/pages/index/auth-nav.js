@@ -49,7 +49,7 @@ function renderDesktop() {
             const adminLink = document.createElement('a');
             adminLink.href = 'admin.html';
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
-            adminLink.textContent = 'Admin_space';
+            adminLink.textContent = 'Admin';
             navLinks.appendChild(adminLink);
         }
     } else {
