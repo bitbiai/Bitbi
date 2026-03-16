@@ -327,12 +327,16 @@
 
     .hero--compact {
         min-block-size: auto;
-        padding-block: 8rem 5rem;
+        padding-block: 5rem 3rem;
         overflow: hidden;
     }
 
+    .hero--compact + .section-divider + .section {
+        padding-block-start: 2rem;
+    }
+
     @media (min-width: 1024px) {
-        .hero--compact { padding-block: 10rem 7rem; }
+        .hero--compact { padding-block: 7rem 4rem; }
     }
 
     .hero__gradient-overlay {
