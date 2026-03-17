@@ -38,6 +38,7 @@ jobs:
           mkdir _site
           cp *.html robots.txt sitemap.xml _site/ 2>/dev/null || true
           cp -r assets css fonts js _site/
+          cp -r experiments account admin legal _site/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

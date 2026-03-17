@@ -42,25 +42,26 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`. The `workers/` directory is **not** deployed to Pages.
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `*.html` (root redirect stubs), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
 ## Architecture
 
 ### Pages
 - `index.html` — Main landing page (particle effects, gallery, experiments, soundlab, markets, auth-gated sections)
-- `cosmic.html` — A-Frame WebXR/VR art gallery
-- `king.html` — Medieval-themed 3D puzzle game (Canvas + Three.js)
-- `skyfall.html` — Arcade falling objects game (Canvas)
-- `profile.html` — User profile page (avatar upload, account settings, requires auth)
-- `admin.html` — Admin dashboard (user management, requires admin role)
-- `forgot-password.html`, `reset-password.html`, `verify-email.html` — Auth flow pages
-- `privacy.html`, `datenschutz.html`, `imprint.html` — Legal/GDPR pages
+- `experiments/cosmic.html` — A-Frame WebXR/VR art gallery
+- `experiments/king.html` — Medieval-themed 3D puzzle game (Canvas + Three.js)
+- `experiments/skyfall.html` — Arcade falling objects game (Canvas)
+- `account/profile.html` — User profile page (avatar upload, account settings, requires auth)
+- `admin/index.html` — Admin dashboard (user management, requires admin role)
+- `account/forgot-password.html`, `account/reset-password.html`, `account/verify-email.html` — Auth flow pages
+- `legal/privacy.html`, `legal/datenschutz.html`, `legal/imprint.html` — Legal/GDPR pages
+- Root redirect stubs (`cosmic.html`, `king.html`, etc.) forward old URLs to new locations
 
 ### JavaScript
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`king.html`, `skyfall.html`) and `cosmic.html` use inline `<script>` blocks instead of the module system.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
@@ -76,14 +77,12 @@ Vanilla ES6 modules — no frameworks or bundlers.
 ### CSS
 
 - **Tailwind CSS** loaded from CDN (only remaining CDN dependency besides Cloudflare RUM)
-- `@layer` cascade order: `tokens → reset → base → components → pages → utilities` — each layer maps to a file: `tokens.css`, `reset.css`, `base.css`, `components.css`, `index.css`/page CSS, `utilities.css`
-- `css/tokens.css` — design tokens using `@property` and oklch colors with hex fallbacks
-- `css/base.css` — @font-face declarations, gradient text utilities, glass effects, reveal animations, keyframes
-- `css/index.css` — index page styles
-- `css/cookie-banner.css` — standalone cookie banner styles for game pages (hardcoded values, no CSS variable dependencies — this is intentional so game pages don't need tokens.css)
-- `css/auth.css` — auth modal, locked-area overlays, auth flow page styles
-- `css/legal.css` — shared styles for privacy, imprint, datenschutz pages
-- `css/pages/` — page-specific styles (admin, profile, forgot-password, reset-password)
+- `@layer` cascade order: `tokens → reset → base → components → pages → utilities` — each layer maps to a file in `css/base/` or `css/components/`
+- `css/base/` — `tokens.css` (design tokens, `@property`, oklch colors), `reset.css`, `base.css` (@font-face, gradients, glass, animations), `utilities.css`
+- `css/components/` — `components.css`, `auth.css` (auth modal, locked-area overlays, auth flow page styles), `cookie-banner.css` (standalone, hardcoded values, no CSS variable dependencies — intentional so game pages don't need tokens.css)
+- `css/pages/` — `index.css` (index page styles), `legal.css` (shared legal page styles)
+- `css/account/` — `profile.css`, `forgot-password.css`, `reset-password.css`
+- `css/admin/` — `admin.css`
 - Color palette: `--color-midnight`, `--color-navy`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
 - All fonts self-hosted as woff2 in `fonts/`

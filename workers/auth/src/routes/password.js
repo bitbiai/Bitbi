@@ -47,7 +47,7 @@ export async function handleForgotPassword(ctx) {
     .run();
 
   // Send email (fire-and-forget — don't leak failures)
-  const resetLink = `${env.APP_BASE_URL}/reset-password.html?token=${rawToken}`;
+  const resetLink = `${env.APP_BASE_URL}/account/reset-password.html?token=${rawToken}`;
   try {
     await sendResetEmail(env, user.email, resetLink);
   } catch (e) {

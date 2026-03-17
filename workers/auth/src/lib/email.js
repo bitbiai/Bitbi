@@ -59,7 +59,7 @@ export async function createAndSendVerificationToken(env, userId, email) {
     .bind(tokenId, userId, tokenHash, expiresAt, now)
     .run();
 
-  const verifyLink = `${env.APP_BASE_URL}/verify-email.html?token=${rawToken}`;
+  const verifyLink = `${env.APP_BASE_URL}/account/verify-email.html?token=${rawToken}`;
   try {
     await sendVerificationEmail(env, email, verifyLink);
   } catch (e) {

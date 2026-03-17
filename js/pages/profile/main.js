@@ -235,7 +235,7 @@ async function init() {
     // Logout button
     $logoutBtn.addEventListener('click', async () => {
         await apiLogout();
-        window.location.href = 'index.html';
+        window.location.href = '/';
     });
 }
 

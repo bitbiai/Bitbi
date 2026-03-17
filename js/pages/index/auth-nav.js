@@ -49,7 +49,7 @@ function renderDesktop() {
         // Profile link — all logged-in users
         if (navLinks) {
             const profileLink = document.createElement('a');
-            profileLink.href = 'profile.html';
+            profileLink.href = '/account/profile.html';
             profileLink.className = 'site-nav__link nav-link auth-nav__profile-link';
             profileLink.textContent = 'Profile';
             navLinks.appendChild(profileLink);
@@ -58,7 +58,7 @@ function renderDesktop() {
         // Admin link — only for admin role
         if (user?.role === 'admin' && navLinks) {
             const adminLink = document.createElement('a');
-            adminLink.href = 'admin.html';
+            adminLink.href = '/admin/';
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
             adminLink.textContent = 'Admin';
             navLinks.appendChild(adminLink);
@@ -103,14 +103,14 @@ function renderMobile() {
         actionsWrap.appendChild(logout);
 
         const profileLink = document.createElement('a');
-        profileLink.href = 'profile.html';
+        profileLink.href = '/account/profile.html';
         profileLink.className = 'auth-nav__mobile-profile';
         profileLink.textContent = 'Profile';
         actionsWrap.appendChild(profileLink);
 
         if (user?.role === 'admin') {
             const adminLink = document.createElement('a');
-            adminLink.href = 'admin.html';
+            adminLink.href = '/admin/';
             adminLink.className = 'auth-nav__mobile-admin';
             adminLink.textContent = 'Admin';
             actionsWrap.appendChild(adminLink);
