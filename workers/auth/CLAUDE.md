@@ -47,6 +47,7 @@ src/
     ├── password.js       ← POST /api/forgot-password, GET /api/reset-password/validate, POST /api/reset-password
     ├── verification.js   ← GET /api/verify-email, POST /api/resend-verification
     ├── admin.js          ← all /api/admin/* (single dispatcher)
+    ├── profile.js        ← GET/PATCH /api/profile
     ├── avatar.js         ← GET/POST/DELETE /api/profile/avatar
     └── media.js          ← GET /api/thumbnails/*, /api/images/*, /api/music/*
 ```
@@ -102,7 +103,7 @@ src/
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, audio, and avatars. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `music/exclusive-track-01.mp3`, `avatars/{userId}` (user avatars, one per user, content type in httpMetadata). Valid monster IDs are `VALID_MONSTER_IDS` constant: 01–15.
 
-Migrations in `migrations/` — numbered sequentially. Note: there are two `0002_*` migrations (admin role and password reset tokens) that were applied separately.
+Migrations in `migrations/` — numbered sequentially (`0001_init` through `0005_add_profiles`).
 
 ## Conventions
 
