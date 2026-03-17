@@ -37,8 +37,15 @@ export function initMobileNav() {
         const canvas = document.getElementById('heroCanvas');
         if (!canvas) return;
         try {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-            backdrop.style.backgroundImage = `url(${dataUrl})`;
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            backdrop.style.backgroundImage = [
+                'linear-gradient(rgba(10,10,10,0.55), rgba(10,10,10,0.55))',
+                'radial-gradient(ellipse at 15% 20%, rgba(0,240,255,0.06), transparent 50%)',
+                'radial-gradient(ellipse at 85% 80%, rgba(255,179,0,0.07), transparent 45%)',
+                'radial-gradient(ellipse at 50% 50%, rgba(200,50,200,0.04), transparent 40%)',
+                'linear-gradient(180deg, #0A0A0A 0%, rgba(13,27,42,0.5) 40%, rgba(13,27,42,0.3) 60%, #0A0A0A 100%)',
+                `url(${dataUrl})`
+            ].join(', ');
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
     }
 
