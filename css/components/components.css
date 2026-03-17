@@ -169,7 +169,7 @@
         position: fixed;
         inset: 0;
         z-index: 55;
-        background: rgba(10, 10, 10, 0.97);
+        background: rgba(10, 10, 10, 0.85);
         backdrop-filter: blur(30px);
         -webkit-backdrop-filter: blur(30px);
         transform: translateX(100%);
@@ -177,6 +177,54 @@
         overflow-y: auto;
 
         &.open { transform: translateX(0); }
+    }
+
+    @supports not (backdrop-filter: blur(1px)) {
+        .mobile-nav-panel {
+            background: rgba(10, 10, 10, 0.96);
+        }
+    }
+
+    @keyframes neonDrop {
+        0%   { top: -20%; opacity: 0; }
+        8%   { opacity: 1; }
+        85%  { opacity: 1; }
+        100% { top: 110%; opacity: 0; }
+    }
+
+    .mobile-nav-panel::before,
+    .mobile-nav-panel::after {
+        content: '';
+        position: absolute;
+        inline-size: 1px;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0;
+        animation-name: neonDrop;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        animation-play-state: paused;
+    }
+
+    .mobile-nav-panel::before {
+        left: 15%;
+        block-size: 18%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.1), transparent);
+        animation-duration: 10s;
+    }
+
+    .mobile-nav-panel::after {
+        left: 78%;
+        block-size: 14%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.06), transparent);
+        animation-duration: 14s;
+        animation-delay: 5s;
+        animation-fill-mode: none;
+    }
+
+    .mobile-nav-panel.open::before,
+    .mobile-nav-panel.open::after {
+        animation-play-state: running;
     }
 
     .mobile-nav__close {
@@ -200,6 +248,8 @@
     }
 
     .mobile-nav__inner {
+        position: relative;
+        z-index: 1;
         display: flex;
         flex-direction: column;
         min-block-size: 100%;
@@ -1383,6 +1433,12 @@
         .float-anim,
         .pulse-glow,
         .hero__title-img { animation: none; }
+
+        .mobile-nav-panel::before,
+        .mobile-nav-panel::after {
+            animation: none;
+            opacity: 0;
+        }
 
         .tilt-card,
         .btn-primary,
