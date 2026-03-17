@@ -34,16 +34,44 @@ export function initMobileNav() {
 
     function captureBackdrop() {
         if (!backdrop) return;
-        const canvas = document.getElementById('heroCanvas');
-        if (!canvas) return;
+        const heroCanvas = document.getElementById('heroCanvas');
+        if (!heroCanvas) return;
         try {
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            const w = heroCanvas.width || window.innerWidth;
+            const h = heroCanvas.height || window.innerHeight;
+
+            /* Composite canvas: hero particles + frozen binary rain */
+            const comp = document.createElement('canvas');
+            comp.width = w;
+            comp.height = h;
+            const ctx = comp.getContext('2d');
+
+            /* Layer 1 — hero particles & nebulae */
+            ctx.drawImage(heroCanvas, 0, 0, w, h);
+
+            /* Layer 2 — frozen binary rain (larger, denser than page version) */
+            const fontSize = 13;
+            ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
+            const colWidth = 24;
+            const colCount = Math.floor(w / colWidth);
+            for (let i = 0; i < colCount; i++) {
+                const x = (i + 0.3) * colWidth;
+                const a = 0.04 + Math.random() * 0.06;
+                ctx.fillStyle = `rgba(0,240,255,${a})`;
+                let y = fontSize + Math.random() * fontSize * 3;
+                while (y < h + fontSize) {
+                    ctx.fillText(Math.random() > 0.5 ? '1' : '0', x, y);
+                    y += fontSize * 1.15;
+                }
+            }
+
+            const dataUrl = comp.toDataURL('image/jpeg', 0.85);
             backdrop.style.backgroundImage = [
-                'linear-gradient(rgba(10,10,10,0.55), rgba(10,10,10,0.55))',
-                'radial-gradient(ellipse at 15% 20%, rgba(0,240,255,0.06), transparent 50%)',
-                'radial-gradient(ellipse at 85% 80%, rgba(255,179,0,0.07), transparent 45%)',
-                'radial-gradient(ellipse at 50% 50%, rgba(200,50,200,0.04), transparent 40%)',
-                'linear-gradient(180deg, #0A0A0A 0%, rgba(13,27,42,0.5) 40%, rgba(13,27,42,0.3) 60%, #0A0A0A 100%)',
+                'linear-gradient(rgba(10,10,10,0.30), rgba(10,10,10,0.30))',
+                'radial-gradient(ellipse at 15% 20%, rgba(0,240,255,0.08), transparent 50%)',
+                'radial-gradient(ellipse at 85% 80%, rgba(255,179,0,0.09), transparent 45%)',
+                'radial-gradient(ellipse at 50% 50%, rgba(200,50,200,0.05), transparent 40%)',
+                'linear-gradient(180deg, rgba(10,10,10,0.7) 0%, rgba(13,27,42,0.35) 40%, rgba(13,27,42,0.2) 60%, rgba(10,10,10,0.7) 100%)',
                 `url(${dataUrl})`
             ].join(', ');
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
