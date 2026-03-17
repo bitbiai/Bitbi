@@ -169,20 +169,17 @@
         position: fixed;
         inset: 0;
         z-index: 55;
-        background: rgba(10, 10, 10, 0.75);
-        backdrop-filter: blur(30px);
-        -webkit-backdrop-filter: blur(30px);
+        background:
+            radial-gradient(ellipse at 15% 10%, rgba(0, 240, 255, 0.04), transparent 50%),
+            radial-gradient(ellipse at 80% 40%, rgba(255, 179, 0, 0.025), transparent 45%),
+            radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.008), transparent 60%),
+            radial-gradient(ellipse at 30% 85%, rgba(192, 38, 211, 0.018), transparent 40%),
+            linear-gradient(180deg, rgba(12, 14, 20, 0.97), rgba(8, 10, 14, 0.99));
         transform: translateX(100%);
         transition: transform 0.45s var(--ease-smooth);
         overflow-y: auto;
 
         &.open { transform: translateX(0); }
-    }
-
-    @supports not (backdrop-filter: blur(1px)) {
-        .mobile-nav-panel {
-            background: rgba(10, 10, 10, 0.96);
-        }
     }
 
     @keyframes neonDrop {
