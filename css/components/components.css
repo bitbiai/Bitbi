@@ -169,7 +169,7 @@
         position: fixed;
         inset: 0;
         z-index: 55;
-        background: rgba(10, 10, 10, 0.85);
+        background: rgba(10, 10, 10, 0.75);
         backdrop-filter: blur(30px);
         -webkit-backdrop-filter: blur(30px);
         transform: translateX(100%);
@@ -231,7 +231,7 @@
         position: absolute;
         inset-block-start: var(--space-5);
         inset-inline-end: var(--space-5);
-        z-index: 1;
+        z-index: 2;
         background: none;
         border: none;
         font-size: 1.75rem;
@@ -254,6 +254,43 @@
         flex-direction: column;
         min-block-size: 100%;
         padding: 5rem var(--space-6) var(--space-6);
+    }
+
+    .mobile-nav__inner::before,
+    .mobile-nav__inner::after {
+        content: '';
+        position: absolute;
+        inline-size: 1px;
+        pointer-events: none;
+        z-index: -1;
+        opacity: 0;
+        animation-name: neonDrop;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        animation-play-state: paused;
+    }
+
+    .mobile-nav__inner::before {
+        left: 42%;
+        block-size: 22%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.08), transparent);
+        animation-duration: 12s;
+        animation-delay: 3s;
+        animation-fill-mode: none;
+    }
+
+    .mobile-nav__inner::after {
+        left: 65%;
+        block-size: 16%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.05), transparent);
+        animation-duration: 16s;
+        animation-delay: 8s;
+        animation-fill-mode: none;
+    }
+
+    .mobile-nav-panel.open .mobile-nav__inner::before,
+    .mobile-nav-panel.open .mobile-nav__inner::after {
+        animation-play-state: running;
     }
 
     .mobile-nav__auth {
@@ -1435,7 +1472,9 @@
         .hero__title-img { animation: none; }
 
         .mobile-nav-panel::before,
-        .mobile-nav-panel::after {
+        .mobile-nav-panel::after,
+        .mobile-nav__inner::before,
+        .mobile-nav__inner::after {
             animation: none;
             opacity: 0;
         }
