@@ -1427,6 +1427,18 @@
         margin-block-start: var(--space-5);
     }
 
+    /* ── Freeze background while mobile menu is open ── */
+    :root.menu-open #heroCanvas {
+        visibility: hidden;
+    }
+
+    :root.menu-open .hero__binary-rain *,
+    :root.menu-open .hero__title-img,
+    :root.menu-open .float-anim,
+    :root.menu-open .pulse-glow {
+        animation-play-state: paused !important;
+    }
+
     /* ── Reduced Motion ── */
     @media (prefers-reduced-motion: reduce) {
         .hero__scroll-hint,

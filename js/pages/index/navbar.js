@@ -42,6 +42,7 @@ export function initMobileNav() {
             bar3.style.width = open ? '24px' : '16px';
         }
         document.body.style.overflow = open ? 'hidden' : '';
+        document.documentElement.classList.toggle('menu-open', open);
 
         if (open) {
             panel.setAttribute('aria-hidden', 'false');
