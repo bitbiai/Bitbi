@@ -5,11 +5,11 @@
 import { formatTime } from '../../shared/format-time.js';
 
 const tracks = [
-    { t: 'Cosmic Sea', file: 'music/cosmic-sea.mp3' },
-    { t: 'Zufall und Notwendigkeit', file: 'music/zufall-und-notwendigkeit.mp3' },
-    { t: 'Relativity', file: 'music/relativity.mp3' },
-    { t: 'Tiny Hearts', file: 'music/tiny-hearts.mp3' },
-    { t: "Grok's Groove Remix", file: "music/grok.mp3" },
+    { t: 'Cosmic Sea', file: 'assets/audio/cosmic-sea.mp3' },
+    { t: 'Zufall und Notwendigkeit', file: 'assets/audio/zufall-und-notwendigkeit.mp3' },
+    { t: 'Relativity', file: 'assets/audio/relativity.mp3' },
+    { t: 'Tiny Hearts', file: 'assets/audio/tiny-hearts.mp3' },
+    { t: "Grok's Groove Remix", file: "assets/audio/grok.mp3" },
 ];
 
 export function initSoundLab(revealObserver) {

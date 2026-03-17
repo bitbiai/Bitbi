@@ -48,7 +48,7 @@ BITBI is intentionally lightweight and direct:
 ├── docs/                # Supporting documentation
 ├── fonts/               # Self-hosted fonts
 ├── js/                  # Frontend JavaScript
-├── music/               # Audio assets
+├── assets/audio/        # Audio assets
 ├── workers/             # Cloudflare Workers (auth, contact, crypto)
 ├── index.html           # Main landing page
 ├── cosmic.html          # Experimental project page

@@ -42,7 +42,7 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `music/`. The `workers/` directory is **not** deployed to Pages.
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Only these are copied to `_site/`: `*.html`, `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`. The `workers/` directory is **not** deployed to Pages.
 
 ## Architecture
 
