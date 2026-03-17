@@ -184,13 +184,30 @@
         pointer-events: none;
         background-size: cover;
         background-position: center;
-        filter: blur(12px) saturate(1.4);
-        -webkit-filter: blur(12px) saturate(1.4);
+        filter: blur(14px) saturate(1.2);
+        -webkit-filter: blur(14px) saturate(1.2);
         opacity: 0;
         transition: opacity 0.3s ease;
     }
 
+    .mobile-nav__rain-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-size: cover;
+        background-position: center;
+        filter: blur(1px);
+        -webkit-filter: blur(1px);
+        opacity: 0;
+        transition: opacity 0.4s ease 0.05s;
+    }
+
     .mobile-nav-panel.open .mobile-nav__backdrop {
+        opacity: 1;
+    }
+
+    .mobile-nav-panel.open .mobile-nav__rain-layer {
         opacity: 1;
     }
 

@@ -29,6 +29,7 @@ export function initMobileNav() {
     if (!btn || !panel) return;
 
     const backdrop = document.getElementById('frozenBackdrop');
+    const rainLayer = document.getElementById('frozenRainLayer');
     let open = false;
     let removeFocusTrap = null;
 
@@ -40,16 +41,16 @@ export function initMobileNav() {
             const w = heroCanvas.width || window.innerWidth;
             const h = heroCanvas.height || window.innerHeight;
 
-            /* Composite canvas: hero particles + frozen binary rain */
+            /* ── Canvas 1: hero + subdued glows (will be CSS-blurred) ── */
             const comp = document.createElement('canvas');
             comp.width = w;
             comp.height = h;
             const ctx = comp.getContext('2d');
 
-            /* Layer 1 — hero particles & nebulae */
+            /* Hero particles & nebulae */
             ctx.drawImage(heroCanvas, 0, 0, w, h);
 
-            /* Layer 2 — ambient glows baked into canvas (survive JPEG) */
+            /* Ambient glows — reduced intensity so they don't dominate */
             const addGlow = (gx, gy, gr, color) => {
                 const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
                 g.addColorStop(0, color);
@@ -57,42 +58,70 @@ export function initMobileNav() {
                 ctx.fillStyle = g;
                 ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
             };
-            addGlow(w * 0.15, h * 0.15, w * 0.55, 'rgba(0,240,255,0.07)');
-            addGlow(w * 0.85, h * 0.75, w * 0.45, 'rgba(255,179,0,0.06)');
-            addGlow(w * 0.50, h * 0.50, w * 0.70, 'rgba(200,50,200,0.035)');
-            addGlow(w * 0.50, h * 0.30, w * 0.50, 'rgba(255,255,255,0.04)');
+            addGlow(w * 0.15, h * 0.15, w * 0.45, 'rgba(0,240,255,0.04)');
+            addGlow(w * 0.85, h * 0.75, w * 0.35, 'rgba(255,179,0,0.035)');
+            addGlow(w * 0.50, h * 0.50, w * 0.55, 'rgba(200,50,200,0.02)');
+            addGlow(w * 0.50, h * 0.30, w * 0.40, 'rgba(255,255,255,0.025)');
 
-            /* Layer 3 — binary rain as vertical streak lines */
-            let cx = 6;
-            while (cx < w - 6) {
-                if (Math.random() < 0.10) { cx += 14 + Math.random() * 20; continue; }
-                const streakH = h * (0.25 + Math.random() * 0.55);
-                const startY = Math.random() * (h - streakH * 0.3);
-                const a = 0.06 + Math.random() * 0.14;
-                const lineW = 1.5 + Math.random() * 1;
-                const grad = ctx.createLinearGradient(cx, startY, cx, startY + streakH);
+            const heroUrl = comp.toDataURL('image/jpeg', 0.85);
+            backdrop.style.backgroundImage = [
+                'linear-gradient(rgba(10,10,10,0.25), rgba(10,10,10,0.25))',
+                'linear-gradient(180deg, rgba(10,10,10,0.55) 0%, rgba(8,14,22,0.10) 30%, rgba(8,14,22,0.06) 60%, rgba(10,10,10,0.45) 100%)',
+                `url(${heroUrl})`
+            ].join(', ');
+
+            /* ── Canvas 2: binary rain streaks only (separate, barely blurred) ── */
+            if (!rainLayer) return;
+            const rain = document.createElement('canvas');
+            rain.width = w;
+            rain.height = h;
+            const rc = rain.getContext('2d');
+
+            let cx = 8;
+            while (cx < w - 8) {
+                /* skip some columns for organic spacing */
+                if (Math.random() < 0.12) { cx += 18 + Math.random() * 24; continue; }
+
+                const streakH = h * (0.40 + Math.random() * 0.50);
+                const startY  = Math.random() * (h - streakH * 0.5);
+                const alpha   = 0.12 + Math.random() * 0.18;
+                const lineW   = 1.2 + Math.random() * 0.8;
+
+                /* main streak */
+                const grad = rc.createLinearGradient(cx, startY, cx, startY + streakH);
                 grad.addColorStop(0, 'transparent');
-                grad.addColorStop(0.15, `rgba(0,240,255,${a})`);
-                grad.addColorStop(0.5, `rgba(0,240,255,${a * 1.2})`);
-                grad.addColorStop(0.85, `rgba(0,240,255,${a * 0.7})`);
+                grad.addColorStop(0.08, `rgba(0,240,255,${alpha * 0.5})`);
+                grad.addColorStop(0.25, `rgba(0,240,255,${alpha})`);
+                grad.addColorStop(0.55, `rgba(0,240,255,${alpha * 0.9})`);
+                grad.addColorStop(0.80, `rgba(0,240,255,${alpha * 0.4})`);
                 grad.addColorStop(1, 'transparent');
-                ctx.fillStyle = grad;
-                ctx.fillRect(cx - lineW / 2, startY, lineW, streakH);
-                cx += 12 + Math.random() * 16;
+                rc.fillStyle = grad;
+                rc.fillRect(cx - lineW / 2, startY, lineW, streakH);
+
+                /* subtle glow halo around each streak for premium softness */
+                const halo = rc.createLinearGradient(cx, startY, cx, startY + streakH);
+                halo.addColorStop(0, 'transparent');
+                halo.addColorStop(0.25, `rgba(0,240,255,${alpha * 0.12})`);
+                halo.addColorStop(0.55, `rgba(0,240,255,${alpha * 0.10})`);
+                halo.addColorStop(1, 'transparent');
+                rc.fillStyle = halo;
+                rc.fillRect(cx - 4, startY, 8, streakH);
+
+                cx += 10 + Math.random() * 14;
             }
 
-            const dataUrl = comp.toDataURL('image/jpeg', 0.85);
-            backdrop.style.backgroundImage = [
-                'linear-gradient(rgba(10,10,10,0.22), rgba(10,10,10,0.22))',
-                'linear-gradient(180deg, rgba(10,10,10,0.55) 0%, rgba(8,14,22,0.12) 30%, rgba(8,14,22,0.08) 60%, rgba(10,10,10,0.45) 100%)',
-                `url(${dataUrl})`
+            const rainUrl = rain.toDataURL('image/png');
+            rainLayer.style.backgroundImage = [
+                'linear-gradient(180deg, rgba(10,10,10,0.3) 0%, transparent 15%, transparent 85%, rgba(10,10,10,0.3) 100%)',
+                `url(${rainUrl})`
             ].join(', ');
+
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
     }
 
     function clearBackdrop() {
-        if (!backdrop) return;
-        backdrop.style.backgroundImage = '';
+        if (backdrop) backdrop.style.backgroundImage = '';
+        if (rainLayer) rainLayer.style.backgroundImage = '';
     }
 
     function toggle(force) {
