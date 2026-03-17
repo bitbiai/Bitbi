@@ -48,12 +48,10 @@ BITBI is intentionally lightweight and direct:
 ├── docs/                # Supporting documentation
 ├── fonts/               # Self-hosted fonts
 ├── js/                  # Frontend JavaScript
-├── assets/audio/        # Audio assets
+├── experiments/         # Interactive experiments (cosmic, king, skyfall)
+├── account/             # Auth flow pages (profile, forgot-password, reset-password, verify-email)
+├── admin/               # Admin dashboard
+├── legal/               # Legal pages (privacy, imprint, datenschutz)
 ├── workers/             # Cloudflare Workers (auth, contact, crypto)
 ├── index.html           # Main landing page
-├── cosmic.html          # Experimental project page
-├── king.html            # Experimental project page
-├── skyfall.html         # Experimental project page
-├── privacy.html         # Privacy policy
-├── imprint.html         # Legal notice
 └── sitemap.xml          # Search engine sitemap

@@ -3,8 +3,8 @@
 ## Changes Made
 
 ### Files Modified
-- `datenschutz.html` (German privacy policy)
-- `privacy.html` (English privacy policy)
+- `legal/datenschutz.html` (German privacy policy)
+- `legal/privacy.html` (English privacy policy)
 
 ### 1. Contact Form — Legal Basis Split (Section 5)
 - **Before:** Only Art. 6(1)(b) GDPR (pre-contractual measures) for all inquiries.
@@ -26,8 +26,8 @@
 ## Technical Verification
 - `workers/crypto/src/index.js`: Confirmed — Worker sends only `Accept: application/json` header to CoinGecko API. No client headers, IP addresses, or personal data are forwarded.
 - `js/pages/index/markets.js`: Confirmed — Browser only calls `https://api.bitbi.ai/crypto`, never CoinGecko directly.
-- `king.html`: No localStorage usage found.
-- `skyfall.html`: Uses `localStorage.setItem('skyfall_best_v3', ...)` for best times — local only, never transmitted.
+- `experiments/king.html`: No localStorage usage found.
+- `experiments/skyfall.html`: Uses `localStorage.setItem('skyfall_best_v3', ...)` for best times — local only, never transmitted.
 - `js/shared/cookie-consent.js`: Banner label for "Necessary" already says only "consent storage" — no UI change needed.
 
 ## No Open Owner Decisions

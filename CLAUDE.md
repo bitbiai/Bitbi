@@ -42,7 +42,7 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `*.html` (root redirect stubs), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
 ## Architecture
 
@@ -55,7 +55,6 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 - `admin/index.html` — Admin dashboard (user management, requires admin role)
 - `account/forgot-password.html`, `account/reset-password.html`, `account/verify-email.html` — Auth flow pages
 - `legal/privacy.html`, `legal/datenschutz.html`, `legal/imprint.html` — Legal/GDPR pages
-- Root redirect stubs (`cosmic.html`, `king.html`, etc.) forward old URLs to new locations
 
 ### JavaScript
 

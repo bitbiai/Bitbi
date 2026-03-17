@@ -1,14 +1,14 @@
 # Privacy Compliance Audit — BITBI
 
 **Audit date:** 7 March 2026
-**Scope:** All pages of bitbi.ai (index, skyfall, king, cosmic, privacy, datenschutz, imprint)
+**Scope:** All pages of bitbi.ai (index, experiments/skyfall, experiments/king, experiments/cosmic, legal/privacy, legal/datenschutz, legal/imprint)
 
 ---
 
 ## Issues Found and Fixes Applied
 
 ### 1. No cookie consent on game pages (HIGH)
-**Files:** `skyfall.html`, `king.html`, `cosmic.html`
+**Files:** `experiments/skyfall.html`, `experiments/king.html`, `experiments/cosmic.html`
 **Fix:** Added `css/cookie-banner.css` stylesheet, Cookie Settings footer link, and `initCookieConsent()` module script to all three pages.
 
 ### 2. No defensive Cloudflare RUM blocking (HIGH)
@@ -32,19 +32,19 @@
 **Fix:** Added `<meta name="referrer" content="strict-origin-when-cross-origin">` to all pages.
 
 ### 7. Privacy policy inaccuracies — Necessary cookies description (MEDIUM)
-**Files:** `privacy.html`, `datenschutz.html`
+**Files:** `legal/privacy.html`, `legal/datenschutz.html`
 **Fix:** Updated Necessary category to accurately describe consent storage and game localStorage usage.
 
 ### 8. Privacy policy missing Live Markets section (MEDIUM)
-**Files:** `privacy.html`, `datenschutz.html`
+**Files:** `legal/privacy.html`, `legal/datenschutz.html`
 **Fix:** Added new Section 10 (Live Markets Data) explaining proxy-based CoinGecko data fetching. Added CoinGecko to international transfers. Renumbered sections 10-15 to 11-16.
 
 ### 9. Privacy policy missing contact form honeypot/notice details (LOW)
-**Files:** `privacy.html`, `datenschutz.html`
+**Files:** `legal/privacy.html`, `legal/datenschutz.html`
 **Fix:** Updated Section 5 (Contact Form) with honeypot and privacy notice description.
 
 ### 10. Privacy policy missing RUM defensive blocking note (LOW)
-**Files:** `privacy.html`, `datenschutz.html`
+**Files:** `legal/privacy.html`, `legal/datenschutz.html`
 **Fix:** Updated Section 7 (Analytics) noting client-side script removal mechanism.
 
 ---
@@ -81,9 +81,9 @@ These items require manual action outside the codebase:
 
 ## Verification Checklist
 
-- [ ] Open skyfall.html — cookie banner appears for EU timezone, Cookie Settings link works
-- [ ] Open king.html — same verification
-- [ ] Open cosmic.html — same verification
+- [ ] Open experiments/skyfall.html — cookie banner appears for EU timezone, Cookie Settings link works
+- [ ] Open experiments/king.html — same verification
+- [ ] Open experiments/cosmic.html — same verification
 - [ ] Open index.html with DevTools Network tab, no consent given:
   - [ ] No requests to youtube-nocookie.com
   - [ ] No requests to cloudflareinsights/beacon
@@ -92,5 +92,5 @@ These items require manual action outside the codebase:
 - [ ] Contact form: honeypot hidden, privacy notice visible, submission works
 - [ ] Fill honeypot via DevTools, submit — worker returns 200 but no email
 - [ ] Both privacy pages: all section numbers sequential (1-16), dates show 7 March 2026
-- [ ] `<meta name="referrer">` present in all 7 HTML files
+- [ ] `<meta name="referrer">` present in all HTML pages
 - [ ] `npm run dev` — visual check that nothing is broken
