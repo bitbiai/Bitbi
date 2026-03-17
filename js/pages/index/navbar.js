@@ -28,11 +28,30 @@ export function initMobileNav() {
     const bar3 = document.getElementById('bar3');
     if (!btn || !panel) return;
 
+    const backdrop = document.getElementById('frozenBackdrop');
     let open = false;
     let removeFocusTrap = null;
 
+    function captureBackdrop() {
+        if (!backdrop) return;
+        const canvas = document.getElementById('heroCanvas');
+        if (!canvas) return;
+        try {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+            backdrop.style.backgroundImage = `url(${dataUrl})`;
+        } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
+    }
+
+    function clearBackdrop() {
+        if (!backdrop) return;
+        backdrop.style.backgroundImage = '';
+    }
+
     function toggle(force) {
         open = force !== undefined ? force : !open;
+
+        if (open) captureBackdrop();
+
         panel.classList.toggle('open', open);
         btn.setAttribute('aria-expanded', String(open));
         if (bar1) bar1.style.transform = open ? 'rotate(45deg) translateY(7px)' : '';
@@ -51,6 +70,7 @@ export function initMobileNav() {
             panel.setAttribute('aria-hidden', 'true');
             if (removeFocusTrap) { removeFocusTrap(); removeFocusTrap = null; }
             btn.focus();
+            clearBackdrop();
         }
     }
 

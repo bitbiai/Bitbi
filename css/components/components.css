@@ -169,17 +169,29 @@
         position: fixed;
         inset: 0;
         z-index: 55;
-        background:
-            radial-gradient(ellipse at 15% 10%, rgba(0, 240, 255, 0.04), transparent 50%),
-            radial-gradient(ellipse at 80% 40%, rgba(255, 179, 0, 0.025), transparent 45%),
-            radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.008), transparent 60%),
-            radial-gradient(ellipse at 30% 85%, rgba(192, 38, 211, 0.018), transparent 40%),
-            linear-gradient(180deg, rgba(12, 14, 20, 0.97), rgba(8, 10, 14, 0.99));
+        background: rgba(10, 10, 10, 0.82);
         transform: translateX(100%);
         transition: transform 0.45s var(--ease-smooth);
         overflow-y: auto;
 
         &.open { transform: translateX(0); }
+    }
+
+    .mobile-nav__backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-size: cover;
+        background-position: center;
+        filter: blur(20px) saturate(1.2);
+        -webkit-filter: blur(20px) saturate(1.2);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .mobile-nav-panel.open .mobile-nav__backdrop {
+        opacity: 1;
     }
 
     @keyframes neonDrop {
