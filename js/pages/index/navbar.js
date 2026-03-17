@@ -49,30 +49,42 @@ export function initMobileNav() {
             /* Layer 1 — hero particles & nebulae */
             ctx.drawImage(heroCanvas, 0, 0, w, h);
 
-            /* Layer 2 — frozen binary rain (cinematic, staggered columns) */
-            const fontSize = 13;
-            ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
-            let cx = 4;
-            while (cx < w - 4) {
-                if (Math.random() < 0.12) { cx += 18 + Math.random() * 14; continue; }
-                const a = 0.03 + Math.random() * 0.09;
-                ctx.fillStyle = `rgba(0,240,255,${a})`;
-                let y = Math.random() * fontSize * 5;
-                while (y < h + fontSize) {
-                    ctx.fillText(Math.random() > 0.5 ? '1' : '0', cx, y);
-                    y += fontSize * (1.1 + Math.random() * 0.15);
-                }
-                cx += 18 + Math.random() * 12;
+            /* Layer 2 — ambient glows baked into canvas (survive JPEG) */
+            const addGlow = (gx, gy, gr, color) => {
+                const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+                g.addColorStop(0, color);
+                g.addColorStop(1, 'transparent');
+                ctx.fillStyle = g;
+                ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
+            };
+            addGlow(w * 0.15, h * 0.15, w * 0.55, 'rgba(0,240,255,0.07)');
+            addGlow(w * 0.85, h * 0.75, w * 0.45, 'rgba(255,179,0,0.06)');
+            addGlow(w * 0.50, h * 0.50, w * 0.70, 'rgba(200,50,200,0.035)');
+            addGlow(w * 0.50, h * 0.30, w * 0.50, 'rgba(255,255,255,0.04)');
+
+            /* Layer 3 — binary rain as vertical streak lines */
+            let cx = 6;
+            while (cx < w - 6) {
+                if (Math.random() < 0.10) { cx += 14 + Math.random() * 20; continue; }
+                const streakH = h * (0.25 + Math.random() * 0.55);
+                const startY = Math.random() * (h - streakH * 0.3);
+                const a = 0.06 + Math.random() * 0.14;
+                const lineW = 1.5 + Math.random() * 1;
+                const grad = ctx.createLinearGradient(cx, startY, cx, startY + streakH);
+                grad.addColorStop(0, 'transparent');
+                grad.addColorStop(0.15, `rgba(0,240,255,${a})`);
+                grad.addColorStop(0.5, `rgba(0,240,255,${a * 1.2})`);
+                grad.addColorStop(0.85, `rgba(0,240,255,${a * 0.7})`);
+                grad.addColorStop(1, 'transparent');
+                ctx.fillStyle = grad;
+                ctx.fillRect(cx - lineW / 2, startY, lineW, streakH);
+                cx += 12 + Math.random() * 16;
             }
 
             const dataUrl = comp.toDataURL('image/jpeg', 0.85);
             backdrop.style.backgroundImage = [
-                'linear-gradient(rgba(10,10,10,0.28), rgba(10,10,10,0.28))',
-                'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.012), transparent 55%)',
-                'radial-gradient(ellipse at 15% 15%, rgba(0,240,255,0.09), transparent 50%)',
-                'radial-gradient(ellipse at 85% 75%, rgba(255,179,0,0.08), transparent 45%)',
-                'radial-gradient(ellipse at 50% 55%, rgba(200,50,200,0.05), transparent 40%)',
-                'linear-gradient(180deg, rgba(10,10,10,0.65) 0%, rgba(13,27,42,0.25) 35%, rgba(13,27,42,0.15) 55%, rgba(10,10,10,0.55) 100%)',
+                'linear-gradient(rgba(10,10,10,0.22), rgba(10,10,10,0.22))',
+                'linear-gradient(180deg, rgba(10,10,10,0.55) 0%, rgba(8,14,22,0.12) 30%, rgba(8,14,22,0.08) 60%, rgba(10,10,10,0.45) 100%)',
                 `url(${dataUrl})`
             ].join(', ');
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
