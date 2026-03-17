@@ -51,6 +51,7 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 - `cosmic.html` — A-Frame WebXR/VR art gallery
 - `king.html` — Medieval-themed 3D puzzle game (Canvas + Three.js)
 - `skyfall.html` — Arcade falling objects game (Canvas)
+- `profile.html` — User profile page (avatar upload, account settings, requires auth)
 - `admin.html` — Admin dashboard (user management, requires admin role)
 - `forgot-password.html`, `reset-password.html`, `verify-email.html` — Auth flow pages
 - `privacy.html`, `datenschutz.html`, `imprint.html` — Legal/GDPR pages
@@ -75,13 +76,14 @@ Vanilla ES6 modules — no frameworks or bundlers.
 ### CSS
 
 - **Tailwind CSS** loaded from CDN (only remaining CDN dependency besides Cloudflare RUM)
-- `@layer` cascade order: `tokens → reset → base → components → pages → utilities`
+- `@layer` cascade order: `tokens → reset → base → components → pages → utilities` — each layer maps to a file: `tokens.css`, `reset.css`, `base.css`, `components.css`, `index.css`/page CSS, `utilities.css`
 - `css/tokens.css` — design tokens using `@property` and oklch colors with hex fallbacks
 - `css/base.css` — @font-face declarations, gradient text utilities, glass effects, reveal animations, keyframes
 - `css/index.css` — index page styles
 - `css/cookie-banner.css` — standalone cookie banner styles for game pages (hardcoded values, no CSS variable dependencies — this is intentional so game pages don't need tokens.css)
 - `css/auth.css` — auth modal, locked-area overlays, auth flow page styles
-- `css/pages/` — page-specific styles (admin, forgot-password, reset-password)
+- `css/legal.css` — shared styles for privacy, imprint, datenschutz pages
+- `css/pages/` — page-specific styles (admin, profile, forgot-password, reset-password)
 - Color palette: `--color-midnight`, `--color-navy`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
 - All fonts self-hosted as woff2 in `fonts/`
