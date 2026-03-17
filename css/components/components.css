@@ -192,41 +192,6 @@
         100% { top: 110%; opacity: 0; }
     }
 
-    .mobile-nav-panel::before,
-    .mobile-nav-panel::after {
-        content: '';
-        position: absolute;
-        inline-size: 1px;
-        pointer-events: none;
-        z-index: 0;
-        opacity: 0;
-        animation-name: neonDrop;
-        animation-timing-function: linear;
-        animation-iteration-count: infinite;
-        animation-play-state: paused;
-    }
-
-    .mobile-nav-panel::before {
-        left: 15%;
-        block-size: 18%;
-        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.1), transparent);
-        animation-duration: 10s;
-    }
-
-    .mobile-nav-panel::after {
-        left: 78%;
-        block-size: 14%;
-        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.06), transparent);
-        animation-duration: 14s;
-        animation-delay: 5s;
-        animation-fill-mode: none;
-    }
-
-    .mobile-nav-panel.open::before,
-    .mobile-nav-panel.open::after {
-        animation-play-state: running;
-    }
-
     .mobile-nav__close {
         position: absolute;
         inset-block-start: var(--space-5);
@@ -271,20 +236,18 @@
     }
 
     .mobile-nav__inner::before {
-        left: 42%;
-        block-size: 22%;
-        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.08), transparent);
-        animation-duration: 12s;
-        animation-delay: 3s;
-        animation-fill-mode: none;
+        left: 15%;
+        block-size: 18%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.1), transparent);
+        animation-duration: 10s;
     }
 
     .mobile-nav__inner::after {
-        left: 65%;
-        block-size: 16%;
-        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.05), transparent);
-        animation-duration: 16s;
-        animation-delay: 8s;
+        left: 78%;
+        block-size: 14%;
+        background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.06), transparent);
+        animation-duration: 14s;
+        animation-delay: 5s;
         animation-fill-mode: none;
     }
 
@@ -1471,8 +1434,6 @@
         .pulse-glow,
         .hero__title-img { animation: none; }
 
-        .mobile-nav-panel::before,
-        .mobile-nav-panel::after,
         .mobile-nav__inner::before,
         .mobile-nav__inner::after {
             animation: none;
