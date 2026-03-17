@@ -40,7 +40,8 @@ const $avatarGrid     = document.getElementById('avatarGrid');
 /* Lightbox refs */
 const $lightbox      = document.getElementById('avatarLightbox');
 const $lightboxImg   = document.getElementById('lightboxImg');
-const $lightboxLabel = document.getElementById('lightboxLabel');
+const $lightboxName  = document.getElementById('lightboxName');
+const $lightboxEmail = document.getElementById('lightboxEmail');
 
 /* ── Toast ── */
 function showToast(message, type = 'success') {
@@ -416,7 +417,8 @@ function initAvatarDropdown() {
 function openLightbox(avatar) {
     $lightboxImg.src = `/api/admin/avatars/${avatar.userId}`;
     $lightboxImg.alt = `Avatar of ${avatar.displayName || avatar.email}`;
-    $lightboxLabel.textContent = avatar.displayName || avatar.email;
+    $lightboxName.textContent = avatar.displayName || avatar.email;
+    $lightboxEmail.textContent = avatar.displayName ? avatar.email : '';
     $lightbox.classList.add('admin-lightbox--visible');
     $lightbox.setAttribute('aria-hidden', 'false');
 }
