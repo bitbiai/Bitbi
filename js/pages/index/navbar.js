@@ -49,29 +49,30 @@ export function initMobileNav() {
             /* Layer 1 — hero particles & nebulae */
             ctx.drawImage(heroCanvas, 0, 0, w, h);
 
-            /* Layer 2 — frozen binary rain (larger, denser than page version) */
+            /* Layer 2 — frozen binary rain (cinematic, staggered columns) */
             const fontSize = 13;
             ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
-            const colWidth = 24;
-            const colCount = Math.floor(w / colWidth);
-            for (let i = 0; i < colCount; i++) {
-                const x = (i + 0.3) * colWidth;
-                const a = 0.04 + Math.random() * 0.06;
+            let cx = 4;
+            while (cx < w - 4) {
+                if (Math.random() < 0.12) { cx += 18 + Math.random() * 14; continue; }
+                const a = 0.03 + Math.random() * 0.09;
                 ctx.fillStyle = `rgba(0,240,255,${a})`;
-                let y = fontSize + Math.random() * fontSize * 3;
+                let y = Math.random() * fontSize * 5;
                 while (y < h + fontSize) {
-                    ctx.fillText(Math.random() > 0.5 ? '1' : '0', x, y);
-                    y += fontSize * 1.15;
+                    ctx.fillText(Math.random() > 0.5 ? '1' : '0', cx, y);
+                    y += fontSize * (1.1 + Math.random() * 0.15);
                 }
+                cx += 18 + Math.random() * 12;
             }
 
             const dataUrl = comp.toDataURL('image/jpeg', 0.85);
             backdrop.style.backgroundImage = [
-                'linear-gradient(rgba(10,10,10,0.30), rgba(10,10,10,0.30))',
-                'radial-gradient(ellipse at 15% 20%, rgba(0,240,255,0.08), transparent 50%)',
-                'radial-gradient(ellipse at 85% 80%, rgba(255,179,0,0.09), transparent 45%)',
-                'radial-gradient(ellipse at 50% 50%, rgba(200,50,200,0.05), transparent 40%)',
-                'linear-gradient(180deg, rgba(10,10,10,0.7) 0%, rgba(13,27,42,0.35) 40%, rgba(13,27,42,0.2) 60%, rgba(10,10,10,0.7) 100%)',
+                'linear-gradient(rgba(10,10,10,0.28), rgba(10,10,10,0.28))',
+                'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.012), transparent 55%)',
+                'radial-gradient(ellipse at 15% 15%, rgba(0,240,255,0.09), transparent 50%)',
+                'radial-gradient(ellipse at 85% 75%, rgba(255,179,0,0.08), transparent 45%)',
+                'radial-gradient(ellipse at 50% 55%, rgba(200,50,200,0.05), transparent 40%)',
+                'linear-gradient(180deg, rgba(10,10,10,0.65) 0%, rgba(13,27,42,0.25) 35%, rgba(13,27,42,0.15) 55%, rgba(10,10,10,0.55) 100%)',
                 `url(${dataUrl})`
             ].join(', ');
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
