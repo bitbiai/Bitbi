@@ -27,6 +27,7 @@ export function initMobileNav() {
     const bar2 = document.getElementById('bar2');
     const bar3 = document.getElementById('bar3');
     if (!btn || !panel) return;
+    console.log('[MENU] init, btn:', !!btn, 'panel:', !!panel);
 
     const backdrop = document.getElementById('frozenBackdrop');
     const rainLayer = document.getElementById('frozenRainLayer');
@@ -68,6 +69,7 @@ export function initMobileNav() {
             addGlow(w * 0.50, h * 0.30, w * 0.40, 'rgba(255,255,255,0.025)');
 
             comp.toBlob((blob) => {
+                console.log('[MENU] backdrop blob', blob ? 'ok (' + blob.size + 'B)' : 'failed');
                 if (gen !== captureGen || !blob) return;
                 if (heroObjectUrl) URL.revokeObjectURL(heroObjectUrl);
                 heroObjectUrl = URL.createObjectURL(blob);
@@ -143,10 +145,12 @@ export function initMobileNav() {
 
     function toggle(force) {
         open = force !== undefined ? force : !open;
+        console.log('[MENU] toggle open=' + open);
 
         if (open) captureBackdrop();
 
         panel.classList.toggle('open', open);
+        console.log('[MENU] class applied, panel has open:', panel.classList.contains('open'), 'computedTransform:', getComputedStyle(panel).transform);
         btn.setAttribute('aria-expanded', String(open));
         if (bar1) bar1.style.transform = open ? `rotate(45deg) translateY(${BAR_OFFSET_Y})` : '';
         if (bar2) bar2.style.opacity = open ? '0' : '1';
@@ -173,13 +177,14 @@ export function initMobileNav() {
         }
     }
 
-    btn.addEventListener('click', () => toggle());
+    btn.addEventListener('click', () => { console.log('[MENU] click'); toggle(); });
 
     const closeBtn = document.getElementById('mobileNavClose');
     if (closeBtn) closeBtn.addEventListener('click', () => toggle(false));
 
     // Event delegation for all clickable items in the panel
     panel.addEventListener('click', (e) => {
+        console.log('[MENU] panel intercepted tap, target:', e.target.tagName, e.target.className, 'menu open:', open);
         const link = e.target.closest('.mobile-nav__link, .mobile-nav__link--primary');
         if (link) {
             toggle(false);

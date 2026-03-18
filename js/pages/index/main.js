@@ -43,7 +43,7 @@ try { initBinaryRain('binaryRain', {
 
 /* Navbar */
 try { initNavbar(); } catch (e) { console.warn('navbar:', e); }
-try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
+try { initMobileNav(); } catch (e) { console.warn('mobileNav FAILED:', e); }
 
 /* Scroll reveal */
 let revealObserver = null;
