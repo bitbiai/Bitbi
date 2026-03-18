@@ -32,11 +32,15 @@ export function initMobileNav() {
     const rainLayer = document.getElementById('frozenRainLayer');
     let open = false;
     let removeFocusTrap = null;
+    let heroObjectUrl = null;
+    let rainObjectUrl = null;
+    let captureGen = 0;
 
     function captureBackdrop() {
         if (!backdrop) return;
         const heroCanvas = document.getElementById('heroCanvas');
         if (!heroCanvas) return;
+        const gen = ++captureGen;
         try {
             const w = heroCanvas.width || window.innerWidth;
             const h = heroCanvas.height || window.innerHeight;
@@ -63,12 +67,16 @@ export function initMobileNav() {
             addGlow(w * 0.50, h * 0.50, w * 0.55, 'rgba(200,50,200,0.02)');
             addGlow(w * 0.50, h * 0.30, w * 0.40, 'rgba(255,255,255,0.025)');
 
-            const heroUrl = comp.toDataURL('image/jpeg', 0.85);
-            backdrop.style.backgroundImage = [
-                'linear-gradient(rgba(10,10,10,0.25), rgba(10,10,10,0.25))',
-                'linear-gradient(180deg, rgba(10,10,10,0.55) 0%, rgba(8,14,22,0.10) 30%, rgba(8,14,22,0.06) 60%, rgba(10,10,10,0.45) 100%)',
-                `url(${heroUrl})`
-            ].join(', ');
+            comp.toBlob((blob) => {
+                if (gen !== captureGen || !blob) return;
+                if (heroObjectUrl) URL.revokeObjectURL(heroObjectUrl);
+                heroObjectUrl = URL.createObjectURL(blob);
+                backdrop.style.backgroundImage = [
+                    'linear-gradient(rgba(10,10,10,0.25), rgba(10,10,10,0.25))',
+                    'linear-gradient(180deg, rgba(10,10,10,0.55) 0%, rgba(8,14,22,0.10) 30%, rgba(8,14,22,0.06) 60%, rgba(10,10,10,0.45) 100%)',
+                    `url(${heroObjectUrl})`
+                ].join(', ');
+            }, 'image/jpeg', 0.85);
 
             /* ── Canvas 2: binary rain streaks only (separate, barely blurred) ── */
             if (!rainLayer) return;
@@ -110,18 +118,25 @@ export function initMobileNav() {
                 cx += 10 + Math.random() * 14;
             }
 
-            const rainUrl = rain.toDataURL('image/png');
-            rainLayer.style.backgroundImage = [
-                'linear-gradient(180deg, rgba(10,10,10,0.3) 0%, transparent 15%, transparent 85%, rgba(10,10,10,0.3) 100%)',
-                `url(${rainUrl})`
-            ].join(', ');
+            rain.toBlob((blob) => {
+                if (gen !== captureGen || !blob) return;
+                if (rainObjectUrl) URL.revokeObjectURL(rainObjectUrl);
+                rainObjectUrl = URL.createObjectURL(blob);
+                rainLayer.style.backgroundImage = [
+                    'linear-gradient(180deg, rgba(10,10,10,0.3) 0%, transparent 15%, transparent 85%, rgba(10,10,10,0.3) 100%)',
+                    `url(${rainObjectUrl})`
+                ].join(', ');
+            }, 'image/png');
 
         } catch (_) { /* canvas tainted or unavailable — backdrop stays empty */ }
     }
 
     function clearBackdrop() {
+        captureGen++;
         if (backdrop) backdrop.style.backgroundImage = '';
         if (rainLayer) rainLayer.style.backgroundImage = '';
+        if (heroObjectUrl) { URL.revokeObjectURL(heroObjectUrl); heroObjectUrl = null; }
+        if (rainObjectUrl) { URL.revokeObjectURL(rainObjectUrl); rainObjectUrl = null; }
     }
 
     const BAR_OFFSET_Y = '7px';
@@ -142,7 +157,7 @@ export function initMobileNav() {
         if (open) {
             document.body.style.overflow = 'hidden';
         } else {
-            const authModal = document.querySelector('.auth-modal.active, .modal-overlay.active');
+            const authModal = document.querySelector('.auth-modal__overlay.active, .modal-overlay.active');
             if (!authModal) document.body.style.overflow = '';
         }
         document.documentElement.classList.toggle('menu-open', open);

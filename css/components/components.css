@@ -173,6 +173,7 @@
         transform: translateX(100%);
         transition: transform 0.45s var(--ease-smooth);
         overflow-y: auto;
+        overscroll-behavior-y: contain;
 
         &.open { transform: translateX(0); }
     }
