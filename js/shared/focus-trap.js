@@ -6,17 +6,19 @@
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function setupFocusTrap(container) {
-    const focusable = container.querySelectorAll(FOCUSABLE);
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    first?.focus();
+    const focusable = () => [...container.querySelectorAll(FOCUSABLE)];
+    focusable()[0]?.focus();
 
     function handler(e) {
         if (e.key !== 'Tab') return;
+        const els = focusable();
+        if (!els.length) return;
+        const first = els[0];
+        const last = els[els.length - 1];
         if (e.shiftKey) {
-            if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+            if (document.activeElement === first) { e.preventDefault(); last.focus(); }
         } else {
-            if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+            if (document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
     }
 

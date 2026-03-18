@@ -60,7 +60,11 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system. The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+
+**Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`.
+
+**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `navbar.js`, `gallery.js`, `soundlab.js`, `markets.js`, `experiments.js`, `contact.js`, `smooth-scroll.js`, `auth-nav.js` (navbar auth UI), `locked-sections.js`.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
@@ -106,3 +110,4 @@ All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION
 - Protected content (gallery images, music) served from R2 bucket, requires authentication
 - Accessibility: all modals use `focus-trap.js`, keyboard navigation (Escape closes, arrow keys cycle), `prefers-reduced-motion` respected in particles and scroll animations, ARIA attributes on interactive elements
 - Admin date formatting uses German locale (`Intl.DateTimeFormat('de-DE')`)
+- `docs/` contains internal compliance/audit notes — not deployed, not user-facing

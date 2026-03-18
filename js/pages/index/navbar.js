@@ -124,6 +124,8 @@ export function initMobileNav() {
         if (rainLayer) rainLayer.style.backgroundImage = '';
     }
 
+    const BAR_OFFSET_Y = '7px';
+
     function toggle(force) {
         open = force !== undefined ? force : !open;
 
@@ -131,13 +133,18 @@ export function initMobileNav() {
 
         panel.classList.toggle('open', open);
         btn.setAttribute('aria-expanded', String(open));
-        if (bar1) bar1.style.transform = open ? 'rotate(45deg) translateY(7px)' : '';
+        if (bar1) bar1.style.transform = open ? `rotate(45deg) translateY(${BAR_OFFSET_Y})` : '';
         if (bar2) bar2.style.opacity = open ? '0' : '1';
         if (bar3) {
-            bar3.style.transform = open ? 'rotate(-45deg) translateY(-7px)' : '';
+            bar3.style.transform = open ? `rotate(-45deg) translateY(-${BAR_OFFSET_Y})` : '';
             bar3.style.width = open ? '24px' : '16px';
         }
-        document.body.style.overflow = open ? 'hidden' : '';
+        if (open) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            const authModal = document.querySelector('.auth-modal.active, .modal-overlay.active');
+            if (!authModal) document.body.style.overflow = '';
+        }
         document.documentElement.classList.toggle('menu-open', open);
 
         if (open) {
@@ -181,6 +188,12 @@ export function initMobileNav() {
     // Escape key closes
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && open) toggle(false);
+    });
+
+    // Close menu when crossing into desktop width
+    const desktopMQ = window.matchMedia('(min-width: 1024px)');
+    desktopMQ.addEventListener('change', (e) => {
+        if (e.matches && open) toggle(false);
     });
 
 }

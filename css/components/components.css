@@ -155,7 +155,7 @@
         block-size: 2px;
         background: rgba(255, 255, 255, 0.8);
         border-radius: 1px;
-        transition: all 0.3s var(--ease-default);
+        transition: transform 0.3s var(--ease-default), opacity 0.3s var(--ease-default), width 0.3s var(--ease-default);
         transform-origin: center;
     }
 
