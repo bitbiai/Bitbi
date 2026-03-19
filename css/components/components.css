@@ -164,6 +164,35 @@
         background: var(--color-cyan);
     }
 
+    /* ── Nav Link Underline ── */
+    .nav-link {
+        position: relative;
+
+        &::after {
+            content: '';
+            position: absolute;
+            inset-block-end: -4px;
+            inset-inline-start: 0;
+            inline-size: 0;
+            block-size: 2px;
+            background: linear-gradient(90deg, var(--color-cyan), var(--color-gold));
+            border-radius: 1px;
+            transition: inline-size 0.35s var(--ease-smooth);
+        }
+
+        &:hover::after {
+            inline-size: 100%;
+        }
+    }
+
+    /* ── Pulse Glow Animation ── */
+    @keyframes pulseGlow {
+        0%, 100% { box-shadow: 0 0 12px rgba(0,240,255,0.25), 0 0 24px rgba(0,240,255,0.08), 0 0 32px rgba(255,170,0,0.04); }
+        50% { box-shadow: 0 0 20px rgba(0,240,255,0.45), 0 0 40px rgba(0,240,255,0.15), 0 0 50px rgba(255,170,0,0.06); }
+    }
+
+    .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+
     /* ── Mobile Nav Panel ── */
     .mobile-nav-panel {
         position: fixed;

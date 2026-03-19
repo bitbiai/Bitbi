@@ -17,40 +17,13 @@
         }
     }
 
-    /* --- Nav Link Underline --- */
-    .nav-link {
-        position: relative;
-
-        &::after {
-            content: '';
-            position: absolute;
-            inset-block-end: -4px;
-            inset-inline-start: 0;
-            inline-size: 0;
-            block-size: 2px;
-            background: linear-gradient(90deg, var(--color-cyan), var(--color-gold));
-            border-radius: 1px;
-            transition: inline-size 0.35s var(--ease-smooth);
-        }
-
-        &:hover::after {
-            inline-size: 100%;
-        }
-    }
-
     /* --- Animations --- */
-    @keyframes pulseGlow {
-        0%, 100% { box-shadow: 0 0 12px rgba(0,240,255,0.25), 0 0 24px rgba(0,240,255,0.08), 0 0 32px rgba(255,170,0,0.04); }
-        50% { box-shadow: 0 0 20px rgba(0,240,255,0.45), 0 0 40px rgba(0,240,255,0.15), 0 0 50px rgba(255,170,0,0.06); }
-    }
-
     @keyframes eqBar1 { 0%, 100% { height: 6px; } 50% { height: 24px; } }
     @keyframes eqBar2 { 0%, 100% { height: 12px; } 50% { height: 32px; } }
     @keyframes eqBar3 { 0%, 100% { height: 4px; } 50% { height: 18px; } }
 
     /* --- Utility Classes --- */
     .float-anim { animation: float 6s ease-in-out infinite; }
-    .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
 
     .eq-bar {
         width: 3px;
@@ -91,8 +64,7 @@
             }
         }
 
-        .float-anim,
-        .pulse-glow {
+        .float-anim {
             animation: none;
         }
 

@@ -3,6 +3,7 @@
    Entry point for reset-password.html
    ============================================================ */
 
+import { initSiteHeader }       from '../../shared/site-header.js';
 import { initParticles }        from '../../shared/particles.js';
 import { initBinaryRain }       from '../../shared/binary-rain.js';
 import { initBinaryFooter }     from '../../shared/binary-footer.js';
@@ -46,6 +47,7 @@ function showState(el) {
 /* ── Validate token on load ── */
 async function init() {
     // Init shared modules
+    try { initSiteHeader(); }               catch (e) { console.warn(e); }
     try { initParticles('heroCanvas'); }     catch (e) { console.warn(e); }
     try { initBinaryRain('binaryRain'); }    catch (e) { console.warn(e); }
     try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn(e); }

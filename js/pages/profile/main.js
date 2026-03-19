@@ -3,6 +3,7 @@
    Entry point for profile.html
    ============================================================ */
 
+import { initSiteHeader }    from '../../shared/site-header.js';
 import { initParticles }     from '../../shared/particles.js';
 import { initBinaryRain }    from '../../shared/binary-rain.js';
 import { initBinaryFooter }  from '../../shared/binary-footer.js';
@@ -129,6 +130,9 @@ function renderProfile(profile, account) {
 
 /* ── Init ── */
 async function init() {
+    // Shared header (nav, mobile menu, auth)
+    try { initSiteHeader(); } catch (e) { console.warn(e); }
+
     // Visual modules (non-blocking)
     try { initParticles('heroCanvas'); }      catch (e) { console.warn(e); }
     try { initBinaryRain('binaryRain'); }     catch (e) { console.warn(e); }

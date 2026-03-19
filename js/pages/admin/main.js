@@ -3,6 +3,7 @@
    Entry point for admin.html
    ============================================================ */
 
+import { initSiteHeader }    from '../../shared/site-header.js';
 import { initParticles }     from '../../shared/particles.js';
 import { initBinaryRain }    from '../../shared/binary-rain.js';
 import { initBinaryFooter }  from '../../shared/binary-footer.js';
@@ -443,6 +444,7 @@ function initLightbox() {
 /* ── Init ── */
 async function init() {
     // Shared modules
+    try { initSiteHeader(); }               catch (e) { console.warn(e); }
     try { initParticles('heroCanvas'); }     catch (e) { console.warn(e); }
     try { initBinaryRain('binaryRain'); }    catch (e) { console.warn(e); }
     try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn(e); }
