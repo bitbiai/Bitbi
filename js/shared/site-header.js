@@ -87,7 +87,12 @@ export function initSiteHeader() {
     /* 3. Init mobile nav behavior */
     try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
 
-    /* 4. Non-blocking auth init */
+    /* 4. Auth modal container (initAuthModal needs <div id="authModal"> in the DOM) */
+    if (!document.getElementById('authModal')) {
+        document.body.insertAdjacentHTML('beforeend', '<div id="authModal"></div>');
+    }
+
+    /* 5. Non-blocking auth init */
     initAuth()
         .then(() => {
             try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
