@@ -210,7 +210,7 @@
         color: rgba(255, 255, 255, 0.2);
     }
 
-    .profile__input:focus {
+    .profile__input:focus-visible {
         border-color: rgba(0, 240, 255, 0.3);
     }
 
@@ -233,7 +233,7 @@
         color: rgba(255, 255, 255, 0.2);
     }
 
-    .profile__textarea:focus {
+    .profile__textarea:focus-visible {
         border-color: rgba(0, 240, 255, 0.3);
     }
 

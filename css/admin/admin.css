@@ -30,7 +30,7 @@
         color: rgba(255, 255, 255, 0.25);
     }
 
-    .admin-search__input:focus {
+    .admin-search__input:focus-visible {
         border-color: rgba(0, 240, 255, 0.3);
     }
 

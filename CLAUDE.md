@@ -38,7 +38,7 @@ cd workers/crypto && npx wrangler dev                                        # l
 cd workers/crypto && npx wrangler deploy                                     # deploy to Cloudflare
 ```
 
-Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API_KEY` before first CLI deploy).
+Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API_KEY` before first CLI deploy). Contact form uses a `website` honeypot field — if filled, the submission silently returns 200 but sends no email.
 
 ### Deployment
 
@@ -62,9 +62,9 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system. The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
-**Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`.
+**Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal).
 
-**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `navbar.js`, `gallery.js`, `soundlab.js`, `markets.js`, `experiments.js`, `contact.js`, `smooth-scroll.js`, `auth-nav.js` (navbar auth UI), `locked-sections.js`.
+**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `soundlab.js`, `markets.js`, `experiments.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`. Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes

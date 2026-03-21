@@ -33,6 +33,32 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: Validate JS import paths
+        run: |
+          errors=0
+          grep -rn "from ['\"]\.\.*/.*['\"]" --include="*.js" --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=.wrangler . | while IFS= read -r line; do
+            file=$(echo "$line" | cut -d: -f1)
+            # Extract the path between quotes after "from"
+            import_path=$(echo "$line" | sed "s/.*from ['\"]//;s/['\"].*//" )
+            # Strip query params (?v=...)
+            clean_path=$(echo "$import_path" | sed 's/?.*//')
+            # Resolve relative to the importing file's directory
+            dir=$(dirname "$file")
+            resolved=$(cd "$dir" && realpath -m "$clean_path" 2>/dev/null || echo "$dir/$clean_path")
+            if [ ! -f "$resolved" ]; then
+              echo "ERROR: Broken import in $file"
+              echo "  import '$import_path' -> $resolved (not found)"
+              echo "FAIL" >> /tmp/import_errors
+            fi
+          done
+          if [ -f /tmp/import_errors ]; then
+            count=$(wc -l < /tmp/import_errors)
+            rm /tmp/import_errors
+            echo ""
+            echo "FAILED: $count broken import path(s) found"
+            exit 1
+          fi
+          echo "All JS import paths validated successfully"
       - name: Prepare deployment
         run: |
           mkdir _site

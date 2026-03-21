@@ -966,7 +966,7 @@
         transition: border-color 0.3s var(--ease-default);
 
         &::placeholder { color: rgba(255, 255, 255, 0.25); }
-        &:focus {
+        &:focus-visible {
             border-color: rgba(0, 240, 255, 0.3);
             box-shadow: 0 0 16px rgba(0,240,255,0.06), 0 0 32px rgba(255,170,0,0.03);
         }
