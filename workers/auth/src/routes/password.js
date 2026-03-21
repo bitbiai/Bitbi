@@ -24,6 +24,9 @@ export async function handleForgotPassword(ctx) {
   const email = normalizeEmail(body.email);
   if (!email || !isValidEmail(email)) return genericOk;
 
+  // Per-email rate limit (returns generic to avoid revealing email existence)
+  if (isRateLimited(`forgot-email:${email}`, 3, 3600_000)) return genericOk;
+
   const user = await env.DB.prepare(
     "SELECT id, email, status FROM users WHERE email = ? LIMIT 1"
   )
@@ -149,7 +152,7 @@ export async function handleResetPassword(ctx) {
   }
 
   // Hash new password and update user
-  const newHash = await hashPassword(password);
+  const newHash = await hashPassword(password, env);
 
   await env.DB.batch([
     env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(
@@ -159,6 +162,10 @@ export async function handleResetPassword(ctx) {
     env.DB.prepare(
       "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?"
     ).bind(now, tokenRow.id),
+    // Invalidate all other unused reset tokens for this user
+    env.DB.prepare(
+      "UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND id != ? AND used_at IS NULL"
+    ).bind(now, tokenRow.user_id, tokenRow.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(
       tokenRow.user_id
     ),

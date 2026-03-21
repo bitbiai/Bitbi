@@ -10,7 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
-import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar } from '../../shared/auth-api.js';
+import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification } from '../../shared/auth-api.js';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -114,10 +114,33 @@ function renderProfile(profile, account) {
     $summaryRole.appendChild(roleBadge);
 
     $summaryVerified.textContent = '';
+    const isLegacy = account.verification_method === 'legacy_auto';
+    const isVerified = account.email_verified && !isLegacy;
+
     const verifiedBadge = document.createElement('span');
-    verifiedBadge.className = `profile__badge profile__badge--${account.email_verified ? 'verified' : 'unverified'}`;
-    verifiedBadge.textContent = account.email_verified ? 'Yes' : 'No';
+    verifiedBadge.className = `profile__badge profile__badge--${isVerified ? 'verified' : isLegacy ? 'legacy' : 'unverified'}`;
+    verifiedBadge.textContent = isVerified ? 'Yes' : isLegacy ? 'Pending' : 'No';
     $summaryVerified.appendChild(verifiedBadge);
+
+    if (isLegacy) {
+        const verifyLink = document.createElement('button');
+        verifyLink.type = 'button';
+        verifyLink.className = 'profile__verify-link';
+        verifyLink.textContent = 'Verify now';
+        verifyLink.addEventListener('click', async () => {
+            verifyLink.disabled = true;
+            verifyLink.textContent = 'Sending\u2026';
+            const res = await apiRequestReverification();
+            if (res.ok) {
+                verifyLink.textContent = 'Email sent!';
+            } else {
+                verifyLink.textContent = 'Verify now';
+                verifyLink.disabled = false;
+            }
+        });
+        $summaryVerified.appendChild(document.createTextNode(' '));
+        $summaryVerified.appendChild(verifyLink);
+    }
 
     $summarySince.textContent = formatDate(account.created_at);
 

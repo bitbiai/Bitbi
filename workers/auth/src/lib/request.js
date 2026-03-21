@@ -15,3 +15,12 @@ export async function readJsonBody(request) {
     return null;
   }
 }
+
+export function isValidUrl(str) {
+  try {
+    const u = new URL(str);
+    return u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}

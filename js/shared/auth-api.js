@@ -116,6 +116,10 @@ export function apiResendVerification(email) {
     return request('POST', '/resend-verification', { email });
 }
 
+export function apiRequestReverification() {
+    return request('POST', '/request-reverification');
+}
+
 /* ── Password Reset ── */
 
 export function apiForgotPassword(email) {

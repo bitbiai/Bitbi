@@ -2,6 +2,7 @@ import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
+import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 
 function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
   return env.DB.prepare(
@@ -48,7 +49,7 @@ export async function handleAdmin(ctx) {
     if (search) {
       rows = await env.DB.prepare(
         `
-        SELECT id, email, role, status, created_at, updated_at, email_verified_at
+        SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method
         FROM users
         WHERE email LIKE ?
         ORDER BY created_at DESC
@@ -60,7 +61,7 @@ export async function handleAdmin(ctx) {
     } else {
       rows = await env.DB.prepare(
         `
-        SELECT id, email, role, status, created_at, updated_at, email_verified_at
+        SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method
         FROM users
         ORDER BY created_at DESC
         LIMIT 100
@@ -86,6 +87,9 @@ export async function handleAdmin(ctx) {
     if (result instanceof Response) {
       return result;
     }
+
+    const ip = getClientIp(request);
+    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "role"]
@@ -169,6 +173,9 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
+    const ip = getClientIp(request);
+    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "status"]
     const targetUserId = parts[4];
@@ -250,6 +257,9 @@ export async function handleAdmin(ctx) {
     if (result instanceof Response) {
       return result;
     }
+
+    const ip = getClientIp(request);
+    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "revoke-sessions"]
@@ -401,6 +411,9 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
+    const ip = getClientIp(request);
+    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id"]
     const targetUserId = parts[4];
@@ -438,6 +451,7 @@ export async function handleAdmin(ctx) {
       env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
       env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
       env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
+      env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
       env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
       auditStatement(env, result.user.id, "delete_user", targetUserId, { deletedUserId: targetUserId }, now),
     ]);

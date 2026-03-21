@@ -175,6 +175,33 @@
         border: 1px solid rgba(239, 68, 68, 0.25);
     }
 
+    .profile__badge--legacy {
+        color: var(--color-gold);
+        background: rgba(255, 179, 0, 0.1);
+        border: 1px solid rgba(255, 179, 0, 0.25);
+    }
+
+    .profile__verify-link {
+        background: none;
+        border: none;
+        color: var(--color-cyan);
+        font-size: 12px;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0;
+        font-family: var(--font-mono);
+    }
+
+    .profile__verify-link:hover {
+        color: var(--color-gold);
+    }
+
+    .profile__verify-link:disabled {
+        opacity: 0.6;
+        cursor: default;
+        text-decoration: none;
+    }
+
     /* ── Form ── */
     .profile__form {
         display: flex;

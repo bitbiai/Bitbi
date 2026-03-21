@@ -23,11 +23,13 @@ export async function getSessionUser(request, env) {
       users.email AS email,
       users.created_at AS created_at,
       users.status AS status,
-      users.role AS role
+      users.role AS role,
+      users.verification_method AS verification_method
     FROM sessions
     INNER JOIN users ON users.id = sessions.user_id
     WHERE sessions.token_hash = ?
       AND sessions.expires_at > ?
+      AND users.status = 'active'
     LIMIT 1
     `
   )
@@ -56,6 +58,7 @@ export async function getSessionUser(request, env) {
       createdAt: sessionRow.created_at,
       status: sessionRow.status,
       role: sessionRow.role,
+      verificationMethod: sessionRow.verification_method,
     },
   };
 }

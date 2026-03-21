@@ -56,7 +56,7 @@ src/
 
 **Route matching**: Manual `pathname + method` checks in index.js dispatch to route modules. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters inside `admin.js`.
 
-**Auth flow**: PBKDF2-SHA256 password hashing (100k iterations). Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1.
+**Auth flow**: PBKDF2-SHA256 password hashing (configurable iterations, default 310k, set via `PBKDF2_ITERATIONS` env var). Transparent rehash-on-login upgrades old hashes. Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1. Origin validation blocks cross-origin state-changing requests.
 
 **Password reset**: Token-based flow via Resend API email. Raw token sent in email link, only hash stored in DB. Tokens expire after 60 minutes, single-use.
 
@@ -78,6 +78,7 @@ src/
 - `POST /api/reset-password` — set new password with token
 - `GET /api/verify-email?token=` — verify email address
 - `POST /api/resend-verification` — resend verification email (requires auth)
+- `POST /api/request-reverification` — legacy users request real email verification (requires auth)
 - `GET /api/profile` — user profile data (requires auth)
 - `PATCH /api/profile` — update profile fields (requires auth)
 - `GET /api/profile/avatar` — user's avatar image from R2, or 404 (requires auth)
@@ -111,6 +112,13 @@ Migrations in `migrations/` — numbered sequentially (`0001_init` through `0005
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 5 minutes per session
-- Rate limiting: login (10/15min), register (5/hr), forgot-password (5/hr), resend-verification (3/hr), avatar-upload (10/hr) per IP (in-memory, per-isolate)
+- Rate limiting: login (10/15min per IP + per email), register (5/hr per IP + 3/hr per email), forgot-password (5/hr per IP + 3/hr per email), resend-verification (3/hr), reverification (3/hr), avatar-upload (10/hr), admin-actions (30/15min) — all per-isolate in-memory
+- Password reset invalidates ALL unused reset tokens for the user (not just the used one)
+- Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type
+- Profile URL fields (website, youtube_url) require valid `https://` URLs
+- Login checks password BEFORE status to prevent account enumeration via distinguishable error messages
+- Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
+- `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions and used/expired tokens
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
+- Optional env var: `PBKDF2_ITERATIONS` (int, default 310000) — target PBKDF2 iteration count for new hashes

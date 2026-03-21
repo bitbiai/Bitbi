@@ -3,12 +3,16 @@
    ============================================================ */
 
 import { json } from "../lib/response.js";
-import { readJsonBody } from "../lib/request.js";
+import { readJsonBody, isValidUrl } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import { nowIso } from "../lib/tokens.js";
 
 function stripHtml(str) {
-  return str.replace(/<[^>]*>/g, "");
+  return str
+    .replace(/<[^>]*>?/g, "")       // tags including unclosed
+    .replace(/&[#a-zA-Z0-9]+;/g, "") // HTML entities
+    .replace(/javascript:/gi, "")    // protocol handlers
+    .replace(/on\w+\s*=/gi, "");     // event handlers
 }
 
 const FIELD_LIMITS = {
@@ -17,6 +21,8 @@ const FIELD_LIMITS = {
   website: 300,
   youtube_url: 300,
 };
+
+const URL_FIELDS = ["website", "youtube_url"];
 
 /* ── GET /api/profile ── */
 export async function handleGetProfile(ctx) {
@@ -27,7 +33,7 @@ export async function handleGetProfile(ctx) {
   const userId = session.user.id;
 
   const row = await env.DB.prepare(
-    `SELECT u.email, u.role, u.created_at, u.email_verified_at,
+    `SELECT u.email, u.role, u.created_at, u.email_verified_at, u.verification_method,
             p.display_name, p.bio, p.website, p.youtube_url
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
@@ -49,6 +55,7 @@ export async function handleGetProfile(ctx) {
       role: row.role,
       created_at: row.created_at,
       email_verified: !!row.email_verified_at,
+      verification_method: row.verification_method || null,
     },
   });
 }
@@ -87,6 +94,16 @@ export async function handleUpdateProfile(ctx) {
       { ok: false, error: "No valid fields to update." },
       { status: 400 }
     );
+  }
+
+  // Validate URL fields
+  for (const urlField of URL_FIELDS) {
+    if (fields[urlField] && !isValidUrl(fields[urlField])) {
+      return json(
+        { ok: false, error: `${urlField} must be a valid https:// URL.` },
+        { status: 400 }
+      );
+    }
   }
 
   const userId = session.user.id;

@@ -84,6 +84,18 @@ export async function handleRegister(ctx) {
     );
   }
 
+  // Per-email rate limit (returns generic success to prevent enumeration)
+  if (isRateLimited(`register-email:${email}`, 3, 3600_000)) {
+    return json(
+      {
+        ok: true,
+        message: "Registration successful. Please check your inbox and verify your email address.",
+        needsVerification: true,
+      },
+      { status: 201 }
+    );
+  }
+
   const existingUser = await env.DB.prepare(
     "SELECT id FROM users WHERE email = ? LIMIT 1"
   )
@@ -103,7 +115,7 @@ export async function handleRegister(ctx) {
   }
 
   const userId = crypto.randomUUID();
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(password, env);
   const createdAt = nowIso();
 
   await env.DB.prepare(
@@ -158,6 +170,9 @@ export async function handleLogin(ctx) {
     );
   }
 
+  // Per-email rate limit
+  if (isRateLimited(`login-email:${email}`, 10, 900_000)) return rateLimitResponse();
+
   const user = await env.DB.prepare(
     `
     SELECT id, email, password_hash, created_at, status, role, email_verified_at
@@ -179,6 +194,20 @@ export async function handleLogin(ctx) {
     );
   }
 
+  // Verify password BEFORE checking status to prevent enumeration
+  // (disabled accounts return a distinguishable error — only safe after password proof)
+  const { valid, needsRehash } = await verifyPassword(password, user.password_hash, env);
+
+  if (!valid) {
+    return json(
+      {
+        ok: false,
+        error: "Invalid email or password.",
+      },
+      { status: 401 }
+    );
+  }
+
   if (user.status !== "active") {
     return json(
       {
@@ -186,18 +215,6 @@ export async function handleLogin(ctx) {
         error: "This account is not active.",
       },
       { status: 403 }
-    );
-  }
-
-  const passwordOk = await verifyPassword(password, user.password_hash);
-
-  if (!passwordOk) {
-    return json(
-      {
-        ok: false,
-        error: "Invalid email or password.",
-      },
-      { status: 401 }
     );
   }
 
@@ -210,6 +227,14 @@ export async function handleLogin(ctx) {
       },
       { status: 403 }
     );
+  }
+
+  // Transparent rehash with stronger parameters (only for verified, active users)
+  if (needsRehash) {
+    const newHash = await hashPassword(password, env);
+    await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+      .bind(newHash, user.id)
+      .run();
   }
 
   const sessionToken = randomTokenHex(32);

@@ -3,6 +3,7 @@ import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
+import { requireUser } from "../lib/session.js";
 
 export async function handleVerifyEmail(ctx) {
   const { request, url, env } = ctx;
@@ -41,7 +42,7 @@ export async function handleVerifyEmail(ctx) {
 
   await env.DB.batch([
     env.DB.prepare(
-      "UPDATE users SET email_verified_at = ? WHERE id = ?"
+      "UPDATE users SET email_verified_at = ?, verification_method = 'email_verified' WHERE id = ?"
     ).bind(now, tokenRow.user_id),
     env.DB.prepare(
       "UPDATE email_verification_tokens SET used_at = ? WHERE id = ?"
@@ -87,4 +88,30 @@ export async function handleResendVerification(ctx) {
   await createAndSendVerificationToken(env, user.id, user.email);
 
   return genericOk;
+}
+
+export async function handleRequestReverification(ctx) {
+  const { request, env } = ctx;
+  const ip = getClientIp(request);
+  if (isRateLimited(`reverify:${ip}`, 3, 3600_000)) return rateLimitResponse();
+
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const user = await env.DB.prepare(
+    "SELECT id, email, verification_method FROM users WHERE id = ? LIMIT 1"
+  )
+    .bind(session.user.id)
+    .first();
+
+  if (!user || user.verification_method !== "legacy_auto") {
+    return json({ ok: true, message: "Your email is already verified." });
+  }
+
+  await createAndSendVerificationToken(env, user.id, user.email);
+
+  return json({
+    ok: true,
+    message: "Verification email sent. Please check your inbox.",
+  });
 }

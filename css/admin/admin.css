@@ -125,6 +125,12 @@
         border: 1px solid rgba(239, 68, 68, 0.25);
     }
 
+    .badge--legacy {
+        color: var(--color-gold);
+        background: rgba(255, 179, 0, 0.1);
+        border: 1px solid rgba(255, 179, 0, 0.25);
+    }
+
     /* ── Action Buttons ── */
     .admin-actions {
         display: flex;

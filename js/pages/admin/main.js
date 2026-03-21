@@ -85,7 +85,8 @@ function buildMobileCard(user) {
     const card = document.createElement('div');
     card.className = 'admin-mobile-card';
 
-    const isVerified = !!user.email_verified_at;
+    const isLegacy = user.verification_method === 'legacy_auto';
+    const isVerified = !!user.email_verified_at && !isLegacy;
     const primaryName = user.display_name || user.email;
     const secondaryLine = user.display_name ? user.email : null;
 
@@ -113,7 +114,9 @@ function buildMobileCard(user) {
 
     const badgeRole = createBadge(user.role, user.role === 'admin' ? 'admin' : 'user');
     const badgeStatus = createBadge(user.status, user.status === 'active' ? 'active' : 'disabled');
-    const badgeVerified = createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled');
+    const verifiedLabel = isVerified ? 'Yes' : isLegacy ? 'Legacy' : 'No';
+    const verifiedStyle = isVerified ? 'active' : isLegacy ? 'legacy' : 'disabled';
+    const badgeVerified = createBadge(verifiedLabel, verifiedStyle);
 
     const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     chevron.classList.add('admin-mobile-card__chevron');
@@ -245,8 +248,11 @@ function renderUsers(users) {
 
         // Verified badge
         const tdVerified = document.createElement('td');
-        const isVerified = !!user.email_verified_at;
-        tdVerified.appendChild(createBadge(isVerified ? 'Yes' : 'No', isVerified ? 'active' : 'disabled'));
+        const isLegacyV = user.verification_method === 'legacy_auto';
+        const isVerifiedV = !!user.email_verified_at && !isLegacyV;
+        const vLabel = isVerifiedV ? 'Yes' : isLegacyV ? 'Legacy' : 'No';
+        const vStyle = isVerifiedV ? 'active' : isLegacyV ? 'legacy' : 'disabled';
+        tdVerified.appendChild(createBadge(vLabel, vStyle));
         tr.appendChild(tdVerified);
 
         // Created date

@@ -3,11 +3,20 @@ import { nowIso } from "./lib/tokens.js";
 import { handleHealth } from "./routes/health.js";
 import { handleMe, handleRegister, handleLogin, handleLogout } from "./routes/auth.js";
 import { handleForgotPassword, handleValidateReset, handleResetPassword } from "./routes/password.js";
-import { handleVerifyEmail, handleResendVerification } from "./routes/verification.js";
+import { handleVerifyEmail, handleResendVerification, handleRequestReverification } from "./routes/verification.js";
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
+
+function getAllowedOrigins(env) {
+  const base = env.APP_BASE_URL || "https://bitbi.ai";
+  try {
+    return [new URL(base).origin];
+  } catch {
+    return ["https://bitbi.ai"];
+  }
+}
 
 export default {
   async fetch(request, env) {
@@ -16,6 +25,14 @@ export default {
     const method = request.method;
     const isSecure = url.protocol === "https:";
     const ctx = { request, env, url, pathname, method, isSecure };
+
+    // Origin validation for state-changing requests (CSRF defense-in-depth)
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      const origin = request.headers.get("Origin");
+      if (origin && !getAllowedOrigins(env).includes(origin)) {
+        return json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+    }
 
     if (pathname === "/api/health" && method === "GET") return handleHealth();
     if (pathname === "/api/me" && method === "GET") return handleMe(ctx);
@@ -46,6 +63,7 @@ export default {
     // Email verification
     if (pathname === "/api/verify-email" && method === "GET") return handleVerifyEmail(ctx);
     if (pathname === "/api/resend-verification" && method === "POST") return handleResendVerification(ctx);
+    if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification(ctx);
 
     // Protected media
     if (
