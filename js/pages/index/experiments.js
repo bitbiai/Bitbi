@@ -3,6 +3,8 @@
    ============================================================ */
 
 import { makeTags } from '../../shared/make-tags.js';
+import { getAuthState } from '../../shared/auth-state.js';
+import { openAuthModal } from '../../shared/auth-modal.js';
 
 const TAG_COLORS = {
     WebGL: '0,240,255', AI: '192,38,211', 'Three.js': '255,179,0',
@@ -440,8 +442,9 @@ function initMobileDeck(grid) {
     let isDeck = false;
     let dotsEl = null;
     let swipeLock = false;
+    let category = 'free';
 
-    function getCards() { return Array.from(grid.children); }
+    function getCards() { return Array.from(grid.children).filter(c => c.style.display !== 'none'); }
 
     function layout(skipAnim) {
         const all = getCards();
@@ -476,6 +479,7 @@ function initMobileDeck(grid) {
     function buildDots() {
         if (dotsEl) dotsEl.remove();
         const all = getCards();
+        if (all.length <= 1) { dotsEl = null; return; }
         dotsEl = document.createElement('div');
         dotsEl.className = 'exp-deck-dots';
         dotsEl.setAttribute('role', 'tablist');
@@ -503,11 +507,95 @@ function initMobileDeck(grid) {
         });
     }
 
+    function applyCategory() {
+        Array.from(grid.children).forEach(c => {
+            const isExcl = c.classList.contains('locked-area');
+            c.style.display = (category === 'free') === isExcl ? 'none' : '';
+        });
+    }
+
+    function switchCategory(cat) {
+        category = cat;
+        if (!isDeck) return;
+        applyCategory();
+        active = 0;
+        layout(true);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                getCards().forEach(c => { c.style.transition = ''; });
+            });
+        });
+        syncDots();
+    }
+
+    function createFilterBar() {
+        const bar = document.createElement('div');
+        bar.className = 'exp-filter-bar';
+        bar.setAttribute('role', 'tablist');
+        bar.setAttribute('aria-label', 'Experiment categories');
+
+        const freeBtn = document.createElement('button');
+        freeBtn.className = 'exp-filter-btn active';
+        freeBtn.textContent = 'Free';
+        freeBtn.setAttribute('role', 'tab');
+        freeBtn.setAttribute('aria-selected', 'true');
+
+        const exclBtn = document.createElement('button');
+        exclBtn.className = 'exp-filter-btn exp-filter-btn--auth';
+        exclBtn.textContent = 'Exclusive \uD83D\uDD12';
+        exclBtn.setAttribute('role', 'tab');
+        exclBtn.setAttribute('aria-selected', 'false');
+
+        const { loggedIn } = getAuthState();
+        if (loggedIn) {
+            exclBtn.classList.add('unlocked');
+            exclBtn.textContent = 'Exclusive';
+        }
+
+        freeBtn.addEventListener('click', () => {
+            if (category === 'free') return;
+            freeBtn.classList.add('active');
+            freeBtn.setAttribute('aria-selected', 'true');
+            exclBtn.classList.remove('active');
+            exclBtn.setAttribute('aria-selected', 'false');
+            switchCategory('free');
+        });
+
+        exclBtn.addEventListener('click', () => {
+            const { loggedIn } = getAuthState();
+            if (!loggedIn) { openAuthModal('register'); return; }
+            if (category === 'exclusive') return;
+            exclBtn.classList.add('active');
+            exclBtn.setAttribute('aria-selected', 'true');
+            freeBtn.classList.remove('active');
+            freeBtn.setAttribute('aria-selected', 'false');
+            switchCategory('exclusive');
+        });
+
+        bar.appendChild(freeBtn);
+        bar.appendChild(exclBtn);
+        grid.parentElement.insertBefore(bar, grid);
+
+        document.addEventListener('bitbi:auth-change', () => {
+            const { loggedIn } = getAuthState();
+            exclBtn.classList.toggle('unlocked', loggedIn);
+            exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
+            if (!loggedIn && category === 'exclusive') {
+                freeBtn.classList.add('active');
+                freeBtn.setAttribute('aria-selected', 'true');
+                exclBtn.classList.remove('active');
+                exclBtn.setAttribute('aria-selected', 'false');
+                switchCategory('free');
+            }
+        });
+    }
+
     function engage() {
         if (isDeck) return;
         isDeck = true;
         active = 0;
         grid.classList.add('exp-deck');
+        applyCategory();
         layout(true);
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -521,12 +609,13 @@ function initMobileDeck(grid) {
         if (!isDeck) return;
         isDeck = false;
         grid.classList.remove('exp-deck');
-        getCards().forEach(c => {
+        Array.from(grid.children).forEach(c => {
             c.style.transform = '';
             c.style.opacity = '';
             c.style.zIndex = '';
             c.style.pointerEvents = '';
             c.style.transition = '';
+            c.style.display = '';
         });
         if (dotsEl) { dotsEl.remove(); dotsEl = null; }
     }
@@ -604,6 +693,7 @@ function initMobileDeck(grid) {
     /* Watch for dynamically added cards (locked sections) */
     new MutationObserver(() => {
         if (isDeck) {
+            applyCategory();
             layout(true);
             syncDots();
             requestAnimationFrame(() => {
@@ -613,6 +703,8 @@ function initMobileDeck(grid) {
             });
         }
     }).observe(grid, { childList: true });
+
+    createFilterBar();
 
     /* Responsive */
     mql.addEventListener('change', e => {
