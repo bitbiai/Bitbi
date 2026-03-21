@@ -158,7 +158,7 @@
             transition: transform 0.45s var(--ease-smooth), opacity 0.45s var(--ease-smooth);
         }
 
-        .gal-deck > button { display: none; }
+        .gal-deck > button { display: none !important; }
 
         .gal-deck-dots {
             display: flex;
@@ -240,6 +240,12 @@
             pointer-events: auto;
             user-select: auto;
         }
+    }
+
+    /* --- Mobile Section Spacing (≈50% reduction) --- */
+    @media (max-width: 639px) {
+        .section { padding-block: var(--space-12); }
+        .site-footer { padding-block: var(--space-6); }
     }
 
     /* --- Reduced Motion --- */
