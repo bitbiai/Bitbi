@@ -319,6 +319,7 @@
 
     /* --- Mobile Section Spacing (≈50% reduction) --- */
     @media (max-width: 639px) {
+        .hero { min-block-size: 100svh; }
         .section { padding-block: var(--space-12); }
         .site-footer { padding-block: var(--space-6); }
     }
