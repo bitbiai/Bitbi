@@ -56,7 +56,7 @@ src/
 
 **Route matching**: Manual `pathname + method` checks in index.js dispatch to route modules. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters inside `admin.js`.
 
-**Auth flow**: PBKDF2-SHA256 password hashing (configurable iterations, default 310k, set via `PBKDF2_ITERATIONS` env var). Transparent rehash-on-login upgrades old hashes. Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1. Origin validation blocks cross-origin state-changing requests.
+**Auth flow**: PBKDF2-SHA256 password hashing (100k iterations — Cloudflare Workers runtime cap). Transparent rehash-on-login if stored iterations are below the target. Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1. Origin validation blocks cross-origin state-changing requests.
 
 **Password reset**: Token-based flow via Resend API email. Raw token sent in email link, only hash stored in DB. Tokens expire after 60 minutes, single-use.
 
@@ -121,4 +121,4 @@ Migrations in `migrations/` — numbered sequentially (`0001_init` through `0005
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions and used/expired tokens
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
-- Optional env var: `PBKDF2_ITERATIONS` (int, default 310000) — target PBKDF2 iteration count for new hashes
+- Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

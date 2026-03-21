@@ -1,8 +1,11 @@
-const DEFAULT_TARGET_ITERATIONS = 310_000;
+// Cloudflare Workers caps PBKDF2 at 100,000 iterations (runtime limit).
+const MAX_ITERATIONS = 100_000;
+const DEFAULT_TARGET_ITERATIONS = 100_000;
 
 function getTargetIterations(env) {
   const envVal = parseInt(env?.PBKDF2_ITERATIONS, 10);
-  return envVal > 0 ? envVal : DEFAULT_TARGET_ITERATIONS;
+  const target = envVal > 0 ? envVal : DEFAULT_TARGET_ITERATIONS;
+  return Math.min(target, MAX_ITERATIONS);
 }
 
 function bytesToBase64(bytes) {
