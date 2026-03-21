@@ -57,6 +57,19 @@ export function initExperiments(revealObserver) {
     }
 
     initMobileDeck(grid);
+
+    if (typeof IntersectionObserver !== 'undefined') {
+        const prevIo = new IntersectionObserver(([entry]) => {
+            const was = previewsVisible;
+            previewsVisible = entry.isIntersecting;
+            if (previewsVisible && !was) {
+                if (sineActive && !sineAnim) drawSineFrame();
+                if (!sfPreviewAnim && document.getElementById('sfPreviewCanvas')) drawSfFrame();
+                if (!gatePreviewAnim && document.getElementById('gatePreviewCanvas')) drawGateFrame();
+            }
+        });
+        prevIo.observe(grid);
+    }
 }
 
 /* ── Synth Engine ── */
@@ -246,6 +259,7 @@ function initSynth(klangCard) {
 /* ── Sine Wave Preview ── */
 let sineAnim = null;
 let sineActive = false;
+let previewsVisible = true;
 
 function initSinePreview() {
     sineActive = true;
@@ -289,7 +303,7 @@ function drawSineFrame() {
     cx.strokeStyle = 'rgba(42,155,176,0.08)';
     cx.lineWidth = 1;
     cx.stroke();
-    sineAnim = (sineActive && !document.hidden) ? requestAnimationFrame(drawSineFrame) : null;
+    sineAnim = (sineActive && previewsVisible && !document.hidden) ? requestAnimationFrame(drawSineFrame) : null;
 }
 
 /* ── Sky Fall Preview ── */
@@ -332,7 +346,7 @@ function drawSfFrame() {
         cx.stroke();
     }
     cx.globalAlpha = 1;
-    sfPreviewAnim = document.hidden ? null : requestAnimationFrame(drawSfFrame);
+    sfPreviewAnim = (previewsVisible && !document.hidden) ? requestAnimationFrame(drawSfFrame) : null;
 }
 
 /* ── Gate Preview ── */
@@ -385,12 +399,12 @@ function drawGateFrame() {
         cx.fill();
     });
     cx.globalAlpha = 1;
-    gatePreviewAnim = document.hidden ? null : requestAnimationFrame(drawGateFrame);
+    gatePreviewAnim = (previewsVisible && !document.hidden) ? requestAnimationFrame(drawGateFrame) : null;
 }
 
 /* Resume paused preview loops when tab becomes visible */
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
+    if (!document.hidden && previewsVisible) {
         if (sineActive && !sineAnim) drawSineFrame();
         if (!sfPreviewAnim && document.getElementById('sfPreviewCanvas')) drawSfFrame();
         if (!gatePreviewAnim && document.getElementById('gatePreviewCanvas')) drawGateFrame();

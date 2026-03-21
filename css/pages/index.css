@@ -58,6 +58,10 @@
     .exp-filter-bar { display: none; }
 
     @media (max-width: 639px) {
+        .exp-deck {
+            touch-action: pan-y;
+        }
+
         .exp-deck > * {
             grid-row: 1;
             grid-column: 1;
@@ -151,6 +155,10 @@
 
     @media (max-width: 639px) {
         #gallery .filter-bar { display: none; }
+
+        .gal-deck {
+            touch-action: pan-y;
+        }
 
         .gal-deck > * {
             grid-row: 1;
@@ -274,6 +282,7 @@
     @media (max-width: 639px) {
         .snd-deck {
             display: grid;
+            touch-action: pan-y;
         }
 
         .snd-deck > * {
