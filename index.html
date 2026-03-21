@@ -172,6 +172,41 @@
     </div>
 </section>
 
+<!-- GALLERY -->
+<div class="section-divider" aria-hidden="true"></div>
+<section id="gallery" class="section" aria-label="AI Creations Gallery">
+    <div class="section__inner">
+        <div class="section__header--sm reveal">
+            <div style="text-align:center">
+                <span class="section__label section__label--magenta">AI Art</span>
+                <h2 class="section__title gt-cyan-mag" style="margin-block-start:var(--space-3)">AI Creations Gallery</h2>
+                <p class="section__desc">Curated pieces from experiments with generative AI, diffusion models, and creative algorithms.</p>
+            </div>
+        </div>
+        <div class="filter-bar reveal" role="tablist" aria-label="Gallery filters">
+            <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true" tabindex="0">All</button>
+            <button class="filter-btn" data-filter="pictures" role="tab" aria-selected="false" tabindex="-1">Pictures</button>
+            <button class="filter-btn" data-filter="creepy" role="tab" aria-selected="false" tabindex="-1">Creepy Creatures</button>
+            <button class="filter-btn" data-filter="experimental" role="tab" aria-selected="false" tabindex="-1">Experimental</button>
+        </div>
+        <div id="galleryGrid" class="grid-gallery"></div>
+    </div>
+</section>
+
+<!-- Gallery Modal -->
+<div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+        <button class="modal-close" aria-label="Close gallery modal">&times; Close</button>
+        <div class="modal-card">
+            <div id="modalImage" class="modal-image"></div>
+            <div class="modal-body">
+                <h3 id="modalTitle" class="modal-title"></h3>
+                <p id="modalCaption" class="modal-caption"></p>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- SOUND LAB -->
 <div class="section-divider" aria-hidden="true"></div>
 <section id="soundlab" class="section" aria-label="Sound Lab">
@@ -213,41 +248,6 @@
         </div>
     </div>
 </section>
-
-<!-- GALLERY -->
-<div class="section-divider" aria-hidden="true"></div>
-<section id="gallery" class="section" aria-label="AI Creations Gallery">
-    <div class="section__inner">
-        <div class="section__header--sm reveal">
-            <div style="text-align:center">
-                <span class="section__label section__label--magenta">AI Art</span>
-                <h2 class="section__title gt-cyan-mag" style="margin-block-start:var(--space-3)">AI Creations Gallery</h2>
-                <p class="section__desc">Curated pieces from experiments with generative AI, diffusion models, and creative algorithms.</p>
-            </div>
-        </div>
-        <div class="filter-bar reveal" role="tablist" aria-label="Gallery filters">
-            <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true" tabindex="0">All</button>
-            <button class="filter-btn" data-filter="pictures" role="tab" aria-selected="false" tabindex="-1">Pictures</button>
-            <button class="filter-btn" data-filter="creepy" role="tab" aria-selected="false" tabindex="-1">Creepy Creatures</button>
-            <button class="filter-btn" data-filter="experimental" role="tab" aria-selected="false" tabindex="-1">Experimental</button>
-        </div>
-        <div id="galleryGrid" class="grid-gallery"></div>
-    </div>
-</section>
-
-<!-- Gallery Modal -->
-<div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal-content">
-        <button class="modal-close" aria-label="Close gallery modal">&times; Close</button>
-        <div class="modal-card">
-            <div id="modalImage" class="modal-image"></div>
-            <div class="modal-body">
-                <h3 id="modalTitle" class="modal-title"></h3>
-                <p id="modalCaption" class="modal-caption"></p>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- LIVE MARKETS -->
 <div class="section-divider" aria-hidden="true"></div>
