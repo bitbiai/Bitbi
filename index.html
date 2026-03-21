@@ -15,6 +15,10 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="BITBI | My Digital Playground">
     <meta name="twitter:description" content="Experimental websites • AI art • YouTube journeys • VR worlds • Live markets">
+    <meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="https://bitbi.ai/assets/images/og-default.png">
     <meta name="theme-color" content="#0A0A0A">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
@@ -29,7 +33,7 @@
 
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
     <link rel="stylesheet" href="css/base/tokens.css?v=20260317">
-    <link rel="stylesheet" href="css/base/reset.css?v=20260317">
+    <link rel="stylesheet" href="css/base/reset.css?v=20260321">
     <link rel="stylesheet" href="css/base/base.css?v=20260317">
     <link rel="stylesheet" href="css/components/components.css?v=20260317">
     <link rel="stylesheet" href="css/pages/index.css?v=20260317">
@@ -42,7 +46,11 @@
         "@type": "WebSite",
         "name": "BITBI",
         "url": "https://bitbi.ai/",
-        "description": "Experimental websites, AI art, YouTube journeys, VR worlds, and live markets."
+        "description": "Experimental websites, AI art, YouTube journeys, VR worlds, and live markets.",
+        "sameAs": [
+            "https://x.com/bitbi_ai",
+            "https://www.youtube.com/@bitbi_ai"
+        ]
     }
     </script>
 </head>
@@ -280,11 +288,19 @@
                 <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
             </div>
             <div class="grid-form">
-                <input type="text" name="name" placeholder="Name" required class="form-input" autocomplete="name">
-                <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email">
+                <div>
+                    <label for="contactName" class="sr-only">Name</label>
+                    <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
+                </div>
+                <div>
+                    <label for="contactEmail" class="sr-only">Email</label>
+                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email">
+                </div>
             </div>
-            <input type="text" name="subject" placeholder="Subject" class="form-input">
-            <textarea name="message" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
+            <label for="contactSubject" class="sr-only">Subject</label>
+            <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
+            <label for="contactMessage" class="sr-only">Your message</label>
+            <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
             <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
         </form>

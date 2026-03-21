@@ -59,6 +59,29 @@ jobs:
             exit 1
           fi
           echo "All JS import paths validated successfully"
+      - name: Validate page metadata
+        run: |
+          errors=0
+          for f in index.html experiments/*.html; do
+            [ ! -f "$f" ] && continue
+            if ! grep -q '<meta name="description"' "$f"; then
+              echo "ERROR: Missing meta description in $f"
+              errors=$((errors + 1))
+            fi
+            if ! grep -q '<link rel="canonical"' "$f"; then
+              echo "ERROR: Missing canonical link in $f"
+              errors=$((errors + 1))
+            fi
+            if ! grep -q 'og:title' "$f"; then
+              echo "ERROR: Missing og:title in $f"
+              errors=$((errors + 1))
+            fi
+          done
+          if [ $errors -gt 0 ]; then
+            echo "FAILED: $errors metadata error(s) found"
+            exit 1
+          fi
+          echo "Page metadata validated successfully"
       - name: Prepare deployment
         run: |
           mkdir _site

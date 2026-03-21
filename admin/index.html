@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="../css/components/components.css?v=20260317">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
     <link rel="stylesheet" href="../css/admin/admin.css?v=20260321">
-    <link rel="stylesheet" href="../css/base/utilities.css?v=20260317">
+    <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
 <body>
@@ -93,6 +93,7 @@
 
                 <!-- Search -->
                 <form id="searchForm" class="admin-search">
+                    <label for="searchInput" class="sr-only">Search users by email</label>
                     <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off">
                     <button type="submit" class="admin-search__btn">Search</button>
                 </form>
