@@ -317,6 +317,20 @@
         }
     }
 
+    /* --- Mobile: push scroll hint below the CTA buttons --- */
+    @media (max-width: 639px) {
+        .hero__scroll-hint {
+            inset-block-end: var(--space-2);
+        }
+    }
+
+    /* --- Mobile: hide the "Play All" playlist player --- */
+    @media (max-width: 639px) {
+        #playlistPlayer {
+            display: none !important;
+        }
+    }
+
     /* --- Mobile Hero Stable Height --- */
     @media (max-width: 639px) {
         .hero:not(.hero--compact) {
