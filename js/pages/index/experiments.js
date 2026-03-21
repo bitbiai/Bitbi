@@ -450,22 +450,22 @@ function initMobileDeck(grid) {
             const d = i - active;
             c.style.transition = skipAnim ? 'none' : '';
             if (d === 0) {
-                c.style.transform = 'scale(1)';
+                c.style.transform = 'scale(0.90)';
                 c.style.opacity = '1';
                 c.style.zIndex = String(n);
                 c.style.pointerEvents = '';
             } else if (d === 1) {
-                c.style.transform = 'translateX(16px) scale(0.95)';
-                c.style.opacity = '0.5';
+                c.style.transform = 'translateX(24px) scale(0.86)';
+                c.style.opacity = '0.55';
                 c.style.zIndex = String(n - 1);
                 c.style.pointerEvents = 'none';
             } else if (d === 2) {
-                c.style.transform = 'translateX(30px) scale(0.90)';
-                c.style.opacity = '0.25';
+                c.style.transform = 'translateX(42px) scale(0.82)';
+                c.style.opacity = '0.3';
                 c.style.zIndex = String(n - 2);
                 c.style.pointerEvents = 'none';
             } else {
-                c.style.transform = d < 0 ? 'translateX(-30px) scale(0.90)' : 'translateX(38px) scale(0.87)';
+                c.style.transform = d < 0 ? 'translateX(-30px) scale(0.82)' : 'translateX(50px) scale(0.80)';
                 c.style.opacity = '0';
                 c.style.zIndex = '0';
                 c.style.pointerEvents = 'none';
@@ -566,7 +566,7 @@ function initMobileDeck(grid) {
                 let adj = dx;
                 const all = getCards();
                 if ((active === 0 && dx > 0) || (active >= all.length - 1 && dx < 0)) adj *= 0.25;
-                c.style.transform = `translateX(${adj}px) scale(1)`;
+                c.style.transform = `translateX(${adj}px) scale(0.90)`;
             }
         }
     }, { passive: false });
