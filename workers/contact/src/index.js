@@ -88,6 +88,18 @@ export default {
                 });
             }
 
+            /* Field length limits */
+            const trimName = String(name).slice(0, 101);
+            const trimEmail = String(email).slice(0, 255);
+            const trimSubject = String(subject || '').slice(0, 201);
+            const trimMessage = String(message).slice(0, 5001);
+            if (trimName.length > 100 || trimEmail.length > 254 || trimSubject.length > 200 || trimMessage.length > 5000) {
+                return new Response(JSON.stringify({ error: 'One or more fields exceed the maximum allowed length' }), {
+                    status: 400,
+                    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+                });
+            }
+
             /* Basic email format validation */
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
                 return new Response(JSON.stringify({ error: 'Invalid email format' }), {

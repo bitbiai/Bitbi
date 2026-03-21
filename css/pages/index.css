@@ -250,6 +250,28 @@
         }
     }
 
+    /* --- Audio Seek Bar Hit Targets ---
+       Expand the clickable/touchable area to ~24px while keeping
+       the visible track at its slim 3-4px height.
+       Seek math uses only rect.left / rect.width — vertical
+       padding does not affect the calculation. */
+    .snd-bar,
+    .excl-bar,
+    #plBar {
+        box-sizing: content-box !important;
+        padding-block: 10px !important;
+        margin-block: -10px !important;
+        background-clip: content-box !important;
+        overflow: visible !important;
+    }
+
+    .snd-prog,
+    .excl-prog,
+    #plProg {
+        height: 3px !important;
+        top: 10px !important;
+    }
+
     /* --- Mobile Sound Lab Cards --- */
     .snd-hero { display: none; }
 

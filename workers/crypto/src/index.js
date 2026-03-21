@@ -1,7 +1,9 @@
 // src/index.js
 const ALLOWED_ORIGIN = "https://bitbi.ai";
 const COINGECKO_URL =
-  "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&sparkline=true";
+  "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=12&sparkline=true";
+
+const STABLECOIN_SYMBOLS = new Set(['usdt', 'usdc', 'dai', 'busd', 'tusd', 'fdusd', 'pyusd', 'usdp', 'usdd']);
 
 export default {
   async fetch(request, env) {
@@ -42,7 +44,7 @@ export default {
       }
 
       const data = await res.json();
-      const filtered = data.filter(c => c.symbol?.toLowerCase() !== 'usdt').slice(0, 4);
+      const filtered = data.filter(c => !STABLECOIN_SYMBOLS.has(c.symbol?.toLowerCase())).slice(0, 4);
 
       return new Response(JSON.stringify(filtered), {
         status: 200,
