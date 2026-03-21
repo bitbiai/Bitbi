@@ -760,13 +760,13 @@
 
     @media (min-width: 640px) {
         .grid-markets {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, 1fr);
             gap: var(--space-4);
         }
     }
 
     @media (min-width: 1024px) {
-        .grid-markets { grid-template-columns: repeat(5, 1fr); }
+        .grid-markets { grid-template-columns: repeat(4, 1fr); }
     }
 
     .grid-form {

@@ -286,7 +286,7 @@
             display: flex;
             justify-content: center;
             gap: 8px;
-            margin-block-start: var(--space-4);
+            margin-block: var(--space-2);
         }
 
         .snd-deck-dot {

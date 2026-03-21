@@ -41,9 +41,10 @@ export default {
         });
       }
 
-      const data = await res.text();
+      const data = await res.json();
+      const filtered = data.filter(c => c.symbol?.toLowerCase() !== 'usdt').slice(0, 4);
 
-      return new Response(data, {
+      return new Response(JSON.stringify(filtered), {
         status: 200,
         headers: {
           "Content-Type": "application/json",

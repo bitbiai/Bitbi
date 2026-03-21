@@ -61,7 +61,6 @@ export function initMarkets() {
             { symbol: 'eth', name: 'Ethereum', current_price: 3200, price_change_percentage_24h: -0.5 },
             { symbol: 'bnb', name: 'BNB', current_price: 680, price_change_percentage_24h: 0.8 },
             { symbol: 'sol', name: 'Solana', current_price: 190, price_change_percentage_24h: 2.1 },
-            { symbol: 'wlfi', name: 'World Liberty Financial', current_price: 0.02, price_change_percentage_24h: 0.5 },
         ];
         render(fallback);
     }

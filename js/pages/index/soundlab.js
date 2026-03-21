@@ -303,6 +303,7 @@ export function initSoundLab(revealObserver) {
         let isDeck = false;
         let dotsEl = null;
         let swipeLock = false;
+        let wasPlayingOnSwipeStart = false;
 
         function sndLayout(skipAnim) {
             const cards = Array.from(ctn.children);
@@ -349,7 +350,7 @@ export function initSoundLab(revealObserver) {
                 d.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
                 d.setAttribute('aria-label', `Show track ${i + 1}`);
                 d.addEventListener('click', () => {
-                    const wasPlaying = audios.some(a => !a.paused);
+                    const wasPlaying = activeIdx !== null && !audios[activeIdx].paused;
                     deckActive = i;
                     sndLayout();
                     sndSyncDots();
@@ -406,6 +407,7 @@ export function initSoundLab(revealObserver) {
             sx = t.clientX; sy = t.clientY; st = Date.now();
             tracking = true; decided = false; horiz = false;
             swipeLock = false;
+            wasPlayingOnSwipeStart = activeIdx !== null && !audios[activeIdx].paused;
             const c = ctn.children[deckActive];
             if (c) c.style.transition = 'none';
         }, { passive: true });
@@ -451,9 +453,8 @@ export function initSoundLab(revealObserver) {
             }
             sndLayout();
             sndSyncDots();
-            if (deckActive !== prevActive) {
-                const wasPlaying = audios.some(a => !a.paused);
-                if (wasPlaying) playTrack(deckActive);
+            if (deckActive !== prevActive && wasPlayingOnSwipeStart) {
+                playTrack(deckActive);
             }
         }, { passive: true });
 
