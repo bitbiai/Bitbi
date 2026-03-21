@@ -53,6 +53,8 @@ export function initExperiments(revealObserver) {
     if (revealObserver) {
         grid.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
     }
+
+    initMobileDeck(grid);
 }
 
 /* ── Synth Engine ── */
@@ -429,4 +431,194 @@ function initGameOverlay(card, overlayId, frameId, closeId, src, bg, previewCanv
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isOpen) document.getElementById(closeId).click();
     });
+}
+
+/* ── Mobile Deck Carousel ── */
+function initMobileDeck(grid) {
+    const mql = window.matchMedia('(max-width: 639px)');
+    let active = 0;
+    let isDeck = false;
+    let dotsEl = null;
+    let swipeLock = false;
+
+    function getCards() { return Array.from(grid.children); }
+
+    function layout(skipAnim) {
+        const all = getCards();
+        const n = all.length;
+        all.forEach((c, i) => {
+            const d = i - active;
+            c.style.transition = skipAnim ? 'none' : '';
+            if (d === 0) {
+                c.style.transform = 'scale(1)';
+                c.style.opacity = '1';
+                c.style.zIndex = String(n);
+                c.style.pointerEvents = '';
+            } else if (d === 1) {
+                c.style.transform = 'translateX(16px) scale(0.95)';
+                c.style.opacity = '0.5';
+                c.style.zIndex = String(n - 1);
+                c.style.pointerEvents = 'none';
+            } else if (d === 2) {
+                c.style.transform = 'translateX(30px) scale(0.90)';
+                c.style.opacity = '0.25';
+                c.style.zIndex = String(n - 2);
+                c.style.pointerEvents = 'none';
+            } else {
+                c.style.transform = d < 0 ? 'translateX(-30px) scale(0.90)' : 'translateX(38px) scale(0.87)';
+                c.style.opacity = '0';
+                c.style.zIndex = '0';
+                c.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    function buildDots() {
+        if (dotsEl) dotsEl.remove();
+        const all = getCards();
+        dotsEl = document.createElement('div');
+        dotsEl.className = 'exp-deck-dots';
+        dotsEl.setAttribute('role', 'tablist');
+        dotsEl.setAttribute('aria-label', 'Experiment cards');
+        all.forEach((_, i) => {
+            const d = document.createElement('button');
+            d.className = 'exp-deck-dot' + (i === active ? ' active' : '');
+            d.setAttribute('role', 'tab');
+            d.setAttribute('aria-selected', i === active ? 'true' : 'false');
+            d.setAttribute('aria-label', `Show card ${i + 1}`);
+            d.addEventListener('click', () => { active = i; layout(); syncDots(); });
+            dotsEl.appendChild(d);
+        });
+        grid.after(dotsEl);
+    }
+
+    function syncDots() {
+        if (!dotsEl) return;
+        const dots = dotsEl.querySelectorAll('.exp-deck-dot');
+        const all = getCards();
+        if (dots.length !== all.length) { buildDots(); return; }
+        dots.forEach((d, i) => {
+            d.classList.toggle('active', i === active);
+            d.setAttribute('aria-selected', i === active ? 'true' : 'false');
+        });
+    }
+
+    function engage() {
+        if (isDeck) return;
+        isDeck = true;
+        active = 0;
+        grid.classList.add('exp-deck');
+        layout(true);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                getCards().forEach(c => { c.style.transition = ''; });
+            });
+        });
+        buildDots();
+    }
+
+    function disengage() {
+        if (!isDeck) return;
+        isDeck = false;
+        grid.classList.remove('exp-deck');
+        getCards().forEach(c => {
+            c.style.transform = '';
+            c.style.opacity = '';
+            c.style.zIndex = '';
+            c.style.pointerEvents = '';
+            c.style.transition = '';
+        });
+        if (dotsEl) { dotsEl.remove(); dotsEl = null; }
+    }
+
+    /* Touch handling */
+    let sx, sy, st, tracking, decided, horiz;
+
+    grid.addEventListener('touchstart', e => {
+        if (!isDeck) return;
+        if (e.target.closest('#klangSynth')) return;
+        const t = e.touches[0];
+        sx = t.clientX; sy = t.clientY; st = Date.now();
+        tracking = true; decided = false; horiz = false;
+        swipeLock = false;
+        const c = getCards()[active];
+        if (c) c.style.transition = 'none';
+    }, { passive: true });
+
+    grid.addEventListener('touchmove', e => {
+        if (!tracking || !isDeck) return;
+        const t = e.touches[0];
+        const dx = t.clientX - sx, dy = t.clientY - sy;
+        if (!decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+            decided = true;
+            horiz = Math.abs(dx) > Math.abs(dy);
+            if (!horiz) {
+                tracking = false;
+                const c = getCards()[active];
+                if (c) c.style.transition = '';
+                return;
+            }
+        }
+        if (horiz) {
+            e.preventDefault();
+            const c = getCards()[active];
+            if (c) {
+                let adj = dx;
+                const all = getCards();
+                if ((active === 0 && dx > 0) || (active >= all.length - 1 && dx < 0)) adj *= 0.25;
+                c.style.transform = `translateX(${adj}px) scale(1)`;
+            }
+        }
+    }, { passive: false });
+
+    grid.addEventListener('touchend', e => {
+        if (!tracking || !isDeck) return;
+        tracking = false;
+        if (!horiz || !decided) {
+            layout();
+            return;
+        }
+        const dx = e.changedTouches[0].clientX - sx;
+        const v = Math.abs(dx) / Math.max(Date.now() - st, 1);
+        const all = getCards();
+        if ((Math.abs(dx) > 40 || v > 0.3) && Math.abs(dx) > 15) {
+            swipeLock = true;
+            if (dx < 0 && active < all.length - 1) active++;
+            else if (dx > 0 && active > 0) active--;
+        }
+        layout();
+        syncDots();
+    }, { passive: true });
+
+    grid.addEventListener('touchcancel', () => {
+        if (!tracking || !isDeck) return;
+        tracking = false;
+        layout();
+    }, { passive: true });
+
+    /* Block click after swipe */
+    grid.addEventListener('click', e => {
+        if (swipeLock) { e.stopPropagation(); e.preventDefault(); swipeLock = false; }
+    }, true);
+
+    /* Watch for dynamically added cards (locked sections) */
+    new MutationObserver(() => {
+        if (isDeck) {
+            layout(true);
+            syncDots();
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    getCards().forEach(c => { c.style.transition = ''; });
+                });
+            });
+        }
+    }).observe(grid, { childList: true });
+
+    /* Responsive */
+    mql.addEventListener('change', e => {
+        if (e.matches) engage();
+        else disengage();
+    });
+
+    if (mql.matches) engage();
 }
