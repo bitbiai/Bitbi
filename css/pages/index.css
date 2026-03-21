@@ -268,6 +268,46 @@
         }
     }
 
+    /* --- Mobile Sound Lab Deck --- */
+    .snd-deck-dots { display: none; }
+
+    @media (max-width: 639px) {
+        .snd-deck {
+            display: grid;
+        }
+
+        .snd-deck > * {
+            grid-row: 1;
+            grid-column: 1;
+            transition: transform 0.45s var(--ease-smooth), opacity 0.45s var(--ease-smooth);
+        }
+
+        .snd-deck-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-block-start: var(--space-4);
+        }
+
+        .snd-deck-dot {
+            width: 8px;
+            height: 8px;
+            padding: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .snd-deck-dot.active {
+            background: rgba(0, 240, 255, 0.45);
+            border-color: rgba(0, 240, 255, 0.25);
+            transform: scale(1.3);
+        }
+    }
+
     /* --- Mobile Section Spacing (≈50% reduction) --- */
     @media (max-width: 639px) {
         .section { padding-block: var(--space-12); }
@@ -298,6 +338,10 @@
         }
 
         .gal-deck > * {
+            transition: none;
+        }
+
+        .snd-deck > * {
             transition: none;
         }
 

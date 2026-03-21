@@ -21,6 +21,7 @@ export function initSoundLab(revealObserver) {
 
     const audios = [];
     let activeIdx = null;
+    let syncDeck = null;
 
     tracks.forEach((tr, idx) => {
         const audio = new Audio();
@@ -77,6 +78,7 @@ export function initSoundLab(revealObserver) {
         row.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = 'running');
         highlightRow(idx);
         plUpdate();
+        if (syncDeck) syncDeck(idx);
     }
 
     function pauseTrack() {
@@ -293,4 +295,193 @@ export function initSoundLab(revealObserver) {
         ctn.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
         revealObserver.observe(plEl);
     }
+
+    /* ── Mobile Deck ── */
+    function initSndDeck() {
+        const mql = window.matchMedia('(max-width: 639px)');
+        let deckActive = 0;
+        let isDeck = false;
+        let dotsEl = null;
+        let swipeLock = false;
+
+        function sndLayout(skipAnim) {
+            const cards = Array.from(ctn.children);
+            const n = cards.length;
+            cards.forEach((c, i) => {
+                const d = i - deckActive;
+                c.style.transition = skipAnim ? 'none' : '';
+                if (d === 0) {
+                    c.style.transform = 'scale(0.90)';
+                    c.style.opacity = '1';
+                    c.style.zIndex = String(n);
+                    c.style.pointerEvents = '';
+                } else if (d === 1) {
+                    c.style.transform = 'translateX(24px) scale(0.86)';
+                    c.style.opacity = '0.55';
+                    c.style.zIndex = String(n - 1);
+                    c.style.pointerEvents = 'none';
+                } else if (d === 2) {
+                    c.style.transform = 'translateX(42px) scale(0.82)';
+                    c.style.opacity = '0.3';
+                    c.style.zIndex = String(n - 2);
+                    c.style.pointerEvents = 'none';
+                } else {
+                    c.style.transform = d < 0 ? 'translateX(-30px) scale(0.82)' : 'translateX(50px) scale(0.80)';
+                    c.style.opacity = '0';
+                    c.style.zIndex = '0';
+                    c.style.pointerEvents = 'none';
+                }
+            });
+        }
+
+        function sndBuildDots() {
+            if (dotsEl) dotsEl.remove();
+            const cards = Array.from(ctn.children);
+            if (cards.length <= 1) { dotsEl = null; return; }
+            dotsEl = document.createElement('div');
+            dotsEl.className = 'snd-deck-dots';
+            dotsEl.setAttribute('role', 'tablist');
+            dotsEl.setAttribute('aria-label', 'Sound Lab tracks');
+            cards.forEach((_, i) => {
+                const d = document.createElement('button');
+                d.className = 'snd-deck-dot' + (i === deckActive ? ' active' : '');
+                d.setAttribute('role', 'tab');
+                d.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
+                d.setAttribute('aria-label', `Show track ${i + 1}`);
+                d.addEventListener('click', () => {
+                    const wasPlaying = audios.some(a => !a.paused);
+                    deckActive = i;
+                    sndLayout();
+                    sndSyncDots();
+                    if (wasPlaying) playTrack(deckActive);
+                });
+                dotsEl.appendChild(d);
+            });
+            ctn.after(dotsEl);
+        }
+
+        function sndSyncDots() {
+            if (!dotsEl) return;
+            const dots = dotsEl.querySelectorAll('.snd-deck-dot');
+            dots.forEach((d, i) => {
+                d.classList.toggle('active', i === deckActive);
+                d.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
+            });
+        }
+
+        function engage() {
+            if (isDeck) return;
+            isDeck = true;
+            deckActive = activeIdx !== null ? activeIdx : 0;
+            ctn.classList.add('snd-deck');
+            sndLayout(true);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    Array.from(ctn.children).forEach(c => { c.style.transition = ''; });
+                });
+            });
+            sndBuildDots();
+        }
+
+        function disengage() {
+            if (!isDeck) return;
+            isDeck = false;
+            ctn.classList.remove('snd-deck');
+            Array.from(ctn.children).forEach(c => {
+                c.style.transform = '';
+                c.style.opacity = '';
+                c.style.zIndex = '';
+                c.style.pointerEvents = '';
+                c.style.transition = '';
+            });
+            if (dotsEl) { dotsEl.remove(); dotsEl = null; }
+        }
+
+        /* Touch */
+        let sx, sy, st, tracking, decided, horiz;
+
+        ctn.addEventListener('touchstart', e => {
+            if (!isDeck) return;
+            const t = e.touches[0];
+            sx = t.clientX; sy = t.clientY; st = Date.now();
+            tracking = true; decided = false; horiz = false;
+            swipeLock = false;
+            const c = ctn.children[deckActive];
+            if (c) c.style.transition = 'none';
+        }, { passive: true });
+
+        ctn.addEventListener('touchmove', e => {
+            if (!tracking || !isDeck) return;
+            const t = e.touches[0];
+            const dx = t.clientX - sx, dy = t.clientY - sy;
+            if (!decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                decided = true;
+                horiz = Math.abs(dx) > Math.abs(dy);
+                if (!horiz) {
+                    tracking = false;
+                    const c = ctn.children[deckActive];
+                    if (c) c.style.transition = '';
+                    return;
+                }
+            }
+            if (horiz) {
+                e.preventDefault();
+                const c = ctn.children[deckActive];
+                if (c) {
+                    let adj = dx;
+                    const n = ctn.children.length;
+                    if ((deckActive === 0 && dx > 0) || (deckActive >= n - 1 && dx < 0)) adj *= 0.25;
+                    c.style.transform = `translateX(${adj}px) scale(0.90)`;
+                }
+            }
+        }, { passive: false });
+
+        ctn.addEventListener('touchend', e => {
+            if (!tracking || !isDeck) return;
+            tracking = false;
+            if (!horiz || !decided) { sndLayout(); return; }
+            const dx = e.changedTouches[0].clientX - sx;
+            const v = Math.abs(dx) / Math.max(Date.now() - st, 1);
+            const prevActive = deckActive;
+            const n = ctn.children.length;
+            if ((Math.abs(dx) > 40 || v > 0.3) && Math.abs(dx) > 15) {
+                swipeLock = true;
+                if (dx < 0 && deckActive < n - 1) deckActive++;
+                else if (dx > 0 && deckActive > 0) deckActive--;
+            }
+            sndLayout();
+            sndSyncDots();
+            if (deckActive !== prevActive) {
+                const wasPlaying = audios.some(a => !a.paused);
+                if (wasPlaying) playTrack(deckActive);
+            }
+        }, { passive: true });
+
+        ctn.addEventListener('touchcancel', () => {
+            if (!tracking || !isDeck) return;
+            tracking = false;
+            sndLayout();
+        }, { passive: true });
+
+        /* Block click after swipe */
+        ctn.addEventListener('click', e => {
+            if (swipeLock) { e.stopPropagation(); e.preventDefault(); swipeLock = false; }
+        }, true);
+
+        mql.addEventListener('change', e => {
+            if (e.matches) engage();
+            else disengage();
+        });
+
+        if (mql.matches) engage();
+
+        return function(idx) {
+            if (!isDeck || idx < 0 || idx >= ctn.children.length) return;
+            deckActive = idx;
+            sndLayout();
+            sndSyncDots();
+        };
+    }
+
+    syncDeck = initSndDeck();
 }
