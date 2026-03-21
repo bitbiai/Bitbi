@@ -70,7 +70,7 @@ export function initSoundLab(revealObserver) {
         stopAll();
         const audio = audios[idx];
         const row = ctn.children[idx];
-        audio.play();
+        audio.play().catch(() => {});
         activeIdx = idx;
         startTick();
         row.querySelector('.pi').style.display = 'none';
@@ -97,7 +97,7 @@ export function initSoundLab(revealObserver) {
             const idx = parseInt(btn.dataset.idx);
             if (activeIdx === idx && !audios[idx].paused) { pauseTrack(); return; }
             if (activeIdx === idx && audios[idx].paused) {
-                audios[idx].play();
+                audios[idx].play().catch(() => {});
                 startTick();
                 const row = ctn.children[idx];
                 row.querySelector('.pi').style.display = 'none';
@@ -231,7 +231,7 @@ export function initSoundLab(revealObserver) {
     document.getElementById('plPlay').addEventListener('click', () => {
         if (activeIdx === null) { playTrack(0); return; }
         if (audios[activeIdx].paused) {
-            audios[activeIdx].play();
+            audios[activeIdx].play().catch(() => {});
             startTick();
             const row = ctn.children[activeIdx];
             row.querySelector('.pi').style.display = 'none';

@@ -392,7 +392,7 @@ function setupSoundLabCard() {
             setPlaying(false);
             if (animFrame) cancelAnimationFrame(animFrame);
         } else {
-            a.play();
+            a.play().catch(() => {});
             setPlaying(true);
             tick();
         }

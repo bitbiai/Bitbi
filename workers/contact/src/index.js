@@ -37,6 +37,11 @@ function getClientIp(request) {
     return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Real-IP') || 'unknown';
 }
 
+/* Strip control characters (CR, LF, NUL, etc.) from values used in email headers */
+function sanitizeHeaderValue(str) {
+    return str.replace(/[\x00-\x1f\x7f]/g, '').trim();
+}
+
 function corsHeaders(origin) {
     return {
         'Access-Control-Allow-Origin': origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
@@ -100,8 +105,13 @@ export default {
                 });
             }
 
+            /* Sanitize header-bound fields (prevent CR/LF header injection) */
+            const safeName = sanitizeHeaderValue(trimName);
+            const safeEmail = sanitizeHeaderValue(trimEmail);
+            const safeSubject = sanitizeHeaderValue(trimSubject);
+
             /* Basic email format validation */
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
                 return new Response(JSON.stringify({ error: 'Invalid email format' }), {
                     status: 400,
                     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -115,11 +125,11 @@ export default {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    from: `${name} <${FROM_EMAIL}>`,
+                    from: `${safeName} <${FROM_EMAIL}>`,
                     to: [TO_EMAIL],
-                    replyTo: [email],
-                    subject: subject || `Contact from ${name}`,
-                    text: `Name: ${name}\nEmail: ${email}\nSubject: ${subject || '(none)'}\n\n${message}`,
+                    replyTo: [safeEmail],
+                    subject: safeSubject || `Contact from ${safeName}`,
+                    text: `Name: ${safeName}\nEmail: ${safeEmail}\nSubject: ${safeSubject || '(none)'}\n\n${trimMessage}`,
                 }),
             });
 

@@ -96,7 +96,7 @@ Three workers, deployed separately from the static site:
 
 | Worker | Endpoint | Purpose |
 |--------|----------|---------|
-| `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. Has its own `CLAUDE.md` with full route docs |
+| `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. **Read `workers/auth/CLAUDE.md` before modifying** — it has full route docs, handler signatures, DB schema, and rate limits |
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
 | `workers/crypto/src/index.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
 
