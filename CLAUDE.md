@@ -44,6 +44,8 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
+**CI validates JS imports**: The deploy workflow greps all JS/HTML `from '...'` imports and resolves them to files on disk. Broken imports (missing files, wrong paths) will **fail the build**. When adding, renaming, or moving JS modules, ensure all import paths are correct before pushing.
+
 ## Architecture
 
 ### Pages
@@ -60,7 +62,7 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page. Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system. The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin each have one). Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system — they are CSS-isolated too, loading only `cookie-banner.css` (no tokens.css or design system). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
 **Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal).
 
@@ -111,3 +113,5 @@ All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION
 - Accessibility: all modals use `focus-trap.js`, keyboard navigation (Escape closes, arrow keys cycle), `prefers-reduced-motion` respected in particles and scroll animations, ARIA attributes on interactive elements
 - Admin date formatting uses German locale (`Intl.DateTimeFormat('de-DE')`)
 - `docs/` contains internal compliance/audit notes — not deployed, not user-facing
+- **Cache busting**: All CSS/JS `<link>`/`<script>` tags use `?v=YYYYMMDD` query params (e.g. `?v=20260317`). When modifying CSS or JS files, update the version string in the HTML files that reference them
+- **Subpage pattern**: Subpages (profile, admin, legal) start with a minimal nav shell, then `initSiteHeader()` from `js/shared/site-header.js` injects the full nav + mobile menu at runtime. All subpages load the same CSS cascade: `tokens → reset → base → components → auth → page-specific → utilities`

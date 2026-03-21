@@ -6,6 +6,7 @@
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function setupFocusTrap(container) {
+    const trigger = document.activeElement;
     const focusable = () => [...container.querySelectorAll(FOCUSABLE)];
     focusable()[0]?.focus();
 
@@ -23,5 +24,8 @@ export function setupFocusTrap(container) {
     }
 
     container.addEventListener('keydown', handler);
-    return () => container.removeEventListener('keydown', handler);
+    return () => {
+        container.removeEventListener('keydown', handler);
+        if (trigger && typeof trigger.focus === 'function') trigger.focus();
+    };
 }

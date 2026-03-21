@@ -125,6 +125,9 @@ function setupGalleryExclusiveCard() {
     const folderContent = document.createElement('div');
     folderContent.className = 'locked-area__content';
     folderContent.style.cssText = 'cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px';
+    folderContent.setAttribute('tabindex', '0');
+    folderContent.setAttribute('role', 'button');
+    folderContent.setAttribute('aria-label', 'Little Monster — 15 exclusive images');
     folderContent.innerHTML = `
         <div class="folder-circle" style="width:80%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;border:2px solid rgba(0,240,255,0.15);background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr">
             <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
@@ -195,6 +198,9 @@ function setupGalleryExclusiveCard() {
         const inner = document.createElement('div');
         inner.className = 'gallery-inner rounded-xl overflow-hidden relative';
         inner.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
+        inner.setAttribute('tabindex', '0');
+        inner.setAttribute('role', 'button');
+        inner.setAttribute('aria-label', title);
         inner.innerHTML = `
             <div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>
             <img class="excl-img-real" src="" alt="${title}" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
@@ -213,7 +219,10 @@ function setupGalleryExclusiveCard() {
         const state = { loaded: false, imgEl, placeholderEl, thumb, title };
         cardStates.push(state);
 
-        /* Click opens full-size image in modal */
+        /* Click/keyboard opens full-size image in modal */
+        inner.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inner.click(); }
+        });
         inner.addEventListener('click', () => {
             const mi = document.getElementById('modalImage');
             mi.style.background = '#0D1B2A';
@@ -270,6 +279,9 @@ function setupGalleryExclusiveCard() {
         imageCards.forEach(card => grid.appendChild(card));
     }
 
+    folderContent.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); folderContent.click(); }
+    });
     folderContent.addEventListener('click', () => {
         if (!getAuthState().loggedIn) { openAuthModal('register'); return; }
         openSubcategory();
