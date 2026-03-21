@@ -317,9 +317,23 @@
         }
     }
 
+    /* --- Mobile Hero Stable Height --- */
+    @media (max-width: 639px) {
+        .hero:not(.hero--compact) {
+            block-size: 100svh;
+            min-block-size: 0;
+        }
+    }
+
+    @media (max-width: 639px) and (orientation: landscape) {
+        .hero:not(.hero--compact) {
+            block-size: auto;
+            min-block-size: 100svh;
+        }
+    }
+
     /* --- Mobile Section Spacing (≈50% reduction) --- */
     @media (max-width: 639px) {
-        .hero { min-block-size: 100svh; }
         .section { padding-block: var(--space-12); }
         .site-footer { padding-block: var(--space-6); }
     }

@@ -18,8 +18,11 @@ export function initParticles(canvasId, options = {}) {
 
     /* Prefer ResizeObserver over window resize */
     function resize() {
-        W = c.width = c.parentElement.offsetWidth;
-        H = c.height = c.parentElement.offsetHeight;
+        const w = c.parentElement.offsetWidth;
+        const h = c.parentElement.offsetHeight;
+        if (w === W && h === H) return;
+        W = c.width = w;
+        H = c.height = h;
     }
     resize();
 
