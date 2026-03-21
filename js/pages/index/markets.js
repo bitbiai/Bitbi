@@ -55,14 +55,8 @@ export function initMarkets() {
             }
         } catch (e) { /* fallback below */ }
 
-        /* Fallback if API fails */
-        const fallback = [
-            { symbol: 'btc', name: 'Bitcoin', current_price: 95000, price_change_percentage_24h: 1.2 },
-            { symbol: 'eth', name: 'Ethereum', current_price: 3200, price_change_percentage_24h: -0.5 },
-            { symbol: 'bnb', name: 'BNB', current_price: 680, price_change_percentage_24h: 0.8 },
-            { symbol: 'sol', name: 'Solana', current_price: 190, price_change_percentage_24h: 2.1 },
-        ];
-        render(fallback);
+        /* Fallback if API fails — show unavailable state instead of stale prices */
+        ctn.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:24px 16px;color:rgba(255,255,255,0.35);font-family:'JetBrains Mono',monospace;font-size:0.75rem">Market data temporarily unavailable</div>`;
     }
 
     fetchCoins();

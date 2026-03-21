@@ -138,6 +138,7 @@ export function initGallery() {
     let galIsDeck = false;
     let galDotsEl = null;
     let galSwipeLock = false;
+    let galGridObserver = null;
     let galCategory = 'pictures';
 
     function galGetCards() {
@@ -410,9 +411,10 @@ export function initGallery() {
     }, true);
 
     /* Watch for DOM changes (locked-sections.js, render, subcategory) */
-    new MutationObserver(() => {
+    galGridObserver = new MutationObserver(() => {
         if (galIsDeck) galRenderDeck();
-    }).observe(grid, { childList: true });
+    });
+    galGridObserver.observe(grid, { childList: true });
 
     galCreateFilterBar();
 
@@ -422,4 +424,8 @@ export function initGallery() {
     });
 
     if (galMql.matches) galEngage();
+
+    window.addEventListener('pagehide', () => {
+        if (galGridObserver) { galGridObserver.disconnect(); galGridObserver = null; }
+    });
 }

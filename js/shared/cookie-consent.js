@@ -114,11 +114,13 @@ function createBanner(onConsent) {
         saveConsent({ analytics: false, marketing: false }, onConsent);
         removeBanner();
     });
+    customBtn?.setAttribute('aria-expanded', 'false');
     customBtn?.addEventListener('click', () => {
         const isOpen = details.classList.contains('cookie-banner__details--open');
         details.classList.toggle('cookie-banner__details--open', !isOpen);
         saveBtn.style.display = isOpen ? 'none' : 'inline-block';
         customBtn.textContent = isOpen ? 'Customize' : 'Hide Details';
+        customBtn.setAttribute('aria-expanded', String(!isOpen));
     });
     saveBtn?.addEventListener('click', () => {
         saveConsent({
