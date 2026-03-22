@@ -6,9 +6,9 @@ export function initBinaryRain(containerId, options = {}) {
     /* Skip if user prefers reduced motion */
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
-    const maxCols = options.maxCols ?? 20;
+    const maxCols = options.maxCols ?? 16;
     const colDivisor = options.colDivisor ?? 50;
-    const charCount = options.charCount ?? 30;
+    const charCount = options.charCount ?? 24;
     const minDuration = options.minDuration ?? 16;
     const durationRange = options.durationRange ?? 20;
 

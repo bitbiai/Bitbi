@@ -5,9 +5,9 @@
    ============================================================ */
 
 export function initParticles(canvasId, options = {}) {
-    const maxParticles = options.maxParticles ?? 60;
+    const maxParticles = options.maxParticles ?? 35;
     const particleDensity = options.particleDensity ?? 20000;
-    const nebulaCount = options.nebulaCount ?? 4;
+    const nebulaCount = options.nebulaCount ?? 3;
     const showConnections = options.showConnections ?? false;
     const connectionDistance = options.connectionDistance ?? 280;
 
