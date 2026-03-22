@@ -3,9 +3,14 @@
    ============================================================ */
 
 export function initScrollReveal() {
+    const els = document.querySelectorAll('.reveal');
+
+    /* Nothing to reveal — skip observer creation */
+    if (els.length === 0) return null;
+
     /* If user prefers reduced motion, show all elements immediately */
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        document.querySelectorAll('.reveal').forEach((el) => el.classList.add('visible'));
+        els.forEach((el) => el.classList.add('visible'));
         return null;
     }
 
@@ -15,6 +20,6 @@ export function initScrollReveal() {
         }),
         { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
     );
-    document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+    els.forEach((el) => observer.observe(el));
     return observer;
 }
