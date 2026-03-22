@@ -44,7 +44,11 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
-**CI validates JS imports**: The deploy workflow greps all JS/HTML `from '...'` imports and resolves them to files on disk. Broken imports (missing files, wrong paths) will **fail the build**. When adding, renaming, or moving JS modules, ensure all import paths are correct before pushing.
+**CI validates before deploy** (`.github/workflows/static.yml`). All four checks must pass or the build fails:
+1. **JS import paths** — all `from '...'` imports in JS/HTML are resolved to files on disk. Broken imports fail the build.
+2. **`target="_blank"` links** — every `target="_blank"` in HTML/JS (excluding `*.min.js`) must include `rel="noopener"` (or `noopener noreferrer`).
+3. **Local CSS/JS references** — all `href="*.css"` and `src="*.js"` in HTML must point to existing files (external URLs excluded).
+4. **Page metadata** — `index.html` and `experiments/*.html` must each contain `<meta name="description">`, `<link rel="canonical">`, and `og:title`.
 
 ## Architecture
 
@@ -62,7 +66,7 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin each have one). Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system — they are CSS-isolated too, loading only `cookie-banner.css` (no tokens.css or design system). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin each have one). Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system — they are CSS-isolated too, loading only `cookie-banner.css` (no tokens.css or design system) and declaring their own `@font-face` rules inline (king: Cinzel/MedievalSharp, skyfall: Orbitron/Exo 2). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
 **Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal).
 
@@ -78,6 +82,8 @@ Vanilla ES6 modules — no frameworks or bundlers.
 **Locked sections** (`js/pages/index/locked-sections.js`): Injects 5 auth-gated placements into the index page — an experiment card, a gallery filter button, an exclusive gallery folder (Little Monster, 15 images), a soundlab track, and a markets portfolio card. All listen to `'bitbi:auth-change'` and toggle `data-locked` attribute.
 
 **Vendor libraries** (`js/vendor/`): Self-hosted `aframe-1.5.0.min.js`, `aframe-extras-7.2.0.min.js` (cosmic.html), `three-r128.min.js` (king.html).
+
+**Shared module defaults pattern**: `particles.js` and `binary-rain.js` define conservative default configs (e.g. `maxParticles: 35`, `maxCols: 16`). The index page overrides these with heavier settings via its `main.js` (e.g. `maxParticles: 100`, `maxCols: 30`). Subpages use the lighter defaults. Changing defaults only affects subpages; changing index overrides only affects the homepage.
 
 ### CSS
 
