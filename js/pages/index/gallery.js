@@ -185,6 +185,7 @@ export function initGallery() {
         galDotsEl.setAttribute('aria-label', 'Gallery cards');
         all.forEach((_, i) => {
             const d = document.createElement('button');
+            d.type = 'button';
             d.className = 'gal-deck-dot' + (i === galActive ? ' active' : '');
             d.setAttribute('role', 'tab');
             d.setAttribute('aria-selected', i === galActive ? 'true' : 'false');
@@ -245,6 +246,7 @@ export function initGallery() {
 
         cats.forEach(({ key, label }) => {
             const btn = document.createElement('button');
+            btn.type = 'button';
             btn.className = 'gal-filter-btn' + (key === galCategory ? ' active' : '');
             btn.textContent = label;
             btn.setAttribute('role', 'tab');
@@ -264,6 +266,7 @@ export function initGallery() {
         });
 
         const exclBtn = document.createElement('button');
+        exclBtn.type = 'button';
         exclBtn.className = 'gal-filter-btn gal-filter-btn--auth';
         exclBtn.textContent = 'Exclusive \uD83D\uDD12';
         exclBtn.setAttribute('role', 'tab');

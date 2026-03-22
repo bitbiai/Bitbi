@@ -74,6 +74,7 @@ function createBadge(text, variant) {
 
 function createActionBtn(label, onClick, danger) {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'btn-action' + (danger ? ' btn-action--danger' : '');
     btn.textContent = label;
     btn.addEventListener('click', onClick);
@@ -402,6 +403,7 @@ async function loadLatestAvatars() {
         img.src = `/api/admin/avatars/${avatar.userId}`;
         img.alt = '';
         img.loading = 'lazy';
+        img.decoding = 'async';
 
         item.appendChild(img);
         item.addEventListener('click', () => openLightbox(avatar));

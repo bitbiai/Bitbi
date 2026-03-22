@@ -345,6 +345,7 @@ export function initSoundLab(revealObserver) {
             dotsEl.setAttribute('aria-label', 'Sound Lab tracks');
             cards.forEach((_, i) => {
                 const d = document.createElement('button');
+                d.type = 'button';
                 d.className = 'snd-deck-dot' + (i === deckActive ? ' active' : '');
                 d.setAttribute('role', 'tab');
                 d.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');

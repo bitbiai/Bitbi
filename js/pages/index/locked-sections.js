@@ -73,6 +73,7 @@ function setupGalleryFilter() {
     if (!filterBar) return;
 
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'auth-filter-btn';
     btn.textContent = 'Exclusive \uD83D\uDD12';
     btn.setAttribute('role', 'tab');
@@ -250,6 +251,7 @@ function setupGalleryExclusiveCard() {
 
         /* Back button */
         const backBtn = document.createElement('button');
+        backBtn.type = 'button';
         backBtn.className = 'auth-filter-btn auth-filter-btn--unlocked active';
         backBtn.style.cssText = 'margin-bottom:16px;display:inline-flex;align-items:center;gap:6px';
         backBtn.innerHTML = `<span style="font-size:14px">←</span> Exclusive`;

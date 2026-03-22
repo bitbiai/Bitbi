@@ -421,7 +421,7 @@ function initGameOverlay(card, overlayId, frameId, closeId, src, bg, previewCanv
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', `${src.replace('.html', '')} game`);
     const closeClass = warmStyle ? 'game-overlay__close game-overlay__close--warm' : 'game-overlay__close game-overlay__close--light';
-    overlay.innerHTML = `<div class="game-overlay__close-wrap"><button id="${closeId}" class="${closeClass}">\u2715 CLOSE</button></div><iframe id="${frameId}" src="" class="game-overlay__frame" allow="accelerometer;gyroscope" title="${src.replace('.html', '')} game"></iframe>`;
+    overlay.innerHTML = `<div class="game-overlay__close-wrap"><button type="button" id="${closeId}" class="${closeClass}">\u2715 CLOSE</button></div><iframe id="${frameId}" src="" class="game-overlay__frame" allow="accelerometer;gyroscope" title="${src.replace('.html', '')} game"></iframe>`;
     document.body.appendChild(overlay);
 
     let isOpen = false;
@@ -500,6 +500,7 @@ function initMobileDeck(grid) {
         dotsEl.setAttribute('aria-label', 'Experiment cards');
         all.forEach((_, i) => {
             const d = document.createElement('button');
+            d.type = 'button';
             d.className = 'exp-deck-dot' + (i === active ? ' active' : '');
             d.setAttribute('role', 'tab');
             d.setAttribute('aria-selected', i === active ? 'true' : 'false');
@@ -549,12 +550,14 @@ function initMobileDeck(grid) {
         bar.setAttribute('aria-label', 'Experiment categories');
 
         const freeBtn = document.createElement('button');
+        freeBtn.type = 'button';
         freeBtn.className = 'exp-filter-btn active';
         freeBtn.textContent = 'Free';
         freeBtn.setAttribute('role', 'tab');
         freeBtn.setAttribute('aria-selected', 'true');
 
         const exclBtn = document.createElement('button');
+        exclBtn.type = 'button';
         exclBtn.className = 'exp-filter-btn exp-filter-btn--auth';
         exclBtn.textContent = 'Exclusive \uD83D\uDD12';
         exclBtn.setAttribute('role', 'tab');

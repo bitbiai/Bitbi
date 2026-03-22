@@ -42,6 +42,7 @@ function renderDesktop() {
         wrap.appendChild(email);
 
         const logout = document.createElement('button');
+        logout.type = 'button';
         logout.className = 'auth-nav__logout';
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
@@ -66,6 +67,7 @@ function renderDesktop() {
         }
     } else {
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'site-nav__cta pulse-glow';
         btn.textContent = 'Sign In';
         btn.addEventListener('click', () => openAuthModal('login'));
@@ -98,6 +100,7 @@ function renderMobile() {
         actionsWrap.className = 'auth-nav__mobile-actions';
 
         const logout = document.createElement('button');
+        logout.type = 'button';
         logout.className = 'auth-nav__mobile-logout';
         logout.textContent = 'Sign Out';
         logout.addEventListener('click', () => authLogout());
@@ -120,6 +123,7 @@ function renderMobile() {
         authContainer.appendChild(actionsWrap);
     } else {
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'mobile-nav__cta pulse-glow';
         btn.textContent = 'Sign In';
         btn.addEventListener('click', () => openAuthModal('login'));

@@ -90,10 +90,10 @@ function createBanner(onConsent) {
             </label>
         </div>
         <div class="cookie-banner__actions">
-            <button id="ckAcceptAll" class="cookie-banner__btn cookie-banner__btn--accept">Accept All</button>
-            <button id="ckSavePrefs" class="cookie-banner__btn cookie-banner__btn--accept" style="display:none">Save Preferences</button>
-            <button id="ckCustomize" class="cookie-banner__btn cookie-banner__btn--secondary">Customize</button>
-            <button id="ckRejectAll" class="cookie-banner__btn cookie-banner__btn--secondary">Reject All</button>
+            <button type="button" id="ckAcceptAll" class="cookie-banner__btn cookie-banner__btn--accept">Accept All</button>
+            <button type="button" id="ckSavePrefs" class="cookie-banner__btn cookie-banner__btn--accept" style="display:none">Save Preferences</button>
+            <button type="button" id="ckCustomize" class="cookie-banner__btn cookie-banner__btn--secondary">Customize</button>
+            <button type="button" id="ckRejectAll" class="cookie-banner__btn cookie-banner__btn--secondary">Reject All</button>
         </div>
     </div>`;
     document.body.appendChild(overlay);
