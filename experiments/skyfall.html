@@ -249,6 +249,7 @@ const H = () => window.innerHeight;
 // ===================== MUSIC (longing.mp3) =====================
 let musicPlaying = false;
 const bgMusic = new Audio('/assets/audio/longing.mp3');
+bgMusic.preload = 'none';
 bgMusic.loop = true;
 bgMusic.volume = 0.5;
 
