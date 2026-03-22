@@ -9,16 +9,14 @@ export function initNavbar() {
     const nav = document.getElementById('navbar');
     if (!nav) return;
 
-    let ticking = false;
+    let isGlass = false;
     window.addEventListener('scroll', () => {
-        if (!ticking) {
-            requestAnimationFrame(() => {
-                nav.classList.toggle('glass-nav', window.scrollY > 60);
-                ticking = false;
-            });
-            ticking = true;
+        const shouldBeGlass = window.scrollY > 10;
+        if (shouldBeGlass !== isGlass) {
+            nav.classList.toggle('glass-nav', shouldBeGlass);
+            isGlass = shouldBeGlass;
         }
-    });
+    }, { passive: true });
 }
 
 export function initMobileNav() {
