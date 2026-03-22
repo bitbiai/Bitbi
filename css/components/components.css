@@ -26,6 +26,7 @@
         inset-block-start: 0;
         inset-inline: 0;
         z-index: 50;
+        padding-block-start: env(safe-area-inset-top, 0px);
         transition: all 0.5s var(--ease-default);
     }
 
@@ -250,7 +251,7 @@
 
     .mobile-nav__close {
         position: absolute;
-        inset-block-start: var(--space-5);
+        inset-block-start: calc(var(--space-5) + env(safe-area-inset-top, 0px));
         inset-inline-end: var(--space-5);
         z-index: 2;
         background: none;
@@ -274,7 +275,7 @@
         display: flex;
         flex-direction: column;
         min-block-size: 100%;
-        padding: 5rem var(--space-6) var(--space-6);
+        padding: calc(5rem + env(safe-area-inset-top, 0px)) var(--space-6) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
     }
 
     .mobile-nav__inner::before,
@@ -433,7 +434,7 @@
 
     .hero--compact {
         min-block-size: auto;
-        padding-block: 5rem 3rem;
+        padding-block: calc(5rem + env(safe-area-inset-top, 0px)) 3rem;
         overflow: hidden;
     }
 
@@ -442,7 +443,7 @@
     }
 
     @media (min-width: 1024px) {
-        .hero--compact { padding-block: 7rem 4rem; }
+        .hero--compact { padding-block: calc(7rem + env(safe-area-inset-top, 0px)) 4rem; }
     }
 
     .hero__gradient-overlay {
