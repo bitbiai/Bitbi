@@ -26,8 +26,14 @@
         inset-block-start: 0;
         inset-inline: 0;
         z-index: 50;
-        padding-block-start: env(safe-area-inset-top, 0px);
         transition: all 0.5s var(--ease-default);
+    }
+
+    /* Safe-area padding on the inner wrapper, NOT the outer shell.
+       The nav's glass background stays flush at top:0, only the
+       content (logo, links, buttons) is pushed below the notch. */
+    .site-nav > .container {
+        padding-block-start: env(safe-area-inset-top, 0px);
     }
 
     .site-nav__bar {

@@ -148,6 +148,20 @@
         border-block-end: 1px solid rgba(255, 255, 255, 0.04);
     }
 
+    /* Extend glass visual upward into the iOS safe-area zone.
+       On non-notch devices env() resolves to 0 → block-size:0, invisible. */
+    .glass-nav::before {
+        content: '';
+        position: absolute;
+        inset-block-start: calc(-1 * env(safe-area-inset-top, 0px));
+        inset-inline: 0;
+        block-size: env(safe-area-inset-top, 0px);
+        background: inherit;
+        -webkit-backdrop-filter: inherit;
+        backdrop-filter: inherit;
+        pointer-events: none;
+    }
+
     /* --- Reveal Animation --- */
     .js-ready .reveal {
         opacity: 0;
