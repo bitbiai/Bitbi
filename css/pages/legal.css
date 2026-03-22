@@ -9,15 +9,20 @@
         h3 {
             font-family: var(--font-display);
             font-weight: 700;
-            font-size: 1rem;
+            font-size: 1.125rem;
             color: rgba(255, 255, 255, 0.85);
+            margin-block-start: var(--space-5);
             margin-block-end: var(--space-3);
+        }
+
+        h3:first-child {
+            margin-block-start: 0;
         }
 
         p, li {
             color: rgba(255, 255, 255, 0.45);
-            font-size: 13px;
-            line-height: 1.75;
+            font-size: 0.875rem;
+            line-height: 1.8;
         }
 
         p + p {
@@ -39,10 +44,11 @@
                 content: '';
                 position: absolute;
                 inset-inline-start: 0;
-                inset-block-start: 9px;
+                inset-block-start: 10px;
                 inline-size: 5px;
                 block-size: 5px;
                 border-radius: var(--radius-full);
+                background: rgba(0, 240, 255, 0.3);
             }
         }
 
