@@ -26,7 +26,7 @@
         inset-block-start: 0;
         inset-inline: 0;
         z-index: 50;
-        transition: background 0.25s var(--ease-default);
+        transition: none;
     }
 
     /* Safe-area padding on the inner wrapper, NOT the outer shell.
