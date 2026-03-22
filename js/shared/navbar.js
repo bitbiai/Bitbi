@@ -1,23 +1,9 @@
 /* ============================================================
-   BITBI — Navbar scroll handler & mobile toggle
+   BITBI — Mobile nav toggle
    Shared module — used by index.html and all subpages
    ============================================================ */
 
 import { setupFocusTrap } from './focus-trap.js';
-
-export function initNavbar() {
-    const nav = document.getElementById('navbar');
-    if (!nav) return;
-
-    let isGlass = false;
-    window.addEventListener('scroll', () => {
-        const shouldBeGlass = window.scrollY > 10;
-        if (shouldBeGlass !== isGlass) {
-            nav.classList.toggle('glass-nav', shouldBeGlass);
-            isGlass = shouldBeGlass;
-        }
-    }, { passive: true });
-}
 
 export function initMobileNav() {
     const btn = document.getElementById('mobileMenuBtn');

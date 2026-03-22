@@ -1,1 +1,1 @@
-export { initNavbar, initMobileNav } from '../../shared/navbar.js';
+export { initMobileNav } from '../../shared/navbar.js';

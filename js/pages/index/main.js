@@ -3,7 +3,7 @@
    Initializes all page modules
    ============================================================ */
 
-import { initNavbar, initMobileNav } from './navbar.js';
+import { initMobileNav } from './navbar.js';
 import { initExperiments } from './experiments.js';
 import { initGallery } from './gallery.js';
 import { initSoundLab } from './soundlab.js';
@@ -42,7 +42,6 @@ try { initBinaryRain('binaryRain', {
 }); } catch (e) { console.warn('binaryRain:', e); }
 
 /* Navbar */
-try { initNavbar(); } catch (e) { console.warn('navbar:', e); }
 try { initMobileNav(); } catch (e) { console.warn('mobileNav FAILED:', e); }
 
 /* Scroll reveal */
