@@ -11,7 +11,8 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : "",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type",
+      "X-Content-Type-Options": "nosniff"
     };
 
     if (request.method === "OPTIONS") {
@@ -21,7 +22,11 @@ export default {
     if (request.method !== "GET") {
       return new Response("Method not allowed", {
         status: 405,
-        headers: corsHeaders
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "text/plain; charset=utf-8",
+          "Allow": "GET, OPTIONS"
+        }
       });
     }
 

@@ -59,6 +59,59 @@ jobs:
             exit 1
           fi
           echo "All JS import paths validated successfully"
+      - name: Check target="_blank" links have rel="noopener"
+        run: |
+          violations=$(grep -rn 'target="_blank"' --include="*.html" --include="*.js" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler --exclude="*.min.js" . | grep -v 'noopener' || true)
+          if [ -n "$violations" ]; then
+            echo "ERROR: Found target=\"_blank\" without rel=\"noopener noreferrer\":"
+            echo "$violations"
+            echo ""
+            echo "FAILED: Add rel=\"noopener noreferrer\" to all target=\"_blank\" links"
+            exit 1
+          fi
+          echo "All target=\"_blank\" links include rel=\"noopener\" — OK"
+      - name: Validate local CSS/JS references
+        run: |
+          # Check that CSS stylesheet and JS script references point to existing files
+          # (Complements the JS import path validator above)
+          grep -rn 'href="[^"]*\.css' --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler . | while IFS= read -r line; do
+            file=$(echo "$line" | cut -d: -f1)
+            echo "$line" | grep -oE 'href="[^"]*\.css[^"]*"' | sed 's/href="//;s/"//' | while IFS= read -r ref; do
+              case "$ref" in http://*|https://*|//*) continue ;; esac
+              [ -z "$ref" ] && continue
+              clean=$(echo "$ref" | sed 's/[?#].*//')
+              dir=$(dirname "$file")
+              resolved=$(cd "$dir" && realpath -m "$clean" 2>/dev/null || echo "$dir/$clean")
+              if [ ! -f "$resolved" ]; then
+                echo "ERROR: Missing CSS in $file"
+                echo "  href='$ref' -> $resolved (not found)"
+                echo "FAIL" >> /tmp/asset_errors
+              fi
+            done
+          done
+          grep -rn 'src="[^"]*\.js' --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler . | while IFS= read -r line; do
+            file=$(echo "$line" | cut -d: -f1)
+            echo "$line" | grep -oE 'src="[^"]*\.js[^"]*"' | sed 's/src="//;s/"//' | while IFS= read -r ref; do
+              case "$ref" in http://*|https://*|//*) continue ;; esac
+              [ -z "$ref" ] && continue
+              clean=$(echo "$ref" | sed 's/[?#].*//')
+              dir=$(dirname "$file")
+              resolved=$(cd "$dir" && realpath -m "$clean" 2>/dev/null || echo "$dir/$clean")
+              if [ ! -f "$resolved" ]; then
+                echo "ERROR: Missing JS in $file"
+                echo "  src='$ref' -> $resolved (not found)"
+                echo "FAIL" >> /tmp/asset_errors
+              fi
+            done
+          done
+          if [ -f /tmp/asset_errors ]; then
+            count=$(wc -l < /tmp/asset_errors)
+            rm /tmp/asset_errors
+            echo ""
+            echo "FAILED: $count broken CSS/JS reference(s) found"
+            exit 1
+          fi
+          echo "All local CSS/JS references validated successfully"
       - name: Validate page metadata
         run: |
           errors=0

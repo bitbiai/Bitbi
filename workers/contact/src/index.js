@@ -47,6 +47,7 @@ function corsHeaders(origin) {
         'Access-Control-Allow-Origin': origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'X-Content-Type-Options': 'nosniff',
     };
 }
 
@@ -59,11 +60,24 @@ export default {
         }
 
         if (request.method !== 'POST') {
-            return new Response('Method not allowed', { status: 405, headers: corsHeaders(origin) });
+            return new Response('Method not allowed', {
+                status: 405,
+                headers: {
+                    ...corsHeaders(origin),
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Allow': 'POST, OPTIONS',
+                },
+            });
         }
 
         if (origin !== ALLOWED_ORIGIN) {
-            return new Response('Forbidden', { status: 403 });
+            return new Response('Forbidden', {
+                status: 403,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'X-Content-Type-Options': 'nosniff',
+                },
+            });
         }
 
         /* Rate limit: 5 submissions per hour per IP */
