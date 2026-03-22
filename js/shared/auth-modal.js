@@ -23,7 +23,7 @@ export function initAuthModal() {
     container.innerHTML = `
     <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="Sign In">
         <div class="auth-modal__content">
-            <button class="auth-modal__close" aria-label="Close auth modal">&times; Close</button>
+            <button type="button" class="auth-modal__close" aria-label="Close auth modal">&times; Close</button>
             <div class="auth-modal__card">
                 <div style="text-align:center;margin-bottom:var(--space-4)">
                     ${LOCK_SVG}
@@ -31,8 +31,8 @@ export function initAuthModal() {
                     <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px">Unlock exclusive content with a free account</p>
                 </div>
                 <div class="auth-modal__tabs">
-                    <button class="auth-modal__tab active" data-tab="login">Sign In</button>
-                    <button class="auth-modal__tab" data-tab="register">Create Account</button>
+                    <button type="button" class="auth-modal__tab active" data-tab="login">Sign In</button>
+                    <button type="button" class="auth-modal__tab" data-tab="register">Create Account</button>
                 </div>
                 <div id="authFormsContainer"></div>
             </div>
@@ -75,15 +75,15 @@ function injectForms() {
     formsContainer.innerHTML = `
         <form class="auth-modal__form active" id="authLoginForm" novalidate>
             <div class="auth-modal__msg" id="authLoginMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg">
-            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="8" aria-describedby="authLoginMsg">
+            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="8" aria-describedby="authLoginMsg" spellcheck="false">
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
             <p style="text-align:center;margin-top:var(--space-3)"><a href="/account/forgot-password.html" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">Forgot password?</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
             <div class="auth-modal__msg" id="authRegisterMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg">
-            <input type="password" name="password" placeholder="Password (min. 8 characters)" required class="form-input" autocomplete="new-password" minlength="8" aria-describedby="authRegisterMsg">
+            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="Password (min. 8 characters)" required class="form-input" autocomplete="new-password" minlength="8" aria-describedby="authRegisterMsg" spellcheck="false">
             <p class="auth-modal__hint">Minimum 8 characters</p>
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Create Account</button>
         </form>`;

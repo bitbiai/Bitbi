@@ -60,7 +60,7 @@
 
 <!-- BACKGROUND FAVICON WATERMARK -->
 <div class="watermark" aria-hidden="true">
-    <img src="/assets/favicons/android-chrome-512x512.png" alt="" class="watermark__img" role="presentation" width="512" height="512" fetchpriority="low">
+    <img src="/assets/favicons/android-chrome-512x512.png" alt="" class="watermark__img" role="presentation" width="512" height="512" fetchpriority="low" loading="lazy" decoding="async">
 </div>
 
 <!-- NAVBAR -->
@@ -83,7 +83,7 @@
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
             </div>
-            <button id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
                 <span class="site-nav__menu-bar" id="bar1"></span>
                 <span class="site-nav__menu-bar" id="bar2"></span>
                 <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
@@ -204,7 +204,7 @@
 <!-- Gallery Modal -->
 <div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-content">
-        <button class="modal-close" aria-label="Close gallery modal">&times; Close</button>
+        <button type="button" class="modal-close" aria-label="Close gallery modal">&times; Close</button>
         <div class="modal-card">
             <div id="modalImage" class="modal-image"></div>
             <div class="modal-body">
@@ -245,7 +245,7 @@
                     <div id="ytPlaceholder" class="yt-placeholder" style="display:none">
                         <svg class="yt-placeholder__icon" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg>
                         <p class="yt-placeholder__text">YouTube content is blocked because marketing cookies are disabled.</p>
-                        <button id="ytEnableBtn" class="yt-placeholder__btn">Enable Marketing Cookies</button>
+                        <button type="button" id="ytEnableBtn" class="yt-placeholder__btn">Enable Marketing Cookies</button>
                     </div>
                 </div>
                 <div class="yt-card__info">
@@ -294,7 +294,7 @@
                 </div>
                 <div>
                     <label for="contactEmail" class="sr-only">Email</label>
-                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email">
+                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
                 </div>
             </div>
             <label for="contactSubject" class="sr-only">Subject</label>
