@@ -231,7 +231,15 @@ function setupGalleryExclusiveCard() {
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
             const fullLink = document.getElementById('modalFullLink');
-            if (fullLink) { fullLink.href = '#'; fullLink.hidden = true; fullLink.onclick = null; }
+            if (fullLink) {
+                fullLink.href = full;
+                fullLink.hidden = false;
+                fullLink.onclick = (e) => {
+                    e.stopPropagation();
+                    window.open(full, '_blank', 'noopener');
+                    e.preventDefault();
+                };
+            }
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
         });
