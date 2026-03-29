@@ -102,7 +102,7 @@ src/
 
 **Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`
 
-**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, audio, and avatars. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `music/exclusive-track-01.mp3`, `avatars/{userId}` (user avatars, one per user, content type in httpMetadata). Valid monster IDs are `VALID_MONSTER_IDS` constant: 01–15.
+**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, audio, and avatars. R2 key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/exclusive-track-01.mp3`, `avatars/{userId}` (user avatars, one per user, content type in httpMetadata). Valid monster IDs are `VALID_MONSTER_IDS` constant: 01–15.
 
 Migrations in `migrations/` — numbered sequentially (`0001_init` through `0005_add_profiles`).
 

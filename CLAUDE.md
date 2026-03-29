@@ -52,6 +52,28 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 
 ## Architecture
 
+### R2 Media Delivery
+
+Two R2 buckets serve media — one public, one private:
+
+| Bucket | Domain | Purpose |
+|--------|--------|---------|
+| Public | `https://pub.bitbi.ai` | Gallery images (thumb/preview/full), Sound Lab audio |
+| Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Exclusive gallery images, exclusive audio, avatars |
+
+**Public R2 base URL** is defined as `const R2_PUBLIC_BASE = 'https://pub.bitbi.ai'` in each module that needs it (`js/shared/gallery-data.js`, `js/pages/index/soundlab.js`). Change it in both places if the domain changes.
+
+**Public R2 key layout:**
+- Gallery images: `gallery/[thumbs|previews|full]/ai-creations/{slug}-{width}.webp`
+- Sound Lab audio: `audio/sound-lab/{track-name}.mp3`
+
+**Private R2 key layout** (bucket `bitbi-private-media`, bound as `PRIVATE_MEDIA` in auth worker):
+- Exclusive images: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbs)
+- Exclusive audio: `audio/sound-lab/exclusive-track-01.mp3`
+- Avatars: `avatars/{userId}`
+
+Public content loads directly from `pub.bitbi.ai`. Private content routes through the auth worker (`/api/images/*`, `/api/thumbnails/*`, `/api/music/*`) which enforces authentication before proxying from R2.
+
 ### Pages
 - `index.html` — Main landing page (particle effects, gallery, experiments, soundlab, markets, auth-gated sections)
 - `experiments/cosmic.html` — A-Frame WebXR/VR art gallery
@@ -68,7 +90,7 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin each have one). Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system — they are CSS-isolated too, loading only `cookie-banner.css` (no tokens.css or design system) and declaring their own `@font-face` rules inline (king: Cinzel/MedievalSharp, skyfall: Orbitron/Exo 2). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
-**Shared modules** (`js/shared/`): Beyond auth, includes `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal).
+**Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal).
 
 **Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `soundlab.js`, `markets.js`, `experiments.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`. Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
 
@@ -85,9 +107,24 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Shared module defaults pattern**: `particles.js` and `binary-rain.js` define conservative default configs (e.g. `maxParticles: 35`, `maxCols: 16`). The index page overrides these with heavier settings via its `main.js` (e.g. `maxParticles: 100`, `maxCols: 30`). Subpages use the lighter defaults. Changing defaults only affects subpages; changing index overrides only affects the homepage.
 
+### Gallery
+
+**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items 100–108. Each item has `id`, `slug`, `title`, `caption`, `category`, `aspectRatio`, and three image variants (`thumb`, `preview`, `full`) with URLs built from `R2_PUBLIC_BASE`. Items reference only public R2 URLs — exclusive/private items (Little Monster) are injected separately by `locked-sections.js` and have no `full` variant.
+
+**Rendering** (`js/pages/index/gallery.js`): Imports `galleryItems` from `gallery-data.js`. Grid cards load **only thumb** images with explicit `width`/`height` and `loading="lazy"`. Modal loads **only preview** images. Full images are opened in a new tab via `window.open()` only on explicit click of the top-left modal action button. The full-link button (`#modalFullLink`) is shown only for public items (those with `item.full.url`) and hidden for exclusive items.
+
+**Categories**: Desktop filter bar has three buttons: Pictures, Creepy Creatures, Experimental. The Exclusive filter button is injected by `locked-sections.js` and is auth-gated. Default active category is Pictures (no "All" category).
+
+**Modal controls**: Two absolutely-positioned buttons inside `.modal-card` — open-full link (`.modal-action--left`, top-left) and close button (`.modal-action--right`, top-right). Both use `.modal-action` base class in `css/components/components.css`.
+
+### Sound Lab
+
+**Public tracks** (`js/pages/index/soundlab.js`): 5 tracks served from `R2_PUBLIC_BASE + '/audio/sound-lab/{name}.mp3'`. Audio metadata is deferred via IntersectionObserver — `preload` starts as `'none'`, switches to `'metadata'` only when the Sound Lab section scrolls into view.
+
+**Exclusive track**: Injected by `locked-sections.js`, served via `/api/music/exclusive-track-01` (auth-required, routed through auth worker to private R2).
+
 ### CSS
 
-- **Tailwind CSS** loaded from CDN (only remaining CDN dependency besides Cloudflare RUM)
 - `@layer` cascade order: `tokens → reset → base → components → pages → utilities` — each layer maps to a file in `css/base/` or `css/components/`
 - `css/base/` — `tokens.css` (design tokens, `@property`, oklch colors), `reset.css`, `base.css` (@font-face, gradients, glass, animations), `utilities.css`
 - `css/components/` — `components.css`, `auth.css` (auth modal, locked-area overlays, auth flow page styles), `cookie-banner.css` (standalone, hardcoded values, no CSS variable dependencies — intentional so game pages don't need tokens.css)
@@ -115,7 +152,7 @@ All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION
 - GDPR cookie consent uses timezone-based EU detection (no API calls)
 - Legal pages follow German law requirements (§ 5 DDG, § 18 MStV)
 - Auth error messages are in English
-- Protected content (gallery images, music) served from R2 bucket, requires authentication
+- Protected content (exclusive gallery images, exclusive audio) served from private R2 bucket via auth worker; public content (gallery items 100–108, Sound Lab tracks) served directly from `pub.bitbi.ai`
 - Accessibility: all modals use `focus-trap.js`, keyboard navigation (Escape closes, arrow keys cycle), `prefers-reduced-motion` respected in particles and scroll animations, ARIA attributes on interactive elements
 - Admin date formatting uses German locale (`Intl.DateTimeFormat('de-DE')`)
 - `docs/` contains internal compliance/audit notes — not deployed, not user-facing
