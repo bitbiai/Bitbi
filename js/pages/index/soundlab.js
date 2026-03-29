@@ -4,12 +4,14 @@
 
 import { formatTime } from '../../shared/format-time.js';
 
+const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
+
 const tracks = [
-    { t: 'Cosmic Sea', file: 'assets/audio/cosmic-sea.mp3' },
-    { t: 'Zufall und Notwendigkeit', file: 'assets/audio/zufall-und-notwendigkeit.mp3' },
-    { t: 'Relativity', file: 'assets/audio/relativity.mp3' },
-    { t: 'Tiny Hearts', file: 'assets/audio/tiny-hearts.mp3' },
-    { t: "Grok's Groove Remix", file: "assets/audio/grok.mp3" },
+    { t: 'Cosmic Sea', file: `${R2_PUBLIC_BASE}/audio/sound-lab/cosmic-sea.mp3` },
+    { t: 'Zufall und Notwendigkeit', file: `${R2_PUBLIC_BASE}/audio/sound-lab/zufall-und-notwendigkeit.mp3` },
+    { t: 'Relativity', file: `${R2_PUBLIC_BASE}/audio/sound-lab/relativity.mp3` },
+    { t: 'Tiny Hearts', file: `${R2_PUBLIC_BASE}/audio/sound-lab/tiny-hearts.mp3` },
+    { t: "Grok's Groove Remix", file: `${R2_PUBLIC_BASE}/audio/sound-lab/grok.mp3` },
 ];
 
 const trackImages = ['/assets/images/4.jpg', '/assets/images/2.jpg', '/assets/images/3.jpg', '/assets/images/5.jpg', '/assets/images/6.jpg'];
