@@ -134,9 +134,15 @@ export function initGallery() {
             if (item.full && item.full.url) {
                 fullLink.href = item.full.url;
                 fullLink.hidden = false;
+                fullLink.onclick = (e) => {
+                    e.stopPropagation();
+                    window.open(item.full.url, '_blank', 'noopener,noreferrer');
+                    e.preventDefault();
+                };
             } else {
                 fullLink.href = '#';
                 fullLink.hidden = true;
+                fullLink.onclick = null;
             }
         }
 
