@@ -96,9 +96,9 @@ function setupGalleryFilter() {
         btn.setAttribute('aria-selected', 'false');
 
         if (isActive) {
-            /* Toggle off: re-activate "All" */
-            const allBtn = filterBar.querySelector('[data-filter="all"]');
-            if (allBtn) { allBtn.classList.add('active'); allBtn.setAttribute('aria-selected', 'true'); allBtn.click(); }
+            /* Toggle off: re-activate "Pictures" (default category) */
+            const defaultBtn = filterBar.querySelector('[data-filter="pictures"]');
+            if (defaultBtn) { defaultBtn.classList.add('active'); defaultBtn.setAttribute('aria-selected', 'true'); defaultBtn.click(); }
         } else {
             /* Toggle on: show exclusive only */
             btn.classList.add('active');

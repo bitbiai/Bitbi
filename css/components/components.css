@@ -1242,21 +1242,40 @@
         overflow-y: auto;
     }
 
-    .modal-close {
+    .modal-toolbar {
+        display: flex;
+        gap: 0.25rem;
         position: absolute;
         inset-block-start: -2.75rem;
-        inset-inline-end: 0;
+        inset-inline-start: 0;
+        z-index: 10;
+    }
+
+    .modal-toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: var(--radius-md, 0.5rem);
         color: rgba(255, 255, 255, 0.7);
-        font-size: 1rem;
-        font-weight: 600;
-        transition: color 0.3s var(--ease-default);
-        cursor: pointer;
         background: none;
         border: none;
-        padding: 0.5rem 0.75rem;
-        z-index: 10;
+        cursor: pointer;
+        transition: color 0.3s var(--ease-default), background 0.3s var(--ease-default);
+        text-decoration: none;
+        padding: 0;
+    }
 
-        &:hover { color: var(--color-white); }
+    .modal-toolbar-btn:hover,
+    .modal-toolbar-btn:focus-visible {
+        color: var(--color-white);
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .modal-toolbar-btn:focus-visible {
+        outline: 2px solid var(--color-cyan, #00F0FF);
+        outline-offset: 2px;
     }
 
     .modal-card {

@@ -38,7 +38,7 @@ export function initGallery() {
             grid.appendChild(card);
         });
 
-        const list = filter === 'all' ? items : items.filter(i => i.category === filter);
+        const list = items.filter(i => i.category === filter);
         list.forEach((item) => {
             const d = document.createElement('div');
             d.className = 'gallery-item';
@@ -69,7 +69,7 @@ export function initGallery() {
         });
     }
 
-    render('all');
+    render('pictures');
 
     /* Listen for exclusive filter from locked-sections.js */
     grid.addEventListener('gallery:filter', (e) => {
@@ -127,6 +127,19 @@ export function initGallery() {
         mi.appendChild(modalImg);
         document.getElementById('modalTitle').textContent = item.title;
         document.getElementById('modalCaption').textContent = item.caption;
+
+        /* Show open-full link only for public items with a full variant */
+        const fullLink = document.getElementById('modalFullLink');
+        if (fullLink) {
+            if (item.full && item.full.url) {
+                fullLink.href = item.full.url;
+                fullLink.hidden = false;
+            } else {
+                fullLink.href = '#';
+                fullLink.hidden = true;
+            }
+        }
+
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
         focusTrapCleanup = setupFocusTrap(modal);
@@ -347,15 +360,15 @@ export function initGallery() {
             c.style.transition = '';
         });
         if (galDotsEl) { galDotsEl.remove(); galDotsEl = null; }
-        render('all');
+        render('pictures');
         const desktopBar = document.querySelector('#gallery .filter-bar');
         if (desktopBar) {
             desktopBar.querySelectorAll('.filter-btn').forEach(b => {
                 b.classList.remove('active');
                 b.setAttribute('aria-selected', 'false');
             });
-            const allBtn = desktopBar.querySelector('[data-filter="all"]');
-            if (allBtn) { allBtn.classList.add('active'); allBtn.setAttribute('aria-selected', 'true'); }
+            const picturesBtn = desktopBar.querySelector('[data-filter="pictures"]');
+            if (picturesBtn) { picturesBtn.classList.add('active'); picturesBtn.setAttribute('aria-selected', 'true'); }
             const authBtn = desktopBar.querySelector('.auth-filter-btn');
             if (authBtn) { authBtn.classList.remove('active'); authBtn.setAttribute('aria-selected', 'false'); }
         }
