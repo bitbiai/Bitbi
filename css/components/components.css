@@ -1246,9 +1246,9 @@
         display: flex;
         gap: 0.25rem;
         position: absolute;
-        inset-block-start: -2.75rem;
-        inset-inline-start: 0;
-        z-index: 10;
+        inset-block-start: 0.75rem;
+        inset-inline-start: 0.75rem;
+        z-index: 20;
     }
 
     .modal-toolbar-btn {
@@ -1258,8 +1258,8 @@
         width: 2.25rem;
         height: 2.25rem;
         border-radius: var(--radius-md, 0.5rem);
-        color: rgba(255, 255, 255, 0.7);
-        background: none;
+        color: rgba(255, 255, 255, 0.85);
+        background: rgba(0, 0, 0, 0.45);
         border: none;
         cursor: pointer;
         transition: color 0.3s var(--ease-default), background 0.3s var(--ease-default);
@@ -1270,7 +1270,7 @@
     .modal-toolbar-btn:hover,
     .modal-toolbar-btn:focus-visible {
         color: var(--color-white);
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.7);
     }
 
     .modal-toolbar-btn:focus-visible {
@@ -1279,6 +1279,7 @@
     }
 
     .modal-card {
+        position: relative;
         border-radius: var(--radius-xl);
         overflow: hidden;
         background: rgba(13, 27, 42, 0.7);
