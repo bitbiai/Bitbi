@@ -85,7 +85,7 @@ export async function handleMedia(ctx) {
       return result;
     }
 
-    const object = await env.PRIVATE_MEDIA.get("music/exclusive-track-01.mp3");
+    const object = await env.PRIVATE_MEDIA.get("audio/sound-lab/exclusive-track-01.mp3");
 
     if (!object) {
       return json(
