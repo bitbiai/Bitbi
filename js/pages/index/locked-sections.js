@@ -230,6 +230,8 @@ function setupGalleryExclusiveCard() {
             mi.innerHTML = `<img src="${full}" crossorigin="use-credentials" alt="${title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
+            const fullLink = document.getElementById('modalFullLink');
+            if (fullLink) { fullLink.href = '#'; fullLink.hidden = true; fullLink.onclick = null; }
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
         });
