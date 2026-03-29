@@ -1242,16 +1242,9 @@
         overflow-y: auto;
     }
 
-    .modal-toolbar {
-        display: flex;
-        gap: 0.25rem;
+    .modal-action {
         position: absolute;
-        inset-block-start: 0.75rem;
-        inset-inline-start: 0.75rem;
         z-index: 20;
-    }
-
-    .modal-toolbar-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1262,20 +1255,31 @@
         background: rgba(0, 0, 0, 0.45);
         border: none;
         cursor: pointer;
+        pointer-events: auto;
         transition: color 0.3s var(--ease-default), background 0.3s var(--ease-default);
         text-decoration: none;
         padding: 0;
     }
 
-    .modal-toolbar-btn:hover,
-    .modal-toolbar-btn:focus-visible {
+    .modal-action:hover,
+    .modal-action:focus-visible {
         color: var(--color-white);
         background: rgba(0, 0, 0, 0.7);
     }
 
-    .modal-toolbar-btn:focus-visible {
+    .modal-action:focus-visible {
         outline: 2px solid var(--color-cyan, #00F0FF);
         outline-offset: 2px;
+    }
+
+    .modal-action--left {
+        inset-block-start: 0.75rem;
+        inset-inline-start: 0.75rem;
+    }
+
+    .modal-action--right {
+        inset-block-start: 0.75rem;
+        inset-inline-end: 0.75rem;
     }
 
     .modal-card {
