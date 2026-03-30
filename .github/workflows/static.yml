@@ -163,7 +163,7 @@ jobs:
           cp -r assets css fonts js _site/
           cp -r experiments account admin legal _site/
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: '_site'
       - name: Deploy to GitHub Pages
