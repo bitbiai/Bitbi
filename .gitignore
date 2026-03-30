@@ -23,3 +23,7 @@ cookies*.txt
 
 # GitHub Pages build
 _site/
+
+# Playwright
+test-results/
+playwright-report/
