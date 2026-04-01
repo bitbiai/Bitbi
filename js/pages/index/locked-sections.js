@@ -4,8 +4,8 @@
 
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { formatTime } from '../../shared/format-time.js';
 import { makeTags } from '../../shared/make-tags.js';
-import { soundLabApi } from './soundlab.js';
 
 const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -318,20 +318,19 @@ function setupSoundLabCard(revealObserver) {
     if (!ctn) return;
 
     const exclusiveTracks = [
-        { t: 'Exclusive Track 01', file: '/api/music/exclusive-track-01', thumb: 'thumb-bitbi' },
-        { t: 'Burning Slow', file: '/api/music/burning-slow', thumb: 'thumb-burning' },
-        { t: 'Feel It All', file: '/api/music/feel-it-all', thumb: 'thumb-feel' },
-        { t: 'The Ones Who Made the Light', file: '/api/music/the-ones-who-made-the-light', thumb: 'thumb-ones' },
-        { t: "Rooms I'll Never Live In", file: "/api/music/rooms-i'll-never-live-in", thumb: 'thumb-rooms' },
+        { t: 'Exclusive Track 01', slug: 'exclusive-track-01', thumb: 'thumb-bitbi' },
+        { t: 'Burning Slow', slug: 'burning-slow', thumb: 'thumb-burning' },
+        { t: 'Feel It All', slug: 'feel-it-all', thumb: 'thumb-feel' },
+        { t: 'The Ones Who Made the Light', slug: 'the-ones-who-made-the-light', thumb: 'thumb-ones' },
+        { t: "Rooms I'll Never Live In", slug: "rooms-i'll-never-live-in", thumb: 'thumb-rooms' },
     ];
 
-    /* Register exclusive tracks into soundlab's unified audio system */
-    const startIdx = soundLabApi.registerTracks(exclusiveTracks);
-
     const wrappers = [];
+    const audios = [];
+    let activeExclIdx = null;
+    let animFrame = null;
 
     exclusiveTracks.forEach((tr, idx) => {
-        const absIdx = startIdx + idx;
         const wrapper = document.createElement('div');
         wrapper.className = 'reveal snd-card locked-area locked-area--card';
         wrapper.setAttribute('data-locked', 'true');
@@ -339,19 +338,127 @@ function setupSoundLabCard(revealObserver) {
 
         const content = document.createElement('div');
         content.className = 'locked-area__content';
-        content.innerHTML = `<div class="snd-hero"><img class="excl-thumb" src="" alt="${tr.t}" loading="lazy" decoding="async" width="600" height="180" style="width:100%;height:100%;object-fit:cover;display:none"><div class="excl-thumb-placeholder" style="position:absolute;inset:0;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),radial-gradient(ellipse at 70% 60%,rgba(0,240,255,0.06),transparent 60%),#060e18;display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div class="snd-player-row" style="display:flex;align-items:center;gap:14px;padding:16px 20px"><button class="snd-play" data-idx="${absIdx}" aria-label="Play ${tr.t}" style="width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s"><svg class="pi" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="pa" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tr.t}</h4><span class="snd-time" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px">0:00</span></div><div class="snd-bar" style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer"><div class="snd-prog" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#00F0FF,#FFB300);border-radius:2px;transition:width 0.1s linear"></div></div></div><div class="eq-wrap" style="display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0"><div class="eq-bar" style="animation:eqBar1 0.8s ease-in-out infinite paused;height:6px"></div><div class="eq-bar" style="animation:eqBar2 0.6s ease-in-out infinite paused;height:12px"></div><div class="eq-bar" style="animation:eqBar3 0.7s ease-in-out infinite paused;height:4px"></div><div class="eq-bar" style="animation:eqBar1 0.9s ease-in-out infinite paused;height:8px"></div><div class="eq-bar" style="animation:eqBar2 0.55s ease-in-out infinite paused;height:10px"></div></div></div>`;
+        content.innerHTML = `<div class="snd-hero"><img class="excl-thumb" src="" alt="${tr.t}" loading="lazy" decoding="async" width="600" height="180" style="width:100%;height:100%;object-fit:cover;display:none"><div class="excl-thumb-placeholder" style="position:absolute;inset:0;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),radial-gradient(ellipse at 70% 60%,rgba(0,240,255,0.06),transparent 60%),#060e18;display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div class="snd-player-row" style="display:flex;align-items:center;gap:14px;padding:16px 20px"><button class="excl-play" data-excl-idx="${idx}" aria-label="Play ${tr.t}" style="width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s"><svg class="excl-pi" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="excl-pa" width="14" height="14" fill="#00F0FF" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tr.t}</h4><span class="excl-time" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0;margin-left:8px">0:00</span></div><div class="excl-bar" style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer"><div class="excl-prog" style="position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#FFB300,#00F0FF);border-radius:2px;transition:width 0.1s linear"></div></div></div><div class="excl-eq" style="display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0"><div class="eq-bar" style="animation:eqBar1 0.8s ease-in-out infinite paused;height:6px"></div><div class="eq-bar" style="animation:eqBar2 0.6s ease-in-out infinite paused;height:12px"></div><div class="eq-bar" style="animation:eqBar3 0.7s ease-in-out infinite paused;height:4px"></div><div class="eq-bar" style="animation:eqBar1 0.9s ease-in-out infinite paused;height:8px"></div><div class="eq-bar" style="animation:eqBar2 0.55s ease-in-out infinite paused;height:10px"></div></div></div>`;
 
         wrapper.appendChild(content);
         wrapper.appendChild(makeOverlay());
         ctn.appendChild(wrapper);
         lockedAreas.push(wrapper);
         wrappers.push(wrapper);
+        audios.push(null);
+
+        wrapper.onmouseenter = () => { if (activeExclIdx !== idx) wrapper.style.borderColor = 'rgba(0,240,255,0.15)'; };
+        wrapper.onmouseleave = () => { if (activeExclIdx !== idx) wrapper.style.borderColor = 'rgba(255,255,255,0.06)'; };
 
         if (revealObserver) revealObserver.observe(wrapper);
     });
 
-    /* Bind play/hero/bar handlers via soundlab's unified system */
-    soundLabApi.bindHandlers(startIdx);
+    function tick() {
+        if (activeExclIdx === null || !audios[activeExclIdx]) { animFrame = null; return; }
+        const a = audios[activeExclIdx];
+        const w = wrappers[activeExclIdx];
+        if (a.duration) {
+            w.querySelector('.excl-prog').style.width = (a.currentTime / a.duration * 100) + '%';
+            w.querySelector('.excl-time').textContent = formatTime(a.currentTime) + ' / ' + formatTime(a.duration);
+        }
+        if (audios.some(au => au && !au.paused)) {
+            animFrame = requestAnimationFrame(tick);
+        } else {
+            animFrame = null;
+        }
+    }
+
+    function startTick() {
+        if (!animFrame) { animFrame = requestAnimationFrame(tick); }
+    }
+
+    function setCardPlaying(idx, state) {
+        const w = wrappers[idx];
+        w.querySelector('.excl-pi').style.display = state ? 'none' : '';
+        w.querySelector('.excl-pa').style.display = state ? '' : 'none';
+        w.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = state ? 'running' : 'paused');
+        if (state) {
+            w.style.borderColor = 'rgba(0,240,255,0.2)';
+            w.style.background = 'rgba(0,240,255,0.04)';
+        } else {
+            w.style.borderColor = 'rgba(255,255,255,0.06)';
+            w.style.background = 'rgba(13,27,42,0.45)';
+        }
+    }
+
+    function stopAllExcl() {
+        audios.forEach((a, i) => {
+            if (a && !a.paused) a.pause();
+            setCardPlaying(i, false);
+        });
+        activeExclIdx = null;
+    }
+
+    function ensureAudio(idx) {
+        if (audios[idx]) return audios[idx];
+        const tr = exclusiveTracks[idx];
+        const a = new Audio(`/api/music/${tr.slug}`);
+        a.crossOrigin = 'use-credentials';
+        a.addEventListener('ended', () => {
+            setCardPlaying(idx, false);
+            wrappers[idx].querySelector('.excl-prog').style.width = '0%';
+            /* Auto-advance to next exclusive track */
+            if (idx < exclusiveTracks.length - 1) {
+                playExclTrack(idx + 1);
+                ctn.dispatchEvent(new CustomEvent('snd:excl-deck-sync', { detail: idx + 1 }));
+            } else {
+                activeExclIdx = null;
+            }
+        });
+        a.addEventListener('error', () => {
+            setCardPlaying(idx, false);
+        });
+        audios[idx] = a;
+        return a;
+    }
+
+    function playExclTrack(idx) {
+        stopAllExcl();
+        const a = ensureAudio(idx);
+        a.play().catch(() => {});
+        activeExclIdx = idx;
+        setCardPlaying(idx, true);
+        startTick();
+    }
+
+    /* Play/pause click for each exclusive card */
+    wrappers.forEach((w, idx) => {
+        const playBtn = w.querySelector('.excl-play');
+        const heroEl = w.querySelector('.snd-hero');
+        const barEl = w.querySelector('.excl-bar');
+
+        playBtn.addEventListener('click', () => {
+            const { loggedIn } = getAuthState();
+            if (!loggedIn) { openAuthModal('register'); return; }
+
+            if (activeExclIdx === idx && audios[idx] && !audios[idx].paused) {
+                audios[idx].pause();
+                setCardPlaying(idx, false);
+                return;
+            }
+            if (activeExclIdx === idx && audios[idx] && audios[idx].paused) {
+                audios[idx].play().catch(() => {});
+                setCardPlaying(idx, true);
+                startTick();
+                return;
+            }
+            playExclTrack(idx);
+        });
+
+        heroEl.addEventListener('click', () => playBtn.click());
+
+        barEl.addEventListener('click', (e) => {
+            const a = audios[idx];
+            if (!a || !a.duration) return;
+            const rect = barEl.getBoundingClientRect();
+            a.currentTime = (e.clientX - rect.left) / rect.width * a.duration;
+        });
+    });
 
     /* Load thumbnails when logged in */
     let thumbsLoaded = false;
@@ -376,22 +483,34 @@ function setupSoundLabCard(revealObserver) {
 
     loadThumbs();
 
-    /* Reset thumbnails and exclusive audio on auth change */
+    /* Reset audio and thumbnails when user logs out */
     document.addEventListener('bitbi:auth-change', () => {
         const { loggedIn } = getAuthState();
         if (loggedIn) {
             loadThumbs();
         } else {
-            soundLabApi.resetExclusive();
-            wrappers.forEach(w => {
-                const thumbEl = w.querySelector('.excl-thumb');
-                const placeholderEl = w.querySelector('.excl-thumb-placeholder');
-                thumbEl.src = '';
-                thumbEl.style.display = 'none';
-                placeholderEl.style.display = 'flex';
+            stopAllExcl();
+            audios.forEach((a, i) => {
+                if (a) { a.pause(); a.src = ''; }
+                audios[i] = null;
+                wrappers[i].querySelector('.excl-prog').style.width = '0%';
+                wrappers[i].querySelector('.excl-time').textContent = '0:00';
+                wrappers[i].querySelector('.excl-thumb').src = '';
+                wrappers[i].querySelector('.excl-thumb').style.display = 'none';
+                wrappers[i].querySelector('.excl-thumb-placeholder').style.display = 'flex';
             });
             thumbsLoaded = false;
+            if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
         }
+    });
+
+    /* Respond to deck swipe/dot events from soundlab.js */
+    ctn.addEventListener('snd:excl-swipe', (e) => {
+        const { loggedIn } = getAuthState();
+        if (!loggedIn) return;
+        const newIdx = e.detail;
+        const wasPlaying = activeExclIdx !== null && audios[activeExclIdx] && !audios[activeExclIdx].paused;
+        if (wasPlaying) playExclTrack(newIdx);
     });
 }
 
