@@ -3,6 +3,8 @@
    ============================================================ */
 
 import { formatTime } from '../../shared/format-time.js';
+import { getAuthState } from '../../shared/auth-state.js';
+import { openAuthModal } from '../../shared/auth-modal.js';
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
 
@@ -42,7 +44,7 @@ export function initSoundLab(revealObserver) {
     function highlightRow(idx) {
         for (let i = 0; i < ctn.children.length; i++) {
             const row = ctn.children[i];
-            if (!row) continue;
+            if (!row || row.classList.contains('locked-area')) continue;
             if (i === idx) {
                 row.style.borderColor = 'rgba(0,240,255,0.2)';
                 row.style.background = 'rgba(0,240,255,0.04)';
@@ -306,9 +308,14 @@ export function initSoundLab(revealObserver) {
         let dotsEl = null;
         let swipeLock = false;
         let wasPlayingOnSwipeStart = false;
+        let category = 'free';
+
+        function getCards() {
+            return Array.from(ctn.children).filter(c => c.style.display !== 'none');
+        }
 
         function sndLayout(skipAnim) {
-            const cards = Array.from(ctn.children);
+            const cards = getCards();
             const n = cards.length;
             cards.forEach((c, i) => {
                 const d = i - deckActive;
@@ -339,7 +346,7 @@ export function initSoundLab(revealObserver) {
 
         function sndBuildDots() {
             if (dotsEl) dotsEl.remove();
-            const cards = Array.from(ctn.children);
+            const cards = getCards();
             if (cards.length <= 1) { dotsEl = null; return; }
             dotsEl = document.createElement('div');
             dotsEl.className = 'snd-deck-dots';
@@ -357,7 +364,7 @@ export function initSoundLab(revealObserver) {
                     deckActive = i;
                     sndLayout();
                     sndSyncDots();
-                    if (wasPlaying) playTrack(deckActive);
+                    if (wasPlaying && category === 'free') playTrack(deckActive);
                 });
                 dotsEl.appendChild(d);
             });
@@ -367,9 +374,96 @@ export function initSoundLab(revealObserver) {
         function sndSyncDots() {
             if (!dotsEl) return;
             const dots = dotsEl.querySelectorAll('.snd-deck-dot');
+            const cards = getCards();
+            if (dots.length !== cards.length) { sndBuildDots(); return; }
             dots.forEach((d, i) => {
                 d.classList.toggle('active', i === deckActive);
                 d.setAttribute('aria-selected', i === deckActive ? 'true' : 'false');
+            });
+        }
+
+        function applyCategory() {
+            Array.from(ctn.children).forEach(c => {
+                const isExcl = c.classList.contains('locked-area');
+                c.style.display = (category === 'free') === isExcl ? 'none' : '';
+            });
+        }
+
+        function switchCategory(cat) {
+            category = cat;
+            if (!isDeck) return;
+            applyCategory();
+            deckActive = 0;
+            sndLayout(true);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    getCards().forEach(c => { c.style.transition = ''; });
+                });
+            });
+            sndBuildDots();
+        }
+
+        function createFilterBar() {
+            const bar = document.createElement('div');
+            bar.className = 'snd-filter-bar';
+            bar.setAttribute('role', 'tablist');
+            bar.setAttribute('aria-label', 'Sound Lab categories');
+
+            const freeBtn = document.createElement('button');
+            freeBtn.type = 'button';
+            freeBtn.className = 'snd-filter-btn active';
+            freeBtn.textContent = 'Free';
+            freeBtn.setAttribute('role', 'tab');
+            freeBtn.setAttribute('aria-selected', 'true');
+
+            const exclBtn = document.createElement('button');
+            exclBtn.type = 'button';
+            exclBtn.className = 'snd-filter-btn snd-filter-btn--auth';
+            exclBtn.textContent = 'Exclusive \uD83D\uDD12';
+            exclBtn.setAttribute('role', 'tab');
+            exclBtn.setAttribute('aria-selected', 'false');
+
+            const { loggedIn } = getAuthState();
+            if (loggedIn) {
+                exclBtn.classList.add('unlocked');
+                exclBtn.textContent = 'Exclusive';
+            }
+
+            freeBtn.addEventListener('click', () => {
+                if (category === 'free') return;
+                freeBtn.classList.add('active');
+                freeBtn.setAttribute('aria-selected', 'true');
+                exclBtn.classList.remove('active');
+                exclBtn.setAttribute('aria-selected', 'false');
+                switchCategory('free');
+            });
+
+            exclBtn.addEventListener('click', () => {
+                const { loggedIn } = getAuthState();
+                if (!loggedIn) { openAuthModal('register'); return; }
+                if (category === 'exclusive') return;
+                exclBtn.classList.add('active');
+                exclBtn.setAttribute('aria-selected', 'true');
+                freeBtn.classList.remove('active');
+                freeBtn.setAttribute('aria-selected', 'false');
+                switchCategory('exclusive');
+            });
+
+            bar.appendChild(freeBtn);
+            bar.appendChild(exclBtn);
+            ctn.parentElement.insertBefore(bar, ctn);
+
+            document.addEventListener('bitbi:auth-change', () => {
+                const { loggedIn } = getAuthState();
+                exclBtn.classList.toggle('unlocked', loggedIn);
+                exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
+                if (!loggedIn && category === 'exclusive') {
+                    freeBtn.classList.add('active');
+                    freeBtn.setAttribute('aria-selected', 'true');
+                    exclBtn.classList.remove('active');
+                    exclBtn.setAttribute('aria-selected', 'false');
+                    switchCategory('free');
+                }
             });
         }
 
@@ -378,10 +472,11 @@ export function initSoundLab(revealObserver) {
             isDeck = true;
             deckActive = activeIdx !== null ? activeIdx : 0;
             ctn.classList.add('snd-deck');
+            applyCategory();
             sndLayout(true);
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    Array.from(ctn.children).forEach(c => { c.style.transition = ''; });
+                    getCards().forEach(c => { c.style.transition = ''; });
                 });
             });
             sndBuildDots();
@@ -397,6 +492,7 @@ export function initSoundLab(revealObserver) {
                 c.style.zIndex = '';
                 c.style.pointerEvents = '';
                 c.style.transition = '';
+                c.style.display = '';
             });
             if (dotsEl) { dotsEl.remove(); dotsEl = null; }
         }
@@ -411,7 +507,7 @@ export function initSoundLab(revealObserver) {
             tracking = true; decided = false; horiz = false;
             swipeLock = false;
             wasPlayingOnSwipeStart = activeIdx !== null && !audios[activeIdx].paused;
-            const c = ctn.children[deckActive];
+            const c = getCards()[deckActive];
             if (c) c.style.transition = 'none';
         }, { passive: true });
 
@@ -424,17 +520,17 @@ export function initSoundLab(revealObserver) {
                 horiz = Math.abs(dx) > Math.abs(dy);
                 if (!horiz) {
                     tracking = false;
-                    const c = ctn.children[deckActive];
+                    const c = getCards()[deckActive];
                     if (c) c.style.transition = '';
                     return;
                 }
             }
             if (horiz) {
                 e.preventDefault();
-                const c = ctn.children[deckActive];
+                const c = getCards()[deckActive];
                 if (c) {
                     let adj = dx;
-                    const n = ctn.children.length;
+                    const n = getCards().length;
                     if ((deckActive === 0 && dx > 0) || (deckActive >= n - 1 && dx < 0)) adj *= 0.25;
                     c.style.transform = `translateX(${adj}px) scale(0.90)`;
                 }
@@ -448,7 +544,7 @@ export function initSoundLab(revealObserver) {
             const dx = e.changedTouches[0].clientX - sx;
             const v = Math.abs(dx) / Math.max(Date.now() - st, 1);
             const prevActive = deckActive;
-            const n = ctn.children.length;
+            const n = getCards().length;
             if ((Math.abs(dx) > 40 || v > 0.3) && Math.abs(dx) > 15) {
                 swipeLock = true;
                 if (dx < 0 && deckActive < n - 1) deckActive++;
@@ -456,7 +552,7 @@ export function initSoundLab(revealObserver) {
             }
             sndLayout();
             sndSyncDots();
-            if (deckActive !== prevActive && wasPlayingOnSwipeStart) {
+            if (deckActive !== prevActive && wasPlayingOnSwipeStart && category === 'free') {
                 playTrack(deckActive);
             }
         }, { passive: true });
@@ -472,6 +568,22 @@ export function initSoundLab(revealObserver) {
             if (swipeLock) { e.stopPropagation(); e.preventDefault(); swipeLock = false; }
         }, true);
 
+        /* Watch for dynamically added cards (locked sections) */
+        new MutationObserver(() => {
+            if (isDeck) {
+                applyCategory();
+                sndLayout(true);
+                sndSyncDots();
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        getCards().forEach(c => { c.style.transition = ''; });
+                    });
+                });
+            }
+        }).observe(ctn, { childList: true });
+
+        createFilterBar();
+
         mql.addEventListener('change', e => {
             if (e.matches) engage();
             else disengage();
@@ -480,7 +592,9 @@ export function initSoundLab(revealObserver) {
         if (mql.matches) engage();
 
         return function(idx) {
-            if (!isDeck || idx < 0 || idx >= ctn.children.length) return;
+            if (!isDeck || category !== 'free') return;
+            const cards = getCards();
+            if (idx < 0 || idx >= cards.length) return;
             deckActive = idx;
             sndLayout();
             sndSyncDots();
