@@ -103,15 +103,23 @@ function injectForms() {
         const btn = loginForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Signing in...';
+        /* Release body scroll lock before authLogin dispatches
+           bitbi:auth-change — the overlay still blocks interaction.
+           This ensures all auth-change listeners run with the page
+           in its normal (unlocked) layout state. */
+        document.body.style.overflow = '';
         const res = await authLogin(email, password);
         btn.disabled = false;
         btn.textContent = 'Sign In';
         if (res.ok) {
             closeAuthModal();
-        } else if (res.data?.code === 'EMAIL_NOT_VERIFIED') {
-            showMsgWithResend(loginMsg, res.error, email);
         } else {
-            showMsg(loginMsg, 'error', res.error);
+            document.body.style.overflow = 'hidden';
+            if (res.data?.code === 'EMAIL_NOT_VERIFIED') {
+                showMsgWithResend(loginMsg, res.error, email);
+            } else {
+                showMsg(loginMsg, 'error', res.error);
+            }
         }
     });
 

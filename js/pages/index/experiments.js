@@ -603,17 +603,6 @@ function initMobileDeck(grid) {
                 exclBtn.classList.remove('active');
                 exclBtn.setAttribute('aria-selected', 'false');
                 switchCategory('free');
-            } else if (isDeck) {
-                applyCategory();
-                const cards = getCards();
-                if (active >= cards.length) active = Math.max(cards.length - 1, 0);
-                layout(true);
-                syncDots();
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        getCards().forEach(c => { c.style.transition = ''; });
-                    });
-                });
             }
         });
     }

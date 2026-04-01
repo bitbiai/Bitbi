@@ -339,8 +339,6 @@ export function initGallery() {
                 galBtns.pictures.classList.add('active');
                 galBtns.pictures.setAttribute('aria-selected', 'true');
                 galSwitchCategory('pictures');
-            } else if (galIsDeck) {
-                galRenderDeck();
             }
         });
 

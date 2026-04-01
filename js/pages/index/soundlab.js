@@ -464,17 +464,6 @@ export function initSoundLab(revealObserver) {
                     exclBtn.classList.remove('active');
                     exclBtn.setAttribute('aria-selected', 'false');
                     switchCategory('free');
-                } else if (isDeck) {
-                    applyCategory();
-                    const cards = getCards();
-                    if (deckActive >= cards.length) deckActive = Math.max(cards.length - 1, 0);
-                    sndLayout(true);
-                    sndSyncDots();
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            getCards().forEach(c => { c.style.transition = ''; });
-                        });
-                    });
                 }
             });
         }
