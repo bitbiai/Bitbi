@@ -8,6 +8,8 @@ import { openAuthModal } from '../../shared/auth-modal.js';
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
 
+export const soundLabApi = {};
+
 const tracks = [
     { t: 'Cosmic Sea', file: `${R2_PUBLIC_BASE}/audio/sound-lab/cosmic-sea.mp3` },
     { t: 'Zufall und Notwendigkeit', file: `${R2_PUBLIC_BASE}/audio/sound-lab/zufall-und-notwendigkeit.mp3` },
@@ -17,6 +19,8 @@ const tracks = [
 ];
 
 const trackImages = ['/assets/images/4.jpg', '/assets/images/2.jpg', '/assets/images/3.jpg', '/assets/images/5.jpg', '/assets/images/6.jpg'];
+
+const freeCount = tracks.length;
 
 export function initSoundLab(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
@@ -44,7 +48,7 @@ export function initSoundLab(revealObserver) {
     function highlightRow(idx) {
         for (let i = 0; i < ctn.children.length; i++) {
             const row = ctn.children[i];
-            if (!row || row.classList.contains('locked-area')) continue;
+            if (!row) continue;
             if (i === idx) {
                 row.style.borderColor = 'rgba(0,240,255,0.2)';
                 row.style.background = 'rgba(0,240,255,0.04)';
@@ -71,6 +75,14 @@ export function initSoundLab(revealObserver) {
 
     function playTrack(idx) {
         if (idx < 0 || idx >= tracks.length) return;
+        if (idx >= freeCount) {
+            const { loggedIn } = getAuthState();
+            if (!loggedIn) { openAuthModal('register'); return; }
+            if (!audios[idx].getAttribute('src')) {
+                audios[idx].crossOrigin = 'use-credentials';
+                audios[idx].src = tracks[idx].file;
+            }
+        }
         stopAll();
         const audio = audios[idx];
         const row = ctn.children[idx];
@@ -164,7 +176,7 @@ export function initSoundLab(revealObserver) {
             row.querySelector('.pi').style.display = '';
             row.querySelector('.pa').style.display = 'none';
             row.querySelector('.snd-prog').style.width = '0%';
-            if (i < tracks.length - 1) { playTrack(i + 1); }
+            if (i < freeCount - 1) { playTrack(i + 1); }
             else { activeIdx = null; highlightRow(-1); plUpdate(); }
         });
     });
@@ -273,23 +285,23 @@ export function initSoundLab(revealObserver) {
 
     audios.forEach(a => a.volume = 0.8);
 
-    // Defer audio metadata loading until soundlab section is visible
+    // Defer audio metadata loading until soundlab section is visible (free tracks only)
     if (typeof IntersectionObserver !== 'undefined') {
         const audioIo = new IntersectionObserver(([entry]) => {
             if (entry.isIntersecting) {
-                tracks.forEach((tr, idx) => {
-                    audios[idx].src = tr.file;
+                for (let idx = 0; idx < freeCount; idx++) {
+                    audios[idx].src = tracks[idx].file;
                     audios[idx].preload = 'metadata';
-                });
+                }
                 audioIo.disconnect();
             }
         });
         audioIo.observe(ctn);
     } else {
-        tracks.forEach((tr, idx) => {
-            audios[idx].src = tr.file;
+        for (let idx = 0; idx < freeCount; idx++) {
+            audios[idx].src = tracks[idx].file;
             audios[idx].preload = 'metadata';
-        });
+        }
     }
 
     plEl.onmouseenter = () => plEl.style.borderColor = 'rgba(0,240,255,0.2)';
@@ -364,7 +376,10 @@ export function initSoundLab(revealObserver) {
                     deckActive = i;
                     sndLayout();
                     sndSyncDots();
-                    if (wasPlaying && category === 'free') playTrack(deckActive);
+                    if (wasPlaying) {
+                        const absIdx = Array.from(ctn.children).indexOf(getCards()[deckActive]);
+                        if (absIdx >= 0) playTrack(absIdx);
+                    }
                 });
                 dotsEl.appendChild(d);
             });
@@ -552,8 +567,9 @@ export function initSoundLab(revealObserver) {
             }
             sndLayout();
             sndSyncDots();
-            if (deckActive !== prevActive && wasPlayingOnSwipeStart && category === 'free') {
-                playTrack(deckActive);
+            if (deckActive !== prevActive && wasPlayingOnSwipeStart) {
+                const absIdx = Array.from(ctn.children).indexOf(getCards()[deckActive]);
+                if (absIdx >= 0) playTrack(absIdx);
             }
         }, { passive: true });
 
@@ -591,15 +607,102 @@ export function initSoundLab(revealObserver) {
 
         if (mql.matches) engage();
 
-        return function(idx) {
-            if (!isDeck || category !== 'free') return;
+        return function(absIdx) {
+            if (!isDeck) return;
             const cards = getCards();
-            if (idx < 0 || idx >= cards.length) return;
-            deckActive = idx;
+            const deckIdx = cards.indexOf(ctn.children[absIdx]);
+            if (deckIdx < 0) return;
+            deckActive = deckIdx;
             sndLayout();
             sndSyncDots();
         };
     }
 
     syncDeck = initSndDeck();
+
+    /* ── Exclusive track integration API ── */
+    soundLabApi.registerTracks = function(exclData) {
+        const startIdx = tracks.length;
+        exclData.forEach((tr, i) => {
+            tracks.push(tr);
+            const audio = new Audio();
+            audio.preload = 'none';
+            audio.volume = document.getElementById('plVol')?.value / 100 || 0.8;
+            audios.push(audio);
+
+            const absIdx = startIdx + i;
+            audio.addEventListener('ended', () => {
+                const row = ctn.children[absIdx];
+                if (!row) return;
+                row.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = 'paused');
+                row.querySelector('.pi').style.display = '';
+                row.querySelector('.pa').style.display = 'none';
+                row.querySelector('.snd-prog').style.width = '0%';
+                if (absIdx + 1 < tracks.length) { playTrack(absIdx + 1); }
+                else { activeIdx = null; highlightRow(-1); plUpdate(); }
+            });
+        });
+        return startIdx;
+    };
+
+    soundLabApi.bindHandlers = function(startIdx) {
+        for (let i = startIdx; i < tracks.length; i++) {
+            const card = ctn.children[i];
+            if (!card) continue;
+
+            const btn = card.querySelector('.snd-play');
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.dataset.idx);
+                    if (activeIdx === idx && !audios[idx].paused) { pauseTrack(); return; }
+                    if (activeIdx === idx && audios[idx].paused) {
+                        audios[idx].play().catch(() => {});
+                        startTick();
+                        const row = ctn.children[idx];
+                        row.querySelector('.pi').style.display = 'none';
+                        row.querySelector('.pa').style.display = '';
+                        row.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = 'running');
+                        plUpdate();
+                        return;
+                    }
+                    playTrack(idx);
+                });
+            }
+
+            const hero = card.querySelector('.snd-hero');
+            if (hero) {
+                hero.addEventListener('click', () => { if (btn) btn.click(); });
+            }
+
+            const bar = card.querySelector('.snd-bar');
+            if (bar) {
+                bar.addEventListener('click', (e) => {
+                    if (audios[i] && audios[i].duration) {
+                        const rect = bar.getBoundingClientRect();
+                        audios[i].currentTime = (e.clientX - rect.left) / rect.width * audios[i].duration;
+                    }
+                });
+            }
+        }
+    };
+
+    soundLabApi.resetExclusive = function() {
+        for (let i = freeCount; i < audios.length; i++) {
+            if (!audios[i].paused) audios[i].pause();
+            audios[i].removeAttribute('src');
+            audios[i].load();
+            const row = ctn.children[i];
+            if (!row) continue;
+            row.querySelectorAll('.eq-bar').forEach(b => b.style.animationPlayState = 'paused');
+            row.querySelector('.pi').style.display = '';
+            row.querySelector('.pa').style.display = 'none';
+            row.querySelector('.snd-prog').style.width = '0%';
+            row.querySelector('.snd-time').textContent = '0:00';
+        }
+        if (activeIdx !== null && activeIdx >= freeCount) {
+            activeIdx = null;
+            highlightRow(-1);
+            plUpdate();
+        }
+    };
 }

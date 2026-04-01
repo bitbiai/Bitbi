@@ -296,6 +296,13 @@
             position: absolute;
             inset: 0;
         }
+
+        .snd-card > .locked-area__content {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
     }
 
     /* --- Mobile Sound Lab Deck --- */
