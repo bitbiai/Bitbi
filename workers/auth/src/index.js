@@ -69,7 +69,8 @@ export default {
     if (
       (pathname.startsWith("/api/thumbnails/") ||
         pathname.startsWith("/api/images/") ||
-        pathname === "/api/music/exclusive-track-01") &&
+        pathname.startsWith("/api/music/") ||
+        pathname.startsWith("/api/soundlab-thumbs/")) &&
       method === "GET"
     ) {
       const result = await handleMedia(ctx);
