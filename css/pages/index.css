@@ -465,6 +465,15 @@
         }
     }
 
+    /* --- Desktop Section Spacing (≈60% reduction) --- */
+    @media (min-width: 640px) {
+        .section { padding-block: var(--space-10); }
+    }
+
+    @media (min-width: 1024px) {
+        .section { padding-block: var(--space-14); }
+    }
+
     /* --- Mobile Section Spacing (≈50% reduction) --- */
     @media (max-width: 639px) {
         .section { padding-block: var(--space-12); }
