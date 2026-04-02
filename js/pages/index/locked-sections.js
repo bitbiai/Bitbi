@@ -6,7 +6,7 @@ import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { formatTime } from '../../shared/format-time.js';
 import { makeTags } from '../../shared/make-tags.js';
-/* TEMP DEBUG */ import { dbgAuthChangeIn, dbg } from './_deck-debug.js';
+
 
 const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -24,7 +24,7 @@ export function initLockedSections(revealObserver) {
 }
 
 function updateAll() {
-    /* TEMP DEBUG */ dbgAuthChangeIn('lockedSections');
+
     const { loggedIn } = getAuthState();
     lockedAreas.forEach(el => {
         el.setAttribute('data-locked', loggedIn ? 'false' : 'true');
@@ -177,7 +177,7 @@ function setupGalleryExclusiveCard() {
     }
 
     document.addEventListener('bitbi:auth-change', () => {
-        /* TEMP DEBUG */ dbg('AUTH_CHANGE [lockedSections:galleryFolder]');
+
         if (getAuthState().loggedIn) {
             loadFolderThumbs();
         } else {
@@ -304,7 +304,7 @@ function setupGalleryExclusiveCard() {
 
     /* React to auth changes */
     document.addEventListener('bitbi:auth-change', () => {
-        /* TEMP DEBUG */ dbg('AUTH_CHANGE [lockedSections:galleryImages]');
+
         if (!getAuthState().loggedIn) {
             cardStates.forEach(state => {
                 state.imgEl.src = '';
@@ -491,7 +491,7 @@ function setupSoundLabCard(revealObserver) {
 
     /* Reset audio and thumbnails when user logs out */
     document.addEventListener('bitbi:auth-change', () => {
-        /* TEMP DEBUG */ dbg('AUTH_CHANGE [lockedSections:soundlab]');
+
         const { loggedIn } = getAuthState();
         if (loggedIn) {
             loadThumbs();

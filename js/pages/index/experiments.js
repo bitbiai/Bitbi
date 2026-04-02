@@ -5,7 +5,7 @@
 import { makeTags } from '../../shared/make-tags.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
-/* TEMP DEBUG */ import { dbgAuthChangeIn, dbgMutObs, dbgLayout, dbgDeckInit, dbgSwipe, dbgSwipeMove, dbgSwipeEnd, dbg } from './_deck-debug.js';
+
 
 const TAG_COLORS = {
     WebGL: '0,240,255', AI: '192,38,211', 'Three.js': '255,179,0',
@@ -452,7 +452,7 @@ function initGameOverlay(card, overlayId, frameId, closeId, src, bg, previewCanv
 
 /* ── Mobile Deck Carousel ── */
 function initMobileDeck(grid) {
-    /* TEMP DEBUG */ dbgDeckInit('experiments');
+
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
     let isDeck = false;
@@ -463,7 +463,7 @@ function initMobileDeck(grid) {
     function getCards() { return Array.from(grid.children).filter(c => c.style.display !== 'none'); }
 
     function layout(skipAnim) {
-        /* TEMP DEBUG */ dbgLayout('experiments');
+
         const all = getCards();
         const n = all.length;
         all.forEach((c, i) => {
@@ -597,7 +597,7 @@ function initMobileDeck(grid) {
         grid.parentElement.insertBefore(bar, grid);
 
         document.addEventListener('bitbi:auth-change', () => {
-            /* TEMP DEBUG */ dbgAuthChangeIn('experiments');
+
             const { loggedIn } = getAuthState();
             exclBtn.classList.toggle('unlocked', loggedIn);
             exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
@@ -653,7 +653,7 @@ function initMobileDeck(grid) {
         swipeLock = false;
         const c = getCards()[active];
         if (c) c.style.transition = 'none';
-        /* TEMP DEBUG */ dbgSwipe('experiments', { phase: 'start', x: sx, y: sy, active, cardCount: getCards().length, isDeck, category });
+
     }, { passive: true });
 
     grid.addEventListener('touchmove', e => {
@@ -679,7 +679,7 @@ function initMobileDeck(grid) {
                 const atBoundary = (active === 0 && dx > 0) || (active >= all.length - 1 && dx < 0);
                 if (atBoundary) adj *= 0.25;
                 c.style.transform = `translateX(${adj}px) scale(0.90)`;
-                /* TEMP DEBUG */ dbgSwipeMove('experiments', { dx, adj, active, cardCount: all.length, atBoundary });
+
             }
         }
     }, { passive: false });
@@ -700,7 +700,7 @@ function initMobileDeck(grid) {
             if (dx < 0 && active < all.length - 1) active++;
             else if (dx > 0 && active > 0) active--;
         }
-        /* TEMP DEBUG */ dbgSwipeEnd('experiments', { dx, velocity: v, prevActive, newActive: active, cardCount: all.length, swipeLock, category });
+
         layout();
         syncDots();
     }, { passive: true });
@@ -718,7 +718,7 @@ function initMobileDeck(grid) {
 
     /* Watch for dynamically added cards (locked sections) */
     new MutationObserver(() => {
-        /* TEMP DEBUG */ dbgMutObs('experiments');
+
         if (isDeck) {
             applyCategory();
             layout(true);

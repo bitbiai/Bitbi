@@ -7,7 +7,6 @@
 import { authLogin, authRegister } from './auth-state.js';
 import { apiResendVerification } from './auth-api.js';
 import { setupFocusTrap } from './focus-trap.js';
-/* TEMP DEBUG */ import { dbgModalOpen, dbgModalClose, dbgLoginSubmitStart, dbgLoginSuccess, dbg } from '../pages/index/_deck-debug.js';
 
 let overlay = null;
 let formsContainer = null;
@@ -104,20 +103,15 @@ function injectForms() {
         const btn = loginForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = 'Signing in...';
-        /* TEMP DEBUG */ dbgLoginSubmitStart();
         /* Release body scroll lock before authLogin dispatches
            bitbi:auth-change — the overlay still blocks interaction.
            This ensures all auth-change listeners run with the page
            in its normal (unlocked) layout state. */
-        /* TEMP DEBUG */ dbg('OVERFLOW_CLEAR_BEFORE_DISPATCH', { before: document.body.style.overflow });
         document.body.style.overflow = '';
-        /* TEMP DEBUG */ dbg('OVERFLOW_CLEAR_AFTER', { after: document.body.style.overflow, docElClientWidth: document.documentElement.clientWidth });
         const res = await authLogin(email, password);
-        /* TEMP DEBUG */ dbg('AUTH_LOGIN_RETURNED', { ok: res.ok, bodyOverflow: document.body.style.overflow });
         btn.disabled = false;
         btn.textContent = 'Sign In';
         if (res.ok) {
-            /* TEMP DEBUG */ dbgLoginSuccess();
             closeAuthModal();
         } else {
             document.body.style.overflow = 'hidden';
@@ -211,12 +205,10 @@ export function openAuthModal(tab) {
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
     focusTrapCleanup = setupFocusTrap(overlay);
-    /* TEMP DEBUG */ dbgModalOpen();
 }
 
 export function closeAuthModal() {
     if (!overlay) return;
-    /* TEMP DEBUG */ dbg('MODAL_CLOSE_START', { bodyOverflow: document.body.style.overflow });
     overlay.classList.remove('active');
     document.body.style.overflow = '';
     if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
@@ -237,6 +229,4 @@ export function closeAuthModal() {
             overlay.style.display = 'none';
         }
     });
-
-    /* TEMP DEBUG */ dbgModalClose();
 }

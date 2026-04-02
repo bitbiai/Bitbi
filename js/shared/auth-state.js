@@ -6,11 +6,7 @@ import { apiGetMe, apiLogin, apiLogout, apiRegister } from './auth-api.js';
 
 let state = { loggedIn: false, user: null };
 
-/* TEMP DEBUG */ let _dbgAuthDispatch = null;
-/* TEMP DEBUG */ import('../pages/index/_deck-debug.js').then(m => { _dbgAuthDispatch = m.dbgAuthDispatch; }).catch(() => {});
-
 function dispatch() {
-    /* TEMP DEBUG */ if (_dbgAuthDispatch) _dbgAuthDispatch(state);
     document.dispatchEvent(new CustomEvent('bitbi:auth-change', { detail: state }));
 }
 

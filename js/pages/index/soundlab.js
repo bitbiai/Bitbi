@@ -5,7 +5,7 @@
 import { formatTime } from '../../shared/format-time.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
-/* TEMP DEBUG */ import { dbgAuthChangeIn, dbgMutObs, dbgLayout, dbgDeckInit, dbgSwipe, dbgSwipeMove, dbgSwipeEnd, dbg } from './_deck-debug.js';
+
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
 
@@ -325,7 +325,7 @@ export function initSoundLab(revealObserver) {
         }
 
         function sndLayout(skipAnim) {
-            /* TEMP DEBUG */ dbgLayout('soundlab');
+
             const cards = getCards();
             const n = cards.length;
             cards.forEach((c, i) => {
@@ -466,7 +466,7 @@ export function initSoundLab(revealObserver) {
             ctn.parentElement.insertBefore(bar, ctn);
 
             document.addEventListener('bitbi:auth-change', () => {
-                /* TEMP DEBUG */ dbgAuthChangeIn('soundlab');
+
                 const { loggedIn } = getAuthState();
                 exclBtn.classList.toggle('unlocked', loggedIn);
                 exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
@@ -522,7 +522,7 @@ export function initSoundLab(revealObserver) {
             wasPlayingOnSwipeStart = activeIdx !== null && !audios[activeIdx].paused;
             const c = getCards()[deckActive];
             if (c) c.style.transition = 'none';
-            /* TEMP DEBUG */ dbgSwipe('soundlab', { phase: 'start', x: sx, y: sy, active: deckActive, cardCount: getCards().length, isDeck, category });
+
         }, { passive: true });
 
         ctn.addEventListener('touchmove', e => {
@@ -548,7 +548,7 @@ export function initSoundLab(revealObserver) {
                     const atBoundary = (deckActive === 0 && dx > 0) || (deckActive >= n - 1 && dx < 0);
                     if (atBoundary) adj *= 0.25;
                     c.style.transform = `translateX(${adj}px) scale(0.90)`;
-                    /* TEMP DEBUG */ dbgSwipeMove('soundlab', { dx, adj, active: deckActive, cardCount: n, atBoundary });
+
                 }
             }
         }, { passive: false });
@@ -566,7 +566,7 @@ export function initSoundLab(revealObserver) {
                 if (dx < 0 && deckActive < n - 1) deckActive++;
                 else if (dx > 0 && deckActive > 0) deckActive--;
             }
-            /* TEMP DEBUG */ dbgSwipeEnd('soundlab', { dx, velocity: v, prevActive, newActive: deckActive, cardCount: n });
+
             sndLayout();
             sndSyncDots();
             if (deckActive !== prevActive) {
@@ -588,7 +588,7 @@ export function initSoundLab(revealObserver) {
 
         /* Watch for dynamically added cards (locked sections) */
         new MutationObserver(() => {
-            /* TEMP DEBUG */ dbgMutObs('soundlab');
+
             if (isDeck) {
                 applyCategory();
                 sndLayout(true);
@@ -621,7 +621,7 @@ export function initSoundLab(revealObserver) {
         });
 
         if (mql.matches) engage();
-        /* TEMP DEBUG */ dbgDeckInit('soundlab');
+
 
         return function(idx) {
             if (!isDeck || category !== 'free') return;
