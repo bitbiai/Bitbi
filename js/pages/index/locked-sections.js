@@ -422,6 +422,7 @@ function setupSoundLabCard(revealObserver) {
     }
 
     function playExclTrack(idx) {
+        ctn.dispatchEvent(new CustomEvent('snd:stop-free'));
         stopAllExcl();
         const a = ensureAudio(idx);
         a.play().catch(() => {});
@@ -446,6 +447,7 @@ function setupSoundLabCard(revealObserver) {
                 return;
             }
             if (activeExclIdx === idx && audios[idx] && audios[idx].paused) {
+                ctn.dispatchEvent(new CustomEvent('snd:stop-free'));
                 audios[idx].play().catch(() => {});
                 setCardPlaying(idx, true);
                 startTick();
@@ -508,6 +510,9 @@ function setupSoundLabCard(revealObserver) {
             if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
         }
     });
+
+    /* Stop exclusive tracks when free playback starts */
+    ctn.addEventListener('snd:stop-excl', () => stopAllExcl());
 
     /* Respond to deck swipe/dot events from soundlab.js */
     ctn.addEventListener('snd:excl-swipe', (e) => {

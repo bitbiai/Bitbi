@@ -72,6 +72,7 @@ export function initSoundLab(revealObserver) {
 
     function playTrack(idx) {
         if (idx < 0 || idx >= tracks.length) return;
+        ctn.dispatchEvent(new CustomEvent('snd:stop-excl'));
         stopAll();
         const audio = audios[idx];
         const row = ctn.children[idx];
@@ -102,6 +103,7 @@ export function initSoundLab(revealObserver) {
             const idx = parseInt(btn.dataset.idx);
             if (activeIdx === idx && !audios[idx].paused) { pauseTrack(); return; }
             if (activeIdx === idx && audios[idx].paused) {
+                ctn.dispatchEvent(new CustomEvent('snd:stop-excl'));
                 audios[idx].play().catch(() => {});
                 startTick();
                 const row = ctn.children[idx];
@@ -236,6 +238,7 @@ export function initSoundLab(revealObserver) {
     document.getElementById('plPlay').addEventListener('click', () => {
         if (activeIdx === null) { playTrack(0); return; }
         if (audios[activeIdx].paused) {
+            ctn.dispatchEvent(new CustomEvent('snd:stop-excl'));
             audios[activeIdx].play().catch(() => {});
             startTick();
             const row = ctn.children[activeIdx];
@@ -623,6 +626,9 @@ export function initSoundLab(revealObserver) {
             sndSyncDots();
         };
     }
+
+    /* Stop free tracks when exclusive playback starts */
+    ctn.addEventListener('snd:stop-free', () => stopAll());
 
     syncDeck = initSndDeck();
 }
