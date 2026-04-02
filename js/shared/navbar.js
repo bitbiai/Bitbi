@@ -4,6 +4,8 @@
    ============================================================ */
 
 import { setupFocusTrap } from './focus-trap.js';
+/* TEMP DEBUG */ let _dbgNavbar = null;
+/* TEMP DEBUG */ import('../pages/index/_deck-debug.js').then(m => { _dbgNavbar = m.dbg; }).catch(() => {});
 
 export function initMobileNav() {
     const btn = document.getElementById('mobileMenuBtn');
@@ -140,9 +142,11 @@ export function initMobileNav() {
             bar3.style.width = open ? '24px' : '16px';
         }
         if (open) {
+            /* TEMP DEBUG */ if (_dbgNavbar) _dbgNavbar('NAV_TOGGLE open=true, setting overflow=hidden');
             document.body.style.overflow = 'hidden';
         } else {
             const authModal = document.querySelector('.auth-modal__overlay.active, .modal-overlay.active');
+            /* TEMP DEBUG */ if (_dbgNavbar) _dbgNavbar('NAV_TOGGLE open=false', { authModalPresent: !!authModal, currentOverflow: document.body.style.overflow });
             if (!authModal) document.body.style.overflow = '';
         }
         document.documentElement.classList.toggle('menu-open', open);

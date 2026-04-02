@@ -6,6 +6,7 @@ import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { galleryItems } from '../../shared/gallery-data.js';
+/* TEMP DEBUG */ import { dbgAuthChangeIn, dbgMutObs, dbgLayout, dbgDeckInit, dbgSwipe, dbgSwipeMove, dbgSwipeEnd, dbg } from './_deck-debug.js';
 
 const items = galleryItems;
 
@@ -169,6 +170,7 @@ export function initGallery() {
     });
 
     /* ── Mobile Gallery Deck ── */
+    /* TEMP DEBUG */ dbgDeckInit('gallery');
     const galMql = window.matchMedia('(max-width: 639px)');
     let galActive = 0;
     let galIsDeck = false;
@@ -182,6 +184,7 @@ export function initGallery() {
     }
 
     function galLayout(skipAnim) {
+        /* TEMP DEBUG */ dbgLayout('gallery');
         const all = galGetCards();
         const n = all.length;
         all.forEach((c, i) => {
@@ -330,6 +333,7 @@ export function initGallery() {
         bar.appendChild(exclBtn);
 
         document.addEventListener('bitbi:auth-change', () => {
+            /* TEMP DEBUG */ dbgAuthChangeIn('gallery');
             const { loggedIn } = getAuthState();
             exclBtn.classList.toggle('unlocked', loggedIn);
             exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
@@ -391,6 +395,7 @@ export function initGallery() {
         galSwipeLock = false;
         const c = galGetCards()[galActive];
         if (c) c.style.transition = 'none';
+        /* TEMP DEBUG */ dbgSwipe('gallery', { phase: 'start', x: gsx, y: gsy, active: galActive, cardCount: galGetCards().length, isDeck: galIsDeck, category: galCategory });
     }, { passive: true });
 
     grid.addEventListener('touchmove', e => {
@@ -413,8 +418,10 @@ export function initGallery() {
             if (c) {
                 let adj = dx;
                 const all = galGetCards();
-                if ((galActive === 0 && dx > 0) || (galActive >= all.length - 1 && dx < 0)) adj *= 0.25;
+                const atBoundary = (galActive === 0 && dx > 0) || (galActive >= all.length - 1 && dx < 0);
+                if (atBoundary) adj *= 0.25;
                 c.style.transform = `translateX(${adj}px) scale(0.90)`;
+                /* TEMP DEBUG */ dbgSwipeMove('gallery', { dx, adj, active: galActive, cardCount: all.length, atBoundary });
             }
         }
     }, { passive: false });
@@ -429,11 +436,13 @@ export function initGallery() {
         const dx = e.changedTouches[0].clientX - gsx;
         const v = Math.abs(dx) / Math.max(Date.now() - gst, 1);
         const all = galGetCards();
+        const prevActive = galActive;
         if ((Math.abs(dx) > 40 || v > 0.3) && Math.abs(dx) > 15) {
             galSwipeLock = true;
             if (dx < 0 && galActive < all.length - 1) galActive++;
             else if (dx > 0 && galActive > 0) galActive--;
         }
+        /* TEMP DEBUG */ dbgSwipeEnd('gallery', { dx, velocity: v, prevActive, newActive: galActive, cardCount: all.length });
         galLayout();
         galSyncDots();
     }, { passive: true });
@@ -451,6 +460,7 @@ export function initGallery() {
 
     /* Watch for DOM changes (locked-sections.js, render, subcategory) */
     galGridObserver = new MutationObserver(() => {
+        /* TEMP DEBUG */ dbgMutObs('gallery');
         if (galIsDeck) galRenderDeck();
     });
     galGridObserver.observe(grid, { childList: true });
