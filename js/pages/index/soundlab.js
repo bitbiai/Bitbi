@@ -408,8 +408,8 @@ export function initSoundLab(revealObserver) {
             if (category === 'exclusive') lastExclDeckIdx = deckActive;
 
             category = cat;
-            if (!isDeck) return;
             applyCategory();
+            if (!isDeck) return;
 
             /* Restore deck to the active/last-viewed track for the target category */
             const cards = getCards();
@@ -520,8 +520,8 @@ export function initSoundLab(revealObserver) {
                 c.style.zIndex = '';
                 c.style.pointerEvents = '';
                 c.style.transition = '';
-                c.style.display = '';
             });
+            applyCategory();
             if (dotsEl) { dotsEl.remove(); dotsEl = null; }
         }
 
@@ -604,9 +604,8 @@ export function initSoundLab(revealObserver) {
 
         /* Watch for dynamically added cards (locked sections) */
         new MutationObserver(() => {
-
+            applyCategory();
             if (isDeck) {
-                applyCategory();
                 sndLayout(true);
                 sndSyncDots();
                 requestAnimationFrame(() => {
@@ -638,6 +637,7 @@ export function initSoundLab(revealObserver) {
         });
 
         if (mql.matches) engage();
+        else applyCategory();
 
 
         return function(idx) {

@@ -272,9 +272,42 @@
         top: 10px !important;
     }
 
-    /* --- Mobile Sound Lab Cards --- */
-    .snd-hero { display: none; }
+    /* --- Desktop Sound Lab Grid --- */
+    @media (min-width: 640px) {
+        #soundLabTracks {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: var(--space-4);
+        }
 
+        .snd-card {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .snd-hero {
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            aspect-ratio: 16 / 9;
+        }
+
+        .snd-hero img {
+            position: absolute;
+            inset: 0;
+        }
+
+        .snd-card > .locked-area__content {
+            display: flex;
+            flex-direction: column;
+        }
+
+        #playlistPlayer {
+            display: none !important;
+        }
+    }
+
+    /* --- Mobile Sound Lab Cards --- */
     @media (max-width: 639px) {
         .snd-card {
             display: flex;
@@ -347,63 +380,60 @@
     }
 
     /* --- Sound Lab Filter Bar --- */
-    .snd-filter-bar { display: none; }
+    .snd-filter-bar {
+        display: flex;
+        justify-content: center;
+        gap: 0.625rem;
+        margin-block-end: var(--space-5);
+    }
 
-    @media (max-width: 639px) {
-        .snd-filter-bar {
-            display: flex;
-            justify-content: center;
-            gap: 0.625rem;
-            margin-block-end: var(--space-5);
-        }
+    .snd-filter-btn {
+        padding: var(--space-2) var(--space-5);
+        border-radius: var(--radius-full);
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: all 0.3s var(--ease-default);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
 
-        .snd-filter-btn {
-            padding: var(--space-2) var(--space-5);
-            border-radius: var(--radius-full);
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: rgba(255, 255, 255, 0.5);
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            transition: all 0.3s var(--ease-default);
-            cursor: pointer;
-            -webkit-tap-highlight-color: transparent;
-        }
+    .snd-filter-btn.active {
+        background: rgba(0, 240, 255, 0.12);
+        border-color: rgba(0, 240, 255, 0.4);
+        color: var(--color-cyan);
+    }
 
-        .snd-filter-btn.active {
-            background: rgba(0, 240, 255, 0.12);
-            border-color: rgba(0, 240, 255, 0.4);
-            color: var(--color-cyan);
-        }
+    .snd-filter-btn--auth {
+        color: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
 
-        .snd-filter-btn--auth {
-            color: rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
+    .snd-filter-btn--auth.unlocked {
+        color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
 
-        .snd-filter-btn--auth.unlocked {
-            color: rgba(255, 255, 255, 0.5);
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        }
+    .snd-filter-btn--auth.unlocked.active {
+        background: rgba(0, 240, 255, 0.12);
+        border-color: rgba(0, 240, 255, 0.4);
+        color: var(--color-cyan);
+    }
 
-        .snd-filter-btn--auth.unlocked.active {
-            background: rgba(0, 240, 255, 0.12);
-            border-color: rgba(0, 240, 255, 0.4);
-            color: var(--color-cyan);
-        }
+    /* Sound Lab: hide lock overlay (auth is gated via filter bar) */
+    #soundLabTracks .locked-area__overlay {
+        opacity: 0;
+        pointer-events: none;
+    }
 
-        .snd-deck .locked-area__overlay {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .snd-deck .locked-area__content {
-            filter: none;
-            pointer-events: auto;
-            user-select: auto;
-        }
+    #soundLabTracks .locked-area__content {
+        filter: none;
+        pointer-events: auto;
+        user-select: auto;
     }
 
     /* --- Mobile: push scroll hint below the CTA buttons --- */
