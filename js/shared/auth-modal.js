@@ -190,6 +190,11 @@ function clearMsg(el) {
 export function openAuthModal(tab) {
     if (!overlay) return;
 
+    /* Restore overlay to rendering tree (may have been set to display:none
+       after previous close to avoid iOS Safari compositing interference) */
+    overlay.style.display = '';
+    void overlay.offsetHeight; /* reflow so the opacity transition plays */
+
     /* Inject forms into the DOM only now */
     injectForms();
 
@@ -218,5 +223,20 @@ export function closeAuthModal() {
 
     /* Remove forms from the DOM so Safari won't re-scan them */
     removeForms();
+
+    /* After the opacity fade-out finishes, pull the overlay out of the
+       rendering/compositing tree entirely.  On iOS Safari the fixed,
+       full-screen backdrop-filter layer at z-index 9999 can interfere
+       with touch-event delivery to elements beneath it even when
+       pointer-events:none and opacity:0 are set.  display:none is the
+       only reliable way to fully neutralize it. */
+    overlay.addEventListener('transitionend', function onFade(e) {
+        if (e.propertyName !== 'opacity') return;
+        overlay.removeEventListener('transitionend', onFade);
+        if (!overlay.classList.contains('active')) {
+            overlay.style.display = 'none';
+        }
+    });
+
     /* TEMP DEBUG */ dbgModalClose();
 }
