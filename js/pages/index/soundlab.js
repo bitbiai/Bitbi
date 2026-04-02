@@ -17,7 +17,13 @@ const tracks = [
     { t: "Grok's Groove Remix", file: `${R2_PUBLIC_BASE}/audio/sound-lab/grok.mp3` },
 ];
 
-const trackImages = ['/assets/images/4.jpg', '/assets/images/2.jpg', '/assets/images/3.jpg', '/assets/images/5.jpg', '/assets/images/6.jpg'];
+const trackImages = [
+    `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-cosmic.webp`,
+    `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-zufall.webp`,
+    `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-relativity.webp`,
+    `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-tiny.webp`,
+    `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-grok.webp`,
+];
 
 export function initSoundLab(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
