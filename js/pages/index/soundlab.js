@@ -319,6 +319,7 @@ export function initSoundLab(revealObserver) {
         let swipeLock = false;
         let wasPlayingOnSwipeStart = false;
         let category = 'free';
+        let lastExclDeckIdx = 0;
 
         function getCards() {
             return Array.from(ctn.children).filter(c => c.style.display !== 'none');
@@ -373,6 +374,7 @@ export function initSoundLab(revealObserver) {
                 d.addEventListener('click', () => {
                     const wasPlaying = activeIdx !== null && !audios[activeIdx].paused;
                     deckActive = i;
+                    if (category === 'exclusive') lastExclDeckIdx = i;
                     sndLayout();
                     sndSyncDots();
                     if (wasPlaying && category === 'free') playTrack(deckActive);
@@ -402,10 +404,23 @@ export function initSoundLab(revealObserver) {
         }
 
         function switchCategory(cat) {
+            /* Remember current deck position for the category we're leaving */
+            if (category === 'exclusive') lastExclDeckIdx = deckActive;
+
             category = cat;
             if (!isDeck) return;
             applyCategory();
-            deckActive = 0;
+
+            /* Restore deck to the active/last-viewed track for the target category */
+            const cards = getCards();
+            if (cat === 'free' && activeIdx !== null && activeIdx >= 0 && activeIdx < cards.length) {
+                deckActive = activeIdx;
+            } else if (cat === 'exclusive' && lastExclDeckIdx >= 0 && lastExclDeckIdx < cards.length) {
+                deckActive = lastExclDeckIdx;
+            } else {
+                deckActive = 0;
+            }
+
             sndLayout(true);
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
@@ -567,6 +582,7 @@ export function initSoundLab(revealObserver) {
                 else if (dx > 0 && deckActive > 0) deckActive--;
             }
 
+            if (category === 'exclusive') lastExclDeckIdx = deckActive;
             sndLayout();
             sndSyncDots();
             if (deckActive !== prevActive) {
@@ -605,8 +621,9 @@ export function initSoundLab(revealObserver) {
 
         /* Sync deck when exclusive auto-advances */
         ctn.addEventListener('snd:excl-deck-sync', (e) => {
-            if (!isDeck || category !== 'exclusive') return;
             const newIdx = e.detail;
+            lastExclDeckIdx = newIdx;
+            if (!isDeck || category !== 'exclusive') return;
             const cards = getCards();
             if (newIdx >= 0 && newIdx < cards.length) {
                 deckActive = newIdx;

@@ -429,6 +429,7 @@ function setupSoundLabCard(revealObserver) {
         activeExclIdx = idx;
         setCardPlaying(idx, true);
         startTick();
+        ctn.dispatchEvent(new CustomEvent('snd:excl-deck-sync', { detail: idx }));
     }
 
     /* Play/pause click for each exclusive card */
