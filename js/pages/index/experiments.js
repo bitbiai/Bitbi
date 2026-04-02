@@ -534,8 +534,8 @@ function initMobileDeck(grid) {
 
     function switchCategory(cat) {
         category = cat;
-        if (!isDeck) return;
         applyCategory();
+        if (!isDeck) return;
         active = 0;
         layout(true);
         requestAnimationFrame(() => {
@@ -636,8 +636,8 @@ function initMobileDeck(grid) {
             c.style.zIndex = '';
             c.style.pointerEvents = '';
             c.style.transition = '';
-            c.style.display = '';
         });
+        applyCategory();
         if (dotsEl) { dotsEl.remove(); dotsEl = null; }
     }
 
@@ -718,9 +718,8 @@ function initMobileDeck(grid) {
 
     /* Watch for dynamically added cards (locked sections) */
     new MutationObserver(() => {
-
+        applyCategory();
         if (isDeck) {
-            applyCategory();
             layout(true);
             syncDots();
             requestAnimationFrame(() => {
@@ -740,4 +739,5 @@ function initMobileDeck(grid) {
     });
 
     if (mql.matches) engage();
+    else applyCategory();
 }
