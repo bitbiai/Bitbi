@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bitbi is a static portfolio website showcasing digital art and experimental web projects. Live at `https://bitbi.ai`, hosted on GitHub Pages with automatic deployment via GitHub Actions on push to `main`.
 
-**No build step.** All development is direct HTML/CSS/JS. No test framework or linter.
+**No build step.** All development is direct HTML/CSS/JS. No linter. Playwright smoke tests run in CI (see [Testing](#testing)).
 
 ## Development
 
@@ -38,17 +38,31 @@ cd workers/crypto && npx wrangler dev                                        # l
 cd workers/crypto && npx wrangler deploy                                     # deploy to Cloudflare
 ```
 
+### Testing
+
+Playwright smoke tests in `tests/` validate page loads, navigation, asset integrity, and auth modal behavior against a local `serve` instance on port 3000.
+
+```bash
+npm test                    # run all smoke tests (headless Chromium, auto-starts serve)
+npm run test:headed         # run with visible browser
+npx playwright test tests/smoke.spec.js             # run a single test file
+npx playwright test -g "hero section renders"        # run a single test by name
+```
+
+Test files: `tests/smoke.spec.js` (page loads, nav, assets, legal, experiments), `tests/auth-admin.spec.js` (auth modal, admin page). Config: `playwright.config.js` (Chromium only, `baseURL: http://localhost:3000`, auto-starts `npx serve -l 3000`).
+
 Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API_KEY` before first CLI deploy). Contact form uses a `website` honeypot field — if filled, the submission silently returns 200 but sends no email.
 
 ### Deployment
 
 GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
-**CI validates before deploy** (`.github/workflows/static.yml`). All four checks must pass or the build fails:
+**CI validates before deploy** (`.github/workflows/static.yml`). All five checks must pass or the build fails:
 1. **JS import paths** — all `from '...'` imports in JS/HTML are resolved to files on disk. Broken imports fail the build.
 2. **`target="_blank"` links** — every `target="_blank"` in HTML/JS (excluding `*.min.js`) must include `rel="noopener"` (or `noopener noreferrer`).
 3. **Local CSS/JS references** — all `href="*.css"` and `src="*.js"` in HTML must point to existing files (external URLs excluded).
 4. **Page metadata** — `index.html` and `experiments/*.html` must each contain `<meta name="description">`, `<link rel="canonical">`, and `og:title`.
+5. **Playwright smoke tests** — runs `npx playwright test` (Chromium) against a local `serve` instance. Validates page loads, navigation, static asset responses, auth modal, and admin page structure.
 
 ## Architecture
 
@@ -145,7 +159,7 @@ Three workers, deployed separately from the static site:
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
 | `workers/crypto/src/index.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
 
-All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
+All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`. Crypto worker secret: `COINGECKO_API_KEY`.
 
 ## Key Conventions
 
