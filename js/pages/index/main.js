@@ -14,8 +14,9 @@ import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
-import { initAuth } from '../../shared/auth-state.js';
-import { initAuthModal } from '../../shared/auth-modal.js';
+import { initAuth, getAuthState } from '../../shared/auth-state.js';
+import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
+import { initGalleryStudio } from './studio.js';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
@@ -90,3 +91,70 @@ await authReady;
 try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 try { initLockedSections(revealObserver); } catch (e) { console.warn('lockedSections:', e); }
+
+/* Gallery mode toggle (Explore / Create) */
+try {
+    const modeBtns = document.querySelectorAll('.gallery-mode__btn');
+    const explorePane = document.getElementById('galleryExplore');
+    const studioPane = document.getElementById('galleryStudio');
+    if (modeBtns.length && explorePane && studioPane) {
+        let studioInited = false;
+        let currentMode = 'explore';
+        let pendingCreate = false;
+        const createBtn = document.querySelector('.gallery-mode__btn[data-mode="create"]');
+
+        function setGalleryMode(mode) {
+            currentMode = mode;
+            pendingCreate = false;
+            modeBtns.forEach(btn => {
+                const active = btn.dataset.mode === mode;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-selected', String(active));
+                btn.tabIndex = active ? 0 : -1;
+            });
+            explorePane.style.display = mode === 'explore' ? '' : 'none';
+            studioPane.style.display = mode === 'create' ? '' : 'none';
+            if (mode === 'create' && !studioInited) {
+                studioInited = true;
+                initGalleryStudio();
+            }
+        }
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.mode;
+                if (mode === currentMode) return;
+                if (mode === 'create') {
+                    const { loggedIn } = getAuthState();
+                    if (!loggedIn) {
+                        pendingCreate = true;
+                        openAuthModal('register');
+                        return;
+                    }
+                }
+                setGalleryMode(mode);
+            });
+        });
+
+        document.addEventListener('bitbi:auth-change', () => {
+            const { loggedIn } = getAuthState();
+            if (createBtn) {
+                createBtn.classList.toggle('gallery-mode__btn--locked', !loggedIn);
+                createBtn.textContent = loggedIn ? 'Create' : 'Create \u{1F512}';
+            }
+            if (loggedIn && pendingCreate) {
+                setGalleryMode('create');
+            }
+            if (!loggedIn && currentMode === 'create') {
+                setGalleryMode('explore');
+            }
+        });
+
+        /* Sync button to current auth state (event already fired during initAuth) */
+        const { loggedIn } = getAuthState();
+        if (createBtn && loggedIn) {
+            createBtn.classList.remove('gallery-mode__btn--locked');
+            createBtn.textContent = 'Create';
+        }
+    }
+} catch (e) { console.warn('galleryMode:', e); }

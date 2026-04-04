@@ -50,6 +50,16 @@ test.describe('Homepage', () => {
     await expect(form.locator('textarea[name="message"]')).toBeAttached();
     await expect(form.locator('button[type="submit"]')).toBeAttached();
   });
+
+  test('gallery has Explore/Create mode toggle', async ({ page }) => {
+    await page.goto('/');
+    const modeBar = page.locator('.gallery-mode');
+    await expect(modeBar).toBeAttached();
+    await expect(modeBar.getByRole('tab', { name: 'Explore' })).toBeVisible();
+    await expect(modeBar.getByRole('tab', { name: /Create/ })).toBeVisible();
+    await expect(page.locator('#galleryExplore')).toBeVisible();
+    await expect(page.locator('#galleryStudio')).toBeHidden();
+  });
 });
 
 // ---------------------------------------------------------------------------
