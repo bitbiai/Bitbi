@@ -64,16 +64,31 @@ async function handleGenerateImage(ctx) {
   let imageBytes;
   try {
     const result = await env.AI.run(MODEL, aiInput);
-    // flux-1-schnell returns a ReadableStream of PNG bytes
-    if (result instanceof ReadableStream) {
+
+    // Workers AI text-to-image models return different shapes depending on
+    // runtime version: { image: Uint8Array }, ReadableStream, or ArrayBuffer.
+    if (result && result.image && result.image instanceof Uint8Array) {
+      imageBytes = result.image.buffer;
+    } else if (result instanceof Uint8Array) {
+      imageBytes = result.buffer;
+    } else if (result instanceof ReadableStream) {
       imageBytes = await new Response(result).arrayBuffer();
     } else if (result instanceof ArrayBuffer) {
       imageBytes = result;
-    } else {
-      return json({ ok: false, error: "Unexpected AI response format." }, { status: 502 });
+    } else if (result && typeof result === "object") {
+      // Fallback: try to find any ArrayBuffer-like property
+      const val = result.image || result.data || result;
+      if (val instanceof ArrayBuffer) {
+        imageBytes = val;
+      } else if (val instanceof Uint8Array) {
+        imageBytes = val.buffer;
+      } else if (val instanceof ReadableStream) {
+        imageBytes = await new Response(val).arrayBuffer();
+      }
     }
   } catch (e) {
-    return json({ ok: false, error: "Image generation failed. Please try again." }, { status: 502 });
+    const msg = e && e.message ? e.message : String(e);
+    return json({ ok: false, error: `Image generation failed: ${msg}` }, { status: 502 });
   }
 
   if (!imageBytes || imageBytes.byteLength === 0) {
@@ -86,15 +101,17 @@ async function handleGenerateImage(ctx) {
     "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
   ).bind(logId, userId, nowIso()).run();
 
-  // Return as base64 data URI
+  // Return as base64
+  const bytes = new Uint8Array(imageBytes);
   const base64 = btoa(
-    new Uint8Array(imageBytes).reduce((s, b) => s + String.fromCharCode(b), "")
+    bytes.reduce((s, b) => s + String.fromCharCode(b), "")
   );
 
   return json({
     ok: true,
     data: {
-      image: `data:image/png;base64,${base64}`,
+      imageBase64: base64,
+      mimeType: "image/png",
       prompt,
       steps,
       seed,

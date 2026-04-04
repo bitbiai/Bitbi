@@ -132,8 +132,19 @@ async function handleGenerate() {
         return;
     }
 
-    currentImageData = res.data.image;
-    currentMeta = { prompt: res.data.prompt, model: res.data.model, steps: res.data.steps, seed: res.data.seed };
+    // Server returns { ok, data: { imageBase64, mimeType, prompt, ... } }
+    // request() wrapper nests it as res.data = full server JSON
+    const d = res.data?.data || res.data || {};
+    const imageBase64 = d.imageBase64;
+    const mimeType = d.mimeType || 'image/png';
+    if (!imageBase64) {
+        $preview.innerHTML = '<div class="studio__preview-empty">No image in response</div>';
+        showMsg($genMsg, 'No image data returned.', 'error');
+        return;
+    }
+
+    currentImageData = `data:${mimeType};base64,${imageBase64}`;
+    currentMeta = { prompt: d.prompt || prompt, model: d.model || '', steps: d.steps, seed: d.seed };
 
     $preview.innerHTML = '';
     const img = document.createElement('img');
@@ -180,14 +191,15 @@ async function handleSave() {
 /* ── Gallery ── */
 async function loadGallery() {
     const folderId = $galleryFilter.value || null;
-    const res = await apiAiGetImages(folderId);
-
-    if (!res.ok) {
-        $imageGrid.innerHTML = '<div class="studio__gallery-empty">Could not load images.</div>';
-        return;
+    let images;
+    try {
+        images = await apiAiGetImages(folderId);
+    } catch (e) {
+        console.warn('Failed to load gallery:', e);
+        images = [];
     }
+    if (!Array.isArray(images)) images = [];
 
-    const images = res.data.images;
     if (images.length === 0) {
         $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved images yet. Generate and save your first one above.</div>';
         return;

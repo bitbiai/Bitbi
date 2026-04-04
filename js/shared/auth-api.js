@@ -138,9 +138,10 @@ export function apiAiCreateFolder(name) {
     return request('POST', '/ai/folders', { name });
 }
 
-export function apiAiGetImages(folderId) {
+export async function apiAiGetImages(folderId) {
     const qs = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : '';
-    return request('GET', `/ai/images${qs}`);
+    const res = await request('GET', `/ai/images${qs}`);
+    return Array.isArray(res.data?.data?.images) ? res.data.data.images : [];
 }
 
 export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) {
