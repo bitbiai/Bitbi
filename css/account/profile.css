@@ -474,4 +474,53 @@
         color: rgba(255, 255, 255, 0.2);
         font-style: italic;
     }
+
+    /* ── Mobile Tab Switcher ── */
+    .profile-tab-bar {
+        display: none;
+    }
+
+    @media (max-width: 1023px) {
+        .profile-tab-bar {
+            display: flex;
+            justify-content: center;
+            gap: 0.625rem;
+            margin-block-end: var(--space-6);
+        }
+
+        .profile-tab-btn {
+            padding: var(--space-2) var(--space-5);
+            border-radius: var(--radius-full);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            transition: all 0.3s var(--ease-default);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .profile-tab-btn.active {
+            background: rgba(0, 240, 255, 0.12);
+            border-color: rgba(0, 240, 255, 0.4);
+            color: var(--color-cyan);
+        }
+
+        /* Default mobile: show profile, hide sidebar */
+        #profileContent .profile-layout__sidebar {
+            display: none;
+        }
+
+        /* Favorites tab active: hide profile, show sidebar */
+        #profileContent[data-active-tab="favorites"] .profile-layout__main {
+            display: none;
+        }
+
+        #profileContent[data-active-tab="favorites"] .profile-layout__sidebar {
+            display: block;
+            margin-block-start: 0;
+        }
+    }
 }

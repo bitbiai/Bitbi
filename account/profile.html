@@ -81,7 +81,12 @@
         </div>
 
         <!-- Profile Content -->
-        <div id="profileContent" style="display:none">
+        <div id="profileContent" data-active-tab="profile" style="display:none">
+
+            <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
+                <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
+                <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
+            </div>
 
             <div class="profile-layout__main">
 
@@ -221,6 +226,6 @@
     </div>
 </footer>
 
-<script type="module" src="../js/pages/profile/main.js?v=20260321"></script>
+<script type="module" src="../js/pages/profile/main.js?v=20260404"></script>
 </body>
 </html>

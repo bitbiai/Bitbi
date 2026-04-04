@@ -40,6 +40,22 @@ const $avatarUploadText  = document.getElementById('avatarUploadText');
 const $avatarUploadLabel = document.getElementById('avatarUploadLabel');
 const $avatarMsg         = document.getElementById('avatarMsg');
 
+/* ── Mobile tab switcher ── */
+const $tabBar = document.getElementById('profileTabBar');
+if ($tabBar) {
+    $tabBar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.profile-tab-btn');
+        if (!btn || btn.classList.contains('active')) return;
+        $tabBar.querySelectorAll('.profile-tab-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-selected', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        $content.dataset.activeTab = btn.dataset.tab;
+    });
+}
+
 /* ── Date formatter ── */
 const dtf = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
