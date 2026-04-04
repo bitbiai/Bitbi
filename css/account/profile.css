@@ -392,4 +392,86 @@
         font-family: var(--font-mono);
         font-size: 13px;
     }
+
+    /* ── Profile Two-Column Layout ── */
+    @media (min-width: 1024px) {
+        .profile-layout {
+            max-inline-size: var(--container-wide); /* 1024px */
+        }
+
+        .profile-layout > #loadingState,
+        .profile-layout > #deniedState {
+            max-inline-size: var(--container-narrow); /* 672px — stay centered */
+            margin-inline: auto;
+        }
+
+        #profileContent {
+            display: grid;
+            grid-template-columns: 480px 280px;
+            gap: var(--space-8);
+            justify-content: center;
+        }
+
+        .profile-layout__main .profile__card,
+        .profile-layout__main .profile__actions {
+            max-inline-size: none;
+            margin-inline: 0;
+        }
+
+        .profile-layout__sidebar {
+            position: sticky;
+            top: calc(5rem + var(--space-6)); /* fixed nav height (5rem) + gap */
+            align-self: start;
+        }
+
+        .profile-layout__sidebar .profile__card {
+            max-inline-size: none;
+            margin-inline: 0;
+        }
+    }
+
+    .profile-layout__sidebar {
+        margin-block-start: var(--space-6);
+    }
+
+    @media (min-width: 1024px) {
+        .profile-layout__sidebar {
+            margin-block-start: 0;
+        }
+    }
+
+    /* ── Favorites Panel ── */
+    .profile__favorites .profile__title {
+        margin-block-end: var(--space-4);
+    }
+
+    .favorites__group {
+        padding: var(--space-4) 0;
+        border-block-end: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .favorites__group:last-child {
+        border-block-end: none;
+        padding-block-end: 0;
+    }
+
+    .favorites__group-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-block-end: var(--space-2);
+    }
+
+    .favorites__group-label--cyan    { color: rgba(0, 240, 255, 0.5); }
+    .favorites__group-label--magenta { color: rgba(192, 38, 211, 0.5); }
+    .favorites__group-label--gold    { color: rgba(255, 179, 0, 0.5); }
+
+    .favorites__empty {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.2);
+        font-style: italic;
+    }
 }
