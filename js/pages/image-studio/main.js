@@ -73,9 +73,10 @@ function hideMsg(el) {
 }
 
 function populateFolderOptions(selectEl) {
+    const safeFolders = Array.isArray(folders) ? folders : [];
     const current = selectEl.value;
     const opts = ['<option value="">No folder</option>'];
-    for (const f of folders) {
+    for (const f of safeFolders) {
         opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
     }
     selectEl.innerHTML = opts.join('');
@@ -88,15 +89,16 @@ function escapeHtml(str) {
 
 /* ── Folders ── */
 async function loadFolders() {
-    const res = await apiAiGetFolders();
-    if (res.ok) {
-        folders = res.data.folders;
-        populateFolderOptions($folderSelect);
-        populateFolderOptions($galleryFilter);
-        // Add "All" at the start for gallery filter
-        $galleryFilter.insertAdjacentHTML('afterbegin', '<option value="">All images</option>');
-        $galleryFilter.value = '';
+    try {
+        folders = await apiAiGetFolders();
+    } catch (e) {
+        console.warn('Failed to load folders:', e);
+        folders = [];
     }
+    populateFolderOptions($folderSelect);
+    populateFolderOptions($galleryFilter);
+    $galleryFilter.insertAdjacentHTML('afterbegin', '<option value="">All images</option>');
+    $galleryFilter.value = '';
 }
 
 /* ── Image Generation ── */

@@ -129,8 +129,9 @@ export function apiAiGenerateImage(prompt, steps, seed) {
     return request('POST', '/ai/generate-image', body);
 }
 
-export function apiAiGetFolders() {
-    return request('GET', '/ai/folders');
+export async function apiAiGetFolders() {
+    const res = await request('GET', '/ai/folders');
+    return Array.isArray(res.data?.data?.folders) ? res.data.data.folders : [];
 }
 
 export function apiAiCreateFolder(name) {
