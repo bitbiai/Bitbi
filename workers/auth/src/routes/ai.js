@@ -12,6 +12,37 @@ const DEFAULT_STEPS = 4;
 const GENERATION_LIMIT = 20; // per user per hour
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 
+// Parse a base64 string (plain or data-URI) into { base64, mimeType }
+function parseBase64Image(str) {
+  const dataUriMatch = str.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+  if (dataUriMatch) {
+    return { base64: dataUriMatch[2], mimeType: dataUriMatch[1] };
+  }
+  // Sanity check: base64 strings are long and contain only valid chars
+  if (str.length > 100 && /^[A-Za-z0-9+/\n\r]+=*$/.test(str.slice(0, 200))) {
+    return { base64: str, mimeType: "image/png" };
+  }
+  return null;
+}
+
+// Duck-type: convert buffer-like values to ArrayBuffer
+async function toArrayBuffer(v) {
+  if (v == null) return null;
+  if (v instanceof ArrayBuffer) return v;
+  if (typeof v.arrayBuffer === "function") {
+    try { return await v.arrayBuffer(); } catch { /* fall through */ }
+  }
+  if (v.buffer instanceof ArrayBuffer && typeof v.byteLength === "number") {
+    return v.buffer.byteLength === v.byteLength
+      ? v.buffer
+      : v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength);
+  }
+  if (typeof v.getReader === "function") {
+    try { return await new Response(v).arrayBuffer(); } catch { /* fall through */ }
+  }
+  return null;
+}
+
 function slugify(name) {
   return name
     .toLowerCase()
@@ -61,29 +92,40 @@ async function handleGenerateImage(ctx) {
   const aiInput = { prompt, num_steps: steps };
   if (seed !== null) aiInput.seed = seed;
 
-  let imageBytes;
+  let base64 = null;
+  let mimeType = "image/png";
+
   try {
     const result = await env.AI.run(MODEL, aiInput);
 
-    // Workers AI text-to-image models return different shapes depending on
-    // runtime version: { image: Uint8Array }, ReadableStream, or ArrayBuffer.
-    if (result && result.image && result.image instanceof Uint8Array) {
-      imageBytes = result.image.buffer;
-    } else if (result instanceof Uint8Array) {
-      imageBytes = result.buffer;
-    } else if (result instanceof ReadableStream) {
-      imageBytes = await new Response(result).arrayBuffer();
-    } else if (result instanceof ArrayBuffer) {
-      imageBytes = result;
-    } else if (result && typeof result === "object") {
-      // Fallback: try to find any ArrayBuffer-like property
-      const val = result.image || result.data || result;
-      if (val instanceof ArrayBuffer) {
-        imageBytes = val;
-      } else if (val instanceof Uint8Array) {
-        imageBytes = val.buffer;
-      } else if (val instanceof ReadableStream) {
-        imageBytes = await new Response(val).arrayBuffer();
+    // Collect candidate values to try, in priority order
+    const candidates = [];
+    if (result && typeof result === "object" && !ArrayBuffer.isView(result) && !(result instanceof ArrayBuffer)) {
+      if (result.image != null) candidates.push(result.image);
+      if (Array.isArray(result.images) && result.images.length > 0) candidates.push(result.images[0]);
+      if (result.data != null) candidates.push(result.data);
+    }
+    candidates.push(result); // try the raw result last
+
+    for (const v of candidates) {
+      if (base64) break;
+
+      // Case 1: string (base64 or data URI) — this is what flux-1-schnell returns in production
+      if (typeof v === "string" && v.length > 0) {
+        const parsed = parseBase64Image(v);
+        if (parsed) {
+          base64 = parsed.base64;
+          mimeType = parsed.mimeType;
+          break;
+        }
+      }
+
+      // Case 2: binary (Uint8Array, ArrayBuffer, ReadableStream)
+      const buf = await toArrayBuffer(v);
+      if (buf && buf.byteLength > 0) {
+        const bytes = new Uint8Array(buf);
+        base64 = btoa(bytes.reduce((s, b) => s + String.fromCharCode(b), ""));
+        break;
       }
     }
   } catch (e) {
@@ -91,7 +133,7 @@ async function handleGenerateImage(ctx) {
     return json({ ok: false, error: `Image generation failed: ${msg}` }, { status: 502 });
   }
 
-  if (!imageBytes || imageBytes.byteLength === 0) {
+  if (!base64) {
     return json({ ok: false, error: "No image was generated." }, { status: 502 });
   }
 
@@ -101,17 +143,11 @@ async function handleGenerateImage(ctx) {
     "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
   ).bind(logId, userId, nowIso()).run();
 
-  // Return as base64
-  const bytes = new Uint8Array(imageBytes);
-  const base64 = btoa(
-    bytes.reduce((s, b) => s + String.fromCharCode(b), "")
-  );
-
   return json({
     ok: true,
     data: {
       imageBase64: base64,
-      mimeType: "image/png",
+      mimeType,
       prompt,
       steps,
       seed,
@@ -218,24 +254,26 @@ async function handleSaveImage(ctx) {
   }
 
   // Decode base64 data URI to bytes
-  const match = String(body.imageData).match(/^data:image\/png;base64,(.+)$/);
+  const match = String(body.imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
   if (!match) {
     return json({ ok: false, error: "Invalid image data format." }, { status: 400 });
   }
+  const savedMimeType = match[1];
 
   let imageBytes;
   try {
-    const raw = atob(match[1]);
+    const raw = atob(match[2]);
     imageBytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) imageBytes[i] = raw.charCodeAt(i);
   } catch {
     return json({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
   }
 
-  // Validate PNG magic bytes
-  if (imageBytes.length < 8 ||
-      imageBytes[0] !== 0x89 || imageBytes[1] !== 0x50 ||
-      imageBytes[2] !== 0x4E || imageBytes[3] !== 0x47) {
+  // Validate image magic bytes (PNG, JPEG, or WebP)
+  const isPng  = imageBytes.length >= 4 && imageBytes[0] === 0x89 && imageBytes[1] === 0x50 && imageBytes[2] === 0x4E && imageBytes[3] === 0x47;
+  const isJpeg = imageBytes.length >= 3 && imageBytes[0] === 0xFF && imageBytes[1] === 0xD8 && imageBytes[2] === 0xFF;
+  const isWebp = imageBytes.length >= 12 && imageBytes[0] === 0x52 && imageBytes[1] === 0x49 && imageBytes[2] === 0x46 && imageBytes[3] === 0x46 && imageBytes[8] === 0x57 && imageBytes[9] === 0x45 && imageBytes[10] === 0x42 && imageBytes[11] === 0x50;
+  if (!isPng && !isJpeg && !isWebp) {
     return json({ ok: false, error: "Invalid image format." }, { status: 400 });
   }
 
@@ -247,7 +285,7 @@ async function handleSaveImage(ctx) {
 
   // Store in R2
   await env.USER_IMAGES.put(r2Key, imageBytes.buffer, {
-    httpMetadata: { contentType: "image/png" },
+    httpMetadata: { contentType: savedMimeType },
   });
 
   // Store metadata in D1
