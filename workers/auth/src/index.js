@@ -6,6 +6,7 @@ import { handleForgotPassword, handleValidateReset, handleResetPassword } from "
 import { handleVerifyEmail, handleResendVerification, handleRequestReverification } from "./routes/verification.js";
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
+import { handleAI } from "./routes/ai.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 
@@ -64,6 +65,12 @@ export default {
     if (pathname === "/api/verify-email" && method === "GET") return handleVerifyEmail(ctx);
     if (pathname === "/api/resend-verification" && method === "POST") return handleResendVerification(ctx);
     if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification(ctx);
+
+    // AI Image Studio
+    if (pathname.startsWith("/api/ai/")) {
+      const result = await handleAI(ctx);
+      if (result) return result;
+    }
 
     // Protected media
     if (

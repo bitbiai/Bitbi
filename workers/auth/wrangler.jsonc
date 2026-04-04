@@ -16,13 +16,21 @@
 			"zone_name": "bitbi.ai"
 		}
 	],
+	"ai": {
+		"binding": "AI"
+	},
 	"r2_buckets": [
-  {
-    "binding": "PRIVATE_MEDIA",
-    "bucket_name": "bitbi-private-media",
-    "remote": true
-  }
-],
+		{
+			"binding": "PRIVATE_MEDIA",
+			"bucket_name": "bitbi-private-media",
+			"remote": true
+		},
+		{
+			"binding": "USER_IMAGES",
+			"bucket_name": "bitbi-user-images",
+			"remote": true
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",

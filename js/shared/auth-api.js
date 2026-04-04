@@ -120,6 +120,38 @@ export function apiRequestReverification() {
     return request('POST', '/request-reverification');
 }
 
+/* ── Image Studio ── */
+
+export function apiAiGenerateImage(prompt, steps, seed) {
+    const body = { prompt };
+    if (steps != null) body.steps = steps;
+    if (seed != null) body.seed = seed;
+    return request('POST', '/ai/generate-image', body);
+}
+
+export function apiAiGetFolders() {
+    return request('GET', '/ai/folders');
+}
+
+export function apiAiCreateFolder(name) {
+    return request('POST', '/ai/folders', { name });
+}
+
+export function apiAiGetImages(folderId) {
+    const qs = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : '';
+    return request('GET', `/ai/images${qs}`);
+}
+
+export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) {
+    const body = { imageData, prompt, model, steps, seed };
+    if (folderId) body.folder_id = folderId;
+    return request('POST', '/ai/images/save', body);
+}
+
+export function apiAiDeleteImage(imageId) {
+    return request('DELETE', `/ai/images/${imageId}`);
+}
+
 /* ── Password Reset ── */
 
 export function apiForgotPassword(email) {

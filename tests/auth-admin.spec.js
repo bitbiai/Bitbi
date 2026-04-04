@@ -114,6 +114,16 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 
+  test('image studio page shows denied state without auth', async ({ page }) => {
+    const response = await page.goto('/account/image-studio.html');
+    expect(response.status()).toBe(200);
+    // JS calls /api/me → 404 on local server → shows denied state
+    await expect(page.locator('#deniedState')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.locator('#studioContent')).not.toBeVisible();
+  });
+
   test('admin page shows access-denied state without auth', async ({ page }) => {
     const response = await page.goto('/admin/index.html');
     expect(response.status()).toBe(200);
