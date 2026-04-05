@@ -15,7 +15,9 @@ import {
     apiAiGenerateImage,
     apiAiGetQuota,
     apiAiGetFolders,
+    apiAiGetFoldersForDelete,
     apiAiCreateFolder,
+    apiAiDeleteFolder,
     apiAiGetImages,
     apiAiSaveImage,
     apiAiDeleteImage,
@@ -46,10 +48,17 @@ const $galleryFilter    = document.getElementById('studioGalleryFilter');
 const $imageGrid        = document.getElementById('studioImageGrid');
 const $galleryMsg       = document.getElementById('studioGalleryMsg');
 const $newFolderBtn     = document.getElementById('studioNewFolderBtn');
+const $deleteFolderBtn  = document.getElementById('studioDeleteFolderBtn');
 const $newFolderForm    = document.getElementById('studioNewFolderForm');
 const $newFolderInput   = document.getElementById('studioNewFolderInput');
 const $newFolderSave    = document.getElementById('studioNewFolderSave');
 const $newFolderCancel  = document.getElementById('studioNewFolderCancel');
+
+// Delete folder form
+const $deleteFolderForm    = document.getElementById('studioDeleteFolderForm');
+const $deleteFolderSelect  = document.getElementById('studioDeleteFolderSelect');
+const $deleteFolderConfirm = document.getElementById('studioDeleteFolderConfirm');
+const $deleteFolderCancel  = document.getElementById('studioDeleteFolderCancel');
 
 /* ── State ── */
 let currentImageData = null;
@@ -293,6 +302,7 @@ async function loadGallery() {
 
 /* ── New Folder ── */
 function showNewFolderForm() {
+    hideDeleteFolderForm();
     $newFolderForm.classList.add('visible');
     $newFolderInput.value = '';
     $newFolderInput.focus();
@@ -318,6 +328,66 @@ async function handleCreateFolder() {
     hideNewFolderForm();
     await loadFolders();
     showMsg($galleryMsg, `Folder "${name}" created.`, 'success');
+}
+
+/* ── Delete Folder ── */
+async function showDeleteFolderForm() {
+    hideNewFolderForm();
+    let deletableFolders;
+    try {
+        deletableFolders = await apiAiGetFoldersForDelete();
+    } catch (e) {
+        deletableFolders = Array.isArray(folders) ? folders : [];
+    }
+    if (!deletableFolders.length) {
+        showMsg($galleryMsg, 'No folders to delete.', 'error');
+        return;
+    }
+    $deleteFolderSelect.innerHTML = '';
+    for (const f of deletableFolders) {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.status === 'deleting' ? `${f.name} (retry delete)` : f.name;
+        $deleteFolderSelect.appendChild(opt);
+    }
+    $deleteFolderForm.classList.add('visible');
+    $deleteFolderSelect.focus();
+}
+
+function hideDeleteFolderForm() {
+    $deleteFolderForm.classList.remove('visible');
+}
+
+async function handleDeleteFolder() {
+    const folderId = $deleteFolderSelect.value;
+    if (!folderId) return;
+
+    const safeFolders = Array.isArray(folders) ? folders : [];
+    const target = safeFolders.find(f => f.id === folderId);
+    const name = target ? target.name : 'this folder';
+
+    if (!confirm(`Delete folder "${name}" and all its images?\n\nThis cannot be undone.`)) return;
+
+    $deleteFolderConfirm.disabled = true;
+    $deleteFolderConfirm.textContent = '\u2026';
+    const res = await apiAiDeleteFolder(folderId);
+    $deleteFolderConfirm.disabled = false;
+    $deleteFolderConfirm.textContent = 'Delete';
+
+    if (!res.ok) {
+        showMsg($galleryMsg, res.error || 'Failed to delete folder.', 'error');
+        return;
+    }
+
+    hideDeleteFolderForm();
+
+    if ($galleryFilter.value === folderId) {
+        $galleryFilter.value = '';
+    }
+
+    await loadFolders();
+    loadGallery();
+    showMsg($galleryMsg, `Folder "${name}" deleted.`, 'success');
 }
 
 /* ── Init ── */
@@ -359,6 +429,9 @@ async function init() {
     });
     $galleryFilter.addEventListener('change', loadGallery);
     $newFolderBtn.addEventListener('click', showNewFolderForm);
+    $deleteFolderBtn.addEventListener('click', showDeleteFolderForm);
+    $deleteFolderConfirm.addEventListener('click', handleDeleteFolder);
+    $deleteFolderCancel.addEventListener('click', hideDeleteFolderForm);
     $newFolderCancel.addEventListener('click', hideNewFolderForm);
     $newFolderSave.addEventListener('click', handleCreateFolder);
     $newFolderInput.addEventListener('keydown', (e) => {

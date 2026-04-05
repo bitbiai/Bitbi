@@ -432,6 +432,71 @@
         color: rgba(255, 255, 255, 0.7);
     }
 
+    /* ── Delete Folder Inline Form ── */
+    .studio__delete-folder-form {
+        display: none;
+        gap: var(--space-2);
+        align-items: center;
+        margin-block-end: var(--space-4);
+    }
+
+    .studio__delete-folder-form.visible {
+        display: flex;
+    }
+
+    .studio__delete-folder-select {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        outline: none;
+        flex: 1;
+        min-inline-size: 120px;
+    }
+
+    .studio__delete-folder-confirm {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--color-danger);
+        background: rgba(239, 68, 68, 0.06);
+        border: 1px solid rgba(239, 68, 68, 0.15);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__delete-folder-confirm:hover {
+        background: rgba(239, 68, 68, 0.12);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .studio__delete-folder-confirm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .studio__delete-folder-cancel {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.4);
+        background: transparent;
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__delete-folder-cancel:hover {
+        color: rgba(255, 255, 255, 0.7);
+    }
+
     /* ── Image Grid ── */
     .studio__image-grid {
         display: grid;

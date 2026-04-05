@@ -208,12 +208,16 @@ async function handleGenerateImage(ctx) {
 
 // ── GET /api/ai/folders ──
 async function handleGetFolders(ctx) {
-  const { request, env } = ctx;
+  const { request, env, url } = ctx;
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
+  const includeDeleting = url.searchParams.get("include_deleting") === "1";
+  const statusFilter = includeDeleting ? "('active', 'deleting')" : "('active')";
+  const cols = includeDeleting ? "id, name, slug, status, created_at" : "id, name, slug, created_at";
+
   const rows = await env.DB.prepare(
-    "SELECT id, name, slug, created_at FROM ai_folders WHERE user_id = ? ORDER BY name ASC"
+    `SELECT ${cols} FROM ai_folders WHERE user_id = ? AND status IN ${statusFilter} ORDER BY name ASC`
   ).bind(session.user.id).all();
 
   return json({ ok: true, data: { folders: rows.results } });
@@ -233,6 +237,9 @@ async function handleCreateFolder(ctx) {
   const name = String(body.name).trim();
   if (name.length === 0 || name.length > 100) {
     return json({ ok: false, error: "Folder name must be 1–100 characters." }, { status: 400 });
+  }
+  if (/[\x00-\x1f\x7f]/.test(name)) {
+    return json({ ok: false, error: "Folder name cannot contain control characters." }, { status: 400 });
   }
 
   const slug = slugify(name);
@@ -289,12 +296,12 @@ async function handleSaveImage(ctx) {
     return json({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
   }
 
-  // Validate optional folder ownership
+  // Validate optional folder ownership (only active folders accept saves)
   let folderId = null;
   let folderSlug = "unsorted";
   if (body.folder_id) {
     const folder = await env.DB.prepare(
-      "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ?"
+      "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
     ).bind(body.folder_id, session.user.id).first();
     if (!folder) {
       return json({ ok: false, error: "Folder not found." }, { status: 404 });
@@ -344,10 +351,36 @@ async function handleSaveImage(ctx) {
   const steps = body.steps ? Math.floor(Number(body.steps)) : null;
   const seed = body.seed !== undefined && body.seed !== null ? Math.floor(Number(body.seed)) : null;
 
-  await env.DB.prepare(
-    `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(imageId, session.user.id, folderId, r2Key, prompt, model, steps, seed, now).run();
+  let insertResult;
+  try {
+    if (folderId) {
+      // Conditional insert: only succeeds if the folder is still active.
+      // The status check and row insertion are a single atomic SQL statement,
+      // so no concurrent folder delete can slip between check and insert.
+      insertResult = await env.DB.prepare(
+        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
+      ).bind(imageId, session.user.id, folderId, r2Key, prompt, model, steps, seed, now,
+             folderId, session.user.id).run();
+    } else {
+      // Unsorted save — no folder to race with
+      insertResult = await env.DB.prepare(
+        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(imageId, session.user.id, null, r2Key, prompt, model, steps, seed, now).run();
+    }
+  } catch (e) {
+    // INSERT failed (e.g. FK violation from concurrent folder delete)
+    try { await env.USER_IMAGES.delete(r2Key); } catch { /* best effort */ }
+    return json({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
+  }
+
+  // If the conditional insert produced 0 rows the folder was deleted/deleting
+  if (!insertResult.meta.changes) {
+    try { await env.USER_IMAGES.delete(r2Key); } catch { /* best effort */ }
+    return json({ ok: false, error: "Folder was deleted. Image not saved." }, { status: 404 });
+  }
 
   return json({
     ok: true,
@@ -378,6 +411,62 @@ async function handleGetImageFile(ctx, imageId) {
   headers.set("Content-Type", object.httpMetadata?.contentType || "image/png");
   headers.set("Cache-Control", "private, max-age=3600");
   return new Response(object.body, { headers });
+}
+
+// ── DELETE /api/ai/folders/:id ──
+async function handleDeleteFolder(ctx, folderId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  // Mark folder as 'deleting' — blocks concurrent saves because
+  // handleSaveImage requires status = 'active'.
+  // Also accepts folders already in 'deleting' (from a previously failed
+  // delete attempt whose rollback did not succeed) so the retry can finish.
+  const markResult = await env.DB.prepare(
+    "UPDATE ai_folders SET status = 'deleting' WHERE id = ? AND user_id = ? AND status IN ('active', 'deleting')"
+  ).bind(folderId, session.user.id).run();
+
+  if (!markResult.meta.changes) {
+    return json({ ok: false, error: "Folder not found." }, { status: 404 });
+  }
+
+  let r2Keys = [];
+  try {
+    // Snapshot images for R2 cleanup (folder row still exists, folder_id intact)
+    const images = await env.DB.prepare(
+      "SELECT r2_key FROM ai_images WHERE folder_id = ? AND user_id = ?"
+    ).bind(folderId, session.user.id).all();
+    r2Keys = (images.results || []).map(r => r.r2_key);
+
+    // Atomically delete all image rows by folder_id predicate (no bind-limit
+    // risk) and the folder row itself in a single batch transaction.
+    await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?"
+      ).bind(folderId, session.user.id),
+      env.DB.prepare(
+        "DELETE FROM ai_folders WHERE id = ? AND user_id = ?"
+      ).bind(folderId, session.user.id),
+    ]);
+  } catch (e) {
+    // Snapshot or batch failed — folder row may still exist in 'deleting'.
+    // Revert to 'active' so the folder is not permanently hidden.
+    try {
+      await env.DB.prepare(
+        "UPDATE ai_folders SET status = 'active' WHERE id = ? AND user_id = ? AND status = 'deleting'"
+      ).bind(folderId, session.user.id).run();
+    } catch { /* rollback is best-effort; retry will re-enter via 'deleting' accept */ }
+    return json({ ok: false, error: "Failed to delete folder. Please try again." }, { status: 500 });
+  }
+
+  // Best-effort R2 cleanup — DB deletion already succeeded, so a partial
+  // R2 failure leaves orphaned blobs but no stuck folder state.
+  for (const key of r2Keys) {
+    try { await env.USER_IMAGES.delete(key); } catch { /* best effort */ }
+  }
+
+  return json({ ok: true });
 }
 
 // ── DELETE /api/ai/images/:id ──
@@ -422,6 +511,12 @@ export async function handleAI(ctx) {
   }
   if (pathname === "/api/ai/images/save" && method === "POST") {
     return handleSaveImage(ctx);
+  }
+
+  // DELETE /api/ai/folders/:id
+  const folderDeleteMatch = pathname.match(/^\/api\/ai\/folders\/([a-f0-9]+)$/);
+  if (folderDeleteMatch && method === "DELETE") {
+    return handleDeleteFolder(ctx, folderDeleteMatch[1]);
   }
 
   // /api/ai/images/:id/file

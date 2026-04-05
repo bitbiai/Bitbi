@@ -147,6 +147,7 @@
                             <option value="">All images</option>
                         </select>
                         <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn">+ Folder</button>
+                        <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn">&minus; Folder</button>
                     </div>
                 </div>
 
@@ -155,6 +156,13 @@
                     <input type="text" id="studioNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
                     <button type="button" id="studioNewFolderSave" class="studio__new-folder-save">Create</button>
                     <button type="button" id="studioNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
+                </div>
+
+                <!-- Delete Folder Form (hidden by default) -->
+                <div id="studioDeleteFolderForm" class="studio__delete-folder-form">
+                    <select id="studioDeleteFolderSelect" class="studio__delete-folder-select"></select>
+                    <button type="button" id="studioDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
+                    <button type="button" id="studioDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
                 </div>
 
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>

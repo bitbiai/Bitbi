@@ -139,8 +139,17 @@ export async function apiAiGetFolders() {
     return Array.isArray(res.data?.data?.folders) ? res.data.data.folders : [];
 }
 
+export async function apiAiGetFoldersForDelete() {
+    const res = await request('GET', '/ai/folders?include_deleting=1');
+    return Array.isArray(res.data?.data?.folders) ? res.data.data.folders : [];
+}
+
 export function apiAiCreateFolder(name) {
     return request('POST', '/ai/folders', { name });
+}
+
+export function apiAiDeleteFolder(folderId) {
+    return request('DELETE', `/ai/folders/${folderId}`);
 }
 
 export async function apiAiGetImages(folderId) {
