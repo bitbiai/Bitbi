@@ -26,7 +26,7 @@ async function handleList(ctx) {
     .bind(session.user.id)
     .all();
 
-  return json({ ok: true, data: { favorites: rows.results || [] } });
+  return json({ ok: true, favorites: rows.results || [] });
 }
 
 async function handleAdd(ctx) {
