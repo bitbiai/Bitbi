@@ -10,7 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
-import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification } from '../../shared/auth-api.js';
+import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites } from '../../shared/auth-api.js';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -167,6 +167,89 @@ function renderProfile(profile, account) {
     $youtubeUrl.value = profile.youtube_url;
 }
 
+/* ── Favorites rendering ── */
+
+/* Section anchors on the index page */
+const FAV_HREF = {
+    experiments: '/#experiments',
+    gallery: '/#gallery',
+    soundlab: '/#soundlab',
+};
+
+/* Placeholder SVG for items without thumbnails */
+const PLACEHOLDER_SVG = `<svg width="24" height="24" fill="rgba(255,255,255,0.08)" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`;
+
+function renderFavorites(favorites) {
+    const groups = { experiments: [], gallery: [], soundlab: [] };
+    for (const f of favorites) {
+        if (groups[f.item_type]) groups[f.item_type].push(f);
+    }
+
+    for (const [type, items] of Object.entries(groups)) {
+        const container = document.querySelector(`[data-favorites-type="${type}"]`);
+        if (!container) continue;
+
+        /* Keep the label, replace the rest */
+        const label = container.querySelector('.favorites__group-label');
+        container.innerHTML = '';
+        if (label) container.appendChild(label);
+
+        if (items.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'favorites__empty';
+            empty.textContent = 'No favorites yet';
+            container.appendChild(empty);
+            continue;
+        }
+
+        const grid = document.createElement('div');
+        grid.className = 'favorites__grid';
+
+        for (const fav of items) {
+            const tile = document.createElement('a');
+            tile.className = 'fav-tile';
+            tile.href = FAV_HREF[fav.item_type] || '/';
+            tile.title = fav.title;
+
+            if (fav.thumb_url) {
+                const img = document.createElement('img');
+                img.className = 'fav-tile__img';
+                img.src = fav.thumb_url;
+                img.alt = fav.title;
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                /* Exclusive soundlab thumbs need credentials */
+                if (fav.thumb_url.startsWith('/api/')) {
+                    img.crossOrigin = 'use-credentials';
+                }
+                img.onerror = function () {
+                    this.onerror = null;
+                    this.style.display = 'none';
+                    const ph = document.createElement('div');
+                    ph.className = 'fav-tile__placeholder';
+                    ph.innerHTML = PLACEHOLDER_SVG;
+                    this.parentElement.insertBefore(ph, this);
+                };
+                tile.appendChild(img);
+            } else {
+                const ph = document.createElement('div');
+                ph.className = 'fav-tile__placeholder';
+                ph.innerHTML = PLACEHOLDER_SVG;
+                tile.appendChild(ph);
+            }
+
+            const lbl = document.createElement('div');
+            lbl.className = 'fav-tile__label';
+            lbl.textContent = fav.title;
+            tile.appendChild(lbl);
+
+            grid.appendChild(tile);
+        }
+
+        container.appendChild(grid);
+    }
+}
+
 /* ── Init ── */
 async function init() {
     // Shared header (nav, mobile menu, auth)
@@ -192,6 +275,13 @@ async function init() {
     showState($content);
     renderProfile(res.data.profile, res.data.account);
     loadAvatar(false);
+
+    // Load and render favorites
+    apiGetFavorites().then(favRes => {
+        if (favRes.ok && Array.isArray(favRes.data?.favorites)) {
+            renderFavorites(favRes.data.favorites);
+        }
+    }).catch(e => console.warn('favorites:', e));
 
     // Avatar upload
     $avatarInput.addEventListener('change', async () => {

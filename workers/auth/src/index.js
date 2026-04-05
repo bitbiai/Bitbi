@@ -9,6 +9,7 @@ import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
+import { handleFavorites } from "./routes/favorites.js";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";
@@ -49,6 +50,12 @@ export default {
     if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);
     if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar(ctx);
     if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar(ctx);
+
+    // Favorites
+    if (pathname === "/api/favorites") {
+      const result = await handleFavorites(ctx);
+      if (result) return result;
+    }
 
     // Admin routes
     if (pathname.startsWith("/api/admin/")) {

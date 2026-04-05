@@ -20,6 +20,7 @@ import { initGalleryStudio } from './studio.js';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
+import { loadFavorites } from '../../shared/favorites.js';
 
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
@@ -91,6 +92,14 @@ await authReady;
 try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 try { initLockedSections(revealObserver); } catch (e) { console.warn('lockedSections:', e); }
+
+/* Load user favorites (updates star button states) */
+loadFavorites().catch(e => console.warn('favorites:', e));
+
+/* Reload favorites on auth change */
+document.addEventListener('bitbi:auth-change', () => {
+    loadFavorites().catch(e => console.warn('favorites:', e));
+});
 
 /* Gallery mode toggle (Explore / Create) */
 try {

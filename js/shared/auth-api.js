@@ -159,6 +159,20 @@ export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
 
+/* ── Favorites ── */
+
+export function apiGetFavorites() {
+    return request('GET', '/favorites');
+}
+
+export function apiAddFavorite(item_type, item_id, title, thumb_url) {
+    return request('POST', '/favorites', { item_type, item_id, title, thumb_url });
+}
+
+export function apiRemoveFavorite(item_type, item_id) {
+    return request('DELETE', '/favorites', { item_type, item_id });
+}
+
 /* ── Password Reset ── */
 
 export function apiForgotPassword(email) {

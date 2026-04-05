@@ -1536,6 +1536,44 @@
         animation-play-state: paused !important;
     }
 
+    /* ── Favorite Star Button ── */
+    .fav-star {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.25);
+        cursor: pointer;
+        transition: color 0.25s, background 0.25s;
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+        z-index: 2;
+    }
+
+    .fav-star:hover {
+        background: rgba(255, 179, 0, 0.1);
+        color: rgba(255, 179, 0, 0.6);
+    }
+
+    .fav-star--active {
+        color: #FFB300;
+    }
+
+    .fav-star--active .fav-star__icon {
+        fill: #FFB300;
+    }
+
+    .fav-star--active:hover {
+        background: rgba(255, 179, 0, 0.15);
+        color: #FFB300;
+    }
+
     /* ── Reduced Motion ── */
     @media (prefers-reduced-motion: reduce) {
         .hero__scroll-hint,

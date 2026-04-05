@@ -475,6 +475,57 @@
         font-style: italic;
     }
 
+    /* ── Favorite Tiles ── */
+    .favorites__grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .fav-tile {
+        display: block;
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        text-decoration: none;
+        transition: border-color 0.25s;
+    }
+
+    .fav-tile:hover {
+        border-color: rgba(0, 240, 255, 0.2);
+    }
+
+    .fav-tile__img {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        object-fit: cover;
+        display: block;
+        background: rgba(13, 27, 42, 0.6);
+    }
+
+    .fav-tile__placeholder {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(13, 27, 42, 0.6);
+        color: rgba(255, 255, 255, 0.08);
+    }
+
+    .fav-tile__label {
+        padding: 6px 8px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.55);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     /* ── Mobile Tab Switcher ── */
     .profile-tab-bar {
         display: none;

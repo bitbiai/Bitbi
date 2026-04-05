@@ -6,6 +6,7 @@ import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { galleryItems } from '../../shared/gallery-data.js';
+import { createStarButton } from '../../shared/favorites.js';
 
 
 const items = galleryItems;
@@ -61,7 +62,11 @@ export function initGallery() {
                 this.parentElement.style.minHeight = '200px';
             };
             d.innerHTML = `<div class="gallery-inner rounded-xl overflow-hidden relative" style="border:1px solid rgba(255,255,255,0.04)"><div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px;z-index:1"><div><h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${item.title}</h4><p style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;text-transform:capitalize">${item.category}</p><span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full \u2192</span></div></div></div>`;
-            d.querySelector('.gallery-inner').prepend(img);
+            const inner = d.querySelector('.gallery-inner');
+            inner.prepend(img);
+            const star = createStarButton('gallery', item.id, { title: item.title, thumb_url: item.thumb.url });
+            star.style.cssText = 'position:absolute;top:8px;right:8px';
+            inner.appendChild(star);
             d.addEventListener('click', () => openModal(item));
             d.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(item); }
