@@ -18,7 +18,8 @@
         border-radius: var(--radius-xl);
     }
 
-    .profile__card + .profile__card {
+    .profile__card + .profile__card,
+    .profile__top-pair + .profile__card {
         margin-block-start: var(--space-6);
     }
 
@@ -105,6 +106,95 @@
     .profile__avatar-remove:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    /* ── Top Pair (Avatar + Studio) ── */
+    .profile__top-pair {
+        display: block;
+    }
+
+    .profile__studio-card {
+        display: none;
+        text-decoration: none;
+    }
+
+    @media (min-width: 1024px) {
+        .profile__top-pair {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-4);
+        }
+
+        .profile__top-pair .profile__card {
+            margin-block-start: 0;
+        }
+
+        .profile__studio-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s var(--ease-default), background 0.3s var(--ease-default);
+        }
+
+        .profile__studio-card:hover {
+            border-color: rgba(0, 240, 255, 0.3);
+            background: rgba(0, 240, 255, 0.04);
+        }
+
+        .profile__studio-emoji {
+            font-size: 2.5rem;
+            line-height: 1;
+            filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.3));
+        }
+
+        .profile__studio-label {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--color-cyan);
+            letter-spacing: 0.02em;
+        }
+
+        .profile__studio-hint {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+    }
+
+    /* ── Mobile Tab Link ── */
+    .profile-tab-link {
+        display: none;
+    }
+
+    @media (max-width: 1023px) {
+        .profile-tab-link {
+            display: inline-flex;
+            align-items: center;
+            padding: var(--space-2) var(--space-5);
+            border-radius: var(--radius-full);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            text-decoration: none;
+            transition: all 0.3s var(--ease-default);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .profile-tab-link:hover {
+            background: rgba(0, 240, 255, 0.08);
+            border-color: rgba(0, 240, 255, 0.25);
+            color: rgba(0, 240, 255, 0.7);
+        }
     }
 
     .profile__title {

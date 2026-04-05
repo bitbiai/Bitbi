@@ -85,13 +85,17 @@
 
             <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
                 <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
+                <a href="/account/image-studio.html" class="profile-tab-link">Studio</a>
                 <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
             </div>
 
             <div class="profile-layout__main">
 
+                <!-- Avatar + Studio pair -->
+                <div class="profile__top-pair reveal">
+
                 <!-- Avatar Card -->
-                <div class="profile__card profile__avatar-card reveal">
+                <div class="profile__card profile__avatar-card">
                     <div class="profile__avatar-wrap">
                         <div class="profile__avatar-frame" id="avatarFrame">
                             <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
@@ -112,6 +116,15 @@
                     </div>
                     <div id="avatarMsg" class="profile__msg" role="status"></div>
                 </div>
+
+                <!-- Studio CTA Card (desktop) -->
+                <a href="/account/image-studio.html" class="profile__card profile__studio-card" aria-label="Open AI Image Studio">
+                    <span class="profile__studio-emoji" aria-hidden="true">&#10024;</span>
+                    <span class="profile__studio-label">AI Studio</span>
+                    <span class="profile__studio-hint">Create &middot; Explore</span>
+                </a>
+
+                </div><!-- /.profile__top-pair -->
 
                 <!-- Account Info Card -->
                 <div class="profile__card reveal">
@@ -165,11 +178,6 @@
                         </div>
                         <button type="submit" id="submitBtn" class="profile__submit">Save Changes</button>
                     </form>
-                </div>
-
-                <!-- Image Studio Shortcut -->
-                <div class="reveal" style="text-align:center;margin-block:var(--space-2)">
-                    <p style="font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,0.3)">AI Image Studio is now in the <a href="/#gallery" style="color:var(--color-cyan);transition:color 0.2s ease">Gallery</a> &middot; <a href="/account/image-studio.html" style="color:rgba(0,240,255,0.5);transition:color 0.2s ease">Full Studio</a></p>
                 </div>
 
                 <!-- Account Actions -->
