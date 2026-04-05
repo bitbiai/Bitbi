@@ -493,6 +493,8 @@
 
     @media (max-width: 639px) {
         .studio-deck {
+            grid-template-columns: 1fr;
+            overflow: hidden;
             touch-action: pan-y;
         }
 

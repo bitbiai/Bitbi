@@ -315,6 +315,8 @@
 
         /* --- Inline Studio Saved-Images Deck (mirrors .gal-deck) --- */
         .studio-deck {
+            grid-template-columns: 1fr;
+            overflow: hidden;
             touch-action: pan-y;
         }
 
