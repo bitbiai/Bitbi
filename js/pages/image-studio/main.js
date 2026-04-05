@@ -13,6 +13,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import {
     apiGetMe,
     apiAiGenerateImage,
+    apiAiGetQuota,
     apiAiGetFolders,
     apiAiCreateFolder,
     apiAiGetImages,
@@ -54,6 +55,9 @@ const $newFolderCancel  = document.getElementById('studioNewFolderCancel');
 let currentImageData = null;
 let currentMeta      = null;
 let folders          = [];
+let quotaRemaining   = null;  // null = unknown/admin, number = remaining for non-admin
+let quotaLimit       = 10;
+let $quotaEl         = null;
 
 /* ── Helpers ── */
 function showState(el) {
@@ -88,7 +92,34 @@ function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/* ── Folders ── */
+/* ── Quota indicator ── */
+function renderQuota() {
+    if (!$quotaEl || quotaRemaining === null) return;
+    $quotaEl.textContent = `${quotaRemaining} / ${quotaLimit} generations left today`;
+    $quotaEl.classList.toggle('studio__quota--empty', quotaRemaining <= 0);
+}
+
+async function loadQuota() {
+    const q = await apiAiGetQuota();
+    if (!q || q.isAdmin) {
+        // Admin or failed — hide quota UI
+        if ($quotaEl) $quotaEl.style.display = 'none';
+        quotaRemaining = null;
+        return;
+    }
+    quotaLimit = q.dailyLimit || 10;
+    quotaRemaining = q.remainingToday;
+    renderQuota();
+}
+
+function injectQuotaEl(anchorEl) {
+    $quotaEl = document.createElement('div');
+    $quotaEl.className = 'studio__quota';
+    $quotaEl.setAttribute('aria-live', 'polite');
+    anchorEl.after($quotaEl);
+}
+
+/* ── Folders ���─ */
 async function loadFolders() {
     try {
         folders = await apiAiGetFolders();
@@ -130,6 +161,10 @@ async function handleGenerate() {
     if (!res.ok) {
         $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
         showMsg($genMsg, res.error, 'error');
+        if (res.data?.code === 'DAILY_IMAGE_LIMIT_REACHED' && quotaRemaining !== null) {
+            quotaRemaining = 0;
+            renderQuota();
+        }
         return;
     }
 
@@ -155,6 +190,12 @@ async function handleGenerate() {
 
     $saveBar.classList.add('visible');
     showMsg($genMsg, 'Image generated.', 'success');
+
+    // Update quota after successful generation
+    if (quotaRemaining !== null && quotaRemaining > 0) {
+        quotaRemaining--;
+        renderQuota();
+    }
 }
 
 /* ── Save Image ── */
@@ -301,6 +342,10 @@ async function init() {
 
     /* Attach mobile deck swipe + click-to-preview to saved images grid */
     if ($imageGrid) initStudioDeck($imageGrid);
+
+    // Quota indicator (inject after the actions row, load from server)
+    const $actions = document.querySelector('.studio__actions');
+    if ($actions) { injectQuotaEl($actions); loadQuota(); }
 
     // Load data
     await loadFolders();

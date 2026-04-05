@@ -9,8 +9,9 @@ const MAX_PROMPT_LENGTH = 1000;
 const MIN_STEPS = 1;
 const MAX_STEPS = 8; // flux-1-schnell documented max
 const DEFAULT_STEPS = 4;
-const GENERATION_LIMIT = 20; // per user per hour
+const GENERATION_LIMIT = 20; // per user per hour (in-memory rate limit)
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
+const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user per UTC day
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -51,6 +52,39 @@ function slugify(name) {
     .slice(0, 60) || "folder";
 }
 
+// Helper: count today's generations for a user (UTC day boundary)
+async function getDailyUsage(env, userId) {
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const dayStart = todayUtc + "T00:00:00.000Z";
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS cnt FROM ai_generation_log WHERE user_id = ? AND created_at >= ?"
+  ).bind(userId, dayStart).first();
+  return row ? row.cnt : 0;
+}
+
+// ── GET /api/ai/quota ──
+async function handleQuota(ctx) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  if (session.user.role === "admin") {
+    return json({ ok: true, data: { isAdmin: true } });
+  }
+
+  const usedToday = await getDailyUsage(env, session.user.id);
+  const remaining = Math.max(0, DAILY_IMAGE_LIMIT - usedToday);
+  return json({
+    ok: true,
+    data: {
+      isAdmin: false,
+      dailyLimit: DAILY_IMAGE_LIMIT,
+      usedToday,
+      remainingToday: remaining,
+    },
+  });
+}
+
 // ── POST /api/ai/generate-image ──
 async function handleGenerateImage(ctx) {
   const { request, env } = ctx;
@@ -58,10 +92,26 @@ async function handleGenerateImage(ctx) {
   if (session instanceof Response) return session;
 
   const userId = session.user.id;
+  const isAdmin = session.user.role === "admin";
 
-  // Rate limit per user
+  // Rate limit per user (in-memory, per-isolate)
   if (isRateLimited(`ai-gen:${userId}`, GENERATION_LIMIT, GENERATION_WINDOW_MS)) {
     return rateLimitResponse();
+  }
+
+  // Daily generation limit for non-admin members (server-enforced via D1)
+  if (!isAdmin) {
+    const usedToday = await getDailyUsage(env, userId);
+    if (usedToday >= DAILY_IMAGE_LIMIT) {
+      return json(
+        {
+          ok: false,
+          code: "DAILY_IMAGE_LIMIT_REACHED",
+          error: `You've reached your daily image generation limit (${DAILY_IMAGE_LIMIT}/${DAILY_IMAGE_LIMIT}). Please come back tomorrow for more creations.`,
+        },
+        { status: 429 }
+      );
+    }
   }
 
   const body = await readJsonBody(request);
@@ -355,6 +405,9 @@ async function handleDeleteImage(ctx, imageId) {
 export async function handleAI(ctx) {
   const { pathname, method } = ctx;
 
+  if (pathname === "/api/ai/quota" && method === "GET") {
+    return handleQuota(ctx);
+  }
   if (pathname === "/api/ai/generate-image" && method === "POST") {
     return handleGenerateImage(ctx);
   }

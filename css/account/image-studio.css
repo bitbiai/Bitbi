@@ -175,6 +175,26 @@
         color: rgba(255, 255, 255, 0.2);
     }
 
+    /* ── Quota Indicator ── */
+    .studio__quota {
+        margin-block-start: var(--space-4);
+        padding: var(--space-2) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(0, 240, 255, 0.55);
+        background: rgba(0, 240, 255, 0.04);
+        border: 1px solid rgba(0, 240, 255, 0.08);
+        border-radius: var(--radius-full);
+        text-align: center;
+        letter-spacing: 0.03em;
+    }
+
+    .studio__quota--empty {
+        color: rgba(239, 68, 68, 0.7);
+        background: rgba(239, 68, 68, 0.06);
+        border-color: rgba(239, 68, 68, 0.12);
+    }
+
     /* ── Preview ── */
     .studio__preview {
         min-block-size: 280px;

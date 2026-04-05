@@ -6,6 +6,7 @@
 
 import {
     apiAiGenerateImage,
+    apiAiGetQuota,
     apiAiGetFolders,
     apiAiCreateFolder,
     apiAiGetImages,
@@ -18,6 +19,9 @@ let initialized = false;
 let currentImageData = null;
 let currentMeta = null;
 let folders = [];
+let quotaRemaining = null;
+let quotaLimit = 10;
+let $quotaEl = null;
 
 /* DOM refs (resolved on init) */
 let $prompt, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
@@ -39,6 +43,32 @@ function hideMsg(el) {
 
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ── Quota indicator ── */
+function renderQuota() {
+    if (!$quotaEl || quotaRemaining === null) return;
+    $quotaEl.textContent = `${quotaRemaining} / ${quotaLimit} generations left today`;
+    $quotaEl.classList.toggle('studio__quota--empty', quotaRemaining <= 0);
+}
+
+async function loadQuota() {
+    const q = await apiAiGetQuota();
+    if (!q || q.isAdmin) {
+        if ($quotaEl) $quotaEl.style.display = 'none';
+        quotaRemaining = null;
+        return;
+    }
+    quotaLimit = q.dailyLimit || 10;
+    quotaRemaining = q.remainingToday;
+    renderQuota();
+}
+
+function injectQuotaEl(anchorEl) {
+    $quotaEl = document.createElement('div');
+    $quotaEl.className = 'studio__quota';
+    $quotaEl.setAttribute('aria-live', 'polite');
+    anchorEl.after($quotaEl);
 }
 
 function populateFolderOptions(selectEl) {
@@ -96,6 +126,10 @@ async function handleGenerate() {
     if (!res.ok) {
         $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
         showMsg($genMsg, res.error, 'error');
+        if (res.data?.code === 'DAILY_IMAGE_LIMIT_REACHED' && quotaRemaining !== null) {
+            quotaRemaining = 0;
+            renderQuota();
+        }
         return;
     }
 
@@ -119,6 +153,11 @@ async function handleGenerate() {
 
     $saveBar.classList.add('visible');
     showMsg($genMsg, 'Image generated.', 'success');
+
+    if (quotaRemaining !== null && quotaRemaining > 0) {
+        quotaRemaining--;
+        renderQuota();
+    }
 }
 
 /* ── Save Image ── */
@@ -274,6 +313,10 @@ export function initGalleryStudio() {
 
     /* Attach mobile deck swipe + click-to-preview to saved images grid */
     if ($imageGrid) initStudioDeck($imageGrid);
+
+    // Quota indicator (inject after the actions row, load from server)
+    const $actions = document.querySelector('#galleryStudio .studio__actions');
+    if ($actions) { injectQuotaEl($actions); loadQuota(); }
 
     loadFolders();
     loadGallery();

@@ -122,6 +122,11 @@ export function apiRequestReverification() {
 
 /* ── Image Studio ── */
 
+export async function apiAiGetQuota() {
+    const res = await request('GET', '/ai/quota');
+    return res.ok ? (res.data?.data || null) : null;
+}
+
 export function apiAiGenerateImage(prompt, steps, seed) {
     const body = { prompt };
     if (steps != null) body.steps = steps;
