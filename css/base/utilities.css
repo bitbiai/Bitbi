@@ -47,6 +47,14 @@
         outline-offset: 0;
     }
 
+    /* Prevent Safari mobile auto-zoom on form field focus.
+       Safari zooms when computed font-size < 16px. */
+    @media (max-width: 639px) {
+        input, textarea, select {
+            font-size: 16px;
+        }
+    }
+
     /* Layout utilities used in JS-generated content and templates */
     .rounded-2xl { border-radius: var(--radius-xl); }
     .rounded-xl { border-radius: var(--radius-lg); }
