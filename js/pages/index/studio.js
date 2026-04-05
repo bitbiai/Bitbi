@@ -12,6 +12,7 @@ import {
     apiAiSaveImage,
     apiAiDeleteImage,
 } from '../../shared/auth-api.js';
+import { initStudioDeck } from '../../shared/studio-deck.js';
 
 let initialized = false;
 let currentImageData = null;
@@ -270,6 +271,9 @@ export function initGalleryStudio() {
     $newFolderCancel = document.getElementById('galStudioNewFolderCancel');
 
     if (!$prompt || !$generateBtn) return;
+
+    /* Attach mobile deck swipe + click-to-preview to saved images grid */
+    if ($imageGrid) initStudioDeck($imageGrid);
 
     loadFolders();
     loadGallery();

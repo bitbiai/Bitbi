@@ -19,6 +19,7 @@ import {
     apiAiSaveImage,
     apiAiDeleteImage,
 } from '../../shared/auth-api.js';
+import { initStudioDeck } from '../../shared/studio-deck.js';
 
 /* ── DOM refs ── */
 const $loading = document.getElementById('loadingState');
@@ -297,6 +298,9 @@ async function init() {
     }
 
     showState($content);
+
+    /* Attach mobile deck swipe + click-to-preview to saved images grid */
+    if ($imageGrid) initStudioDeck($imageGrid);
 
     // Load data
     await loadFolders();
