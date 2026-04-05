@@ -36,7 +36,7 @@
     <link rel="stylesheet" href="css/base/reset.css?v=20260321">
     <link rel="stylesheet" href="css/base/base.css?v=20260322">
     <link rel="stylesheet" href="css/components/components.css?v=20260329">
-    <link rel="stylesheet" href="css/pages/index.css?v=20260405">
+    <link rel="stylesheet" href="css/pages/index.css?v=20260405b">
     <link rel="stylesheet" href="css/account/image-studio.css?v=20260405">
     <link rel="stylesheet" href="css/components/auth.css?v=20260317">
     <link rel="stylesheet" href="css/base/utilities.css?v=20260317">
@@ -193,8 +193,21 @@
             </div>
         </div>
         <div class="gallery-mode reveal" role="tablist" aria-label="Gallery mode">
-            <button class="gallery-mode__btn active" data-mode="explore" role="tab" aria-selected="true" tabindex="0">Explore</button>
-            <button class="gallery-mode__btn gallery-mode__btn--locked" data-mode="create" role="tab" aria-selected="false" tabindex="-1">Create &#x1f512;</button>
+            <div class="gallery-mode__item">
+                <button class="gallery-mode__btn gallery-mode__btn--explore active" data-mode="explore" role="tab" aria-selected="true" tabindex="0">
+                    <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    <span class="gallery-mode__label">Explore</span>
+                </button>
+                <span class="gallery-mode__hint">Browse curated AI art</span>
+            </div>
+            <div class="gallery-mode__item">
+                <button class="gallery-mode__btn gallery-mode__btn--create gallery-mode__btn--locked" data-mode="create" role="tab" aria-selected="false" tabindex="-1">
+                    <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
+                    <span class="gallery-mode__label">Create</span>
+                    <span class="gallery-mode__lock" aria-hidden="true">&#x1f512;</span>
+                </button>
+                <span class="gallery-mode__hint">Generate your own</span>
+            </div>
         </div>
         <div id="galleryExplore">
             <div class="filter-bar reveal" role="tablist" aria-label="Gallery filters">
@@ -408,6 +421,6 @@
 </footer>
 
 <div id="authModal"></div>
-<script type="module" src="js/pages/index/main.js?v=20260402a"></script>
+<script type="module" src="js/pages/index/main.js?v=20260405"></script>
 </body>
 </html>

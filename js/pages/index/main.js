@@ -140,7 +140,6 @@ try {
             const { loggedIn } = getAuthState();
             if (createBtn) {
                 createBtn.classList.toggle('gallery-mode__btn--locked', !loggedIn);
-                createBtn.textContent = loggedIn ? 'Create' : 'Create \u{1F512}';
             }
             if (loggedIn && pendingCreate) {
                 setGalleryMode('create');
@@ -154,7 +153,6 @@ try {
         const { loggedIn } = getAuthState();
         if (createBtn && loggedIn) {
             createBtn.classList.remove('gallery-mode__btn--locked');
-            createBtn.textContent = 'Create';
         }
     }
 } catch (e) { console.warn('galleryMode:', e); }
