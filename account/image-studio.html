@@ -146,8 +146,17 @@
                         <select id="studioGalleryFilter" class="studio__folder-filter">
                             <option value="">All images</option>
                         </select>
-                        <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn">+ Folder</button>
-                        <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn">&minus; Folder</button>
+                        <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
+                        <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
+                        <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
+                        <div class="studio__mobile-actions" id="studioMobileActions">
+                            <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Image actions" aria-expanded="false">&#x22EE;</button>
+                            <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu">
+                                <button type="button" data-action="new-folder">+ Folder</button>
+                                <button type="button" data-action="delete-folder">&minus; Folder</button>
+                                <button type="button" data-action="select">Select</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -163,6 +172,21 @@
                     <select id="studioDeleteFolderSelect" class="studio__delete-folder-select"></select>
                     <button type="button" id="studioDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
                     <button type="button" id="studioDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
+                </div>
+
+                <!-- Bulk Actions Bar (visible in selection mode) -->
+                <div id="studioBulkBar" class="studio__bulk-bar">
+                    <span id="studioBulkCount" class="studio__bulk-count">0 selected</span>
+                    <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
+                    <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
+                    <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                </div>
+
+                <!-- Bulk Move Folder Picker (hidden by default) -->
+                <div id="studioBulkMoveForm" class="studio__bulk-move-form">
+                    <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>
+                    <button type="button" id="studioBulkMoveConfirm" class="studio__new-folder-save">Move</button>
+                    <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
                 </div>
 
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>

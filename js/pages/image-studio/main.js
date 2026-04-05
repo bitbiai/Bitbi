@@ -21,6 +21,8 @@ import {
     apiAiGetImages,
     apiAiSaveImage,
     apiAiDeleteImage,
+    apiAiBulkMoveImages,
+    apiAiBulkDeleteImages,
 } from '../../shared/auth-api.js';
 import { initStudioDeck } from '../../shared/studio-deck.js';
 
@@ -60,6 +62,22 @@ const $deleteFolderSelect  = document.getElementById('studioDeleteFolderSelect')
 const $deleteFolderConfirm = document.getElementById('studioDeleteFolderConfirm');
 const $deleteFolderCancel  = document.getElementById('studioDeleteFolderCancel');
 
+// Selection mode
+const $selectBtn           = document.getElementById('studioSelectBtn');
+const $mobileActionsToggle = document.getElementById('studioMobileActionsToggle');
+const $mobileActionsMenu   = document.getElementById('studioMobileActionsMenu');
+
+// Bulk actions
+const $bulkBar             = document.getElementById('studioBulkBar');
+const $bulkCount           = document.getElementById('studioBulkCount');
+const $bulkMove            = document.getElementById('studioBulkMove');
+const $bulkDelete          = document.getElementById('studioBulkDelete');
+const $bulkCancel          = document.getElementById('studioBulkCancel');
+const $bulkMoveForm        = document.getElementById('studioBulkMoveForm');
+const $bulkMoveSelect      = document.getElementById('studioBulkMoveSelect');
+const $bulkMoveConfirm     = document.getElementById('studioBulkMoveConfirm');
+const $bulkMoveCancel      = document.getElementById('studioBulkMoveCancel');
+
 /* ── State ── */
 let currentImageData = null;
 let currentMeta      = null;
@@ -67,6 +85,8 @@ let folders          = [];
 let quotaRemaining   = null;  // null = unknown/admin, number = remaining for non-admin
 let quotaLimit       = 10;
 let $quotaEl         = null;
+let selectMode       = false;
+let selectedIds      = new Set();
 
 /* ── Helpers ── */
 function showState(el) {
@@ -241,6 +261,7 @@ async function handleSave() {
 
 /* ── Gallery ── */
 async function loadGallery() {
+    if (selectMode) exitSelectMode();
     const folderId = $galleryFilter.value || null;
     let images;
     try {
@@ -260,6 +281,7 @@ async function loadGallery() {
     for (const img of images) {
         const item = document.createElement('div');
         item.className = 'studio__image-item';
+        item.dataset.imageId = img.id;
         item.title = img.prompt;
 
         const imgEl = document.createElement('img');
@@ -295,6 +317,11 @@ async function loadGallery() {
         });
         overlay.appendChild(delBtn);
         item.appendChild(overlay);
+
+        const check = document.createElement('div');
+        check.className = 'studio__image-check';
+        check.setAttribute('aria-hidden', 'true');
+        item.appendChild(check);
 
         $imageGrid.appendChild(item);
     }
@@ -390,6 +417,133 @@ async function handleDeleteFolder() {
     showMsg($galleryMsg, `Folder "${name}" deleted.`, 'success');
 }
 
+/* ── Selection Mode ── */
+function enterSelectMode() {
+    const items = $imageGrid.querySelectorAll('.studio__image-item');
+    if (items.length === 0) return;
+    selectMode = true;
+    selectedIds.clear();
+    $imageGrid.classList.add('studio--selecting');
+    $imageGrid.dataset.selectMode = 'true';
+    $bulkBar.classList.add('visible');
+    $galleryFilter.disabled = true;
+    const card = $imageGrid.closest('.studio__card');
+    if (card) card.classList.add('studio--selecting-mode');
+    updateBulkCount();
+    hideMsg($galleryMsg);
+}
+
+function exitSelectMode() {
+    if (!selectMode) return;
+    selectMode = false;
+    selectedIds.clear();
+    $imageGrid.classList.remove('studio--selecting');
+    delete $imageGrid.dataset.selectMode;
+    $bulkBar.classList.remove('visible');
+    hideBulkMoveForm();
+    $galleryFilter.disabled = false;
+    const card = $imageGrid.closest('.studio__card');
+    if (card) card.classList.remove('studio--selecting-mode');
+    $imageGrid.querySelectorAll('.studio__image-item.selected').forEach(el => {
+        el.classList.remove('selected');
+    });
+}
+
+const MAX_BULK_SELECT = 50;
+
+function toggleImageSelection(item) {
+    const id = item.dataset.imageId;
+    if (!id) return;
+    if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+        item.classList.remove('selected');
+    } else {
+        if (selectedIds.size >= MAX_BULK_SELECT) {
+            showMsg($galleryMsg, `You can select up to ${MAX_BULK_SELECT} images at a time.`, 'error');
+            return;
+        }
+        selectedIds.add(id);
+        item.classList.add('selected');
+    }
+    updateBulkCount();
+}
+
+function updateBulkCount() {
+    const n = selectedIds.size;
+    $bulkCount.textContent = `${n} selected` + (n >= MAX_BULK_SELECT ? ' (max)' : '');
+}
+
+/* ── Bulk Move ── */
+function showBulkMoveForm() {
+    if (selectedIds.size === 0) {
+        showMsg($galleryMsg, 'Select at least one image first.', 'error');
+        return;
+    }
+    populateFolderOptions($bulkMoveSelect);
+    $bulkMoveForm.classList.add('visible');
+    $bulkMoveSelect.focus();
+}
+
+function hideBulkMoveForm() {
+    $bulkMoveForm.classList.remove('visible');
+}
+
+async function handleBulkMoveConfirm() {
+    if (selectedIds.size === 0) return;
+    const folderId = $bulkMoveSelect.value || null;
+    $bulkMoveConfirm.disabled = true;
+    $bulkMoveConfirm.textContent = '\u2026';
+    const res = await apiAiBulkMoveImages([...selectedIds], folderId);
+    $bulkMoveConfirm.disabled = false;
+    $bulkMoveConfirm.textContent = 'Move';
+    if (!res.ok) {
+        showMsg($galleryMsg, res.error || 'Failed to move images.', 'error');
+        return;
+    }
+    const n = selectedIds.size;
+    exitSelectMode();
+    loadGallery();
+    showMsg($galleryMsg, `${n} image${n > 1 ? 's' : ''} moved.`, 'success');
+}
+
+/* ── Bulk Delete ── */
+async function handleBulkDelete() {
+    if (selectedIds.size === 0) {
+        showMsg($galleryMsg, 'Select at least one image first.', 'error');
+        return;
+    }
+    const n = selectedIds.size;
+    if (!confirm(`Delete ${n} selected image${n > 1 ? 's' : ''}?\n\nThis cannot be undone.`)) return;
+    $bulkDelete.disabled = true;
+    $bulkDelete.textContent = '\u2026';
+    const res = await apiAiBulkDeleteImages([...selectedIds]);
+    $bulkDelete.disabled = false;
+    $bulkDelete.textContent = 'Delete Selected';
+    if (!res.ok) {
+        showMsg($galleryMsg, res.error || 'Failed to delete images.', 'error');
+        return;
+    }
+    exitSelectMode();
+    loadGallery();
+    showMsg($galleryMsg, `${n} image${n > 1 ? 's' : ''} deleted.`, 'success');
+}
+
+/* ── Mobile Actions Dropdown ── */
+function toggleMobileMenu() {
+    const isOpen = $mobileActionsMenu.classList.contains('visible');
+    if (isOpen) {
+        closeMobileMenu();
+    } else {
+        $mobileActionsMenu.classList.add('visible');
+        $mobileActionsToggle.setAttribute('aria-expanded', 'true');
+    }
+}
+
+function closeMobileMenu() {
+    $mobileActionsMenu.classList.remove('visible');
+    $mobileActionsToggle.setAttribute('aria-expanded', 'false');
+}
+
 /* ── Init ── */
 async function init() {
     try { initSiteHeader(); }    catch (e) { console.warn(e); }
@@ -437,6 +591,41 @@ async function init() {
     $newFolderInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); handleCreateFolder(); }
         if (e.key === 'Escape') hideNewFolderForm();
+    });
+
+    // Selection mode
+    $selectBtn.addEventListener('click', enterSelectMode);
+    $bulkMove.addEventListener('click', showBulkMoveForm);
+    $bulkDelete.addEventListener('click', handleBulkDelete);
+    $bulkCancel.addEventListener('click', exitSelectMode);
+    $bulkMoveConfirm.addEventListener('click', handleBulkMoveConfirm);
+    $bulkMoveCancel.addEventListener('click', hideBulkMoveForm);
+
+    // Image selection click handler
+    $imageGrid.addEventListener('click', (e) => {
+        if (!selectMode) return;
+        const item = e.target.closest('.studio__image-item');
+        if (!item) return;
+        if (e.target.closest('.studio__image-delete')) return;
+        toggleImageSelection(item);
+    });
+
+    // Mobile actions dropdown
+    $mobileActionsToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMobileMenu();
+    });
+    $mobileActionsMenu.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        closeMobileMenu();
+        const action = btn.dataset.action;
+        if (action === 'new-folder') showNewFolderForm();
+        else if (action === 'delete-folder') showDeleteFolderForm();
+        else if (action === 'select') enterSelectMode();
+    });
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#studioMobileActions')) closeMobileMenu();
     });
 
     // Allow Ctrl+Enter to generate

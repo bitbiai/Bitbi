@@ -276,8 +276,10 @@ export function initStudioDeck(grid) {
     grid.addEventListener('click', e => {
         const item = e.target.closest('.studio__image-item');
         if (!item) return;
-        /* Don't open modal when clicking delete */
+        /* Don't open modal when clicking delete or in selection mode */
         if (e.target.closest('.studio__image-delete')) return;
+        if (e.target.closest('.studio__image-check')) return;
+        if (grid.dataset.selectMode) return;
         const img = item.querySelector('img');
         if (!img) return;
         openStudioModal(img.src, item.title || img.alt || 'Saved image');

@@ -107,5 +107,58 @@ export default {
       env.DB.prepare("DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
       env.DB.prepare("DELETE FROM email_verification_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
     ]);
+
+    // Process R2 cleanup queue — retry failed blob deletions.
+    // Wrapped in try/catch so the worker is safe to deploy before migration 0010.
+    try {
+      const pending = await env.DB.prepare(
+        "SELECT id, r2_key FROM r2_cleanup_queue WHERE status = 'pending' AND attempts < 5 ORDER BY created_at ASC LIMIT 50"
+      ).all();
+
+      const stmts = [];
+
+      if (pending.results && pending.results.length > 0) {
+        const succeeded = [];
+        const retried = [];
+        for (const row of pending.results) {
+          try {
+            await env.USER_IMAGES.delete(row.r2_key);
+            succeeded.push(row.id);
+          } catch {
+            retried.push(row.id);
+          }
+        }
+        if (succeeded.length > 0) {
+          const ph = succeeded.map(() => "?").join(",");
+          stmts.push(env.DB.prepare(`DELETE FROM r2_cleanup_queue WHERE id IN (${ph})`).bind(...succeeded));
+        }
+        if (retried.length > 0) {
+          const ph = retried.map(() => "?").join(",");
+          stmts.push(env.DB.prepare(
+            `UPDATE r2_cleanup_queue SET attempts = attempts + 1, last_attempt_at = ? WHERE id IN (${ph})`
+          ).bind(now, ...retried));
+        }
+      }
+
+      // Dead-letter entries only after actual retry exhaustion — never based
+      // on raw age alone, so backlog/delayed crons cannot abandon untried jobs.
+      const exhausted = await env.DB.prepare(
+        "SELECT id, r2_key, attempts FROM r2_cleanup_queue WHERE status = 'pending' AND attempts >= 5 AND last_attempt_at IS NOT NULL"
+      ).all();
+      if (exhausted.results && exhausted.results.length > 0) {
+        for (const row of exhausted.results) {
+          console.error(`R2 cleanup dead-lettered: r2_key=${row.r2_key}, attempts=${row.attempts}`);
+        }
+        const ph = exhausted.results.map(() => "?").join(",");
+        stmts.push(env.DB.prepare(
+          `UPDATE r2_cleanup_queue SET status = 'dead', last_attempt_at = ? WHERE id IN (${ph})`
+        ).bind(now, ...exhausted.results.map(r => r.id)));
+      }
+
+      if (stmts.length > 0) await env.DB.batch(stmts);
+    } catch (e) {
+      // Table may not exist yet if migration 0010 hasn't been applied — skip cleanly
+      if (!String(e).includes("no such table")) throw e;
+    }
   },
 };

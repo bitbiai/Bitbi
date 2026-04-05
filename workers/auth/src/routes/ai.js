@@ -490,6 +490,202 @@ async function handleDeleteImage(ctx, imageId) {
   return json({ ok: true });
 }
 
+// ── PATCH /api/ai/images/bulk-move ──
+async function handleBulkMove(ctx) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  if (!body || !Array.isArray(body.image_ids) || body.image_ids.length === 0) {
+    return json({ ok: false, error: "image_ids array is required." }, { status: 400 });
+  }
+
+  const imageIds = body.image_ids;
+  if (imageIds.length > 50) {
+    return json({ ok: false, error: "Cannot move more than 50 images at once." }, { status: 400 });
+  }
+
+  for (const id of imageIds) {
+    if (typeof id !== "string" || !/^[a-f0-9]+$/.test(id)) {
+      return json({ ok: false, error: "Invalid image ID." }, { status: 400 });
+    }
+  }
+
+  const folderId = body.folder_id || null;
+  if (folderId) {
+    if (typeof folderId !== "string" || !/^[a-f0-9]+$/.test(folderId)) {
+      return json({ ok: false, error: "Invalid folder ID." }, { status: 400 });
+    }
+    const folder = await env.DB.prepare(
+      "SELECT id FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
+    ).bind(folderId, session.user.id).first();
+    if (!folder) {
+      return json({ ok: false, error: "Folder not found." }, { status: 404 });
+    }
+  }
+
+  // Advisory ownership pre-check — gives a clear 404 before the guarded write
+  const placeholders = imageIds.map(() => "?").join(",");
+  const owned = await env.DB.prepare(
+    `SELECT COUNT(*) AS cnt FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+  ).bind(...imageIds, session.user.id).first();
+
+  if (!owned || owned.cnt !== imageIds.length) {
+    return json({ ok: false, error: "One or more images not found." }, { status: 404 });
+  }
+
+  // CTE-guarded UPDATE: IDs bound once via VALUES, count guard ensures
+  // all-or-nothing within a single atomic statement. If any image was
+  // concurrently deleted between the advisory check and this statement,
+  // the count mismatch causes zero rows to be updated.
+  const valuesList = imageIds.map(() => "(?)").join(",");
+  let result;
+  if (folderId) {
+    result = await env.DB.prepare(
+      `WITH requested(id) AS (VALUES ${valuesList})
+       UPDATE ai_images SET folder_id = ?
+       WHERE user_id = ?
+         AND id IN (SELECT id FROM requested)
+         AND (SELECT COUNT(*) FROM requested) =
+             (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))
+         AND EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
+    ).bind(...imageIds, folderId, session.user.id, session.user.id, folderId, session.user.id).run();
+  } else {
+    result = await env.DB.prepare(
+      `WITH requested(id) AS (VALUES ${valuesList})
+       UPDATE ai_images SET folder_id = NULL
+       WHERE user_id = ?
+         AND id IN (SELECT id FROM requested)
+         AND (SELECT COUNT(*) FROM requested) =
+             (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+    ).bind(...imageIds, session.user.id, session.user.id).run();
+  }
+
+  if (!result.meta.changes || result.meta.changes !== imageIds.length) {
+    return json(
+      { ok: false, error: "Move failed. Some images may have been deleted or the folder removed." },
+      { status: 409 }
+    );
+  }
+
+  return json({ ok: true, data: { moved: imageIds.length } });
+}
+
+// ── POST /api/ai/images/bulk-delete ──
+async function handleBulkDelete(ctx) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  if (!body || !Array.isArray(body.image_ids) || body.image_ids.length === 0) {
+    return json({ ok: false, error: "image_ids array is required." }, { status: 400 });
+  }
+
+  const imageIds = body.image_ids;
+  if (imageIds.length > 50) {
+    return json({ ok: false, error: "Cannot delete more than 50 images at once." }, { status: 400 });
+  }
+
+  for (const id of imageIds) {
+    if (typeof id !== "string" || !/^[a-f0-9]+$/.test(id)) {
+      return json({ ok: false, error: "Invalid image ID." }, { status: 400 });
+    }
+  }
+
+  // Advisory pre-check — also captures r2_keys for inline R2 cleanup later
+  const placeholders = imageIds.map(() => "?").join(",");
+  const snapshot = await env.DB.prepare(
+    `SELECT id, r2_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+  ).bind(...imageIds, session.user.id).all();
+
+  if (!snapshot.results || snapshot.results.length !== imageIds.length) {
+    return json({ ok: false, error: "One or more images not found." }, { status: 404 });
+  }
+
+  // Atomic batch: queue creation + row deletion in ONE D1 transaction.
+  //
+  // Statement 1: INSERT cleanup jobs by SELECTing r2_keys from ai_images.
+  //   The CTE count guard ensures this only inserts if ALL requested images
+  //   exist and are owned. Runs first so it reads ai_images before deletion.
+  //
+  // Statement 2: DELETE the matching ai_images rows with the same guard.
+  //   Within this transaction, statement 2 sees ai_images after statement 1
+  //   read from it (statement 1 only inserted into a different table).
+  //   The count guard evaluates identically — both affect N rows or 0 rows.
+  //
+  // Invariant: if ai_images rows are gone, their cleanup queue entries
+  // definitely exist in the same committed transaction. No split-brain.
+  const valuesList = imageIds.map(() => "(?)").join(",");
+  const ts = nowIso();
+
+  let batchResults;
+  try {
+    batchResults = await env.DB.batch([
+      env.DB.prepare(
+        `WITH requested(id) AS (VALUES ${valuesList})
+         INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+         SELECT r2_key, 'pending', ?
+         FROM ai_images
+         WHERE user_id = ?
+           AND id IN (SELECT id FROM requested)
+           AND (SELECT COUNT(*) FROM requested) =
+               (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+      ).bind(...imageIds, ts, session.user.id, session.user.id),
+
+      env.DB.prepare(
+        `WITH requested(id) AS (VALUES ${valuesList})
+         DELETE FROM ai_images
+         WHERE user_id = ?
+           AND id IN (SELECT id FROM requested)
+           AND (SELECT COUNT(*) FROM requested) =
+               (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+      ).bind(...imageIds, session.user.id, session.user.id),
+    ]);
+  } catch (e) {
+    // Batch failed — transaction rolled back, nothing committed.
+    console.error("Bulk delete: atomic batch failed", e);
+    const msg = String(e).includes("no such table")
+      ? "Service temporarily unavailable. Please try again later."
+      : "Delete failed. Please try again.";
+    return json({ ok: false, error: msg }, { status: 503 });
+  }
+
+  const deleted = batchResults[1].meta.changes || 0;
+  if (deleted !== imageIds.length) {
+    // CTE count guard failed — concurrent mutation. Both statements
+    // affected zero rows within the same committed transaction.
+    return json(
+      { ok: false, error: "Delete failed. Some images may have already been removed." },
+      { status: 409 }
+    );
+  }
+
+  // Durable handoff complete — all deleted r2_keys have queue entries.
+  // Inline R2 cleanup is best-effort optimization only.
+  const cleanedKeys = [];
+  for (const row of snapshot.results) {
+    try {
+      await env.USER_IMAGES.delete(row.r2_key);
+      cleanedKeys.push(row.r2_key);
+    } catch { /* leave queue entry for scheduled retry */ }
+  }
+
+  // Remove queue entries for blobs already cleaned up inline.
+  // If this fails, the scheduled handler will re-delete idempotently.
+  if (cleanedKeys.length > 0) {
+    try {
+      const ph = cleanedKeys.map(() => "?").join(",");
+      await env.DB.prepare(
+        `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
+      ).bind(...cleanedKeys).run();
+    } catch { /* non-critical — idempotent R2 delete on next scheduled run */ }
+  }
+
+  return json({ ok: true, data: { deleted } });
+}
+
 // ── Main dispatcher ──
 export async function handleAI(ctx) {
   const { pathname, method } = ctx;
@@ -511,6 +707,12 @@ export async function handleAI(ctx) {
   }
   if (pathname === "/api/ai/images/save" && method === "POST") {
     return handleSaveImage(ctx);
+  }
+  if (pathname === "/api/ai/images/bulk-move" && method === "PATCH") {
+    return handleBulkMove(ctx);
+  }
+  if (pathname === "/api/ai/images/bulk-delete" && method === "POST") {
+    return handleBulkDelete(ctx);
   }
 
   // DELETE /api/ai/folders/:id

@@ -573,6 +573,225 @@
         font-style: italic;
     }
 
+    /* ── Selection Mode ── */
+    .studio__image-check {
+        position: absolute;
+        inset-block-start: 8px;
+        inset-inline-start: 8px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        background: rgba(0, 0, 0, 0.5);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2;
+        pointer-events: none;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__image-grid.studio--selecting .studio__image-check {
+        display: flex;
+    }
+
+    .studio__image-item.selected .studio__image-check {
+        background: var(--color-cyan);
+        border-color: var(--color-cyan);
+    }
+
+    .studio__image-item.selected .studio__image-check::after {
+        content: '\2713';
+        color: var(--color-midnight);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .studio__image-item.selected {
+        border-color: rgba(0, 240, 255, 0.4);
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    }
+
+    .studio__image-grid.studio--selecting .studio__image-overlay {
+        display: none;
+    }
+
+    .studio__image-grid.studio--selecting .studio__image-item {
+        cursor: pointer;
+    }
+
+    /* Hide folder action buttons and mobile dropdown during selection mode */
+    .studio--selecting-mode .studio__folder-action,
+    .studio--selecting-mode .studio__mobile-actions {
+        display: none !important;
+    }
+
+    /* ── Bulk Action Bar ── */
+    .studio__bulk-bar {
+        display: none;
+        gap: var(--space-2);
+        align-items: center;
+        margin-block-end: var(--space-4);
+        flex-wrap: wrap;
+    }
+
+    .studio__bulk-bar.visible {
+        display: flex;
+    }
+
+    .studio__bulk-count {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(0, 240, 255, 0.7);
+        margin-inline-end: var(--space-2);
+    }
+
+    .studio__bulk-btn {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .studio__bulk-btn--move {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.06);
+        border: 1px solid rgba(0, 240, 255, 0.15);
+    }
+
+    .studio__bulk-btn--move:hover {
+        background: rgba(0, 240, 255, 0.12);
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .studio__bulk-btn--delete {
+        color: var(--color-danger);
+        background: rgba(239, 68, 68, 0.06);
+        border: 1px solid rgba(239, 68, 68, 0.15);
+    }
+
+    .studio__bulk-btn--delete:hover {
+        background: rgba(239, 68, 68, 0.12);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .studio__bulk-btn--cancel {
+        color: rgba(255, 255, 255, 0.4);
+        background: transparent;
+        border: var(--border-subtle);
+    }
+
+    .studio__bulk-btn--cancel:hover {
+        color: rgba(255, 255, 255, 0.7);
+    }
+
+    .studio__bulk-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    /* ── Bulk Move Form ── */
+    .studio__bulk-move-form {
+        display: none;
+        gap: var(--space-2);
+        align-items: center;
+        margin-block-end: var(--space-4);
+    }
+
+    .studio__bulk-move-form.visible {
+        display: flex;
+    }
+
+    .studio__bulk-move-select {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        outline: none;
+        flex: 1;
+        min-inline-size: 120px;
+    }
+
+    /* ── Mobile Actions Dropdown ── */
+    .studio__mobile-actions {
+        display: none;
+        position: relative;
+    }
+
+    .studio__mobile-actions-toggle {
+        padding: var(--space-2) var(--space-3);
+        font-size: 16px;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.04);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__mobile-actions-toggle:hover {
+        color: rgba(255, 255, 255, 0.85);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .studio__mobile-actions-menu {
+        display: none;
+        position: absolute;
+        inset-block-start: 100%;
+        inset-inline-end: 0;
+        margin-block-start: var(--space-1);
+        min-inline-size: 140px;
+        padding: var(--space-1);
+        background: rgba(13, 27, 42, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        z-index: 10;
+    }
+
+    .studio__mobile-actions-menu.visible {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .studio__mobile-actions-menu button {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        text-align: start;
+        transition: all 0.15s var(--ease-default);
+    }
+
+    .studio__mobile-actions-menu button:hover {
+        color: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    @media (max-width: 639px) {
+        .studio__folder-action {
+            display: none;
+        }
+        .studio__mobile-actions {
+            display: block;
+        }
+    }
+
     /* ── Mobile Saved-Images Deck (mirrors .gal-deck) ── */
     .studio-deck-dots { display: none; }
 

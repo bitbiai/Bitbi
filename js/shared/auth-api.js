@@ -168,6 +168,14 @@ export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
 
+export function apiAiBulkMoveImages(imageIds, folderId) {
+    return request('PATCH', '/ai/images/bulk-move', { image_ids: imageIds, folder_id: folderId });
+}
+
+export function apiAiBulkDeleteImages(imageIds) {
+    return request('POST', '/ai/images/bulk-delete', { image_ids: imageIds });
+}
+
 /* ── Favorites ── */
 
 export function apiGetFavorites() {
