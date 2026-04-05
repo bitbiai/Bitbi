@@ -574,4 +574,247 @@
             margin-block-start: 0;
         }
     }
+
+    /* ── Favorites Viewer Overlay ── */
+    .fav-viewer {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .fav-viewer.active {
+        display: flex;
+    }
+
+    .fav-viewer__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.88);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+
+    .fav-viewer__close-wrap {
+        position: absolute;
+        inset-block-start: var(--space-3);
+        inset-inline-end: var(--space-3);
+        z-index: 10;
+    }
+
+    .fav-viewer__close {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        padding: var(--space-2) var(--space-4);
+        border-radius: var(--radius-2xl);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: var(--color-white);
+        cursor: pointer;
+        letter-spacing: 1px;
+        transition: background 0.2s;
+    }
+
+    .fav-viewer__close:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .fav-viewer__body {
+        position: relative;
+        z-index: 1;
+        max-inline-size: min(96vw, 1100px);
+        inline-size: 100%;
+        max-block-size: 96vh;
+        margin-inline: var(--space-5);
+    }
+
+    /* Gallery viewer card */
+    .fav-viewer__card {
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        background: rgba(13, 27, 42, 0.7);
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border: var(--border-subtle);
+    }
+
+    .fav-viewer__image {
+        inline-size: 100%;
+        aspect-ratio: 16 / 10;
+        background: #0D1B2A;
+    }
+
+    .fav-viewer__image img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+    }
+
+    .fav-viewer__info {
+        padding: var(--space-6);
+    }
+
+    @media (min-width: 640px) {
+        .fav-viewer__info { padding: var(--space-8); }
+    }
+
+    .fav-viewer__title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 1.25rem;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .fav-viewer__caption {
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 0.875rem;
+        margin-block-start: var(--space-2);
+        line-height: 1.625;
+    }
+
+    .fav-viewer__full-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-block-start: var(--space-3);
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: var(--color-cyan);
+        text-decoration: none;
+    }
+
+    .fav-viewer__full-link:hover {
+        text-decoration: underline;
+    }
+
+    /* Experiment viewer (iframe) */
+    .fav-viewer--experiment .fav-viewer__body {
+        max-inline-size: 100%;
+        max-block-size: 100%;
+        inline-size: 100%;
+        block-size: 100%;
+        margin: 0;
+    }
+
+    .fav-viewer__frame {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    /* Sound Lab viewer */
+    .fav-viewer__player {
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        background: rgba(13, 27, 42, 0.7);
+        backdrop-filter: blur(30px);
+        -webkit-backdrop-filter: blur(30px);
+        border: var(--border-subtle);
+        max-inline-size: 520px;
+        margin-inline: auto;
+    }
+
+    .fav-viewer__player-hero {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        background: #060e18;
+    }
+
+    .fav-viewer__player-hero img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .fav-viewer__player-hero::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to top, rgba(13, 27, 42, 0.7), transparent);
+    }
+
+    .fav-viewer__player-controls {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 20px;
+    }
+
+    .fav-viewer__play-btn {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(0, 240, 255, 0.07);
+        border: 1px solid rgba(0, 240, 255, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background 0.2s;
+        color: var(--color-cyan);
+    }
+
+    .fav-viewer__play-btn:hover {
+        background: rgba(0, 240, 255, 0.15);
+    }
+
+    .fav-viewer__track-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .fav-viewer__track-title {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 16px;
+        color: rgba(255, 255, 255, 0.85);
+        margin-block-end: 4px;
+    }
+
+    .fav-viewer__track-time {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: rgba(255, 255, 255, 0.25);
+        margin-block-end: 8px;
+    }
+
+    .fav-viewer__progress {
+        position: relative;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+        overflow: hidden;
+        cursor: pointer;
+    }
+
+    .fav-viewer__progress-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #00F0FF, #FFB300);
+        border-radius: 2px;
+        transition: width 0.1s linear;
+    }
+
+    /* Clickable tile cursor */
+    .fav-tile--interactive {
+        cursor: pointer;
+    }
+
+    .fav-tile--interactive:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
 }

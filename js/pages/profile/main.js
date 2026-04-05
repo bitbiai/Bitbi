@@ -11,6 +11,8 @@ import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
 import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites } from '../../shared/auth-api.js';
+import { galleryItems } from '../../shared/gallery-data.js';
+import { formatTime } from '../../shared/format-time.js';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -167,18 +169,217 @@ function renderProfile(profile, account) {
     $youtubeUrl.value = profile.youtube_url;
 }
 
-/* ── Favorites rendering ── */
+/* ── Favorites rendering + viewer ── */
 
-/* Section anchors on the index page */
-const FAV_HREF = {
-    experiments: '/#experiments',
-    gallery: '/#gallery',
-    soundlab: '/#soundlab',
-};
-
-/* Placeholder SVG for items without thumbnails */
 const PLACEHOLDER_SVG = `<svg width="24" height="24" fill="rgba(255,255,255,0.08)" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`;
 
+const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
+
+/* Map experiment item_ids to URLs */
+const EXPERIMENT_URLS = {
+    'cosmic-vr': '/experiments/cosmic.html',
+    'sound-color': null,
+    'sky-fall': '/experiments/skyfall.html',
+    'the-gate': '/experiments/king.html',
+    'youtube-exclusives': null,
+};
+
+/* Map free soundlab slugs to public audio URLs */
+const FREE_TRACK_URLS = {
+    'cosmic-sea': `${R2_PUBLIC_BASE}/audio/sound-lab/cosmic-sea.mp3`,
+    'zufall-und-notwendigkeit': `${R2_PUBLIC_BASE}/audio/sound-lab/zufall-und-notwendigkeit.mp3`,
+    'relativity': `${R2_PUBLIC_BASE}/audio/sound-lab/relativity.mp3`,
+    'tiny-hearts': `${R2_PUBLIC_BASE}/audio/sound-lab/tiny-hearts.mp3`,
+    'grok': `${R2_PUBLIC_BASE}/audio/sound-lab/grok.mp3`,
+};
+
+/* Exclusive tracks use /api/music/{slug} */
+function getTrackUrl(slug) {
+    return FREE_TRACK_URLS[slug] || `/api/music/${slug}`;
+}
+
+/* ── Viewer overlay ── */
+const $viewer = document.getElementById('favViewer');
+const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
+const $viewerClose = document.getElementById('favViewerClose');
+let viewerAudio = null;
+let viewerAnimFrame = null;
+
+function openViewer(mode) {
+    if (!$viewer) return;
+    $viewer.className = `fav-viewer active ${mode || ''}`;
+    document.body.style.overflow = 'hidden';
+}
+
+function closeViewer() {
+    if (!$viewer) return;
+    $viewer.classList.remove('active');
+    document.body.style.overflow = '';
+    /* Cleanup audio */
+    if (viewerAudio) {
+        viewerAudio.pause();
+        viewerAudio.src = '';
+        viewerAudio = null;
+    }
+    if (viewerAnimFrame) {
+        cancelAnimationFrame(viewerAnimFrame);
+        viewerAnimFrame = null;
+    }
+    /* Cleanup iframe */
+    const iframe = $viewerBody.querySelector('iframe');
+    if (iframe) iframe.src = '';
+    /* Clear body */
+    $viewerBody.innerHTML = '';
+    $viewer.className = 'fav-viewer';
+}
+
+if ($viewerClose) $viewerClose.addEventListener('click', closeViewer);
+if ($viewer) {
+    $viewer.querySelector('.fav-viewer__backdrop').addEventListener('click', closeViewer);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && $viewer.classList.contains('active')) closeViewer();
+    });
+}
+
+/* ── Open gallery image in viewer ── */
+function openGalleryInViewer(fav) {
+    const item = galleryItems.find(g => g.id === fav.item_id);
+    const previewUrl = item ? item.preview.url : fav.thumb_url;
+    const caption = item ? item.caption : '';
+    const fullUrl = item && item.full ? item.full.url : '';
+
+    let fullLinkHtml = '';
+    if (fullUrl) {
+        fullLinkHtml = `<a class="fav-viewer__full-link" href="${fullUrl}" target="_blank" rel="noopener noreferrer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open full size
+        </a>`;
+    }
+
+    $viewerBody.innerHTML = `
+        <div class="fav-viewer__card">
+            <div class="fav-viewer__image">
+                <img src="${previewUrl}" alt="${fav.title}" style="background:#0D1B2A">
+            </div>
+            <div class="fav-viewer__info">
+                <h3 class="fav-viewer__title">${fav.title}</h3>
+                ${caption ? `<p class="fav-viewer__caption">${caption}</p>` : ''}
+                ${fullLinkHtml}
+            </div>
+        </div>`;
+    openViewer('');
+}
+
+/* ── Open experiment in viewer ── */
+function openExperimentInViewer(fav) {
+    const url = EXPERIMENT_URLS[fav.item_id];
+    if (!url) {
+        /* Experiments without iframeable content (sound-color, youtube-exclusives) — show info card */
+        $viewerBody.innerHTML = `
+            <div class="fav-viewer__card">
+                <div class="fav-viewer__image" style="display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#0d1b3e,#050a15)">
+                    <svg width="48" height="48" fill="rgba(0,240,255,0.2)" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                </div>
+                <div class="fav-viewer__info">
+                    <h3 class="fav-viewer__title">${fav.title}</h3>
+                    <p class="fav-viewer__caption">This experiment is available on the main page.</p>
+                    <a class="fav-viewer__full-link" href="/#experiments">View on main page \u2192</a>
+                </div>
+            </div>`;
+        openViewer('');
+        return;
+    }
+    $viewerBody.innerHTML = `<iframe class="fav-viewer__frame" src="${url}" allow="accelerometer;gyroscope" title="${fav.title}"></iframe>`;
+    openViewer('fav-viewer--experiment');
+}
+
+/* ── Open soundlab track in viewer ── */
+function openSoundlabInViewer(fav) {
+    const audioUrl = getTrackUrl(fav.item_id);
+    const thumbUrl = fav.thumb_url || '';
+    const isExclusive = !FREE_TRACK_URLS[fav.item_id];
+
+    let heroHtml;
+    if (thumbUrl) {
+        heroHtml = `<img src="${thumbUrl}" alt="${fav.title}"${thumbUrl.startsWith('/api/') ? ' crossorigin="use-credentials"' : ''}>`;
+    } else {
+        heroHtml = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),#060e18"><svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>`;
+    }
+
+    $viewerBody.innerHTML = `
+        <div class="fav-viewer__player">
+            <div class="fav-viewer__player-hero">${heroHtml}</div>
+            <div class="fav-viewer__player-controls">
+                <button type="button" class="fav-viewer__play-btn" id="fvPlay" aria-label="Play ${fav.title}">
+                    <svg id="fvPlayIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="fvPauseIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <div class="fav-viewer__track-info">
+                    <div class="fav-viewer__track-title">${fav.title}</div>
+                    <div class="fav-viewer__track-time" id="fvTime">0:00</div>
+                    <div class="fav-viewer__progress" id="fvBar">
+                        <div class="fav-viewer__progress-fill" id="fvProg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    openViewer('');
+
+    /* Wire up audio */
+    viewerAudio = new Audio();
+    if (isExclusive) {
+        viewerAudio.crossOrigin = 'use-credentials';
+    }
+    viewerAudio.src = audioUrl;
+    viewerAudio.volume = 0.8;
+
+    const playBtn = document.getElementById('fvPlay');
+    const playIcon = document.getElementById('fvPlayIcon');
+    const pauseIcon = document.getElementById('fvPauseIcon');
+    const timeEl = document.getElementById('fvTime');
+    const progEl = document.getElementById('fvProg');
+    const barEl = document.getElementById('fvBar');
+
+    function tick() {
+        if (!viewerAudio) return;
+        if (viewerAudio.duration) {
+            progEl.style.width = (viewerAudio.currentTime / viewerAudio.duration * 100) + '%';
+            timeEl.textContent = formatTime(viewerAudio.currentTime) + ' / ' + formatTime(viewerAudio.duration);
+        }
+        if (!viewerAudio.paused) {
+            viewerAnimFrame = requestAnimationFrame(tick);
+        }
+    }
+
+    playBtn.addEventListener('click', () => {
+        if (!viewerAudio) return;
+        if (viewerAudio.paused) {
+            viewerAudio.play().catch(() => {});
+            playIcon.style.display = 'none';
+            pauseIcon.style.display = '';
+            viewerAnimFrame = requestAnimationFrame(tick);
+        } else {
+            viewerAudio.pause();
+            playIcon.style.display = '';
+            pauseIcon.style.display = 'none';
+        }
+    });
+
+    viewerAudio.addEventListener('ended', () => {
+        playIcon.style.display = '';
+        pauseIcon.style.display = 'none';
+        progEl.style.width = '0%';
+    });
+
+    barEl.addEventListener('click', (e) => {
+        if (!viewerAudio || !viewerAudio.duration) return;
+        const rect = barEl.getBoundingClientRect();
+        viewerAudio.currentTime = ((e.clientX - rect.left) / rect.width) * viewerAudio.duration;
+    });
+}
+
+/* ── Build favorite tiles ── */
 function renderFavorites(favorites) {
     const groups = { experiments: [], gallery: [], soundlab: [] };
     for (const f of favorites) {
@@ -189,7 +390,6 @@ function renderFavorites(favorites) {
         const container = document.querySelector(`[data-favorites-type="${type}"]`);
         if (!container) continue;
 
-        /* Keep the label, replace the rest */
         const label = container.querySelector('.favorites__group-label');
         container.innerHTML = '';
         if (label) container.appendChild(label);
@@ -206,10 +406,16 @@ function renderFavorites(favorites) {
         grid.className = 'favorites__grid';
 
         for (const fav of items) {
-            const tile = document.createElement('a');
-            tile.className = 'fav-tile';
-            tile.href = FAV_HREF[fav.item_type] || '/';
+            const tile = document.createElement('div');
+            tile.className = 'fav-tile fav-tile--interactive';
+            tile.setAttribute('role', 'button');
+            tile.setAttribute('tabindex', '0');
             tile.title = fav.title;
+
+            tile.addEventListener('click', () => handleTileClick(fav));
+            tile.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTileClick(fav); }
+            });
 
             if (fav.thumb_url) {
                 const img = document.createElement('img');
@@ -218,7 +424,6 @@ function renderFavorites(favorites) {
                 img.alt = fav.title;
                 img.loading = 'lazy';
                 img.decoding = 'async';
-                /* Exclusive soundlab thumbs need credentials */
                 if (fav.thumb_url.startsWith('/api/')) {
                     img.crossOrigin = 'use-credentials';
                 }
@@ -247,6 +452,14 @@ function renderFavorites(favorites) {
         }
 
         container.appendChild(grid);
+    }
+}
+
+function handleTileClick(fav) {
+    switch (fav.item_type) {
+        case 'gallery': openGalleryInViewer(fav); break;
+        case 'experiments': openExperimentInViewer(fav); break;
+        case 'soundlab': openSoundlabInViewer(fav); break;
     }
 }
 
