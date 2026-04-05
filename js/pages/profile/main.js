@@ -291,11 +291,22 @@ function removeFavTile(type, id) {
     tile.remove();
     if (grid && grid.children.length === 0) {
         const container = grid.parentElement;
+        const toggle = container.querySelector('.favorites__toggle');
+        if (toggle) toggle.remove();
         grid.remove();
         const empty = document.createElement('p');
         empty.className = 'favorites__empty';
         empty.textContent = 'No favorites yet';
         container.appendChild(empty);
+    } else if (grid) {
+        const container = grid.parentElement;
+        const toggle = container.querySelector('.favorites__toggle');
+        if (toggle && grid.children.length <= 4) {
+            Array.from(grid.children).forEach(t => { t.style.display = ''; });
+            toggle.remove();
+        } else if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
+            Array.from(grid.children).forEach((t, i) => { t.style.display = i < 4 ? '' : 'none'; });
+        }
     }
 }
 
@@ -511,6 +522,35 @@ function renderFavorites(favorites) {
         }
 
         container.appendChild(grid);
+
+        /* Collapse to 4 items if more exist */
+        const LIMIT = 4;
+        if (items.length > LIMIT) {
+            const tiles = Array.from(grid.children);
+            tiles.forEach((t, i) => { if (i >= LIMIT) t.style.display = 'none'; });
+
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'favorites__toggle';
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show all';
+
+            toggle.addEventListener('click', () => {
+                const expanded = toggle.getAttribute('aria-expanded') === 'true';
+                const allTiles = Array.from(grid.children);
+                if (expanded) {
+                    allTiles.forEach((t, i) => { if (i >= LIMIT) t.style.display = 'none'; });
+                    toggle.setAttribute('aria-expanded', 'false');
+                    toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show all';
+                } else {
+                    allTiles.forEach(t => { t.style.display = ''; });
+                    toggle.setAttribute('aria-expanded', 'true');
+                    toggle.innerHTML = '<svg class="favorites__toggle-arrow favorites__toggle-arrow--up" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show less';
+                }
+            });
+
+            container.appendChild(toggle);
+        }
     }
 }
 

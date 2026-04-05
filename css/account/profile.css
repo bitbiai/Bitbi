@@ -475,6 +475,30 @@
         font-style: italic;
     }
 
+    /* ── Favorites Toggle ── */
+    .favorites__toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-block-start: var(--space-2);
+        padding: 0;
+        background: none;
+        border: none;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.35);
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+
+    .favorites__toggle:hover {
+        color: rgba(255, 255, 255, 0.6);
+    }
+
+    .favorites__toggle-arrow--up {
+        transform: rotate(180deg);
+    }
+
     /* ── Favorite Tiles ── */
     .favorites__grid {
         display: grid;
