@@ -10,7 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 
-import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites } from '../../shared/auth-api.js';
+import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites, apiRemoveFavorite } from '../../shared/auth-api.js';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
 
@@ -231,6 +231,9 @@ function closeViewer() {
     /* Clear body */
     $viewerBody.innerHTML = '';
     $viewer.className = 'fav-viewer';
+    /* Reset star */
+    viewerCurrentFav = null;
+    $viewerStar.style.display = 'none';
 }
 
 if ($viewerClose) $viewerClose.addEventListener('click', closeViewer);
@@ -239,6 +242,61 @@ if ($viewer) {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && $viewer.classList.contains('active')) closeViewer();
     });
+}
+
+/* ── Viewer favorite star (remove-from-viewer) ── */
+let viewerCurrentFav = null;
+const $viewerStar = document.createElement('button');
+$viewerStar.type = 'button';
+$viewerStar.className = 'fav-star fav-star--active fav-viewer__fav-star';
+$viewerStar.setAttribute('aria-pressed', 'true');
+$viewerStar.setAttribute('aria-label', 'Remove from favorites');
+$viewerStar.innerHTML = '<svg class="fav-star__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>';
+$viewerStar.style.display = 'none';
+if ($viewer) $viewer.appendChild($viewerStar);
+
+let viewerStarBusyFav = null;
+
+$viewerStar.addEventListener('click', async () => {
+    if (!viewerCurrentFav || viewerStarBusyFav === viewerCurrentFav) return;
+    const fav = viewerCurrentFav;
+    viewerStarBusyFav = fav;
+
+    /* Optimistic UI */
+    $viewerStar.classList.remove('fav-star--active');
+    $viewerStar.setAttribute('aria-pressed', 'false');
+    $viewerStar.setAttribute('aria-label', 'Removed from favorites');
+
+    const res = await apiRemoveFavorite(fav.item_type, fav.item_id);
+    if (viewerStarBusyFav === fav) viewerStarBusyFav = null;
+
+    /* Only mutate state if viewer still shows the same item */
+    const stale = viewerCurrentFav !== fav;
+
+    if (res.ok) {
+        removeFavTile(fav.item_type, fav.item_id);
+        if (!stale) viewerCurrentFav = null;
+    } else if (!stale) {
+        /* Revert only if still viewing the same item */
+        $viewerStar.classList.add('fav-star--active');
+        $viewerStar.setAttribute('aria-pressed', 'true');
+        $viewerStar.setAttribute('aria-label', 'Remove from favorites');
+    }
+});
+
+function removeFavTile(type, id) {
+    const tile = document.querySelector(`.fav-tile[data-fav-key="${type}:${id}"]`);
+    if (!tile) return;
+    const grid = tile.parentElement;
+    tile.remove();
+    if (grid && grid.children.length === 0) {
+        const container = grid.parentElement;
+        grid.remove();
+        const empty = document.createElement('p');
+        empty.className = 'favorites__empty';
+        empty.textContent = 'No favorites yet';
+        container.appendChild(empty);
+    }
 }
 
 /* ── Open gallery image in viewer ── */
@@ -410,6 +468,7 @@ function renderFavorites(favorites) {
             tile.className = 'fav-tile fav-tile--interactive';
             tile.setAttribute('role', 'button');
             tile.setAttribute('tabindex', '0');
+            tile.dataset.favKey = `${fav.item_type}:${fav.item_id}`;
             tile.title = fav.title;
 
             tile.addEventListener('click', () => handleTileClick(fav));
@@ -456,6 +515,12 @@ function renderFavorites(favorites) {
 }
 
 function handleTileClick(fav) {
+    viewerCurrentFav = fav;
+    $viewerStar.classList.add('fav-star--active');
+    $viewerStar.setAttribute('aria-pressed', 'true');
+    $viewerStar.setAttribute('aria-label', 'Remove from favorites');
+    $viewerStar.style.display = '';
+
     switch (fav.item_type) {
         case 'gallery': openGalleryInViewer(fav); break;
         case 'experiments': openExperimentInViewer(fav); break;

@@ -626,6 +626,17 @@
         background: rgba(255, 255, 255, 0.2);
     }
 
+    .fav-viewer__fav-star {
+        position: absolute;
+        inset-block-start: var(--space-3);
+        inset-inline-start: var(--space-3);
+        z-index: 10;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
     .fav-viewer__body {
         position: relative;
         z-index: 1;
