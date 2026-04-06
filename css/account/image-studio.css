@@ -880,6 +880,90 @@
         font-size: 13px;
     }
 
+    /* ── Folder Cards Grid ── */
+    .studio__folder-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: var(--space-3);
+    }
+
+    @media (min-width: 640px) {
+        .studio__folder-grid {
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        }
+    }
+
+    .studio__folder-card {
+        aspect-ratio: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        padding: var(--space-4);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: border-color 0.2s var(--ease-default), background 0.2s var(--ease-default);
+        text-align: center;
+    }
+
+    .studio__folder-card:hover {
+        border-color: rgba(0, 240, 255, 0.2);
+        background: rgba(0, 240, 255, 0.03);
+    }
+
+    .studio__folder-card-icon {
+        font-size: 2rem;
+        line-height: 1;
+        opacity: 0.5;
+    }
+
+    .studio__folder-card-name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.7);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-inline-size: 100%;
+    }
+
+    .studio__folder-card-count {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* ── Folder Back Button ── */
+    .studio__folder-back {
+        display: none;
+        margin-block-end: var(--space-4);
+    }
+
+    .studio__folder-back.visible {
+        display: block;
+    }
+
+    .studio__folder-back-btn {
+        padding: var(--space-2) var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(0, 240, 255, 0.6);
+        background: transparent;
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__folder-back-btn:hover {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.04);
+    }
+
     /* ── Back Link ── */
     .studio__back {
         margin-block-start: var(--space-6);

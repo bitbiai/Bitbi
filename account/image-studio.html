@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/account/image-studio.css?v=20260406">
+    <link rel="stylesheet" href="../css/account/image-studio.css?v=20260407">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260317">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -122,7 +122,7 @@
                     <!-- Save Bar (appears after generation) -->
                     <div id="studioSaveBar" class="studio__save-bar">
                         <select id="studioFolderSelect" class="studio__folder-select">
-                            <option value="">No folder</option>
+                            <option value="">Assets</option>
                         </select>
                         <button type="button" id="studioSaveBtn" class="studio__save-btn">Save</button>
                     </div>
@@ -144,7 +144,7 @@
                     <h2 class="studio__card-title">Saved Images</h2>
                     <div class="studio__folder-bar">
                         <select id="studioGalleryFilter" class="studio__folder-filter">
-                            <option value="">All images</option>
+                            <option value="">All Folders</option>
                         </select>
                         <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
                         <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
@@ -191,6 +191,14 @@
 
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>
 
+                <!-- Folder Cards View (initial view) -->
+                <div id="studioFolderGrid" class="studio__folder-grid"></div>
+
+                <!-- Back to folders link (visible when inside a folder) -->
+                <div id="studioFolderBack" class="studio__folder-back">
+                    <button type="button" id="studioFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
+                </div>
+
                 <div id="studioImageGrid" class="studio__image-grid">
                     <div class="studio__gallery-empty">Loading saved images...</div>
                 </div>
@@ -234,6 +242,6 @@
     </div>
 </footer>
 
-<script type="module" src="../js/pages/image-studio/main.js?v=20260406"></script>
+<script type="module" src="../js/pages/image-studio/main.js?v=20260407"></script>
 </body>
 </html>

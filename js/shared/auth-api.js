@@ -158,7 +158,20 @@ export function apiAiGenerateImage(prompt, steps, seed) {
 
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');
-    return Array.isArray(res.data?.data?.folders) ? res.data.data.folders : [];
+    const d = res.data?.data;
+    // Backward compat: old worker returns { folders: [...] } without counts,
+    // or legacy shape could be a bare array. Normalize both.
+    if (Array.isArray(d)) {
+        return { folders: d, counts: {}, unfolderedCount: 0 };
+    }
+    if (d && typeof d === 'object') {
+        return {
+            folders: Array.isArray(d.folders) ? d.folders : [],
+            counts: d.counts || {},
+            unfolderedCount: d.unfolderedCount || 0,
+        };
+    }
+    return { folders: [], counts: {}, unfolderedCount: 0 };
 }
 
 export async function apiAiGetFoldersForDelete() {

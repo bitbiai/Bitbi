@@ -68,7 +68,7 @@ function injectQuotaEl(anchorEl) {
 function populateFolderOptions(selectEl) {
     const safeFolders = Array.isArray(folders) ? folders : [];
     const current = selectEl.value;
-    const opts = ['<option value="">No folder</option>'];
+    const opts = ['<option value="">Assets</option>'];
     for (const f of safeFolders) {
         opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
     }
@@ -80,7 +80,8 @@ function populateFolderOptions(selectEl) {
 
 async function loadFolders() {
     try {
-        folders = await apiAiGetFolders();
+        const result = await apiAiGetFolders();
+        folders = result.folders;
     } catch (e) {
         console.warn('Studio: Failed to load folders:', e);
         folders = [];

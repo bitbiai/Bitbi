@@ -47,6 +47,9 @@ const $saveBtn     = document.getElementById('studioSaveBtn');
 
 // Gallery
 const $galleryFilter    = document.getElementById('studioGalleryFilter');
+const $folderGrid       = document.getElementById('studioFolderGrid');
+const $folderBack       = document.getElementById('studioFolderBack');
+const $folderBackBtn    = document.getElementById('studioFolderBackBtn');
 const $imageGrid        = document.getElementById('studioImageGrid');
 const $galleryMsg       = document.getElementById('studioGalleryMsg');
 const $newFolderBtn     = document.getElementById('studioNewFolderBtn');
@@ -82,6 +85,8 @@ const $bulkMoveCancel      = document.getElementById('studioBulkMoveCancel');
 let currentImageData = null;
 let currentMeta      = null;
 let folders          = [];
+let folderCounts     = {};  // { folderId: count }
+let unfolderedCount  = 0;
 let quotaRemaining   = null;  // null = unknown/admin, number = remaining for non-admin
 let quotaLimit       = 10;
 let $quotaEl         = null;
@@ -109,7 +114,7 @@ function hideMsg(el) {
 function populateFolderOptions(selectEl) {
     const safeFolders = Array.isArray(folders) ? folders : [];
     const current = selectEl.value;
-    const opts = ['<option value="">No folder</option>'];
+    const opts = ['<option value="">Assets</option>'];
     for (const f of safeFolders) {
         opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
     }
@@ -118,13 +123,15 @@ function populateFolderOptions(selectEl) {
 }
 
 const UNFOLDERED = '__unfoldered__';
+const ALL_IMAGES = '__all__';
 
 function populateGalleryFilter(selectEl) {
     const safeFolders = Array.isArray(folders) ? folders : [];
     const current = selectEl.value;
     const opts = [
-        '<option value="">All images</option>',
-        `<option value="${UNFOLDERED}">No folder</option>`,
+        '<option value="">All Folders</option>',
+        `<option value="${ALL_IMAGES}">All Images</option>`,
+        `<option value="${UNFOLDERED}">Assets</option>`,
     ];
     for (const f of safeFolders) {
         opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
@@ -166,15 +173,97 @@ function injectQuotaEl(anchorEl) {
 
 /* ── Folders ���─ */
 async function loadFolders() {
+    let ok = true;
     try {
-        folders = await apiAiGetFolders();
+        const result = await apiAiGetFolders();
+        folders = result.folders;
+        folderCounts = result.counts;
+        unfolderedCount = result.unfolderedCount;
     } catch (e) {
         console.warn('Failed to load folders:', e);
         folders = [];
+        folderCounts = {};
+        unfolderedCount = 0;
+        ok = false;
     }
     populateFolderOptions($folderSelect);
     populateGalleryFilter($galleryFilter);
     $galleryFilter.value = '';
+    return ok;
+}
+
+/* ── Folder Cards View ── */
+let folderViewActive = true;
+
+function showFolderView() {
+    folderViewActive = true;
+    $folderGrid.style.display = '';
+    $imageGrid.style.display = 'none';
+    $folderBack.classList.remove('visible');
+
+    const safeFolders = Array.isArray(folders) ? folders : [];
+
+    // Compute total from server-provided counts
+    let total = unfolderedCount;
+    for (const f of safeFolders) total += (folderCounts[f.id] || 0);
+
+    $folderGrid.innerHTML = '';
+
+    // "All Images" card — opens flat gallery across all folders
+    const allCard = document.createElement('div');
+    allCard.className = 'studio__folder-card';
+    allCard.innerHTML =
+        `<span class="studio__folder-card-icon" aria-hidden="true">&#128444;</span>` +
+        `<span class="studio__folder-card-name">All Images</span>` +
+        `<span class="studio__folder-card-count">${total} image${total !== 1 ? 's' : ''}</span>`;
+    allCard.addEventListener('click', openAllImages);
+    $folderGrid.appendChild(allCard);
+
+    // Assets card (unfoldered images)
+    const assetsCard = document.createElement('div');
+    assetsCard.className = 'studio__folder-card';
+    assetsCard.innerHTML =
+        `<span class="studio__folder-card-icon" aria-hidden="true">&#128230;</span>` +
+        `<span class="studio__folder-card-name">Assets</span>` +
+        `<span class="studio__folder-card-count">${unfolderedCount} image${unfolderedCount !== 1 ? 's' : ''}</span>`;
+    assetsCard.addEventListener('click', () => openFolder(UNFOLDERED, 'Assets'));
+    $folderGrid.appendChild(assetsCard);
+
+    // User-created folder cards
+    for (const f of safeFolders) {
+        const count = folderCounts[f.id] || 0;
+        const card = document.createElement('div');
+        card.className = 'studio__folder-card';
+        card.innerHTML =
+            `<span class="studio__folder-card-icon" aria-hidden="true">&#128193;</span>` +
+            `<span class="studio__folder-card-name">${escapeHtml(f.name)}</span>` +
+            `<span class="studio__folder-card-count">${count} image${count !== 1 ? 's' : ''}</span>`;
+        card.addEventListener('click', () => openFolder(f.id, f.name));
+        $folderGrid.appendChild(card);
+    }
+}
+
+function openFolder(folderId, folderName) {
+    folderViewActive = false;
+    $folderGrid.style.display = 'none';
+    $imageGrid.style.display = '';
+    $folderBack.classList.add('visible');
+    $galleryFilter.value = folderId;
+    loadGallery();
+}
+
+function openAllImages() {
+    folderViewActive = false;
+    $folderGrid.style.display = 'none';
+    $imageGrid.style.display = '';
+    $folderBack.classList.add('visible');
+    $galleryFilter.value = ALL_IMAGES;
+    loadGallery();
+}
+
+function backToFolders() {
+    $galleryFilter.value = '';
+    showFolderView();
 }
 
 /* ── Image Generation ── */
@@ -271,15 +360,17 @@ async function handleSave() {
     $saveBar.classList.remove('visible');
     currentImageData = null;
     currentMeta = null;
-    loadGallery();
+    if (folderViewActive) showFolderView();
+    else loadGallery();
 }
 
 /* ── Gallery ── */
 async function loadGallery() {
     if (selectMode) exitSelectMode();
     const filterVal = $galleryFilter.value;
+    const isAllImages = filterVal === ALL_IMAGES || filterVal === '';
     const isUnfoldered = filterVal === UNFOLDERED;
-    const folderId = (!isUnfoldered && filterVal) ? filterVal : null;
+    const folderId = (!isAllImages && !isUnfoldered && filterVal) ? filterVal : null;
     let images;
     try {
         images = await apiAiGetImages(folderId, { onlyUnfoldered: isUnfoldered });
@@ -371,6 +462,7 @@ async function handleCreateFolder() {
 
     hideNewFolderForm();
     await loadFolders();
+    if (folderViewActive) showFolderView();
     showMsg($galleryMsg, `Folder "${name}" created.`, 'success');
 }
 
@@ -430,7 +522,7 @@ async function handleDeleteFolder() {
     }
 
     await loadFolders();
-    loadGallery();
+    showFolderView();
     showMsg($galleryMsg, `Folder "${name}" deleted.`, 'success');
 }
 
@@ -588,9 +680,14 @@ async function init() {
     const $actions = document.querySelector('.studio__actions');
     if ($actions) { injectQuotaEl($actions); loadQuota(); }
 
-    // Load data
-    await loadFolders();
-    loadGallery();
+    // Load data — fall back to flat gallery if folder metadata fails
+    const foldersOk = await loadFolders();
+    if (foldersOk) {
+        showFolderView();
+    } else {
+        showMsg($galleryMsg, 'Could not load folders. Showing all images.', 'error');
+        openAllImages();
+    }
 
     // Event listeners
     $generateBtn.addEventListener('click', handleGenerate);
@@ -598,7 +695,17 @@ async function init() {
     $randomize.addEventListener('click', () => {
         $seed.value = Math.floor(Math.random() * 2147483647);
     });
-    $galleryFilter.addEventListener('change', loadGallery);
+    $galleryFilter.addEventListener('change', () => {
+        const val = $galleryFilter.value;
+        if (val === '') {
+            showFolderView();
+        } else if (val === ALL_IMAGES) {
+            openAllImages();
+        } else {
+            openFolder(val, '');
+        }
+    });
+    $folderBackBtn.addEventListener('click', backToFolders);
     $newFolderBtn.addEventListener('click', showNewFolderForm);
     $deleteFolderBtn.addEventListener('click', showDeleteFolderForm);
     $deleteFolderConfirm.addEventListener('click', handleDeleteFolder);

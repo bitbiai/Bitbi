@@ -63,6 +63,13 @@
         background: rgba(0, 240, 255, 0.12);
     }
 
+    /* ── Reduce top padding to match Profile page spacing ──
+       Profile uses .hero--compact + .section-divider + .section { padding-block-start: 2rem }
+       but admin-nav breaks that adjacent sibling chain, so we target directly. */
+    .admin-nav + .section-divider + .section {
+        padding-block-start: 2rem;
+    }
+
     /* ── Admin Section Container ── */
     .admin-section {
         animation: admin-fade-in 0.25s var(--ease-smooth) forwards;

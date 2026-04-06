@@ -220,7 +220,22 @@ async function handleGetFolders(ctx) {
     `SELECT ${cols} FROM ai_folders WHERE user_id = ? AND status IN ${statusFilter} ORDER BY name ASC`
   ).bind(session.user.id).all();
 
-  return json({ ok: true, data: { folders: rows.results } });
+  // Aggregate per-folder image counts (no row cap)
+  const countRows = await env.DB.prepare(
+    `SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id`
+  ).bind(session.user.id).all();
+
+  const counts = {};
+  let unfolderedCount = 0;
+  for (const r of countRows.results) {
+    if (r.folder_id === null) {
+      unfolderedCount = r.cnt;
+    } else {
+      counts[r.folder_id] = r.cnt;
+    }
+  }
+
+  return json({ ok: true, data: { folders: rows.results, counts, unfolderedCount } });
 }
 
 // ── POST /api/ai/folders ──
