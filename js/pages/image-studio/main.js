@@ -24,7 +24,7 @@ import {
     apiAiBulkMoveImages,
     apiAiBulkDeleteImages,
 } from '../../shared/auth-api.js';
-import { initStudioDeck } from '../../shared/studio-deck.js';
+import { initStudioDeck, initStudioFolderDeck } from '../../shared/studio-deck.js';
 
 /* ── DOM refs ── */
 const $loading = document.getElementById('loadingState');
@@ -92,6 +92,7 @@ let quotaLimit       = 10;
 let $quotaEl         = null;
 let selectMode       = false;
 let selectedIds      = new Set();
+let folderDeck       = null;
 
 /* ── Helpers ── */
 function showState(el) {
@@ -246,6 +247,7 @@ function showFolderView() {
 function openFolder(folderId, folderName) {
     folderViewActive = false;
     $folderGrid.style.display = 'none';
+    if (folderDeck) folderDeck.setVisible(false);
     $imageGrid.style.display = '';
     $folderBack.classList.add('visible');
     $galleryFilter.value = folderId;
@@ -255,6 +257,7 @@ function openFolder(folderId, folderName) {
 function openAllImages() {
     folderViewActive = false;
     $folderGrid.style.display = 'none';
+    if (folderDeck) folderDeck.setVisible(false);
     $imageGrid.style.display = '';
     $folderBack.classList.add('visible');
     $galleryFilter.value = ALL_IMAGES;
@@ -675,6 +678,7 @@ async function init() {
 
     /* Attach mobile deck swipe + click-to-preview to saved images grid */
     if ($imageGrid) initStudioDeck($imageGrid);
+    if ($folderGrid) folderDeck = initStudioFolderDeck($folderGrid);
 
     // Quota indicator (inject after the actions row, load from server)
     const $actions = document.querySelector('.studio__actions');

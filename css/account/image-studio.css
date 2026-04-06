@@ -808,7 +808,8 @@
             touch-action: pan-y;
         }
 
-        .studio-deck > .studio__image-item {
+        .studio-deck > .studio__image-item,
+        .studio-deck > .studio__folder-card {
             grid-row: 1;
             grid-column: 1;
             transition: transform 0.45s var(--ease-smooth), opacity 0.45s var(--ease-smooth);
@@ -840,7 +841,8 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-        .studio-deck > .studio__image-item {
+        .studio-deck > .studio__image-item,
+        .studio-deck > .studio__folder-card {
             transition: none;
         }
     }

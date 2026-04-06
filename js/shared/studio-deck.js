@@ -82,16 +82,22 @@ function closeStudioModal() {
 }
 
 
-/* ── Mobile Deck ── */
+/* ── Generic Mobile Deck ── */
 
 /**
- * Attach deck behaviour to a studio image grid.
+ * Internal deck factory — shared by image and folder decks.
+ * All touch-swipe logic, layout transforms, dot navigation,
+ * and engage/disengage lifecycle lives here.
  *
- * @param {HTMLElement} grid   — the .studio__image-grid element
- * @param {object}      opts   — { onItemClick(item, imgEl) }  (optional)
- * @returns {{ refresh(): void, destroy(): void }}
+ * @param {HTMLElement} grid
+ * @param {object}      opts
+ * @param {string}      opts.cardClass  — CSS class that identifies deck cards
+ * @param {string}      opts.dotsLabel  — aria-label for dot nav container
+ * @param {string}      opts.itemLabel  — label for individual dot buttons
+ * @param {Function}    [opts.onClick]  — optional grid click handler (bubbling phase)
+ * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
  */
-export function initStudioDeck(grid) {
+function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick }) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
     let isDeck = false;
@@ -102,7 +108,7 @@ export function initStudioDeck(grid) {
     function getCards() {
         return Array.from(grid.children).filter(
             c => c.style.display !== 'none'
-              && c.classList.contains('studio__image-item'),
+              && c.classList.contains(cardClass),
         );
     }
 
@@ -145,14 +151,14 @@ export function initStudioDeck(grid) {
         dotsEl = document.createElement('div');
         dotsEl.className = 'studio-deck-dots';
         dotsEl.setAttribute('role', 'tablist');
-        dotsEl.setAttribute('aria-label', 'Saved image cards');
+        dotsEl.setAttribute('aria-label', dotsLabel);
         all.forEach((_, i) => {
             const d = document.createElement('button');
             d.type = 'button';
             d.className = 'studio-deck-dot' + (i === active ? ' active' : '');
             d.setAttribute('role', 'tab');
             d.setAttribute('aria-selected', i === active ? 'true' : 'false');
-            d.setAttribute('aria-label', `Show image ${i + 1}`);
+            d.setAttribute('aria-label', `Show ${itemLabel} ${i + 1}`);
             d.addEventListener('click', () => { active = i; layout(); syncDots(); });
             dotsEl.appendChild(d);
         });
@@ -272,20 +278,12 @@ export function initStudioDeck(grid) {
         if (swipeLock) { e.stopPropagation(); e.preventDefault(); swipeLock = false; }
     }, true);
 
-    /* ── Item click → modal ── */
-    grid.addEventListener('click', e => {
-        const item = e.target.closest('.studio__image-item');
-        if (!item) return;
-        /* Don't open modal when clicking delete or in selection mode */
-        if (e.target.closest('.studio__image-delete')) return;
-        if (e.target.closest('.studio__image-check')) return;
-        if (grid.dataset.selectMode) return;
-        const img = item.querySelector('img');
-        if (!img) return;
-        openStudioModal(img.src, item.title || img.alt || 'Saved image');
-    });
+    /* Optional click handler */
+    if (onClick) {
+        grid.addEventListener('click', e => onClick(e));
+    }
 
-    /* ── Watch for DOM changes (re-render deck on loadGallery) ── */
+    /* ── Watch for DOM changes (re-render deck on content rebuild) ── */
     const observer = new MutationObserver(() => {
         if (isDeck) renderDeck();
     });
@@ -303,5 +301,55 @@ export function initStudioDeck(grid) {
             observer.disconnect();
             disengage();
         },
+        setVisible(visible) {
+            if (dotsEl) dotsEl.hidden = !visible;
+        },
     };
+}
+
+
+/* ── Mobile Deck — Image grid ── */
+
+/**
+ * Attach deck behaviour to a studio image grid.
+ *
+ * @param {HTMLElement} grid   — the .studio__image-grid element
+ * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
+ */
+export function initStudioDeck(grid) {
+    return _createDeck(grid, {
+        cardClass: 'studio__image-item',
+        dotsLabel: 'Saved image cards',
+        itemLabel: 'image',
+        onClick(e) {
+            const item = e.target.closest('.studio__image-item');
+            if (!item) return;
+            /* Don't open modal when clicking delete or in selection mode */
+            if (e.target.closest('.studio__image-delete')) return;
+            if (e.target.closest('.studio__image-check')) return;
+            if (grid.dataset.selectMode) return;
+            const img = item.querySelector('img');
+            if (!img) return;
+            openStudioModal(img.src, item.title || img.alt || 'Saved image');
+        },
+    });
+}
+
+
+/* ── Mobile Deck — Folder grid ── */
+
+/**
+ * Attach deck behaviour to the studio folder grid (mobile only).
+ * Folder cards keep their own click handlers (from showFolderView);
+ * the swipeLock capturing handler blocks accidental clicks after swipe.
+ *
+ * @param {HTMLElement} grid   — the .studio__folder-grid element
+ * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
+ */
+export function initStudioFolderDeck(grid) {
+    return _createDeck(grid, {
+        cardClass: 'studio__folder-card',
+        dotsLabel: 'Folder cards',
+        itemLabel: 'folder',
+    });
 }
