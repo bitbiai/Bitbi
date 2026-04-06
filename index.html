@@ -37,7 +37,7 @@
     <link rel="stylesheet" href="css/base/base.css?v=20260322">
     <link rel="stylesheet" href="css/components/components.css?v=20260405">
     <link rel="stylesheet" href="css/pages/index.css?v=20260405b">
-    <link rel="stylesheet" href="css/account/image-studio.css?v=20260405">
+    <link rel="stylesheet" href="css/account/image-studio.css?v=20260406">
     <link rel="stylesheet" href="css/components/auth.css?v=20260317">
     <link rel="stylesheet" href="css/base/utilities.css?v=20260317">
     <script>document.documentElement.classList.add('js-ready');if('scrollRestoration'in history)history.scrollRestoration='manual';if(!location.hash)window.scrollTo(0,0);setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -259,24 +259,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="studio__card reveal" style="margin-block-start:var(--space-8)">
-                    <div class="studio__gallery-header">
-                        <h2 class="studio__card-title">Saved Images</h2>
-                        <div class="studio__folder-bar">
-                            <select id="galStudioGalleryFilter" class="studio__folder-filter"><option value="">All images</option></select>
-                            <button type="button" id="galStudioNewFolderBtn" class="studio__new-folder-btn">+ Folder</button>
-                        </div>
-                    </div>
-                    <div id="galStudioNewFolderForm" class="studio__new-folder-form">
-                        <input type="text" id="galStudioNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
-                        <button type="button" id="galStudioNewFolderSave" class="studio__new-folder-save">Create</button>
-                        <button type="button" id="galStudioNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
-                    </div>
-                    <div id="galStudioGalleryMsg" class="studio__msg" role="status"></div>
-                    <div id="galStudioImageGrid" class="studio__image-grid">
-                        <div class="studio__gallery-empty">Loading saved images...</div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -421,6 +403,6 @@
 </footer>
 
 <div id="authModal"></div>
-<script type="module" src="js/pages/index/main.js?v=20260405"></script>
+<script type="module" src="js/pages/index/main.js?v=20260406"></script>
 </body>
 </html>

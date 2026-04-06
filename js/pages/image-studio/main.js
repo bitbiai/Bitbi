@@ -117,6 +117,22 @@ function populateFolderOptions(selectEl) {
     if (current) selectEl.value = current;
 }
 
+const UNFOLDERED = '__unfoldered__';
+
+function populateGalleryFilter(selectEl) {
+    const safeFolders = Array.isArray(folders) ? folders : [];
+    const current = selectEl.value;
+    const opts = [
+        '<option value="">All images</option>',
+        `<option value="${UNFOLDERED}">No folder</option>`,
+    ];
+    for (const f of safeFolders) {
+        opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
+    }
+    selectEl.innerHTML = opts.join('');
+    if (current) selectEl.value = current;
+}
+
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -157,8 +173,7 @@ async function loadFolders() {
         folders = [];
     }
     populateFolderOptions($folderSelect);
-    populateFolderOptions($galleryFilter);
-    $galleryFilter.insertAdjacentHTML('afterbegin', '<option value="">All images</option>');
+    populateGalleryFilter($galleryFilter);
     $galleryFilter.value = '';
 }
 
@@ -262,10 +277,12 @@ async function handleSave() {
 /* ── Gallery ── */
 async function loadGallery() {
     if (selectMode) exitSelectMode();
-    const folderId = $galleryFilter.value || null;
+    const filterVal = $galleryFilter.value;
+    const isUnfoldered = filterVal === UNFOLDERED;
+    const folderId = (!isUnfoldered && filterVal) ? filterVal : null;
     let images;
     try {
-        images = await apiAiGetImages(folderId);
+        images = await apiAiGetImages(folderId, { onlyUnfoldered: isUnfoldered });
     } catch (e) {
         console.warn('Failed to load gallery:', e);
         images = [];

@@ -267,9 +267,15 @@ async function handleGetImages(ctx) {
   if (session instanceof Response) return session;
 
   const folderId = url.searchParams.get("folder_id") || null;
+  const onlyUnfoldered = url.searchParams.get("only_unfoldered") === "1";
 
   let query, params;
-  if (folderId) {
+  if (onlyUnfoldered) {
+    query = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+             FROM ai_images WHERE user_id = ? AND folder_id IS NULL
+             ORDER BY created_at DESC LIMIT 200`;
+    params = [session.user.id];
+  } else if (folderId) {
     query = `SELECT id, folder_id, prompt, model, steps, seed, created_at
              FROM ai_images WHERE user_id = ? AND folder_id = ?
              ORDER BY created_at DESC LIMIT 200`;

@@ -152,8 +152,11 @@ export function apiAiDeleteFolder(folderId) {
     return request('DELETE', `/ai/folders/${folderId}`);
 }
 
-export async function apiAiGetImages(folderId) {
-    const qs = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : '';
+export async function apiAiGetImages(folderId, { onlyUnfoldered } = {}) {
+    const params = new URLSearchParams();
+    if (onlyUnfoldered) params.set('only_unfoldered', '1');
+    else if (folderId) params.set('folder_id', folderId);
+    const qs = params.toString() ? `?${params}` : '';
     const res = await request('GET', `/ai/images${qs}`);
     return Array.isArray(res.data?.data?.images) ? res.data.data.images : [];
 }

@@ -8,12 +8,8 @@ import {
     apiAiGenerateImage,
     apiAiGetQuota,
     apiAiGetFolders,
-    apiAiCreateFolder,
-    apiAiGetImages,
     apiAiSaveImage,
-    apiAiDeleteImage,
 } from '../../shared/auth-api.js';
-import { initStudioDeck } from '../../shared/studio-deck.js';
 
 let initialized = false;
 let currentImageData = null;
@@ -26,8 +22,6 @@ let $quotaEl = null;
 /* DOM refs (resolved on init) */
 let $prompt, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
 let $saveBar, $folderSelect, $saveBtn;
-let $galleryFilter, $imageGrid, $galleryMsg;
-let $newFolderBtn, $newFolderForm, $newFolderInput, $newFolderSave, $newFolderCancel;
 
 /* ── Helpers ── */
 
@@ -92,9 +86,6 @@ async function loadFolders() {
         folders = [];
     }
     populateFolderOptions($folderSelect);
-    populateFolderOptions($galleryFilter);
-    $galleryFilter.insertAdjacentHTML('afterbegin', '<option value="">All images</option>');
-    $galleryFilter.value = '';
 }
 
 /* ── Image Generation ── */
@@ -186,102 +177,11 @@ async function handleSave() {
         return;
     }
 
-    showMsg($genMsg, 'Image saved.', 'success');
+    $genMsg.innerHTML = 'Image saved. <a href="/account/image-studio.html" class="studio__save-link">Open in Image Studio</a>';
+    $genMsg.className = 'studio__msg studio__msg--success';
     $saveBar.classList.remove('visible');
     currentImageData = null;
     currentMeta = null;
-    loadGallery();
-}
-
-/* ── Gallery ── */
-
-async function loadGallery() {
-    const folderId = $galleryFilter.value || null;
-    let images;
-    try {
-        images = await apiAiGetImages(folderId);
-    } catch (e) {
-        console.warn('Studio: Failed to load gallery:', e);
-        images = [];
-    }
-    if (!Array.isArray(images)) images = [];
-
-    if (images.length === 0) {
-        $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved images yet. Generate and save your first one above.</div>';
-        return;
-    }
-
-    $imageGrid.innerHTML = '';
-    for (const img of images) {
-        const item = document.createElement('div');
-        item.className = 'studio__image-item';
-        item.title = img.prompt;
-
-        const imgEl = document.createElement('img');
-        imgEl.src = `/api/ai/images/${img.id}/file`;
-        imgEl.alt = img.prompt;
-        imgEl.loading = 'lazy';
-        item.appendChild(imgEl);
-
-        const overlay = document.createElement('div');
-        overlay.className = 'studio__image-overlay';
-
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'studio__image-delete';
-        delBtn.textContent = 'Delete';
-        delBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (!confirm('Delete this image?')) return;
-            delBtn.disabled = true;
-            delBtn.textContent = '\u2026';
-            const del = await apiAiDeleteImage(img.id);
-            if (del.ok) {
-                item.remove();
-                if ($imageGrid.children.length === 0) {
-                    $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved images yet.</div>';
-                }
-            } else {
-                delBtn.disabled = false;
-                delBtn.textContent = 'Delete';
-                showMsg($galleryMsg, del.error, 'error');
-            }
-        });
-        overlay.appendChild(delBtn);
-        item.appendChild(overlay);
-
-        $imageGrid.appendChild(item);
-    }
-}
-
-/* ── New Folder ── */
-
-function showNewFolderForm() {
-    $newFolderForm.classList.add('visible');
-    $newFolderInput.value = '';
-    $newFolderInput.focus();
-}
-
-function hideNewFolderForm() {
-    $newFolderForm.classList.remove('visible');
-}
-
-async function handleCreateFolder() {
-    const name = $newFolderInput.value.trim();
-    if (!name) return;
-
-    $newFolderSave.disabled = true;
-    const res = await apiAiCreateFolder(name);
-    $newFolderSave.disabled = false;
-
-    if (!res.ok) {
-        showMsg($galleryMsg, res.error, 'error');
-        return;
-    }
-
-    hideNewFolderForm();
-    await loadFolders();
-    showMsg($galleryMsg, `Folder "${escapeHtml(name)}" created.`, 'success');
 }
 
 /* ── Public API ── */
@@ -300,39 +200,19 @@ export function initGalleryStudio() {
     $saveBar       = document.getElementById('galStudioSaveBar');
     $folderSelect  = document.getElementById('galStudioFolderSelect');
     $saveBtn       = document.getElementById('galStudioSaveBtn');
-    $galleryFilter = document.getElementById('galStudioGalleryFilter');
-    $imageGrid     = document.getElementById('galStudioImageGrid');
-    $galleryMsg    = document.getElementById('galStudioGalleryMsg');
-    $newFolderBtn    = document.getElementById('galStudioNewFolderBtn');
-    $newFolderForm   = document.getElementById('galStudioNewFolderForm');
-    $newFolderInput  = document.getElementById('galStudioNewFolderInput');
-    $newFolderSave   = document.getElementById('galStudioNewFolderSave');
-    $newFolderCancel = document.getElementById('galStudioNewFolderCancel');
 
     if (!$prompt || !$generateBtn) return;
-
-    /* Attach mobile deck swipe + click-to-preview to saved images grid */
-    if ($imageGrid) initStudioDeck($imageGrid);
 
     // Quota indicator (inject after the actions row, load from server)
     const $actions = document.querySelector('#galleryStudio .studio__actions');
     if ($actions) { injectQuotaEl($actions); loadQuota(); }
 
     loadFolders();
-    loadGallery();
 
     $generateBtn.addEventListener('click', handleGenerate);
     $saveBtn.addEventListener('click', handleSave);
     $randomize.addEventListener('click', () => {
         $seed.value = Math.floor(Math.random() * 2147483647);
-    });
-    $galleryFilter.addEventListener('change', loadGallery);
-    $newFolderBtn.addEventListener('click', showNewFolderForm);
-    $newFolderCancel.addEventListener('click', hideNewFolderForm);
-    $newFolderSave.addEventListener('click', handleCreateFolder);
-    $newFolderInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); handleCreateFolder(); }
-        if (e.key === 'Escape') hideNewFolderForm();
     });
 
     $prompt.addEventListener('keydown', (e) => {
