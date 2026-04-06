@@ -250,6 +250,7 @@ function openFolder(folderId, folderName) {
     folderViewActive = false;
     $folderGrid.style.display = 'none';
     if (folderDeck) folderDeck.setVisible(false);
+    $imageGrid.innerHTML = '<div class="studio__gallery-empty">Loading\u2026</div>';
     $imageGrid.style.display = '';
     $folderBack.classList.add('visible');
     $galleryFilter.value = folderId;
@@ -260,6 +261,7 @@ function openAllImages() {
     folderViewActive = false;
     $folderGrid.style.display = 'none';
     if (folderDeck) folderDeck.setVisible(false);
+    $imageGrid.innerHTML = '<div class="studio__gallery-empty">Loading\u2026</div>';
     $imageGrid.style.display = '';
     $folderBack.classList.add('visible');
     $galleryFilter.value = ALL_IMAGES;

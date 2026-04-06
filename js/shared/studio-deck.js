@@ -97,7 +97,7 @@ function closeStudioModal() {
  * @param {Function}    [opts.onClick]  — optional grid click handler (bubbling phase)
  * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
  */
-function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick }) {
+function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehind }) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
     let isDeck = false;
@@ -126,12 +126,12 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick }) {
                 c.style.pointerEvents = '';
             } else if (d === 1) {
                 c.style.transform = 'translateX(24px) scale(0.86)';
-                c.style.opacity = '0.55';
+                c.style.opacity = hideBehind ? '0' : '0.55';
                 c.style.zIndex = String(n - 1);
                 c.style.pointerEvents = 'none';
             } else if (d === 2) {
                 c.style.transform = 'translateX(42px) scale(0.82)';
-                c.style.opacity = '0.3';
+                c.style.opacity = hideBehind ? '0' : '0.3';
                 c.style.zIndex = String(n - 2);
                 c.style.pointerEvents = 'none';
             } else {
@@ -146,8 +146,10 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick }) {
     /* ── Dots (mirrors galBuildDots / galSyncDots) ── */
     function buildDots() {
         if (dotsEl) dotsEl.remove();
+        dotsEl = null;
+        if (grid.offsetParent === null) return;
         const all = getCards();
-        if (all.length <= 1) { dotsEl = null; return; }
+        if (all.length <= 1) return;
         dotsEl = document.createElement('div');
         dotsEl.className = 'studio-deck-dots';
         dotsEl.setAttribute('role', 'tablist');
@@ -351,5 +353,6 @@ export function initStudioFolderDeck(grid) {
         cardClass: 'studio__folder-card',
         dotsLabel: 'Folder cards',
         itemLabel: 'folder',
+        hideBehind: true,
     });
 }

@@ -816,15 +816,15 @@
         }
 
         .studio-deck > .studio__folder-card {
-            background: var(--color-navy);
-            border-color: rgba(255, 255, 255, 0.1);
+            background: var(--color-navy-light);
+            border-color: rgba(0, 240, 255, 0.08);
         }
 
         .studio-deck > .studio__folder-card .studio__folder-card-icon {
-            font-size: min(28vw, 7rem);
+            font-size: min(40vw, 9rem);
             opacity: 0.85;
-            filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.3))
-                    drop-shadow(0 0 28px rgba(0, 240, 255, 0.1));
+            filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.3))
+                    drop-shadow(0 0 35px rgba(0, 240, 255, 0.1));
         }
 
         .studio-deck-dots {
