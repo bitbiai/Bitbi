@@ -67,10 +67,8 @@
         <a href="#users" class="admin-nav__link" data-section="users">Users</a>
         <a href="#content" class="admin-nav__link" data-section="content">Content</a>
         <a href="#media" class="admin-nav__link" data-section="media">Media</a>
-        <a href="#site" class="admin-nav__link" data-section="site">Site</a>
         <a href="#access" class="admin-nav__link" data-section="access">Access</a>
         <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
-        <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
     </div>
 </nav>
 
@@ -144,10 +142,6 @@
                     <a href="#activity" class="admin-quick-link glass glass-card reveal" data-nav="activity">
                         <span class="admin-quick-link__icon">&#x1F4CB;</span>
                         <span class="admin-quick-link__label">Activity Log</span>
-                    </a>
-                    <a href="#settings" class="admin-quick-link glass glass-card reveal" data-nav="settings">
-                        <span class="admin-quick-link__icon">&#x2699;</span>
-                        <span class="admin-quick-link__label">Settings</span>
                     </a>
                     <a href="#access" class="admin-quick-link glass glass-card reveal" data-nav="access">
                         <span class="admin-quick-link__icon">&#x1F512;</span>
@@ -286,46 +280,6 @@
             </div>
 
             <!-- ═══════════════════════════════════════
-                 SITE
-                 ═══════════════════════════════════════ -->
-            <div id="sectionSite" class="admin-section" style="display:none">
-                <div class="admin-shell-grid">
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Hero &amp; Banners</h3>
-                        <p class="admin-shell__desc">Homepage hero text, gradient settings, announcement banners.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F3AF;</span>
-                            <span>No data source connected yet. A CMS panel will appear here once configured.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Navigation</h3>
-                        <p class="admin-shell__desc">Main nav links, mobile menu structure, footer links.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F517;</span>
-                            <span>Editable navigation management coming soon.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Section Visibility</h3>
-                        <p class="admin-shell__desc">Toggle homepage sections on/off, reorder display priority.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F441;</span>
-                            <span>Section visibility controls coming soon.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Social &amp; Contact</h3>
-                        <p class="admin-shell__desc">Social media links, contact email, footer information.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F310;</span>
-                            <span>Editable social and contact settings coming soon.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ═══════════════════════════════════════
                  ACCESS
                  ═══════════════════════════════════════ -->
             <div id="sectionAccess" class="admin-section" style="display:none">
@@ -352,15 +306,28 @@
                  ACTIVITY
                  ═══════════════════════════════════════ -->
             <div id="sectionActivity" class="admin-section" style="display:none">
+
+                <!-- Mode Switch -->
+                <div class="admin-activity-modes">
+                    <button type="button" class="admin-activity-mode admin-activity-mode--active" data-mode="admin">Admin Logs</button>
+                    <button type="button" class="admin-activity-mode" data-mode="user">User Logs</button>
+                </div>
+
+                <!-- Search -->
+                <div class="admin-activity-search">
+                    <input type="text" id="activitySearch" class="admin-search__input" placeholder="Search logs by email, action, or details...">
+                </div>
+
+                <!-- Log area -->
                 <div class="glass glass-card reveal visible">
-                    <h3 class="admin-section-title">Admin Audit Log</h3>
-                    <p class="admin-shell__desc">Recent administrative actions.</p>
+                    <h3 class="admin-section-title" id="activityTitle">Admin Audit Log</h3>
+                    <p class="admin-shell__desc" id="activityDesc">Recent administrative actions.</p>
                     <div id="activityLog" class="admin-activity">
-                        <div id="activityLoading" class="admin-state">Loading audit log...</div>
-                        <div id="activityEmpty" class="admin-state" style="display:none">No audit log entries yet.</div>
+                        <div id="activityLoading" class="admin-state">Loading logs...</div>
+                        <div id="activityEmpty" class="admin-state" style="display:none">No log entries yet.</div>
                         <div class="admin-table-wrap">
                             <table id="activityTable" class="admin-table" style="display:none">
-                                <thead><tr>
+                                <thead id="activityThead"><tr>
                                     <th>Time</th>
                                     <th>Admin</th>
                                     <th>Action</th>
@@ -370,14 +337,34 @@
                                 <tbody id="activityTbody"></tbody>
                             </table>
                         </div>
-                        <div id="activityPager" class="admin-activity__pager" style="display:none">
-                            <button type="button" id="activityNewer" class="btn-action" disabled>Newer</button>
-                            <span id="activityPage" class="admin-activity__page"></span>
-                            <button type="button" id="activityOlder" class="btn-action">Older</button>
+
+                        <!-- Expand/Collapse for older entries -->
+                        <div id="activityExpand" class="admin-activity-expand" style="display:none">
+                            <button type="button" id="activityExpandBtn" class="admin-activity-expand__toggle" aria-expanded="false">
+                                <span id="activityExpandLabel">Show more entries</span>
+                                <svg class="admin-activity-expand__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                            </button>
+                            <div class="admin-activity-expand__body">
+                                <div class="admin-activity-expand__inner">
+                                    <div class="admin-table-wrap">
+                                        <table class="admin-table">
+                                            <tbody id="activityTbodyMore"></tbody>
+                                        </table>
+                                    </div>
+                                    <!-- Load more (cursor pagination) -->
+                                    <div id="activityLoadMore" style="display:none;text-align:center;padding:var(--space-4) 0">
+                                        <button type="button" id="activityLoadMoreBtn" class="btn-action">Load older entries</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="admin-shell-grid" style="margin-block-start:var(--space-6)">
+
+                <!-- Summary cards (admin mode only) -->
+                <div id="activitySummaryArea" class="admin-shell-grid" style="margin-block-start:var(--space-6)">
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Activity Summary</h3>
                         <p class="admin-shell__desc">Breakdown of admin actions by type.</p>
@@ -387,46 +374,6 @@
                         <h3 class="admin-section-title">Security Events</h3>
                         <p class="admin-shell__desc">Session revocations and account deletions.</p>
                         <div id="securitySummary"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ═══════════════════════════════════════
-                 SETTINGS
-                 ═══════════════════════════════════════ -->
-            <div id="sectionSettings" class="admin-section" style="display:none">
-                <div class="admin-shell-grid">
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">General</h3>
-                        <p class="admin-shell__desc">Site name, tagline, default language, timezone preferences.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x2699;</span>
-                            <span>General settings panel coming soon.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Contact &amp; Email</h3>
-                        <p class="admin-shell__desc">Contact form recipient, email templates, delivery settings.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F4E7;</span>
-                            <span>Email settings panel coming soon.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Social Links</h3>
-                        <p class="admin-shell__desc">X/Twitter, YouTube, and other social media profile URLs.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F4F1;</span>
-                            <span>Social link editor coming soon.</span>
-                        </div>
-                    </div>
-                    <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">Branding</h3>
-                        <p class="admin-shell__desc">Logo, favicon, color palette overrides, typography.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F3A8;</span>
-                            <span>Branding controls coming soon.</span>
-                        </div>
                     </div>
                 </div>
             </div>

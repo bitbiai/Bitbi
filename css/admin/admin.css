@@ -137,7 +137,106 @@
     .admin-stat__value--gold    { color: var(--color-gold); }
     .admin-stat__value--cyan    { color: var(--color-cyan); }
 
-    /* ── Activity Pager ── */
+    /* ── Activity Mode Switch ── */
+    .admin-activity-modes {
+        display: flex;
+        gap: var(--space-1);
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-activity-mode {
+        padding: var(--space-2) var(--space-5);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: color 0.2s var(--ease-default), background 0.2s var(--ease-default), border-color 0.2s var(--ease-default);
+    }
+
+    .admin-activity-mode:hover {
+        color: rgba(255, 255, 255, 0.65);
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .admin-activity-mode--active {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.08);
+        border-color: rgba(0, 240, 255, 0.2);
+    }
+
+    .admin-activity-mode--active:hover {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.12);
+    }
+
+    /* ── Activity Search ── */
+    .admin-activity-search {
+        margin-block-end: var(--space-5);
+    }
+
+    .admin-activity-search .admin-search__input {
+        width: 100%;
+    }
+
+    /* ── Activity Expand/Collapse ── */
+    .admin-activity-expand {
+        border-block-start: 1px solid rgba(255, 255, 255, 0.06);
+        margin-block-start: var(--space-2);
+    }
+
+    .admin-activity-expand__toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.4);
+        background: none;
+        border: none;
+        cursor: pointer;
+        transition: color 0.2s var(--ease-default);
+    }
+
+    .admin-activity-expand__toggle:hover {
+        color: var(--color-cyan);
+    }
+
+    .admin-activity-expand__chevron {
+        color: rgba(255, 255, 255, 0.2);
+        transition: transform 0.25s var(--ease-default);
+    }
+
+    .admin-activity-expand--open .admin-activity-expand__chevron {
+        transform: rotate(180deg);
+    }
+
+    .admin-activity-expand__body {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 0.3s var(--ease-default);
+    }
+
+    .admin-activity-expand--open .admin-activity-expand__body {
+        grid-template-rows: 1fr;
+    }
+
+    .admin-activity-expand__inner {
+        overflow: hidden;
+    }
+
+    /* ── Activity Pager (legacy, kept for compat) ── */
     .admin-activity__pager {
         display: flex;
         align-items: center;

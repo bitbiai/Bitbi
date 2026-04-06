@@ -110,12 +110,22 @@ export function apiAdminStats() {
     return request('GET', '/admin/stats');
 }
 
-export function apiAdminActivity(limit, cursor) {
+export function apiAdminActivity(limit, cursor, search) {
     const params = new URLSearchParams();
     if (limit) params.set('limit', String(limit));
     if (cursor) params.set('cursor', cursor);
+    if (search) params.set('search', search);
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/activity${qs}`);
+}
+
+export function apiAdminUserActivity(limit, cursor, search) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    if (search) params.set('search', search);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/user-activity${qs}`);
 }
 
 /* ── Email Verification ── */

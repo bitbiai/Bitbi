@@ -531,8 +531,11 @@ export async function handleAdmin(ctx) {
       100
     );
     const cursorParam = url.searchParams.get("cursor") || null;
+    const search = url.searchParams.get("search") || null;
 
-    let entriesQuery;
+    const conditions = [];
+    const bindings = [];
+
     if (cursorParam) {
       const sep = cursorParam.indexOf("|");
       if (sep === -1) {
@@ -543,31 +546,29 @@ export async function handleAdmin(ctx) {
       }
       const cursorTime = cursorParam.slice(0, sep);
       const cursorId = cursorParam.slice(sep + 1);
-
-      entriesQuery = env.DB.prepare(
-        `SELECT a.id, a.action, a.meta_json, a.created_at,
-                a.admin_user_id, au.email AS admin_email,
-                a.target_user_id, tu.email AS target_email
-         FROM admin_audit_log a
-         LEFT JOIN users au ON au.id = a.admin_user_id
-         LEFT JOIN users tu ON tu.id = a.target_user_id
-         WHERE a.created_at < ?
-            OR (a.created_at = ? AND a.id < ?)
-         ORDER BY a.created_at DESC, a.id DESC
-         LIMIT ?`
-      ).bind(cursorTime, cursorTime, cursorId, limit + 1);
-    } else {
-      entriesQuery = env.DB.prepare(
-        `SELECT a.id, a.action, a.meta_json, a.created_at,
-                a.admin_user_id, au.email AS admin_email,
-                a.target_user_id, tu.email AS target_email
-         FROM admin_audit_log a
-         LEFT JOIN users au ON au.id = a.admin_user_id
-         LEFT JOIN users tu ON tu.id = a.target_user_id
-         ORDER BY a.created_at DESC, a.id DESC
-         LIMIT ?`
-      ).bind(limit + 1);
+      conditions.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))");
+      bindings.push(cursorTime, cursorTime, cursorId);
     }
+
+    if (search) {
+      const like = `%${search}%`;
+      conditions.push("(au.email LIKE ? OR tu.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)");
+      bindings.push(like, like, like, like);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const entriesQuery = env.DB.prepare(
+      `SELECT a.id, a.action, a.meta_json, a.created_at,
+              a.admin_user_id, au.email AS admin_email,
+              a.target_user_id, tu.email AS target_email
+       FROM admin_audit_log a
+       LEFT JOIN users au ON au.id = a.admin_user_id
+       LEFT JOIN users tu ON tu.id = a.target_user_id
+       ${whereClause}
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT ?`
+    ).bind(...bindings, limit + 1);
 
     const [entriesRes, countsRes] = await env.DB.batch([
       entriesQuery,
@@ -607,6 +608,95 @@ export async function handleAdmin(ctx) {
       entries,
       nextCursor,
       counts,
+    });
+  }
+
+  // GET /api/admin/user-activity
+  if (pathname === "/api/admin/user-activity" && method === "GET") {
+    const result = await requireAdmin(request, env);
+    if (result instanceof Response) return result;
+
+    const limit = Math.min(
+      Math.max(parseInt(url.searchParams.get("limit")) || 50, 1),
+      100
+    );
+    const cursorParam = url.searchParams.get("cursor") || null;
+    const search = url.searchParams.get("search") || null;
+
+    const conditions = [];
+    const bindings = [];
+
+    if (cursorParam) {
+      const sep = cursorParam.indexOf("|");
+      if (sep === -1) {
+        return json(
+          { ok: false, error: "Invalid cursor format." },
+          { status: 400 }
+        );
+      }
+      const cursorTime = cursorParam.slice(0, sep);
+      const cursorId = cursorParam.slice(sep + 1);
+      conditions.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))");
+      bindings.push(cursorTime, cursorTime, cursorId);
+    }
+
+    if (search) {
+      const like = `%${search}%`;
+      conditions.push("(u.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)");
+      bindings.push(like, like, like);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    let entriesRes;
+    try {
+      entriesRes = await env.DB.prepare(
+        `SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at,
+                u.email AS user_email
+         FROM user_activity_log a
+         LEFT JOIN users u ON u.id = a.user_id
+         ${whereClause}
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT ?`
+      ).bind(...bindings, limit + 1).all();
+    } catch (e) {
+      // Graceful degradation if migration 0012 has not been applied
+      if (String(e).includes("no such table")) {
+        return json({
+          ok: true,
+          entries: [],
+          nextCursor: null,
+          unavailable: true,
+          reason: "User activity logging not yet configured. Run migration 0012.",
+        });
+      }
+      throw e;
+    }
+
+    const rows = entriesRes.results;
+    const hasMore = rows.length > limit;
+    const entries = hasMore ? rows.slice(0, limit) : rows;
+
+    // Backfill email from meta if user was deleted
+    for (const entry of entries) {
+      if (!entry.user_email) {
+        try {
+          const meta = JSON.parse(entry.meta_json || '{}');
+          if (meta.email) entry.user_email = meta.email;
+        } catch {}
+      }
+    }
+
+    let nextCursor = null;
+    if (hasMore && entries.length > 0) {
+      const last = entries[entries.length - 1];
+      nextCursor = `${last.created_at}|${last.id}`;
+    }
+
+    return json({
+      ok: true,
+      entries,
+      nextCursor,
     });
   }
 

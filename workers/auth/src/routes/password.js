@@ -4,6 +4,7 @@ import { nowIso, addMinutesIso, randomTokenHex, sha256Hex } from "../lib/tokens.
 import { hashPassword } from "../lib/passwords.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { sendResetEmail } from "../lib/email.js";
+import { logUserActivity } from "../lib/activity.js";
 
 export async function handleForgotPassword(ctx) {
   const { request, env } = ctx;
@@ -170,6 +171,12 @@ export async function handleResetPassword(ctx) {
       tokenRow.user_id
     ),
   ]);
+
+  // Log password reset (durable background write)
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, tokenRow.user_id, "reset_password", null, ip)
+      .catch(e => console.error("activity log failed:", e))
+  );
 
   return json({
     ok: true,

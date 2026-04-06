@@ -20,6 +20,7 @@ import {
     apiAdminLatestAvatars,
     apiAdminStats,
     apiAdminActivity,
+    apiAdminUserActivity,
 } from '../../shared/auth-api.js';
 
 import { galleryItems } from '../../shared/gallery-data.js';
@@ -62,10 +63,8 @@ const sections = {
     users:     document.getElementById('sectionUsers'),
     content:   document.getElementById('sectionContent'),
     media:     document.getElementById('sectionMedia'),
-    site:      document.getElementById('sectionSite'),
     access:    document.getElementById('sectionAccess'),
     activity:  document.getElementById('sectionActivity'),
-    settings:  document.getElementById('sectionSettings'),
 };
 
 /* Section metadata for hero */
@@ -74,10 +73,8 @@ const sectionMeta = {
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
     content:   { title: 'Content',          desc: 'Site content entries and publishing' },
     media:     { title: 'Media Library',    desc: 'Assets, images, audio, and video files' },
-    site:      { title: 'Site',             desc: 'Homepage, navigation, and global settings' },
     access:    { title: 'Access Control',   desc: 'Membership gating and role-based access' },
     activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
-    settings:  { title: 'Settings',         desc: 'Global configuration and defaults' },
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -133,24 +130,48 @@ let statsCache = null;    // { stats, fetchedAt }
 const STATS_TTL = 30_000; // 30 seconds
 
 let activityVersion = 0;
-let activityCursorStack = [null]; // null = first page; subsequent entries are cursor strings
+let activityMode = 'admin'; // 'admin' | 'user'
+let activityEntries = [];   // all loaded entries for current mode
 let activityNextCursor = null;
+let activityExpanded = false;
+let activitySearchTimer = null;
 const ACTIVITY_LIMIT = 50;
+const ACTIVITY_VISIBLE = 10;
 let contentLoaded = false;
 let mediaLoaded = false;
 let accessLoaded = false;
 
-const ACTION_LABELS = {
+const ADMIN_ACTION_LABELS = {
     change_role: 'Role Change',
     change_status: 'Status Change',
     revoke_sessions: 'Sessions Revoked',
     delete_user: 'User Deleted',
 };
-const ACTION_VARIANTS = {
+const ADMIN_ACTION_VARIANTS = {
     change_role: 'user',
     change_status: 'legacy',
     revoke_sessions: 'disabled',
     delete_user: 'disabled',
+};
+const USER_ACTION_LABELS = {
+    register: 'Registration',
+    login: 'Login',
+    logout: 'Logout',
+    verify_email: 'Email Verified',
+    reset_password: 'Password Reset',
+    update_profile: 'Profile Update',
+    upload_avatar: 'Avatar Upload',
+    delete_avatar: 'Avatar Deleted',
+};
+const USER_ACTION_VARIANTS = {
+    register: 'active',
+    login: 'user',
+    logout: 'legacy',
+    verify_email: 'active',
+    reset_password: 'admin',
+    update_profile: 'user',
+    upload_avatar: 'user',
+    delete_avatar: 'disabled',
 };
 
 function showSection(name) {
@@ -263,7 +284,7 @@ async function loadDashboard() {
 /* ═══════════════════════════════════════════════════════════
    Activity
    ═══════════════════════════════════════════════════════════ */
-function formatMeta(action, metaJson) {
+function formatAdminMeta(action, metaJson) {
     try {
         const meta = JSON.parse(metaJson || '{}');
         switch (action) {
@@ -281,85 +302,188 @@ function formatMeta(action, metaJson) {
     } catch { return '\u2014'; }
 }
 
-async function loadActivity() {
+function formatUserMeta(action, metaJson) {
+    try {
+        const meta = JSON.parse(metaJson || '{}');
+        switch (action) {
+            case 'register':        return meta.email || '\u2014';
+            case 'update_profile':  return meta.fields ? `Updated: ${meta.fields.join(', ')}` : '\u2014';
+            case 'upload_avatar':   return meta.type || '\u2014';
+            default:                return '\u2014';
+        }
+    } catch { return '\u2014'; }
+}
+
+function buildAdminRow(entry) {
+    const tr = document.createElement('tr');
+    const tdTime = document.createElement('td');
+    tdTime.textContent = formatDate(entry.created_at);
+    tr.appendChild(tdTime);
+
+    const tdAdmin = document.createElement('td');
+    tdAdmin.textContent = entry.admin_email || (entry.admin_user_id?.slice(0, 8) + '\u2026');
+    tr.appendChild(tdAdmin);
+
+    const tdAction = document.createElement('td');
+    tdAction.appendChild(createBadge(
+        ADMIN_ACTION_LABELS[entry.action] || entry.action,
+        ADMIN_ACTION_VARIANTS[entry.action] || 'user',
+    ));
+    tr.appendChild(tdAction);
+
+    const tdTarget = document.createElement('td');
+    tdTarget.textContent = entry.target_email || (entry.target_user_id ? entry.target_user_id.slice(0, 8) + '\u2026' : '\u2014');
+    tr.appendChild(tdTarget);
+
+    const tdDetails = document.createElement('td');
+    tdDetails.className = 'hide-mobile';
+    tdDetails.textContent = formatAdminMeta(entry.action, entry.meta_json);
+    tr.appendChild(tdDetails);
+    return tr;
+}
+
+function buildUserRow(entry) {
+    const tr = document.createElement('tr');
+    const tdTime = document.createElement('td');
+    tdTime.textContent = formatDate(entry.created_at);
+    tr.appendChild(tdTime);
+
+    const tdUser = document.createElement('td');
+    tdUser.textContent = entry.user_email || (entry.user_id?.slice(0, 8) + '\u2026');
+    tr.appendChild(tdUser);
+
+    const tdAction = document.createElement('td');
+    tdAction.appendChild(createBadge(
+        USER_ACTION_LABELS[entry.action] || entry.action,
+        USER_ACTION_VARIANTS[entry.action] || 'user',
+    ));
+    tr.appendChild(tdAction);
+
+    const tdDetails = document.createElement('td');
+    tdDetails.textContent = formatUserMeta(entry.action, entry.meta_json);
+    tr.appendChild(tdDetails);
+    return tr;
+}
+
+function renderActivityEntries() {
+    const $tbody = document.getElementById('activityTbody');
+    const $tbodyMore = document.getElementById('activityTbodyMore');
+    const $table = document.getElementById('activityTable');
+    const $expand = document.getElementById('activityExpand');
+    const $expandLabel = document.getElementById('activityExpandLabel');
+    const $loadMore = document.getElementById('activityLoadMore');
+    const $empty = document.getElementById('activityEmpty');
+
+    $tbody.replaceChildren();
+    $tbodyMore.replaceChildren();
+
+    if (activityEntries.length === 0) {
+        $table.style.display = 'none';
+        $expand.style.display = 'none';
+        $empty.style.display = '';
+        return;
+    }
+
+    $empty.style.display = 'none';
+    $table.style.display = '';
+
+    const buildRow = activityMode === 'admin' ? buildAdminRow : buildUserRow;
+
+    // Top 10 visible
+    const visible = activityEntries.slice(0, ACTIVITY_VISIBLE);
+    for (const entry of visible) {
+        $tbody.appendChild(buildRow(entry));
+    }
+
+    // Remaining behind expand
+    const rest = activityEntries.slice(ACTIVITY_VISIBLE);
+    if (rest.length > 0 || activityNextCursor) {
+        $expand.style.display = '';
+        $expandLabel.textContent = activityExpanded
+            ? 'Hide older entries'
+            : `Show ${rest.length} more entr${rest.length === 1 ? 'y' : 'ies'}`;
+
+        for (const entry of rest) {
+            $tbodyMore.appendChild(buildRow(entry));
+        }
+
+        // Load more button (cursor pagination within expanded area)
+        if (activityNextCursor) {
+            $loadMore.style.display = '';
+        } else {
+            $loadMore.style.display = 'none';
+        }
+
+        // Restore expanded state
+        const $expandWrap = document.getElementById('activityExpand');
+        if (activityExpanded) {
+            $expandWrap.classList.add('admin-activity-expand--open');
+        } else {
+            $expandWrap.classList.remove('admin-activity-expand--open');
+        }
+    } else {
+        $expand.style.display = 'none';
+    }
+}
+
+async function loadActivity(appendMode) {
     const $loading = document.getElementById('activityLoading');
-    const $empty   = document.getElementById('activityEmpty');
-    const $table   = document.getElementById('activityTable');
-    const $tbody   = document.getElementById('activityTbody');
-    const $pager   = document.getElementById('activityPager');
+    const $empty = document.getElementById('activityEmpty');
+    const $table = document.getElementById('activityTable');
 
     const myVersion = ++activityVersion;
+    const searchVal = document.getElementById('activitySearch')?.value.trim() || '';
 
-    if ($loading) $loading.style.display = '';
-    if ($empty) $empty.style.display = 'none';
-    if ($table) $table.style.display = 'none';
-    if ($pager) $pager.style.display = 'none';
+    if (!appendMode) {
+        activityEntries = [];
+        activityNextCursor = null;
+        activityExpanded = false;
+        $loading.style.display = '';
+        $empty.style.display = 'none';
+        $table.style.display = 'none';
+        document.getElementById('activityExpand').style.display = 'none';
+    }
 
-    const cursor = activityCursorStack[activityCursorStack.length - 1];
-    const res = await apiAdminActivity(ACTIVITY_LIMIT, cursor);
+    const cursor = appendMode ? activityNextCursor : null;
+    const fetchFn = activityMode === 'admin' ? apiAdminActivity : apiAdminUserActivity;
+    const res = await fetchFn(ACTIVITY_LIMIT, cursor, searchVal || undefined);
 
     if (myVersion !== activityVersion) return;
-    if ($loading) $loading.style.display = 'none';
+    $loading.style.display = 'none';
 
     if (!res.ok) {
         showToast('Failed to load activity log.', 'error');
         return;
     }
 
-    const { entries, nextCursor, counts } = res.data || {};
+    const { entries, nextCursor, counts, unavailable, reason } = res.data || {};
     activityNextCursor = nextCursor || null;
 
-    // Render summary cards regardless of entries
-    renderActivitySummary(counts || {});
-
-    if (!entries || entries.length === 0) {
-        if ($empty) $empty.style.display = '';
+    // Handle schema-unavailable gracefully (migration 0012 not applied)
+    if (unavailable) {
+        const $empty = document.getElementById('activityEmpty');
+        $empty.textContent = reason || 'User activity logging is not yet available.';
+        $empty.style.display = '';
+        document.getElementById('activitySummaryArea').style.display = 'none';
         return;
     }
 
-    // Render table rows
-    $tbody.replaceChildren();
-    for (const entry of entries) {
-        const tr = document.createElement('tr');
-
-        const tdTime = document.createElement('td');
-        tdTime.textContent = formatDate(entry.created_at);
-        tr.appendChild(tdTime);
-
-        const tdAdmin = document.createElement('td');
-        tdAdmin.textContent = entry.admin_email || (entry.admin_user_id?.slice(0, 8) + '\u2026');
-        tr.appendChild(tdAdmin);
-
-        const tdAction = document.createElement('td');
-        tdAction.appendChild(createBadge(
-            ACTION_LABELS[entry.action] || entry.action,
-            ACTION_VARIANTS[entry.action] || 'user',
-        ));
-        tr.appendChild(tdAction);
-
-        const tdTarget = document.createElement('td');
-        tdTarget.textContent = entry.target_email || (entry.target_user_id ? entry.target_user_id.slice(0, 8) + '\u2026' : '\u2014');
-        tr.appendChild(tdTarget);
-
-        const tdDetails = document.createElement('td');
-        tdDetails.className = 'hide-mobile';
-        tdDetails.textContent = formatMeta(entry.action, entry.meta_json);
-        tr.appendChild(tdDetails);
-
-        $tbody.appendChild(tr);
+    if (appendMode) {
+        activityEntries = activityEntries.concat(entries || []);
+    } else {
+        activityEntries = entries || [];
     }
 
-    if ($table) $table.style.display = '';
-
-    // Pagination (cursor-based)
-    const canGoNewer = activityCursorStack.length > 1;
-    const canGoOlder = !!activityNextCursor;
-    if ((canGoNewer || canGoOlder) && $pager) {
-        $pager.style.display = '';
-        document.getElementById('activityPage').textContent = `Page ${activityCursorStack.length}`;
-        document.getElementById('activityNewer').disabled = !canGoNewer;
-        document.getElementById('activityOlder').disabled = !canGoOlder;
+    // Summary cards (admin mode only)
+    const $summaryArea = document.getElementById('activitySummaryArea');
+    if (activityMode === 'admin') {
+        $summaryArea.style.display = '';
+        renderActivitySummary(counts || {});
+    } else {
+        $summaryArea.style.display = 'none';
     }
+
+    renderActivityEntries();
 }
 
 function renderActivitySummary(counts) {
@@ -380,6 +504,37 @@ function renderActivitySummary(counts) {
         html += '</div>';
         securityEl.innerHTML = html;
     }
+}
+
+function switchActivityMode(mode) {
+    if (mode === activityMode) return;
+    activityMode = mode;
+
+    // Update mode buttons
+    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
+        btn.classList.toggle('admin-activity-mode--active', btn.dataset.mode === mode);
+    });
+
+    // Update title/desc and table headers
+    const $title = document.getElementById('activityTitle');
+    const $desc = document.getElementById('activityDesc');
+    const $thead = document.getElementById('activityThead');
+
+    if (mode === 'admin') {
+        $title.textContent = 'Admin Audit Log';
+        $desc.textContent = 'Recent administrative actions.';
+        $thead.innerHTML = '<tr><th>Time</th><th>Admin</th><th>Action</th><th>Target</th><th class="hide-mobile">Details</th></tr>';
+    } else {
+        $title.textContent = 'User Activity Log';
+        $desc.textContent = 'Recent user events and actions.';
+        $thead.innerHTML = '<tr><th>Time</th><th>User</th><th>Event</th><th class="hide-mobile">Details</th></tr>';
+    }
+
+    // Clear search
+    const $search = document.getElementById('activitySearch');
+    if ($search) $search.value = '';
+
+    loadActivity();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -957,21 +1112,46 @@ async function init() {
         loadUsers($searchInput.value.trim());
     });
 
-    // Activity pager (cursor-based)
-    const $actNewer = document.getElementById('activityNewer');
-    const $actOlder = document.getElementById('activityOlder');
-    if ($actNewer) $actNewer.addEventListener('click', () => {
-        if (activityCursorStack.length > 1) {
-            activityCursorStack.pop();
-            loadActivity();
-        }
+    // Activity mode switch
+    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
+        btn.addEventListener('click', () => switchActivityMode(btn.dataset.mode));
     });
-    if ($actOlder) $actOlder.addEventListener('click', () => {
-        if (activityNextCursor) {
-            activityCursorStack.push(activityNextCursor);
-            loadActivity();
-        }
-    });
+
+    // Activity search (debounced)
+    const $actSearch = document.getElementById('activitySearch');
+    if ($actSearch) {
+        $actSearch.addEventListener('input', () => {
+            clearTimeout(activitySearchTimer);
+            activitySearchTimer = setTimeout(() => loadActivity(), 350);
+        });
+    }
+
+    // Activity expand/collapse toggle
+    const $expandBtn = document.getElementById('activityExpandBtn');
+    if ($expandBtn) {
+        $expandBtn.addEventListener('click', () => {
+            activityExpanded = !activityExpanded;
+            const $wrap = document.getElementById('activityExpand');
+            $wrap.classList.toggle('admin-activity-expand--open', activityExpanded);
+            const $label = document.getElementById('activityExpandLabel');
+            const restCount = activityEntries.length - ACTIVITY_VISIBLE;
+            $label.textContent = activityExpanded
+                ? 'Hide older entries'
+                : `Show ${restCount} more entr${restCount === 1 ? 'y' : 'ies'}`;
+            $expandBtn.setAttribute('aria-expanded', String(activityExpanded));
+        });
+    }
+
+    // Activity load more (cursor pagination within expanded area)
+    const $loadMoreBtn = document.getElementById('activityLoadMoreBtn');
+    if ($loadMoreBtn) {
+        $loadMoreBtn.addEventListener('click', () => {
+            if (activityNextCursor) {
+                activityExpanded = true; // keep expanded when loading more
+                loadActivity(true);
+            }
+        });
+    }
 
     // Init routing (loads initial section from hash)
     initRouting();

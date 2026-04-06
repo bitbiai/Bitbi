@@ -6,6 +6,7 @@ import { json } from "../lib/response.js";
 import { readJsonBody, isValidUrl } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import { nowIso } from "../lib/tokens.js";
+import { logUserActivity } from "../lib/activity.js";
 
 function stripHtml(str) {
   return str
@@ -143,6 +144,13 @@ export async function handleUpdateProfile(ctx) {
       now
     )
     .run();
+
+  // Log profile update (durable background write)
+  const changedFields = Object.keys(fields);
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, userId, "update_profile", { fields: changedFields }, null)
+      .catch(e => console.error("activity log failed:", e))
+  );
 
   return json({
     ok: true,

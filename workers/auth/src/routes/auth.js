@@ -6,6 +6,7 @@ import { nowIso, addDaysIso, randomTokenHex, sha256Hex } from "../lib/tokens.js"
 import { getSessionUser } from "../lib/session.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
+import { logUserActivity } from "../lib/activity.js";
 
 export async function handleMe(ctx) {
   const { request, env } = ctx;
@@ -130,6 +131,12 @@ export async function handleRegister(ctx) {
   // Send verification email (do not auto-login)
   await createAndSendVerificationToken(env, userId, email);
 
+  // Log registration (durable background write)
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, userId, "register", { email }, ip)
+      .catch(e => console.error("activity log failed:", e))
+  );
+
   return json(
     {
       ok: true,
@@ -252,6 +259,12 @@ export async function handleLogin(ctx) {
     .bind(sessionId, user.id, tokenHash, createdAt, expiresAt, createdAt)
     .run();
 
+  // Log login (durable background write)
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, user.id, "login", { email: user.email }, ip)
+      .catch(e => console.error("activity log failed:", e))
+  );
+
   const response = json({
     ok: true,
     message: "Login successful.",
@@ -273,11 +286,24 @@ export async function handleLogout(ctx) {
   const cookies = parseCookies(request.headers.get("Cookie"));
   const sessionToken = cookies.bitbi_session;
 
+  let loggedOutUserId = null;
   if (sessionToken) {
     const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
+    // Fetch the session's user_id before deleting
+    const sess = await env.DB.prepare(
+      "SELECT user_id FROM sessions WHERE token_hash = ? LIMIT 1"
+    ).bind(tokenHash).first();
+    if (sess) loggedOutUserId = sess.user_id;
     await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?")
       .bind(tokenHash)
       .run();
+  }
+
+  if (loggedOutUserId) {
+    ctx.execCtx.waitUntil(
+      logUserActivity(env, loggedOutUserId, "logout", null, getClientIp(request))
+        .catch(e => console.error("activity log failed:", e))
+    );
   }
 
   const response = json({

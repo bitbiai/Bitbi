@@ -5,6 +5,7 @@
 import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { logUserActivity } from "../lib/activity.js";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
@@ -128,6 +129,12 @@ export async function handleUploadAvatar(ctx) {
     httpMetadata: { contentType: file.type },
   });
 
+  // Log avatar upload (durable background write)
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, session.user.id, "upload_avatar", { type: file.type }, ip)
+      .catch(e => console.error("activity log failed:", e))
+  );
+
   return json({ ok: true, message: "Avatar uploaded." });
 }
 
@@ -138,6 +145,13 @@ export async function handleDeleteAvatar(ctx) {
   if (session instanceof Response) return session;
 
   await env.PRIVATE_MEDIA.delete(avatarKey(session.user.id));
+
+  // Log avatar deletion (durable background write)
+  const ip = getClientIp(request);
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, session.user.id, "delete_avatar", null, ip)
+      .catch(e => console.error("activity log failed:", e))
+  );
 
   return json({ ok: true, message: "Avatar removed." });
 }

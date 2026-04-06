@@ -21,12 +21,12 @@ function getAllowedOrigins(env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, execCtx) {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const method = request.method;
     const isSecure = url.protocol === "https:";
-    const ctx = { request, env, url, pathname, method, isSecure };
+    const ctx = { request, env, url, pathname, method, isSecure, execCtx };
 
     // Origin validation for state-changing requests (CSRF defense-in-depth)
     if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {

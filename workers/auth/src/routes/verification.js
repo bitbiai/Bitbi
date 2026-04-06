@@ -4,6 +4,7 @@ import { nowIso, sha256Hex } from "../lib/tokens.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { requireUser } from "../lib/session.js";
+import { logUserActivity } from "../lib/activity.js";
 
 export async function handleVerifyEmail(ctx) {
   const { request, url, env } = ctx;
@@ -52,6 +53,12 @@ export async function handleVerifyEmail(ctx) {
       "UPDATE email_verification_tokens SET used_at = ? WHERE user_id = ? AND id != ? AND used_at IS NULL"
     ).bind(now, tokenRow.user_id, tokenRow.id),
   ]);
+
+  // Log email verification (durable background write)
+  ctx.execCtx.waitUntil(
+    logUserActivity(env, tokenRow.user_id, "verify_email", null, getClientIp(request))
+      .catch(e => console.error("activity log failed:", e))
+  );
 
   return json({
     ok: true,
