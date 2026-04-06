@@ -815,6 +815,18 @@
             transition: transform 0.45s var(--ease-smooth), opacity 0.45s var(--ease-smooth);
         }
 
+        .studio-deck > .studio__folder-card {
+            background: var(--color-navy);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .studio-deck > .studio__folder-card .studio__folder-card-icon {
+            font-size: min(28vw, 7rem);
+            opacity: 0.85;
+            filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.3))
+                    drop-shadow(0 0 28px rgba(0, 240, 255, 0.1));
+        }
+
         .studio-deck-dots {
             display: flex;
             justify-content: center;

@@ -302,7 +302,7 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick }) {
             disengage();
         },
         setVisible(visible) {
-            if (dotsEl) dotsEl.hidden = !visible;
+            if (dotsEl) dotsEl.style.display = visible ? '' : 'none';
         },
     };
 }

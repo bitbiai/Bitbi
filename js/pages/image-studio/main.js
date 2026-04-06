@@ -93,6 +93,7 @@ let $quotaEl         = null;
 let selectMode       = false;
 let selectedIds      = new Set();
 let folderDeck       = null;
+let imageDeck        = null;
 
 /* ── Helpers ── */
 function showState(el) {
@@ -200,6 +201,7 @@ function showFolderView() {
     folderViewActive = true;
     $folderGrid.style.display = '';
     $imageGrid.style.display = 'none';
+    if (imageDeck) imageDeck.setVisible(false);
     $folderBack.classList.remove('visible');
 
     const safeFolders = Array.isArray(folders) ? folders : [];
@@ -677,7 +679,7 @@ async function init() {
     showState($content);
 
     /* Attach mobile deck swipe + click-to-preview to saved images grid */
-    if ($imageGrid) initStudioDeck($imageGrid);
+    if ($imageGrid) imageDeck = initStudioDeck($imageGrid);
     if ($folderGrid) folderDeck = initStudioFolderDeck($folderGrid);
 
     // Quota indicator (inject after the actions row, load from server)
