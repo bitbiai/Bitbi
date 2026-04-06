@@ -1,10 +1,284 @@
 /* ============================================================
    BITBI — Admin Page Styles
    @layer pages — admin dashboard styling
-   Used by: admin.html
+   Used by: admin/index.html
    ============================================================ */
 
 @layer pages {
+
+    /* ── Admin Navigation ── */
+    .admin-nav {
+        position: sticky;
+        top: 56px;
+        z-index: 40;
+        background: rgba(10, 10, 10, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-block-end: var(--border-subtle);
+    }
+
+    .admin-nav__inner {
+        display: flex;
+        gap: var(--space-1);
+        max-inline-size: var(--container-wide);
+        margin-inline: auto;
+        padding: var(--space-2) var(--space-4);
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .admin-nav__inner::-webkit-scrollbar {
+        display: none;
+    }
+
+    .admin-nav__link {
+        flex-shrink: 0;
+        padding: var(--space-2) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.35);
+        text-decoration: none;
+        border-radius: var(--radius-sm);
+        transition: color 0.2s var(--ease-default), background 0.2s var(--ease-default);
+        white-space: nowrap;
+    }
+
+    .admin-nav__link:hover {
+        color: rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .admin-nav__link--active {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.15);
+    }
+
+    .admin-nav__link--active:hover {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.12);
+    }
+
+    /* ── Admin Section Container ── */
+    .admin-section {
+        animation: admin-fade-in 0.25s var(--ease-smooth) forwards;
+    }
+
+    @keyframes admin-fade-in {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Section Title (shared) ── */
+    .admin-section-title {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.5);
+        margin-block-end: var(--space-5);
+    }
+
+    /* ── Dashboard Stats ── */
+    .admin-stats-meta {
+        display: flex;
+        justify-content: flex-end;
+        margin-block-end: var(--space-2);
+    }
+
+    .admin-stats-updated {
+        font-size: 0.75rem;
+        color: oklch(0.65 0.04 230);
+        opacity: 0.8;
+    }
+
+    .admin-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--space-4);
+    }
+
+    @media (min-width: 640px) {
+        .admin-stats {
+            grid-template-columns: repeat(6, 1fr);
+        }
+    }
+
+    .admin-stat {
+        padding: var(--space-4) var(--space-3);
+        text-align: center;
+    }
+
+    .admin-stat__label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.35);
+        margin-block-end: var(--space-2);
+    }
+
+    .admin-stat__value {
+        font-family: var(--font-display);
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--color-text);
+        line-height: 1;
+    }
+
+    .admin-stat__value--success { color: var(--color-success); }
+    .admin-stat__value--danger  { color: var(--color-danger); }
+    .admin-stat__value--gold    { color: var(--color-gold); }
+    .admin-stat__value--cyan    { color: var(--color-cyan); }
+
+    /* ── Dashboard Avatar Grid ── */
+    .admin-avatars__grid--dash {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-3);
+    }
+
+    @media (min-width: 640px) {
+        .admin-avatars__grid--dash {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    .admin-dash-avatar {
+        aspect-ratio: 1;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        border: var(--border-subtle);
+        background: rgba(255, 255, 255, 0.04);
+        cursor: pointer;
+        position: relative;
+        transition: border-color 0.2s var(--ease-default);
+    }
+
+    .admin-dash-avatar:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .admin-dash-avatar__img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .admin-dash-avatar__info {
+        position: absolute;
+        inset-block-end: 0;
+        inset-inline: 0;
+        padding: var(--space-4) var(--space-2) var(--space-2);
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.7);
+        line-height: 1.4;
+    }
+
+    /* ── Quick Links ── */
+    .admin-quick-links {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-4);
+    }
+
+    @media (min-width: 640px) {
+        .admin-quick-links {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    .admin-quick-link {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-6) var(--space-4);
+        text-decoration: none;
+        text-align: center;
+        transition: border-color 0.2s var(--ease-default), background 0.2s var(--ease-default);
+    }
+
+    .admin-quick-link:hover {
+        border-color: rgba(0, 240, 255, 0.2);
+        background: rgba(0, 240, 255, 0.03);
+    }
+
+    .admin-quick-link__icon {
+        font-size: 1.5rem;
+        line-height: 1;
+    }
+
+    .admin-quick-link__label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    .admin-quick-link:hover .admin-quick-link__label {
+        color: var(--color-cyan);
+    }
+
+    /* ── Shell Grid (scaffold sections) ── */
+    .admin-shell-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--space-5);
+    }
+
+    @media (min-width: 640px) {
+        .admin-shell-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    .admin-shell {
+        padding: var(--space-6);
+    }
+
+    .admin-shell__desc {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.4);
+        line-height: 1.6;
+        margin-block-end: var(--space-5);
+    }
+
+    .admin-shell__empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-3);
+        text-align: center;
+        padding: var(--space-6) var(--space-4);
+        border: 1px dashed rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.01);
+    }
+
+    .admin-shell__empty-icon {
+        font-size: 1.5rem;
+        opacity: 0.5;
+    }
+
+    .admin-shell__empty span:last-child {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.25);
+        line-height: 1.6;
+        max-inline-size: 28rem;
+    }
 
     /* ── Search ── */
     .admin-search {
@@ -406,12 +680,12 @@
             display: none;
         }
 
-        /* Reclaim horizontal space */
-        #adminPanel.glass-card {
+        /* Reclaim horizontal space inside users card */
+        #sectionUsers .glass-card {
             padding: var(--space-3);
         }
 
-        #adminPanel .glass-card__body {
+        #sectionUsers .glass-card__body {
             padding-inline-start: 0;
         }
 
@@ -571,6 +845,11 @@
         .admin-mobile-card__actions .btn-action {
             text-align: center;
             padding: var(--space-2) var(--space-3);
+        }
+
+        /* Stat cards: 2 cols on mobile */
+        .admin-stats {
+            grid-template-columns: repeat(2, 1fr);
         }
     }
 }

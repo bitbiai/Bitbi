@@ -1,6 +1,6 @@
 /* ============================================================
    BITBI — Admin Dashboard
-   Entry point for admin.html
+   Entry point for admin/index.html
    ============================================================ */
 
 import { initSiteHeader }    from '../../shared/site-header.js';
@@ -18,11 +18,21 @@ import {
     apiAdminRevokeSessions,
     apiAdminDeleteUser,
     apiAdminLatestAvatars,
+    apiAdminStats,
 } from '../../shared/auth-api.js';
 
-/* ── DOM refs ── */
+/* ═══════════════════════════════════════════════════════════
+   DOM refs
+   ═══════════════════════════════════════════════════════════ */
+
 const $denied      = document.getElementById('adminDenied');
 const $panel       = document.getElementById('adminPanel');
+const $toast       = document.getElementById('adminToast');
+const $adminNav    = document.getElementById('adminNav');
+const $heroTitle   = document.getElementById('adminHeroTitle');
+const $heroDesc    = document.getElementById('adminHeroDesc');
+
+/* Users section refs */
 const $loading     = document.getElementById('loadingState');
 const $empty       = document.getElementById('emptyState');
 const $table       = document.getElementById('userTable');
@@ -31,7 +41,6 @@ const $mobileList  = document.getElementById('userMobileList');
 const $mobileSec   = document.getElementById('mobileSection');
 const $searchForm  = document.getElementById('searchForm');
 const $searchInput = document.getElementById('searchInput');
-const $toast       = document.getElementById('adminToast');
 
 /* Avatar dropdown refs */
 const $avatarDropdown = document.getElementById('avatarDropdown');
@@ -44,7 +53,33 @@ const $lightboxImg   = document.getElementById('lightboxImg');
 const $lightboxName  = document.getElementById('lightboxName');
 const $lightboxEmail = document.getElementById('lightboxEmail');
 
-/* ── Toast ── */
+/* Section containers */
+const sections = {
+    dashboard: document.getElementById('sectionDashboard'),
+    users:     document.getElementById('sectionUsers'),
+    content:   document.getElementById('sectionContent'),
+    media:     document.getElementById('sectionMedia'),
+    site:      document.getElementById('sectionSite'),
+    access:    document.getElementById('sectionAccess'),
+    activity:  document.getElementById('sectionActivity'),
+    settings:  document.getElementById('sectionSettings'),
+};
+
+/* Section metadata for hero */
+const sectionMeta = {
+    dashboard: { title: 'Dashboard',        desc: 'System overview and quick actions' },
+    users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
+    content:   { title: 'Content',          desc: 'Site content entries and publishing' },
+    media:     { title: 'Media Library',    desc: 'Assets, images, audio, and video files' },
+    site:      { title: 'Site',             desc: 'Homepage, navigation, and global settings' },
+    access:    { title: 'Access Control',   desc: 'Membership gating and role-based access' },
+    activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
+    settings:  { title: 'Settings',         desc: 'Global configuration and defaults' },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   Toast
+   ═══════════════════════════════════════════════════════════ */
 function showToast(message, type = 'success') {
     const el = document.createElement('div');
     el.className = `admin-toast__item admin-toast__item--${type}`;
@@ -53,18 +88,22 @@ function showToast(message, type = 'success') {
     setTimeout(() => { el.remove(); }, 3000);
 }
 
-/* ── Date formatter ── */
+/* ═══════════════════════════════════════════════════════════
+   Date formatter
+   ═══════════════════════════════════════════════════════════ */
 const dtf = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
 });
 
 function formatDate(iso) {
-    if (!iso) return '—';
+    if (!iso) return '\u2014';
     return dtf.format(new Date(iso));
 }
 
-/* ── Render helpers ── */
+/* ═══════════════════════════════════════════════════════════
+   Render helpers
+   ═══════════════════════════════════════════════════════════ */
 function createBadge(text, variant) {
     const span = document.createElement('span');
     span.className = `badge badge--${variant}`;
@@ -81,7 +120,125 @@ function createActionBtn(label, onClick, danger) {
     return btn;
 }
 
-/* ── Build mobile card ── */
+/* ═══════════════════════════════════════════════════════════
+   Section Routing
+   ═══════════════════════════════════════════════════════════ */
+let currentSection = 'dashboard';
+let dashboardVersion = 0;
+let usersVersion = 0;
+let statsCache = null;    // { stats, fetchedAt }
+const STATS_TTL = 30_000; // 30 seconds
+
+function showSection(name) {
+    if (!sections[name]) name = 'dashboard';
+    currentSection = name;
+
+    // Toggle section visibility
+    for (const [key, el] of Object.entries(sections)) {
+        el.style.display = key === name ? '' : 'none';
+    }
+
+    // Update nav active state
+    document.querySelectorAll('.admin-nav__link').forEach(link => {
+        const isActive = link.dataset.section === name;
+        link.classList.toggle('admin-nav__link--active', isActive);
+    });
+
+    // Update hero
+    const meta = sectionMeta[name];
+    if (meta) {
+        $heroTitle.textContent = meta.title;
+        $heroDesc.textContent = meta.desc;
+    }
+
+    // Load section data
+    if (name === 'dashboard') {
+        loadDashboard();
+    }
+    if (name === 'users') {
+        loadUsers($searchInput.value.trim());
+    }
+}
+
+function initRouting() {
+    // Handle hash navigation
+    function onHashChange() {
+        const hash = location.hash.replace('#', '') || 'dashboard';
+        showSection(hash);
+    }
+
+    window.addEventListener('hashchange', onHashChange);
+
+    // Handle quick-link clicks (they set hash, hashchange fires)
+    document.querySelectorAll('.admin-quick-link[data-nav]').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            location.hash = link.dataset.nav;
+        });
+    });
+
+    // Initial section from URL hash
+    onHashChange();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Dashboard
+   ═══════════════════════════════════════════════════════════ */
+function renderStats(s, $updated, fetchedAt) {
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val ?? '\u2014';
+    };
+    setVal('statTotal', s.totalUsers);
+    setVal('statActive', s.activeUsers);
+    setVal('statAdmins', s.admins);
+    setVal('statVerified', s.verifiedUsers);
+    setVal('statDisabled', s.disabledUsers);
+    setVal('statRecent', s.recentRegistrations);
+    if ($updated) {
+        const ts = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(fetchedAt);
+        $updated.textContent = `Last updated: ${ts}`;
+    }
+}
+
+async function loadDashboard() {
+    const $updated = document.getElementById('statsUpdated');
+
+    // Serve from cache if fresh
+    if (statsCache && (Date.now() - statsCache.fetchedAt < STATS_TTL)) {
+        renderStats(statsCache.stats, $updated, statsCache.fetchedAt);
+        return;
+    }
+
+    const myVersion = ++dashboardVersion;
+
+    // Clear card values to loading state before fetch
+    const statIds = ['statTotal', 'statActive', 'statAdmins', 'statVerified', 'statDisabled', 'statRecent'];
+    for (const id of statIds) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '\u2014';
+    }
+    if ($updated) $updated.textContent = 'Refreshing\u2026';
+
+    const statsRes = await apiAdminStats();
+
+    // Ignore stale response if a newer load occurred
+    if (myVersion !== dashboardVersion) return;
+
+    if (statsRes.ok) {
+        const s = statsRes.data?.stats || statsRes.data || {};
+        const now = Date.now();
+        statsCache = { stats: s, fetchedAt: now };
+        renderStats(s, $updated, now);
+    } else {
+        if ($updated) $updated.textContent = 'Failed to load stats';
+        showToast('Failed to load dashboard stats.', 'error');
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Users — Mobile card builder
+   ═══════════════════════════════════════════════════════════ */
 function buildMobileCard(user) {
     const card = document.createElement('div');
     card.className = 'admin-mobile-card';
@@ -213,7 +370,9 @@ function buildMobileCard(user) {
     return card;
 }
 
-/* ── Render user rows ── */
+/* ═══════════════════════════════════════════════════════════
+   Users — Render user rows
+   ═══════════════════════════════════════════════════════════ */
 function renderUsers(users) {
     $tbody.replaceChildren();
     $mobileList.replaceChildren();
@@ -304,14 +463,21 @@ function renderUsers(users) {
     }
 }
 
-/* ── Load users ── */
+/* ═══════════════════════════════════════════════════════════
+   Users — Load
+   ═══════════════════════════════════════════════════════════ */
 async function loadUsers(search) {
+    const myVersion = ++usersVersion;
+
     $loading.style.display = '';
     $empty.style.display = 'none';
     $table.style.display = 'none';
     $mobileSec.style.display = 'none';
 
     const res = await apiAdminUsers(search || undefined);
+
+    // Ignore stale response if a newer load was initiated
+    if (myVersion !== usersVersion) return;
 
     $loading.style.display = 'none';
 
@@ -323,10 +489,13 @@ async function loadUsers(search) {
     renderUsers(res.data?.users ?? res.data);
 }
 
-/* ── Action handlers ── */
+/* ═══════════════════════════════════════════════════════════
+   Users — Action handlers
+   ═══════════════════════════════════════════════════════════ */
 async function handleChangeRole(userId, newRole) {
     const res = await apiAdminChangeRole(userId, newRole);
     if (res.ok) {
+        statsCache = null;
         showToast(res.data?.message || 'Role changed', 'success');
         loadUsers($searchInput.value.trim());
     } else {
@@ -337,6 +506,7 @@ async function handleChangeRole(userId, newRole) {
 async function handleChangeStatus(userId, newStatus) {
     const res = await apiAdminChangeStatus(userId, newStatus);
     if (res.ok) {
+        statsCache = null;
         showToast(res.data?.message || 'Status changed', 'success');
         loadUsers($searchInput.value.trim());
     } else {
@@ -358,6 +528,7 @@ async function handleDeleteUser(userId, email) {
     if (!confirm(`Permanently delete user "${email}"?`)) return;
     const res = await apiAdminDeleteUser(userId);
     if (res.ok) {
+        statsCache = null;
         showToast(res.data?.message || 'User deleted', 'success');
         loadUsers($searchInput.value.trim());
     } else {
@@ -365,7 +536,9 @@ async function handleDeleteUser(userId, email) {
     }
 }
 
-/* ── Avatar Dropdown ── */
+/* ═══════════════════════════════════════════════════════════
+   Avatar Dropdown (Users section)
+   ═══════════════════════════════════════════════════════════ */
 let avatarsLoaded = false;
 
 async function loadLatestAvatars() {
@@ -422,7 +595,9 @@ function initAvatarDropdown() {
     });
 }
 
-/* ── Lightbox ── */
+/* ═══════════════════════════════════════════════════════════
+   Lightbox
+   ═══════════════════════════════════════════════════════════ */
 function openLightbox(avatar) {
     $lightboxImg.src = `/api/admin/avatars/${avatar.userId}`;
     $lightboxImg.alt = `Avatar of ${avatar.displayName || avatar.email}`;
@@ -449,7 +624,9 @@ function initLightbox() {
     });
 }
 
-/* ── Init ── */
+/* ═══════════════════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════════════════ */
 async function init() {
     // Shared modules
     try { initSiteHeader(); }               catch (e) { console.warn(e); }
@@ -468,22 +645,22 @@ async function init() {
         return;
     }
 
-    // Show admin panel
+    // Show admin panel + nav
     $panel.style.display = '';
-    $panel.classList.add('visible');
+    $adminNav.style.display = '';
 
-    // Avatar dropdown + lightbox
+    // Avatar dropdown + lightbox (for Users section)
     initAvatarDropdown();
     initLightbox();
 
-    // Search form
+    // Search form (Users section)
     $searchForm.addEventListener('submit', (e) => {
         e.preventDefault();
         loadUsers($searchInput.value.trim());
     });
 
-    // Initial load
-    loadUsers();
+    // Init routing (loads initial section from hash)
+    initRouting();
 }
 
 init();

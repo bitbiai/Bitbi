@@ -323,6 +323,38 @@ export async function handleAdmin(ctx) {
     });
   }
 
+  // GET /api/admin/stats
+  if (pathname === "/api/admin/stats" && method === "GET") {
+    const result = await requireAdmin(request, env);
+    if (result instanceof Response) return result;
+
+    const row = await env.DB.prepare(
+      `SELECT
+         COUNT(*) AS totalUsers,
+         COALESCE(SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END), 0) AS admins,
+         COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS activeUsers,
+         COALESCE(SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END), 0) AS disabledUsers,
+         COALESCE(SUM(CASE WHEN email_verified_at IS NOT NULL
+                    AND (verification_method IS NULL OR verification_method != 'legacy_auto')
+              THEN 1 ELSE 0 END), 0) AS verifiedUsers,
+         COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-7 days')
+              THEN 1 ELSE 0 END), 0) AS recentRegistrations
+       FROM users`
+    ).first();
+
+    return json({
+      ok: true,
+      stats: {
+        totalUsers: row.totalUsers,
+        admins: row.admins,
+        activeUsers: row.activeUsers,
+        disabledUsers: row.disabledUsers,
+        verifiedUsers: row.verifiedUsers,
+        recentRegistrations: row.recentRegistrations,
+      },
+    });
+  }
+
   // GET /api/admin/avatars/latest
   if (pathname === "/api/admin/avatars/latest" && method === "GET") {
     const result = await requireAdmin(request, env);

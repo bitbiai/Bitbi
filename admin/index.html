@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260321">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260406">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -55,10 +55,24 @@
 
     <div class="hero__content hero__content--narrow">
         <span class="legal-hero__label">Admin</span>
-        <h1 class="legal-hero__title gt-gold-cyan">User Management</h1>
-        <p class="legal-hero__desc">Manage users, roles, and sessions</p>
+        <h1 id="adminHeroTitle" class="legal-hero__title gt-gold-cyan">Dashboard</h1>
+        <p id="adminHeroDesc" class="legal-hero__desc">System overview and quick actions</p>
     </div>
 </section>
+
+<!-- ADMIN NAV -->
+<nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none">
+    <div class="admin-nav__inner">
+        <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
+        <a href="#users" class="admin-nav__link" data-section="users">Users</a>
+        <a href="#content" class="admin-nav__link" data-section="content">Content</a>
+        <a href="#media" class="admin-nav__link" data-section="media">Media</a>
+        <a href="#site" class="admin-nav__link" data-section="site">Site</a>
+        <a href="#access" class="admin-nav__link" data-section="access">Access</a>
+        <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+        <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
+    </div>
+</nav>
 
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
@@ -74,64 +88,364 @@
             </div>
         </div>
 
-        <!-- Admin Panel -->
-        <div id="adminPanel" class="glass glass-card reveal" style="display:none">
-            <div class="glass-card__body">
+        <!-- Admin Panel (shown after auth) -->
+        <div id="adminPanel" style="display:none">
 
-                <!-- Newest Avatars -->
-                <div id="avatarDropdown" class="admin-avatars">
-                    <button type="button" id="avatarToggle" class="admin-avatars__toggle" aria-expanded="false">
-                        <span class="admin-avatars__title">Latest Uploads</span>
-                        <svg class="admin-avatars__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div class="admin-avatars__body">
-                        <div class="admin-avatars__body-inner">
-                            <div id="avatarGrid" class="admin-avatars__grid"></div>
+            <!-- ═══════════════════════════════════════
+                 DASHBOARD
+                 ═══════════════════════════════════════ -->
+            <div id="sectionDashboard" class="admin-section">
+
+                <!-- Stats Cards -->
+                <div class="admin-stats-meta">
+                    <span id="statsUpdated" class="admin-stats-updated"></span>
+                </div>
+                <div class="admin-stats" id="dashboardStats">
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">Total Users</div>
+                        <div class="admin-stat__value" id="statTotal">&mdash;</div>
+                    </div>
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">Active</div>
+                        <div class="admin-stat__value admin-stat__value--success" id="statActive">&mdash;</div>
+                    </div>
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">Admins</div>
+                        <div class="admin-stat__value admin-stat__value--gold" id="statAdmins">&mdash;</div>
+                    </div>
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">Verified</div>
+                        <div class="admin-stat__value admin-stat__value--cyan" id="statVerified">&mdash;</div>
+                    </div>
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">Disabled</div>
+                        <div class="admin-stat__value admin-stat__value--danger" id="statDisabled">&mdash;</div>
+                    </div>
+                    <div class="admin-stat glass glass-card reveal">
+                        <div class="admin-stat__label">New (7 d)</div>
+                        <div class="admin-stat__value admin-stat__value--cyan" id="statRecent">&mdash;</div>
+                    </div>
+                </div>
+
+                <!-- Quick Links -->
+                <div class="admin-quick-links" style="margin-block-start:var(--space-6)">
+                    <a href="#users" class="admin-quick-link glass glass-card reveal" data-nav="users">
+                        <span class="admin-quick-link__icon">&#x1F465;</span>
+                        <span class="admin-quick-link__label">Manage Users</span>
+                    </a>
+                    <a href="#content" class="admin-quick-link glass glass-card reveal" data-nav="content">
+                        <span class="admin-quick-link__icon">&#x1F4DD;</span>
+                        <span class="admin-quick-link__label">Content</span>
+                    </a>
+                    <a href="#media" class="admin-quick-link glass glass-card reveal" data-nav="media">
+                        <span class="admin-quick-link__icon">&#x1F3A8;</span>
+                        <span class="admin-quick-link__label">Media Library</span>
+                    </a>
+                    <a href="#activity" class="admin-quick-link glass glass-card reveal" data-nav="activity">
+                        <span class="admin-quick-link__icon">&#x1F4CB;</span>
+                        <span class="admin-quick-link__label">Activity Log</span>
+                    </a>
+                    <a href="#settings" class="admin-quick-link glass glass-card reveal" data-nav="settings">
+                        <span class="admin-quick-link__icon">&#x2699;</span>
+                        <span class="admin-quick-link__label">Settings</span>
+                    </a>
+                    <a href="#access" class="admin-quick-link glass glass-card reveal" data-nav="access">
+                        <span class="admin-quick-link__icon">&#x1F512;</span>
+                        <span class="admin-quick-link__label">Access Rules</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 USERS (existing — preserved)
+                 ═══════════════════════════════════════ -->
+            <div id="sectionUsers" class="admin-section" style="display:none">
+                <div class="glass glass-card reveal visible">
+                    <div class="glass-card__body">
+
+                        <!-- Recent Profile Images -->
+                        <div id="avatarDropdown" class="admin-avatars">
+                            <button type="button" id="avatarToggle" class="admin-avatars__toggle" aria-expanded="false">
+                                <span class="admin-avatars__title">Recent Profile Images</span>
+                                <svg class="admin-avatars__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                            <div class="admin-avatars__body">
+                                <div class="admin-avatars__body-inner">
+                                    <div id="avatarGrid" class="admin-avatars__grid"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search -->
+                        <form id="searchForm" class="admin-search">
+                            <label for="searchInput" class="sr-only">Search users by email</label>
+                            <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off" spellcheck="false" autocapitalize="off">
+                            <button type="submit" class="admin-search__btn">Search</button>
+                        </form>
+
+                        <!-- Loading State -->
+                        <div id="loadingState" class="admin-state">Loading users...</div>
+
+                        <!-- Empty State -->
+                        <div id="emptyState" class="admin-state" style="display:none">No users found.</div>
+
+                        <!-- User Table (desktop) -->
+                        <div class="admin-table-wrap">
+                            <table class="admin-table" id="userTable" style="display:none">
+                                <thead><tr>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Verified</th>
+                                    <th class="hide-mobile">Created</th>
+                                    <th>Actions</th>
+                                </tr></thead>
+                                <tbody id="userTbody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- User List (mobile) -->
+                        <div id="mobileSection" class="admin-mobile-section" style="display:none">
+                            <div class="admin-mobile-header" aria-hidden="true">
+                                <span></span>
+                                <span class="admin-mobile-header__col">Role</span>
+                                <span class="admin-mobile-header__col">Status</span>
+                                <span class="admin-mobile-header__col">Verified</span>
+                                <span></span>
+                            </div>
+                            <div id="userMobileList" class="admin-mobile-list"></div>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Search -->
-                <form id="searchForm" class="admin-search">
-                    <label for="searchInput" class="sr-only">Search users by email</label>
-                    <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off" spellcheck="false" autocapitalize="off">
-                    <button type="submit" class="admin-search__btn">Search</button>
-                </form>
-
-                <!-- Loading State -->
-                <div id="loadingState" class="admin-state">Loading users...</div>
-
-                <!-- Empty State -->
-                <div id="emptyState" class="admin-state" style="display:none">No users found.</div>
-
-                <!-- User Table (desktop) -->
-                <div class="admin-table-wrap">
-                    <table class="admin-table" id="userTable" style="display:none">
-                        <thead><tr>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Verified</th>
-                            <th class="hide-mobile">Created</th>
-                            <th>Actions</th>
-                        </tr></thead>
-                        <tbody id="userTbody"></tbody>
-                    </table>
-                </div>
-
-                <!-- User List (mobile) -->
-                <div id="mobileSection" class="admin-mobile-section" style="display:none">
-                    <div class="admin-mobile-header" aria-hidden="true">
-                        <span></span>
-                        <span class="admin-mobile-header__col">Role</span>
-                        <span class="admin-mobile-header__col">Status</span>
-                        <span class="admin-mobile-header__col">Verified</span>
-                        <span></span>
+            <!-- ═══════════════════════════════════════
+                 CONTENT
+                 ═══════════════════════════════════════ -->
+            <div id="sectionContent" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Experiments</h3>
+                        <p class="admin-shell__desc">Manage experiment pages — titles, slugs, visibility, featured state.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F9EA;</span>
+                            <span>No content entries configured yet. Connect a content source to manage experiments here.</span>
+                        </div>
                     </div>
-                    <div id="userMobileList" class="admin-mobile-list"></div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Gallery</h3>
+                        <p class="admin-shell__desc">Gallery items, categories, captions, visibility settings.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F5BC;</span>
+                            <span>No data source connected yet. A management interface will appear here once configured.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Sound Lab</h3>
+                        <p class="admin-shell__desc">Audio tracks, metadata, access settings.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F3B5;</span>
+                            <span>No data source connected yet. Track management will appear here once configured.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Video</h3>
+                        <p class="admin-shell__desc">Video content entries, embed links, categories.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F3AC;</span>
+                            <span>No video content entries yet.</span>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+
+            <!-- ═══════════════════════════════════════
+                 MEDIA
+                 ═══════════════════════════════════════ -->
+            <div id="sectionMedia" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Gallery Images</h3>
+                        <p class="admin-shell__desc">Gallery thumbnails, previews, and full-resolution images.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F5BC;</span>
+                            <span>No data source connected yet. A media browser will appear here once configured.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Audio Files</h3>
+                        <p class="admin-shell__desc">Sound Lab audio files and metadata.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F3B6;</span>
+                            <span>Audio file management coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Exclusive Content</h3>
+                        <p class="admin-shell__desc">Members-only media, exclusive images and audio tracks.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F48E;</span>
+                            <span>No data source connected yet. Exclusive media management coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">AI Generated Images</h3>
+                        <p class="admin-shell__desc">User-generated Image Studio files.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F916;</span>
+                            <span>AI image library browser coming soon.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 SITE
+                 ═══════════════════════════════════════ -->
+            <div id="sectionSite" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Hero &amp; Banners</h3>
+                        <p class="admin-shell__desc">Homepage hero text, gradient settings, announcement banners.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F3AF;</span>
+                            <span>No data source connected yet. A CMS panel will appear here once configured.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Navigation</h3>
+                        <p class="admin-shell__desc">Main nav links, mobile menu structure, footer links.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F517;</span>
+                            <span>Editable navigation management coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Section Visibility</h3>
+                        <p class="admin-shell__desc">Toggle homepage sections on/off, reorder display priority.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F441;</span>
+                            <span>Section visibility controls coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Social &amp; Contact</h3>
+                        <p class="admin-shell__desc">Social media links, contact email, footer information.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F310;</span>
+                            <span>Editable social and contact settings coming soon.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 ACCESS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionAccess" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Membership Gating</h3>
+                        <p class="admin-shell__desc">Free vs exclusive content rules, gated sections.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F512;</span>
+                            <span>No data source connected yet. Access rule management coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Role-Based Access</h3>
+                        <p class="admin-shell__desc">Admin vs user permissions, protected route overview.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F6E1;</span>
+                            <span>Role permission matrix coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Content Access Map</h3>
+                        <p class="admin-shell__desc">Which content items require authentication and which are public.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F5FA;</span>
+                            <span>Content access map will be generated once content management is wired.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 ACTIVITY
+                 ═══════════════════════════════════════ -->
+            <div id="sectionActivity" class="admin-section" style="display:none">
+                <div class="glass glass-card reveal visible">
+                    <h3 class="admin-section-title">Admin Audit Log</h3>
+                    <p class="admin-shell__desc">Recent administrative actions.</p>
+                    <div id="activityLog" class="admin-activity">
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F4CB;</span>
+                            <span>Audit log viewer coming soon.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-shell-grid" style="margin-block-start:var(--space-6)">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">User Activity</h3>
+                        <p class="admin-shell__desc">Registration events, login patterns, status changes.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F464;</span>
+                            <span>User activity feed coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Security Events</h3>
+                        <p class="admin-shell__desc">Session revocations, password resets, failed logins.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F6A8;</span>
+                            <span>Security event log coming soon.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 SETTINGS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionSettings" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">General</h3>
+                        <p class="admin-shell__desc">Site name, tagline, default language, timezone preferences.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x2699;</span>
+                            <span>General settings panel coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Contact &amp; Email</h3>
+                        <p class="admin-shell__desc">Contact form recipient, email templates, delivery settings.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F4E7;</span>
+                            <span>Email settings panel coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Social Links</h3>
+                        <p class="admin-shell__desc">X/Twitter, YouTube, and other social media profile URLs.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F4F1;</span>
+                            <span>Social link editor coming soon.</span>
+                        </div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Branding</h3>
+                        <p class="admin-shell__desc">Logo, favicon, color palette overrides, typography.</p>
+                        <div class="admin-shell__empty">
+                            <span class="admin-shell__empty-icon">&#x1F3A8;</span>
+                            <span>Branding controls coming soon.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /adminPanel -->
 
         <!-- Toast Container -->
         <div id="adminToast" class="admin-toast" aria-live="polite"></div>
@@ -178,6 +492,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260321"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260406"></script>
 </body>
 </html>

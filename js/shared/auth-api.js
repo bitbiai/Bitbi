@@ -106,6 +106,10 @@ export function apiAdminLatestAvatars() {
     return request('GET', '/admin/avatars/latest');
 }
 
+export function apiAdminStats() {
+    return request('GET', '/admin/stats');
+}
+
 /* ── Email Verification ── */
 
 export function apiVerifyEmail(token) {
