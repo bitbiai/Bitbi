@@ -110,6 +110,14 @@ export function apiAdminStats() {
     return request('GET', '/admin/stats');
 }
 
+export function apiAdminActivity(limit, cursor) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/activity${qs}`);
+}
+
 /* ── Email Verification ── */
 
 export function apiVerifyEmail(token) {

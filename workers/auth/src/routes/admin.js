@@ -128,7 +128,7 @@ export async function handleAdmin(ctx) {
     }
 
     const targetUser = await env.DB.prepare(
-      "SELECT id FROM users WHERE id = ? LIMIT 1"
+      "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
     )
       .bind(targetUserId)
       .first();
@@ -146,7 +146,13 @@ export async function handleAdmin(ctx) {
       env.DB.prepare(
         "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
       ).bind(newRole, now, targetUserId),
-      auditStatement(env, result.user.id, "change_role", targetUserId, { role: newRole }, now),
+      auditStatement(env, result.user.id, "change_role", targetUserId, {
+        role: newRole,
+        target_email: targetUser.email,
+        target_role: targetUser.role,
+        target_status: targetUser.status,
+        actor_email: result.user.email,
+      }, now),
     ]);
 
     const updatedUser = await env.DB.prepare(
@@ -213,7 +219,7 @@ export async function handleAdmin(ctx) {
     }
 
     const targetUser = await env.DB.prepare(
-      "SELECT id FROM users WHERE id = ? LIMIT 1"
+      "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
     )
       .bind(targetUserId)
       .first();
@@ -231,7 +237,13 @@ export async function handleAdmin(ctx) {
       env.DB.prepare(
         "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
       ).bind(newStatus, now, targetUserId),
-      auditStatement(env, result.user.id, "change_status", targetUserId, { status: newStatus }, now),
+      auditStatement(env, result.user.id, "change_status", targetUserId, {
+        status: newStatus,
+        target_email: targetUser.email,
+        target_role: targetUser.role,
+        target_status: targetUser.status,
+        actor_email: result.user.email,
+      }, now),
     ]);
 
     const updatedUser = await env.DB.prepare(
@@ -280,7 +292,7 @@ export async function handleAdmin(ctx) {
     }
 
     const targetUser = await env.DB.prepare(
-      "SELECT id FROM users WHERE id = ? LIMIT 1"
+      "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
     )
       .bind(targetUserId)
       .first();
@@ -311,7 +323,13 @@ export async function handleAdmin(ctx) {
         result.user.id,
         "revoke_sessions",
         targetUserId,
-        JSON.stringify({ revokedSessions: deleteResult.meta.changes }),
+        JSON.stringify({
+          revokedSessions: deleteResult.meta.changes,
+          target_email: targetUser.email,
+          target_role: targetUser.role,
+          target_status: targetUser.status,
+          actor_email: result.user.email,
+        }),
         now
       )
       .run();
@@ -465,7 +483,7 @@ export async function handleAdmin(ctx) {
     }
 
     const targetUser = await env.DB.prepare(
-      "SELECT id FROM users WHERE id = ? LIMIT 1"
+      "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
     )
       .bind(targetUserId)
       .first();
@@ -485,7 +503,13 @@ export async function handleAdmin(ctx) {
       env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
       env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
       env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
-      auditStatement(env, result.user.id, "delete_user", targetUserId, { deletedUserId: targetUserId }, now),
+      auditStatement(env, result.user.id, "delete_user", targetUserId, {
+        deletedUserId: targetUserId,
+        target_email: targetUser.email,
+        target_role: targetUser.role,
+        target_status: targetUser.status,
+        actor_email: result.user.email,
+      }, now),
     ]);
 
     // Clean up avatar from R2 (idempotent, no error if absent)
@@ -494,6 +518,95 @@ export async function handleAdmin(ctx) {
     return json({
       ok: true,
       deletedUserId: targetUserId,
+    });
+  }
+
+  // GET /api/admin/activity
+  if (pathname === "/api/admin/activity" && method === "GET") {
+    const result = await requireAdmin(request, env);
+    if (result instanceof Response) return result;
+
+    const limit = Math.min(
+      Math.max(parseInt(url.searchParams.get("limit")) || 50, 1),
+      100
+    );
+    const cursorParam = url.searchParams.get("cursor") || null;
+
+    let entriesQuery;
+    if (cursorParam) {
+      const sep = cursorParam.indexOf("|");
+      if (sep === -1) {
+        return json(
+          { ok: false, error: "Invalid cursor format." },
+          { status: 400 }
+        );
+      }
+      const cursorTime = cursorParam.slice(0, sep);
+      const cursorId = cursorParam.slice(sep + 1);
+
+      entriesQuery = env.DB.prepare(
+        `SELECT a.id, a.action, a.meta_json, a.created_at,
+                a.admin_user_id, au.email AS admin_email,
+                a.target_user_id, tu.email AS target_email
+         FROM admin_audit_log a
+         LEFT JOIN users au ON au.id = a.admin_user_id
+         LEFT JOIN users tu ON tu.id = a.target_user_id
+         WHERE a.created_at < ?
+            OR (a.created_at = ? AND a.id < ?)
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT ?`
+      ).bind(cursorTime, cursorTime, cursorId, limit + 1);
+    } else {
+      entriesQuery = env.DB.prepare(
+        `SELECT a.id, a.action, a.meta_json, a.created_at,
+                a.admin_user_id, au.email AS admin_email,
+                a.target_user_id, tu.email AS target_email
+         FROM admin_audit_log a
+         LEFT JOIN users au ON au.id = a.admin_user_id
+         LEFT JOIN users tu ON tu.id = a.target_user_id
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT ?`
+      ).bind(limit + 1);
+    }
+
+    const [entriesRes, countsRes] = await env.DB.batch([
+      entriesQuery,
+      env.DB.prepare(
+        "SELECT action, COUNT(*) AS cnt FROM admin_audit_log GROUP BY action"
+      ),
+    ]);
+
+    const rows = entriesRes.results;
+    const hasMore = rows.length > limit;
+    const entries = hasMore ? rows.slice(0, limit) : rows;
+
+    // Backfill emails from identity snapshots when LEFT JOIN returns NULL
+    for (const entry of entries) {
+      if (!entry.target_email || !entry.admin_email) {
+        try {
+          const meta = JSON.parse(entry.meta_json || '{}');
+          if (!entry.target_email && meta.target_email) entry.target_email = meta.target_email;
+          if (!entry.admin_email && meta.actor_email) entry.admin_email = meta.actor_email;
+        } catch {}
+      }
+    }
+
+    let nextCursor = null;
+    if (hasMore && entries.length > 0) {
+      const last = entries[entries.length - 1];
+      nextCursor = `${last.created_at}|${last.id}`;
+    }
+
+    const counts = {};
+    for (const row of countsRes.results) {
+      counts[row.action] = row.cnt;
+    }
+
+    return json({
+      ok: true,
+      entries,
+      nextCursor,
+      counts,
     });
   }
 

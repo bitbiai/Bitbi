@@ -19,7 +19,10 @@ import {
     apiAdminDeleteUser,
     apiAdminLatestAvatars,
     apiAdminStats,
+    apiAdminActivity,
 } from '../../shared/auth-api.js';
+
+import { galleryItems } from '../../shared/gallery-data.js';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs
@@ -129,6 +132,27 @@ let usersVersion = 0;
 let statsCache = null;    // { stats, fetchedAt }
 const STATS_TTL = 30_000; // 30 seconds
 
+let activityVersion = 0;
+let activityCursorStack = [null]; // null = first page; subsequent entries are cursor strings
+let activityNextCursor = null;
+const ACTIVITY_LIMIT = 50;
+let contentLoaded = false;
+let mediaLoaded = false;
+let accessLoaded = false;
+
+const ACTION_LABELS = {
+    change_role: 'Role Change',
+    change_status: 'Status Change',
+    revoke_sessions: 'Sessions Revoked',
+    delete_user: 'User Deleted',
+};
+const ACTION_VARIANTS = {
+    change_role: 'user',
+    change_status: 'legacy',
+    revoke_sessions: 'disabled',
+    delete_user: 'disabled',
+};
+
 function showSection(name) {
     if (!sections[name]) name = 'dashboard';
     currentSection = name;
@@ -152,12 +176,12 @@ function showSection(name) {
     }
 
     // Load section data
-    if (name === 'dashboard') {
-        loadDashboard();
-    }
-    if (name === 'users') {
-        loadUsers($searchInput.value.trim());
-    }
+    if (name === 'dashboard') loadDashboard();
+    if (name === 'users') loadUsers($searchInput.value.trim());
+    if (name === 'activity') loadActivity();
+    if (name === 'content' && !contentLoaded) { loadContent(); contentLoaded = true; }
+    if (name === 'media' && !mediaLoaded) { loadMedia(); mediaLoaded = true; }
+    if (name === 'access' && !accessLoaded) { loadAccess(); accessLoaded = true; }
 }
 
 function initRouting() {
@@ -233,6 +257,280 @@ async function loadDashboard() {
     } else {
         if ($updated) $updated.textContent = 'Failed to load stats';
         showToast('Failed to load dashboard stats.', 'error');
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Activity
+   ═══════════════════════════════════════════════════════════ */
+function formatMeta(action, metaJson) {
+    try {
+        const meta = JSON.parse(metaJson || '{}');
+        switch (action) {
+            case 'change_role':      return `New role: ${meta.role || '\u2014'}`;
+            case 'change_status':    return `New status: ${meta.status || '\u2014'}`;
+            case 'revoke_sessions':  return `${meta.revokedSessions || 0} sessions revoked`;
+            case 'delete_user': {
+                const parts = [];
+                if (meta.target_role) parts.push(`was ${meta.target_role}`);
+                if (meta.target_status && meta.target_status !== 'active') parts.push(meta.target_status);
+                return parts.length ? `Account deleted (${parts.join(', ')})` : 'Account deleted';
+            }
+            default:                 return Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(', ') || '\u2014';
+        }
+    } catch { return '\u2014'; }
+}
+
+async function loadActivity() {
+    const $loading = document.getElementById('activityLoading');
+    const $empty   = document.getElementById('activityEmpty');
+    const $table   = document.getElementById('activityTable');
+    const $tbody   = document.getElementById('activityTbody');
+    const $pager   = document.getElementById('activityPager');
+
+    const myVersion = ++activityVersion;
+
+    if ($loading) $loading.style.display = '';
+    if ($empty) $empty.style.display = 'none';
+    if ($table) $table.style.display = 'none';
+    if ($pager) $pager.style.display = 'none';
+
+    const cursor = activityCursorStack[activityCursorStack.length - 1];
+    const res = await apiAdminActivity(ACTIVITY_LIMIT, cursor);
+
+    if (myVersion !== activityVersion) return;
+    if ($loading) $loading.style.display = 'none';
+
+    if (!res.ok) {
+        showToast('Failed to load activity log.', 'error');
+        return;
+    }
+
+    const { entries, nextCursor, counts } = res.data || {};
+    activityNextCursor = nextCursor || null;
+
+    // Render summary cards regardless of entries
+    renderActivitySummary(counts || {});
+
+    if (!entries || entries.length === 0) {
+        if ($empty) $empty.style.display = '';
+        return;
+    }
+
+    // Render table rows
+    $tbody.replaceChildren();
+    for (const entry of entries) {
+        const tr = document.createElement('tr');
+
+        const tdTime = document.createElement('td');
+        tdTime.textContent = formatDate(entry.created_at);
+        tr.appendChild(tdTime);
+
+        const tdAdmin = document.createElement('td');
+        tdAdmin.textContent = entry.admin_email || (entry.admin_user_id?.slice(0, 8) + '\u2026');
+        tr.appendChild(tdAdmin);
+
+        const tdAction = document.createElement('td');
+        tdAction.appendChild(createBadge(
+            ACTION_LABELS[entry.action] || entry.action,
+            ACTION_VARIANTS[entry.action] || 'user',
+        ));
+        tr.appendChild(tdAction);
+
+        const tdTarget = document.createElement('td');
+        tdTarget.textContent = entry.target_email || (entry.target_user_id ? entry.target_user_id.slice(0, 8) + '\u2026' : '\u2014');
+        tr.appendChild(tdTarget);
+
+        const tdDetails = document.createElement('td');
+        tdDetails.className = 'hide-mobile';
+        tdDetails.textContent = formatMeta(entry.action, entry.meta_json);
+        tr.appendChild(tdDetails);
+
+        $tbody.appendChild(tr);
+    }
+
+    if ($table) $table.style.display = '';
+
+    // Pagination (cursor-based)
+    const canGoNewer = activityCursorStack.length > 1;
+    const canGoOlder = !!activityNextCursor;
+    if ((canGoNewer || canGoOlder) && $pager) {
+        $pager.style.display = '';
+        document.getElementById('activityPage').textContent = `Page ${activityCursorStack.length}`;
+        document.getElementById('activityNewer').disabled = !canGoNewer;
+        document.getElementById('activityOlder').disabled = !canGoOlder;
+    }
+}
+
+function renderActivitySummary(counts) {
+    const summaryEl = document.getElementById('activitySummary');
+    if (summaryEl) {
+        let html = '<div class="admin-inventory">';
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Role changes</span><span class="admin-inventory__count">${counts.change_role || 0}</span></div>`;
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Status changes</span><span class="admin-inventory__count">${counts.change_status || 0}</span></div>`;
+        html += '</div>';
+        summaryEl.innerHTML = html;
+    }
+
+    const securityEl = document.getElementById('securitySummary');
+    if (securityEl) {
+        let html = '<div class="admin-inventory">';
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Sessions revoked</span><span class="admin-inventory__count">${counts.revoke_sessions || 0}</span></div>`;
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Users deleted</span><span class="admin-inventory__count">${counts.delete_user || 0}</span></div>`;
+        html += '</div>';
+        securityEl.innerHTML = html;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Reference note helper
+   ═══════════════════════════════════════════════════════════ */
+function injectRefNote(sectionId) {
+    const el = document.getElementById(sectionId);
+    if (!el || el.querySelector('.admin-reference-note')) return;
+    const note = document.createElement('div');
+    note.className = 'admin-reference-note';
+    note.textContent = 'Reference view \u2014 reflects codebase definitions, not live system queries';
+    el.insertBefore(note, el.firstChild);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Content (read-only reference from codebase data)
+   ═══════════════════════════════════════════════════════════ */
+function loadContent() {
+    injectRefNote('sectionContent');
+    // Experiments
+    const expEl = document.getElementById('contentExperiments');
+    if (expEl) {
+        const experiments = [
+            { name: 'Cosmic Dreamscape VR', meta: 'WebXR, A-Frame' },
+            { name: 'Sound & Color',        meta: 'Audio API, Canvas' },
+            { name: "King's Quest",          meta: 'Three.js, WebGL' },
+            { name: 'Skyfall',               meta: 'Canvas' },
+            { name: 'YouTube Exclusives',    meta: 'Exclusive' },
+        ];
+        let html = '<div class="admin-inventory">';
+        for (const e of experiments) {
+            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${e.name}</span><span class="admin-inventory__meta">${e.meta}</span></div>`;
+        }
+        html += `</div><div class="admin-inventory__total">${experiments.length} experiments</div>`;
+        expEl.innerHTML = html;
+    }
+
+    // Gallery (from imported gallery-data.js)
+    const galEl = document.getElementById('contentGallery');
+    if (galEl) {
+        const catLabels = { pictures: 'Pictures', creepy: 'Creepy Creatures', experimental: 'Experimental' };
+        const cats = {};
+        for (const item of galleryItems) {
+            cats[item.category] = (cats[item.category] || 0) + 1;
+        }
+        let html = '<div class="admin-inventory">';
+        for (const [key, count] of Object.entries(cats)) {
+            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${catLabels[key] || key}</span><span class="admin-inventory__count">${count}</span></div>`;
+        }
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive (Little Monster)</span><span class="admin-inventory__count">15</span></div>`;
+        html += `</div><div class="admin-inventory__total">${galleryItems.length + 15} items total</div>`;
+        galEl.innerHTML = html;
+    }
+
+    // Sound Lab
+    const sndEl = document.getElementById('contentSoundlab');
+    if (sndEl) {
+        const tracks = ['Cosmic Sea', 'Zufall und Notwendigkeit', 'Relativity', 'Tiny Hearts', "Grok's Groove Remix"];
+        let html = '<div class="admin-inventory">';
+        for (const t of tracks) {
+            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${t}</span><span class="admin-inventory__meta">Public</span></div>`;
+        }
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks</span><span class="admin-inventory__count">5</span></div>`;
+        html += `</div><div class="admin-inventory__total">10 tracks total</div>`;
+        sndEl.innerHTML = html;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Media (read-only reference from codebase data)
+   ═══════════════════════════════════════════════════════════ */
+function loadMedia() {
+    injectRefNote('sectionMedia');
+    const total = galleryItems.length;
+
+    const galEl = document.getElementById('mediaGallery');
+    if (galEl) {
+        let html = '<div class="admin-inventory">';
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Public items</span><span class="admin-inventory__count">${total}</span></div>`;
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Thumbnails (480w)</span><span class="admin-inventory__count">${total}</span></div>`;
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Previews (900\u20131600w)</span><span class="admin-inventory__count">${total}</span></div>`;
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Full resolution</span><span class="admin-inventory__count">${total}</span></div>`;
+        html += `</div><div class="admin-inventory__total">${total * 3} image files &middot; pub.bitbi.ai</div>`;
+        galEl.innerHTML = html;
+    }
+
+    const audEl = document.getElementById('mediaAudio');
+    if (audEl) {
+        const files = ['cosmic-sea', 'zufall-und-notwendigkeit', 'relativity', 'tiny-hearts', 'grok'];
+        let html = '<div class="admin-inventory">';
+        for (const f of files) {
+            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${f}.mp3</span><span class="admin-inventory__meta">MP3</span></div>`;
+        }
+        html += `</div><div class="admin-inventory__total">5 audio files &middot; pub.bitbi.ai</div>`;
+        audEl.innerHTML = html;
+    }
+
+    const exclEl = document.getElementById('mediaExclusive');
+    if (exclEl) {
+        let html = '<div class="admin-inventory">';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster images</span><span class="admin-inventory__count">15</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster thumbnails</span><span class="admin-inventory__count">15</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive audio tracks</span><span class="admin-inventory__count">5</span></div>';
+        html += '</div><div class="admin-inventory__total">35 files &middot; private R2 bucket</div>';
+        exclEl.innerHTML = html;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Access (read-only reference from codebase data)
+   ═══════════════════════════════════════════════════════════ */
+function loadAccess() {
+    injectRefNote('sectionAccess');
+    const gatingEl = document.getElementById('accessGating');
+    if (gatingEl) {
+        const gates = [
+            'YouTube Exclusives experiment card',
+            'Gallery "Exclusive" filter category',
+            'Little Monster gallery folder (15 images)',
+            'Exclusive Sound Lab track',
+            'Markets portfolio card',
+        ];
+        let html = '<div class="admin-inventory">';
+        for (const g of gates) {
+            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${g}</span><span class="admin-inventory__meta">Auth required</span></div>`;
+        }
+        html += `</div><div class="admin-inventory__total">5 gated placements</div>`;
+        gatingEl.innerHTML = html;
+    }
+
+    const rolesEl = document.getElementById('accessRoles');
+    if (rolesEl) {
+        let html = '<div class="admin-inventory">';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">User</span><span class="admin-inventory__meta">Profile, favorites, Image Studio, view content</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Admin</span><span class="admin-inventory__meta">All user permissions + user management, audit log</span></div>';
+        html += '</div>';
+        rolesEl.innerHTML = html;
+    }
+
+    const mapEl = document.getElementById('accessMap');
+    if (mapEl) {
+        let html = '<div class="admin-inventory">';
+        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Gallery (${galleryItems.length} items)</span><span class="badge badge--active">Public</span></div>`;
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster (15 images)</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab (5 tracks)</span><span class="badge badge--active">Public</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks (5)</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">YouTube Exclusives</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Image Studio</span><span class="badge badge--admin">Auth</span></div>';
+        html += '</div>';
+        mapEl.innerHTML = html;
     }
 }
 
@@ -657,6 +955,22 @@ async function init() {
     $searchForm.addEventListener('submit', (e) => {
         e.preventDefault();
         loadUsers($searchInput.value.trim());
+    });
+
+    // Activity pager (cursor-based)
+    const $actNewer = document.getElementById('activityNewer');
+    const $actOlder = document.getElementById('activityOlder');
+    if ($actNewer) $actNewer.addEventListener('click', () => {
+        if (activityCursorStack.length > 1) {
+            activityCursorStack.pop();
+            loadActivity();
+        }
+    });
+    if ($actOlder) $actOlder.addEventListener('click', () => {
+        if (activityNextCursor) {
+            activityCursorStack.push(activityNextCursor);
+            loadActivity();
+        }
     });
 
     // Init routing (loads initial section from hash)

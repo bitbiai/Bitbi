@@ -93,6 +93,7 @@ src/
 - `PATCH /api/admin/users/:id/status` — change status (active/disabled)
 - `POST /api/admin/users/:id/revoke-sessions` — revoke all sessions
 - `DELETE /api/admin/users/:id` — delete user
+- `GET /api/admin/activity?limit=&cursor=` — cursor-paginated audit log with action counts
 
 ## Database & Storage
 

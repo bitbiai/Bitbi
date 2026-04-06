@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260406">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260407">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -226,34 +226,27 @@
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Experiments</h3>
-                        <p class="admin-shell__desc">Manage experiment pages — titles, slugs, visibility, featured state.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F9EA;</span>
-                            <span>No content entries configured yet. Connect a content source to manage experiments here.</span>
-                        </div>
+                        <p class="admin-shell__desc">Interactive web experiments published on the site.</p>
+                        <div id="contentExperiments"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Gallery</h3>
-                        <p class="admin-shell__desc">Gallery items, categories, captions, visibility settings.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F5BC;</span>
-                            <span>No data source connected yet. A management interface will appear here once configured.</span>
-                        </div>
+                        <p class="admin-shell__desc">Public gallery items by category.</p>
+                        <div id="contentGallery"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Sound Lab</h3>
-                        <p class="admin-shell__desc">Audio tracks, metadata, access settings.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F3B5;</span>
-                            <span>No data source connected yet. Track management will appear here once configured.</span>
-                        </div>
+                        <p class="admin-shell__desc">Audio tracks available in the Sound Lab.</p>
+                        <div id="contentSoundlab"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Video</h3>
-                        <p class="admin-shell__desc">Video content entries, embed links, categories.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F3AC;</span>
-                            <span>No video content entries yet.</span>
+                        <p class="admin-shell__desc">Video content entries.</p>
+                        <div id="contentVideo">
+                            <div class="admin-shell__empty">
+                                <span class="admin-shell__empty-icon">&#x1F3AC;</span>
+                                <span>No video content published yet.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -266,34 +259,27 @@
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Gallery Images</h3>
-                        <p class="admin-shell__desc">Gallery thumbnails, previews, and full-resolution images.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F5BC;</span>
-                            <span>No data source connected yet. A media browser will appear here once configured.</span>
-                        </div>
+                        <p class="admin-shell__desc">Public gallery image files across all resolutions.</p>
+                        <div id="mediaGallery"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Audio Files</h3>
-                        <p class="admin-shell__desc">Sound Lab audio files and metadata.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F3B6;</span>
-                            <span>Audio file management coming soon.</span>
-                        </div>
+                        <p class="admin-shell__desc">Sound Lab audio tracks served from public storage.</p>
+                        <div id="mediaAudio"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Exclusive Content</h3>
-                        <p class="admin-shell__desc">Members-only media, exclusive images and audio tracks.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F48E;</span>
-                            <span>No data source connected yet. Exclusive media management coming soon.</span>
-                        </div>
+                        <p class="admin-shell__desc">Auth-gated media files served from private storage.</p>
+                        <div id="mediaExclusive"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">AI Generated Images</h3>
-                        <p class="admin-shell__desc">User-generated Image Studio files.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F916;</span>
-                            <span>AI image library browser coming soon.</span>
+                        <p class="admin-shell__desc">User-generated Image Studio content.</p>
+                        <div id="mediaAiImages">
+                            <div class="admin-shell__empty">
+                                <span class="admin-shell__empty-icon">&#x1F916;</span>
+                                <span>Per-user storage. No global admin view available yet.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -346,27 +332,18 @@
                 <div class="admin-shell-grid">
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Membership Gating</h3>
-                        <p class="admin-shell__desc">Free vs exclusive content rules, gated sections.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F512;</span>
-                            <span>No data source connected yet. Access rule management coming soon.</span>
-                        </div>
+                        <p class="admin-shell__desc">Content areas requiring free registration to access.</p>
+                        <div id="accessGating"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Role-Based Access</h3>
-                        <p class="admin-shell__desc">Admin vs user permissions, protected route overview.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F6E1;</span>
-                            <span>Role permission matrix coming soon.</span>
-                        </div>
+                        <p class="admin-shell__desc">Permissions by user role.</p>
+                        <div id="accessRoles"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Content Access Map</h3>
-                        <p class="admin-shell__desc">Which content items require authentication and which are public.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F5FA;</span>
-                            <span>Content access map will be generated once content management is wired.</span>
-                        </div>
+                        <p class="admin-shell__desc">Overview of public vs auth-gated content.</p>
+                        <div id="accessMap"></div>
                     </div>
                 </div>
             </div>
@@ -379,28 +356,37 @@
                     <h3 class="admin-section-title">Admin Audit Log</h3>
                     <p class="admin-shell__desc">Recent administrative actions.</p>
                     <div id="activityLog" class="admin-activity">
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F4CB;</span>
-                            <span>Audit log viewer coming soon.</span>
+                        <div id="activityLoading" class="admin-state">Loading audit log...</div>
+                        <div id="activityEmpty" class="admin-state" style="display:none">No audit log entries yet.</div>
+                        <div class="admin-table-wrap">
+                            <table id="activityTable" class="admin-table" style="display:none">
+                                <thead><tr>
+                                    <th>Time</th>
+                                    <th>Admin</th>
+                                    <th>Action</th>
+                                    <th>Target</th>
+                                    <th class="hide-mobile">Details</th>
+                                </tr></thead>
+                                <tbody id="activityTbody"></tbody>
+                            </table>
+                        </div>
+                        <div id="activityPager" class="admin-activity__pager" style="display:none">
+                            <button type="button" id="activityNewer" class="btn-action" disabled>Newer</button>
+                            <span id="activityPage" class="admin-activity__page"></span>
+                            <button type="button" id="activityOlder" class="btn-action">Older</button>
                         </div>
                     </div>
                 </div>
                 <div class="admin-shell-grid" style="margin-block-start:var(--space-6)">
                     <div class="admin-shell glass glass-card reveal visible">
-                        <h3 class="admin-section-title">User Activity</h3>
-                        <p class="admin-shell__desc">Registration events, login patterns, status changes.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F464;</span>
-                            <span>User activity feed coming soon.</span>
-                        </div>
+                        <h3 class="admin-section-title">Activity Summary</h3>
+                        <p class="admin-shell__desc">Breakdown of admin actions by type.</p>
+                        <div id="activitySummary"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Security Events</h3>
-                        <p class="admin-shell__desc">Session revocations, password resets, failed logins.</p>
-                        <div class="admin-shell__empty">
-                            <span class="admin-shell__empty-icon">&#x1F6A8;</span>
-                            <span>Security event log coming soon.</span>
-                        </div>
+                        <p class="admin-shell__desc">Session revocations and account deletions.</p>
+                        <div id="securitySummary"></div>
                     </div>
                 </div>
             </div>
@@ -492,6 +478,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260406"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260407"></script>
 </body>
 </html>

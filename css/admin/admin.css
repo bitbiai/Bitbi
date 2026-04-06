@@ -137,51 +137,83 @@
     .admin-stat__value--gold    { color: var(--color-gold); }
     .admin-stat__value--cyan    { color: var(--color-cyan); }
 
-    /* ── Dashboard Avatar Grid ── */
-    .admin-avatars__grid--dash {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
+    /* ── Activity Pager ── */
+    .admin-activity__pager {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-3);
+        padding: var(--space-4) 0;
+    }
+
+    .admin-activity__page {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    /* ── Inventory List (Content / Media / Access) ── */
+    .admin-inventory {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .admin-inventory__row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
         gap: var(--space-3);
     }
 
-    @media (min-width: 640px) {
-        .admin-avatars__grid--dash {
-            grid-template-columns: repeat(4, 1fr);
-        }
-    }
-
-    .admin-dash-avatar {
-        aspect-ratio: 1;
-        border-radius: var(--radius-sm);
-        overflow: hidden;
-        border: var(--border-subtle);
-        background: rgba(255, 255, 255, 0.04);
-        cursor: pointer;
-        position: relative;
-        transition: border-color 0.2s var(--ease-default);
-    }
-
-    .admin-dash-avatar:hover {
-        border-color: rgba(0, 240, 255, 0.3);
-    }
-
-    .admin-dash-avatar__img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
-
-    .admin-dash-avatar__info {
-        position: absolute;
-        inset-block-end: 0;
-        inset-inline: 0;
-        padding: var(--space-4) var(--space-2) var(--space-2);
-        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    .admin-inventory__name {
         font-family: var(--font-mono);
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.7);
-        line-height: 1.4;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.65);
+        min-width: 0;
+        overflow-wrap: break-word;
+    }
+
+    .admin-inventory__meta {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.3);
+        flex-shrink: 0;
+        text-align: end;
+    }
+
+    .admin-inventory__count {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--color-cyan);
+        flex-shrink: 0;
+    }
+
+    .admin-inventory__total {
+        margin-block-start: var(--space-3);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.25);
+        text-align: end;
+    }
+
+    /* ── Reference note (static data disclaimer) ── */
+    .admin-reference-note {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: rgba(255, 179, 0, 0.6);
+        padding: var(--space-2) var(--space-4);
+        margin-block-end: var(--space-4);
+        border: 1px dashed rgba(255, 179, 0, 0.2);
+        border-radius: var(--radius-sm);
+        text-align: center;
     }
 
     /* ── Quick Links ── */
