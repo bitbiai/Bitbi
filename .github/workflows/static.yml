@@ -25,8 +25,24 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   
 jobs:
+  worker-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run worker route tests
+        run: npm run test:workers
+
   # Single deploy job since we're just deploying
   deploy:
+    needs: worker-validation
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -148,7 +164,7 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run smoke tests
-        run: npx playwright test
+        run: npm run test:static
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v6

@@ -496,24 +496,65 @@ export async function handleAdmin(ctx) {
     }
 
     const now = nowIso();
+    let r2Keys = [];
+    try {
+      const images = await env.DB.prepare(
+        "SELECT r2_key FROM ai_images WHERE user_id = ?"
+      ).bind(targetUserId).all();
+      r2Keys = (images.results || []).map((row) => row.r2_key);
 
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
-      env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
-      env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
-      env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
-      env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
-      auditStatement(env, result.user.id, "delete_user", targetUserId, {
-        deletedUserId: targetUserId,
-        target_email: targetUser.email,
-        target_role: targetUser.role,
-        target_status: targetUser.status,
-        actor_email: result.user.email,
-      }, now),
-    ]);
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+           SELECT r2_key, 'pending', ?
+           FROM ai_images
+           WHERE user_id = ?`
+        ).bind(now, targetUserId),
+        env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
+        env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
+        auditStatement(env, result.user.id, "delete_user", targetUserId, {
+          deletedUserId: targetUserId,
+          target_email: targetUser.email,
+          target_role: targetUser.role,
+          target_status: targetUser.status,
+          actor_email: result.user.email,
+        }, now),
+      ]);
+    } catch (e) {
+      const unavailable = String(e).includes("no such table");
+      return json(
+        { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Failed to delete user. Please try again." },
+        { status: unavailable ? 503 : 500 }
+      );
+    }
 
-    // Clean up avatar from R2 (idempotent, no error if absent)
-    await env.PRIVATE_MEDIA.delete(`avatars/${targetUserId}`);
+    // Avatar cleanup is best-effort because the destructive DB work already committed.
+    try {
+      await env.PRIVATE_MEDIA.delete(`avatars/${targetUserId}`);
+    } catch (e) {
+      console.error("Admin delete: avatar cleanup failed", e);
+    }
+
+    const cleanedKeys = [];
+    for (const key of r2Keys) {
+      try {
+        await env.USER_IMAGES.delete(key);
+        cleanedKeys.push(key);
+      } catch { /* leave queue entry for scheduled retry */ }
+    }
+    if (cleanedKeys.length > 0) {
+      try {
+        const ph = cleanedKeys.map(() => "?").join(",");
+        await env.DB.prepare(
+          `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
+        ).bind(...cleanedKeys).run();
+      } catch { /* non-critical — scheduled cleanup will retry idempotently */ }
+    }
 
     return json({
       ok: true,

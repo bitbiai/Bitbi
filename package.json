@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "npx serve -l 3000",
-    "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "test": "playwright test -c playwright.config.js && playwright test -c playwright.workers.config.js",
+    "test:static": "playwright test -c playwright.config.js",
+    "test:workers": "playwright test -c playwright.workers.config.js",
+    "test:headed": "playwright test -c playwright.config.js --headed"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

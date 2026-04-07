@@ -1,0 +1,524 @@
+const path = require('path');
+const { pathToFileURL } = require('url');
+const { webcrypto } = require('crypto');
+
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeSql(sql) {
+  return String(sql).replace(/\s+/g, ' ').trim();
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+async function sha256Hex(input) {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+class MockBucket {
+  constructor(initial = {}) {
+    this.objects = new Map();
+    this.failDeleteKeys = new Set();
+    for (const [key, value] of Object.entries(initial)) {
+      this.objects.set(key, {
+        body: value.body,
+        httpMetadata: value.httpMetadata || {},
+        size: value.size ?? (value.body?.byteLength ?? 0),
+        uploaded: value.uploaded ? new Date(value.uploaded) : new Date(),
+      });
+      if (value.failDelete) this.failDeleteKeys.add(key);
+    }
+  }
+
+  async put(key, body, options = {}) {
+    this.objects.set(key, {
+      body,
+      httpMetadata: options.httpMetadata || {},
+      size: body?.byteLength ?? 0,
+      uploaded: new Date(),
+    });
+  }
+
+  async get(key) {
+    return this.objects.get(key) || null;
+  }
+
+  async delete(key) {
+    if (this.failDeleteKeys.has(key)) {
+      throw new Error(`Mock delete failure for ${key}`);
+    }
+    this.objects.delete(key);
+  }
+
+  async list({ prefix = '', limit = 1000 } = {}) {
+    const objects = [];
+    for (const [key, value] of this.objects) {
+      if (!key.startsWith(prefix)) continue;
+      objects.push({
+        key,
+        uploaded: value.uploaded,
+        size: value.size,
+        httpMetadata: value.httpMetadata,
+      });
+      if (objects.length >= limit) break;
+    }
+    return { objects };
+  }
+}
+
+class BoundStatement {
+  constructor(db, query, bindings = []) {
+    this.db = db;
+    this.query = query;
+    this.bindings = bindings;
+  }
+
+  bind(...bindings) {
+    return new BoundStatement(this.db, this.query, bindings);
+  }
+
+  async first() {
+    return this.db.execute(this.query, this.bindings, 'first');
+  }
+
+  async all() {
+    return this.db.execute(this.query, this.bindings, 'all');
+  }
+
+  async run() {
+    return this.db.execute(this.query, this.bindings, 'run');
+  }
+}
+
+class MockD1 {
+  constructor(seed = {}) {
+    this.state = {
+      users: [],
+      sessions: [],
+      emailVerificationTokens: [],
+      passwordResetTokens: [],
+      profiles: [],
+      favorites: [],
+      adminAuditLog: [],
+      aiFolders: [],
+      aiImages: [],
+      aiGenerationLog: [],
+      userActivityLog: [],
+      r2CleanupQueue: [],
+      ...deepClone(seed),
+    };
+    this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
+  }
+
+  prepare(query) {
+    return new BoundStatement(this, query);
+  }
+
+  async batch(statements) {
+    const snapshot = deepClone(this.state);
+    const seq = this._cleanupSeq;
+    const results = [];
+    try {
+      for (const stmt of statements) {
+        results.push(await stmt.run());
+      }
+      return results;
+    } catch (error) {
+      this.state = snapshot;
+      this._cleanupSeq = seq;
+      throw error;
+    }
+  }
+
+  async execute(rawQuery, bindings, mode) {
+    const query = normalizeSql(rawQuery);
+
+    if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
+      const [tokenHash, currentTime] = bindings;
+      const session = this.state.sessions.find(
+        (row) => row.token_hash === tokenHash && row.expires_at > currentTime
+      );
+      if (!session) return mode === 'all' ? { results: [] } : null;
+      const user = this.state.users.find(
+        (row) => row.id === session.user_id && row.status === 'active'
+      );
+      if (!user) return mode === 'all' ? { results: [] } : null;
+      return {
+        session_id: session.id,
+        user_id: session.user_id,
+        expires_at: session.expires_at,
+        last_seen_at: session.last_seen_at || null,
+        email: user.email,
+        created_at: user.created_at,
+        status: user.status,
+        role: user.role,
+        verification_method: user.verification_method ?? null,
+      };
+    }
+
+    if (query === 'UPDATE sessions SET last_seen_at = ? WHERE id = ?') {
+      const [lastSeenAt, sessionId] = bindings;
+      const row = this.state.sessions.find((item) => item.id === sessionId);
+      if (row) row.last_seen_at = lastSeenAt;
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('SELECT id, email, password_hash, created_at, status, role, email_verified_at FROM users WHERE email = ?')) {
+      const [email] = bindings;
+      return this.state.users.find((row) => row.email === email) || null;
+    }
+
+    if (query.startsWith('INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) VALUES')) {
+      const [id, userId, tokenHash, createdAt, expiresAt, lastSeenAt] = bindings;
+      this.state.sessions.push({
+        id,
+        user_id: userId,
+        token_hash: tokenHash,
+        created_at: createdAt,
+        expires_at: expiresAt,
+        last_seen_at: lastSeenAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT user_id FROM sessions WHERE token_hash = ? LIMIT 1') {
+      const [tokenHash] = bindings;
+      const row = this.state.sessions.find((item) => item.token_hash === tokenHash);
+      return row ? { user_id: row.user_id } : null;
+    }
+
+    if (query === 'DELETE FROM sessions WHERE token_hash = ?') {
+      const [tokenHash] = bindings;
+      const before = this.state.sessions.length;
+      this.state.sessions = this.state.sessions.filter((row) => row.token_hash !== tokenHash);
+      return { success: true, meta: { changes: before - this.state.sessions.length } };
+    }
+
+    if (query.startsWith('INSERT INTO user_activity_log (id, user_id, action, meta_json, ip_address, created_at) VALUES')) {
+      const [id, userId, action, metaJson, ipAddress, createdAt] = bindings;
+      this.state.userActivityLog.push({
+        id,
+        user_id: userId,
+        action,
+        meta_json: metaJson,
+        ip_address: ipAddress,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1') {
+      const [userId] = bindings;
+      return this.state.users.find((row) => row.id === userId) || null;
+    }
+
+    if (query === 'DELETE FROM sessions WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.sessions.length;
+      this.state.sessions = this.state.sessions.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.sessions.length } };
+    }
+
+    if (query === 'DELETE FROM email_verification_tokens WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.emailVerificationTokens.length;
+      this.state.emailVerificationTokens = this.state.emailVerificationTokens.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.emailVerificationTokens.length } };
+    }
+
+    if (query === 'DELETE FROM password_reset_tokens WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.passwordResetTokens.length;
+      this.state.passwordResetTokens = this.state.passwordResetTokens.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.passwordResetTokens.length } };
+    }
+
+    if (query === 'DELETE FROM profiles WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.profiles.length;
+      this.state.profiles = this.state.profiles.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.profiles.length } };
+    }
+
+    if (query === 'DELETE FROM users WHERE id = ?') {
+      const [userId] = bindings;
+      const hasAiChildren =
+        this.state.aiFolders.some((row) => row.user_id === userId) ||
+        this.state.aiImages.some((row) => row.user_id === userId);
+      if (hasAiChildren) {
+        throw new Error('FOREIGN KEY constraint failed');
+      }
+      const before = this.state.users.length;
+      this.state.users = this.state.users.filter((row) => row.id !== userId);
+      this.state.sessions = this.state.sessions.filter((row) => row.user_id !== userId);
+      this.state.emailVerificationTokens = this.state.emailVerificationTokens.filter((row) => row.user_id !== userId);
+      this.state.passwordResetTokens = this.state.passwordResetTokens.filter((row) => row.user_id !== userId);
+      this.state.profiles = this.state.profiles.filter((row) => row.user_id !== userId);
+      this.state.favorites = this.state.favorites.filter((row) => row.user_id !== userId);
+      this.state.aiGenerationLog = this.state.aiGenerationLog.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.users.length } };
+    }
+
+    if (query.startsWith('INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at) VALUES')) {
+      const [id, adminUserId, action, targetUserId, metaJson, createdAt] = bindings;
+      this.state.adminAuditLog.push({
+        id,
+        admin_user_id: adminUserId,
+        action,
+        target_user_id: targetUserId,
+        meta_json: metaJson,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
+      const [folderId, userId] = bindings;
+      return this.state.aiFolders.find((row) => row.id === folderId && row.user_id === userId && row.status === 'active') || null;
+    }
+
+    if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) VALUES')) {
+      const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt] = bindings;
+      this.state.aiImages.push({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row ? { r2_key: row.r2_key } : null;
+    }
+
+    if (query === 'SELECT r2_key FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query === 'SELECT r2_key FROM ai_images WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.folder_id === folderId && row.user_id === userId)
+          .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query === 'DELETE FROM ai_images WHERE id = ?') {
+      const [imageId] = bindings;
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => row.id !== imageId);
+      return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === 'DELETE FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => !(row.id === imageId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === "UPDATE ai_folders SET status = 'deleting' WHERE id = ? AND user_id = ? AND status IN ('active', 'deleting')") {
+      const [folderId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiFolders) {
+        if (row.id === folderId && row.user_id === userId && (row.status === 'active' || row.status === 'deleting')) {
+          row.status = 'deleting';
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_folders SET status = 'active' WHERE id = ? AND user_id = ? AND status = 'deleting'") {
+      const [folderId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiFolders) {
+        if (row.id === folderId && row.user_id === userId && row.status === 'deleting') {
+          row.status = 'active';
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => !(row.folder_id === folderId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === 'DELETE FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === 'DELETE FROM ai_folders WHERE id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      const before = this.state.aiFolders.length;
+      this.state.aiFolders = this.state.aiFolders.filter((row) => !(row.id === folderId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.aiFolders.length } };
+    }
+
+    if (query === 'DELETE FROM ai_folders WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.aiFolders.length;
+      this.state.aiFolders = this.state.aiFolders.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.aiFolders.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_images WHERE id = ? AND user_id = ?")) {
+      const [createdAt, imageId, userId] = bindings;
+      const rows = this.state.aiImages.filter((row) => row.id === imageId && row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_images WHERE folder_id = ? AND user_id = ?")) {
+      const [createdAt, folderId, userId] = bindings;
+      const rows = this.state.aiImages.filter((row) => row.folder_id === folderId && row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_images WHERE user_id = ?")) {
+      const [createdAt, userId] = bindings;
+      const rows = this.state.aiImages.filter((row) => row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith('DELETE FROM r2_cleanup_queue WHERE r2_key IN (') && query.endsWith(") AND status = 'pending'")) {
+      const keys = new Set(bindings);
+      const before = this.state.r2CleanupQueue.length;
+      this.state.r2CleanupQueue = this.state.r2CleanupQueue.filter(
+        (row) => !(row.status === 'pending' && keys.has(row.r2_key))
+      );
+      return { success: true, meta: { changes: before - this.state.r2CleanupQueue.length } };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM ai_generation_log WHERE user_id = ? AND created_at >= ?') {
+      const [userId, dayStart] = bindings;
+      const cnt = this.state.aiGenerationLog.filter((row) => row.user_id === userId && row.created_at >= dayStart).length;
+      return { cnt };
+    }
+
+    throw new Error(`Unsupported query in test harness: ${query}`);
+  }
+}
+
+function createAuthTestEnv(seed = {}) {
+  const DB = new MockD1(seed);
+  const PRIVATE_MEDIA = new MockBucket(seed.privateMedia);
+  const USER_IMAGES = new MockBucket(seed.userImages);
+  return {
+    APP_BASE_URL: 'https://bitbi.ai',
+    RESEND_FROM_EMAIL: 'BITBI <noreply@contact.bitbi.ai>',
+    SESSION_SECRET: 'test-session-secret',
+    PBKDF2_ITERATIONS: '100000',
+    DB,
+    PRIVATE_MEDIA,
+    USER_IMAGES,
+    AI: {
+      async run() {
+        return null;
+      },
+    },
+  };
+}
+
+function createExecutionContext() {
+  const pending = [];
+  return {
+    execCtx: {
+      waitUntil(promise) {
+        pending.push(Promise.resolve(promise));
+      },
+    },
+    async flush() {
+      await Promise.all(pending.splice(0));
+    },
+  };
+}
+
+async function seedSession(env, userId) {
+  const token = `session-${userId}`;
+  const tokenHash = await sha256Hex(`${token}:${env.SESSION_SECRET}`);
+  env.DB.state.sessions.push({
+    id: `sess-${userId}`,
+    user_id: userId,
+    token_hash: tokenHash,
+    created_at: nowIso(),
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    last_seen_at: nowIso(),
+  });
+  return token;
+}
+
+async function loadWorker(relativePath) {
+  const filePath = path.join(process.cwd(), relativePath);
+  const mod = await import(pathToFileURL(filePath).href);
+  return mod.default || mod;
+}
+
+module.exports = {
+  MockBucket,
+  MockD1,
+  createAuthTestEnv,
+  createExecutionContext,
+  deepClone,
+  loadWorker,
+  nowIso,
+  seedSession,
+  sha256Hex,
+};

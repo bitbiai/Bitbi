@@ -453,6 +453,7 @@ async function handleDeleteFolder(ctx, folderId) {
   }
 
   let r2Keys = [];
+  const ts = nowIso();
   try {
     // Snapshot images for R2 cleanup (folder row still exists, folder_id intact)
     const images = await env.DB.prepare(
@@ -460,9 +461,14 @@ async function handleDeleteFolder(ctx, folderId) {
     ).bind(folderId, session.user.id).all();
     r2Keys = (images.results || []).map(r => r.r2_key);
 
-    // Atomically delete all image rows by folder_id predicate (no bind-limit
-    // risk) and the folder row itself in a single batch transaction.
+    // Atomically queue blob cleanup, delete image rows, then remove the folder.
     await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+         SELECT r2_key, 'pending', ?
+         FROM ai_images
+         WHERE folder_id = ? AND user_id = ?`
+      ).bind(ts, folderId, session.user.id),
       env.DB.prepare(
         "DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?"
       ).bind(folderId, session.user.id),
@@ -478,13 +484,29 @@ async function handleDeleteFolder(ctx, folderId) {
         "UPDATE ai_folders SET status = 'active' WHERE id = ? AND user_id = ? AND status = 'deleting'"
       ).bind(folderId, session.user.id).run();
     } catch { /* rollback is best-effort; retry will re-enter via 'deleting' accept */ }
-    return json({ ok: false, error: "Failed to delete folder. Please try again." }, { status: 500 });
+    const unavailable = String(e).includes("no such table");
+    return json(
+      { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Failed to delete folder. Please try again." },
+      { status: unavailable ? 503 : 500 }
+    );
   }
 
-  // Best-effort R2 cleanup — DB deletion already succeeded, so a partial
-  // R2 failure leaves orphaned blobs but no stuck folder state.
+  // Durable handoff complete. Inline R2 cleanup is best-effort only.
+  const cleanedKeys = [];
   for (const key of r2Keys) {
-    try { await env.USER_IMAGES.delete(key); } catch { /* best effort */ }
+    try {
+      await env.USER_IMAGES.delete(key);
+      cleanedKeys.push(key);
+    } catch { /* leave queue entry for scheduled retry */ }
+  }
+
+  if (cleanedKeys.length > 0) {
+    try {
+      const ph = cleanedKeys.map(() => "?").join(",");
+      await env.DB.prepare(
+        `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
+      ).bind(...cleanedKeys).run();
+    } catch { /* non-critical — idempotent R2 delete on next scheduled run */ }
   }
 
   return json({ ok: true });
@@ -504,9 +526,42 @@ async function handleDeleteImage(ctx, imageId) {
     return json({ ok: false, error: "Image not found." }, { status: 404 });
   }
 
-  // Delete from R2 and D1
-  await env.USER_IMAGES.delete(row.r2_key);
-  await env.DB.prepare("DELETE FROM ai_images WHERE id = ?").bind(imageId).run();
+  const ts = nowIso();
+  let batchResults;
+  try {
+    batchResults = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+         SELECT r2_key, 'pending', ?
+         FROM ai_images
+         WHERE id = ? AND user_id = ?`
+      ).bind(ts, imageId, session.user.id),
+      env.DB.prepare(
+        "DELETE FROM ai_images WHERE id = ? AND user_id = ?"
+      ).bind(imageId, session.user.id),
+    ]);
+  } catch (e) {
+    const unavailable = String(e).includes("no such table");
+    return json(
+      { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Delete failed. Please try again." },
+      { status: unavailable ? 503 : 500 }
+    );
+  }
+
+  const deleted = batchResults[1].meta.changes || 0;
+  if (deleted !== 1) {
+    return json(
+      { ok: false, error: "Delete failed. Image may have already been removed." },
+      { status: 409 }
+    );
+  }
+
+  try {
+    await env.USER_IMAGES.delete(row.r2_key);
+    await env.DB.prepare(
+      "DELETE FROM r2_cleanup_queue WHERE r2_key IN (?) AND status = 'pending'"
+    ).bind(row.r2_key).run();
+  } catch { /* leave queue entry for scheduled retry */ }
 
   return json({ ok: true });
 }
