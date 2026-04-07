@@ -1,7 +1,7 @@
 import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isRateLimited, isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { requireUser } from "../lib/session.js";
 import { logUserActivity } from "../lib/activity.js";
@@ -69,7 +69,7 @@ export async function handleVerifyEmail(ctx) {
 export async function handleResendVerification(ctx) {
   const { request, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`resend:${ip}`, 3, 3600_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-resend-ip", ip, 3, 3600_000)) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -100,7 +100,7 @@ export async function handleResendVerification(ctx) {
 export async function handleRequestReverification(ctx) {
   const { request, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`reverify:${ip}`, 3, 3600_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-reverify-ip", ip, 3, 3600_000)) return rateLimitResponse();
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;

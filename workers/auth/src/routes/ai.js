@@ -2,7 +2,7 @@ import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
-import { isRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
 
 const MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const MAX_PROMPT_LENGTH = 1000;
@@ -171,7 +171,7 @@ async function handleGenerateImage(ctx) {
   let quotaReservationId = null;
 
   // Rate limit per user (in-memory, per-isolate)
-  if (isRateLimited(`ai-gen:${userId}`, GENERATION_LIMIT, GENERATION_WINDOW_MS)) {
+  if (await isSharedRateLimited(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS)) {
     return rateLimitResponse();
   }
 

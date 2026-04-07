@@ -2,7 +2,7 @@ import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 
 function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
   return env.DB.prepare(
@@ -89,7 +89,7 @@ export async function handleAdmin(ctx) {
     }
 
     const ip = getClientIp(request);
-    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "role"]
@@ -180,7 +180,7 @@ export async function handleAdmin(ctx) {
     }
 
     const ip = getClientIp(request);
-    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "status"]
@@ -271,7 +271,7 @@ export async function handleAdmin(ctx) {
     }
 
     const ip = getClientIp(request);
-    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "revoke-sessions"]
@@ -462,7 +462,7 @@ export async function handleAdmin(ctx) {
     }
 
     const ip = getClientIp(request);
-    if (isRateLimited(`admin-action:${ip}`, 30, 900_000)) return rateLimitResponse();
+    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id"]

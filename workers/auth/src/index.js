@@ -119,6 +119,16 @@ export default {
       }
     }
 
+    try {
+      await env.DB.prepare(
+        "DELETE FROM rate_limit_counters WHERE expires_at < ?"
+      ).bind(now).run();
+    } catch (e) {
+      if (!String(e).includes("no such table")) {
+        throw e;
+      }
+    }
+
     // Process R2 cleanup queue — retry failed blob deletions.
     // Wrapped in try/catch so the worker is safe to deploy before migration 0010.
     try {

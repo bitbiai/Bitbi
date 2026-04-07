@@ -2,14 +2,14 @@ import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, addMinutesIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
 import { hashPassword } from "../lib/passwords.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isRateLimited, isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { sendResetEmail } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 
 export async function handleForgotPassword(ctx) {
   const { request, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`forgot:${ip}`, 5, 3600_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-forgot-ip", ip, 5, 3600_000)) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -26,7 +26,7 @@ export async function handleForgotPassword(ctx) {
   if (!email || !isValidEmail(email)) return genericOk;
 
   // Per-email rate limit (returns generic to avoid revealing email existence)
-  if (isRateLimited(`forgot-email:${email}`, 3, 3600_000)) return genericOk;
+  if (await isSharedRateLimited(env, "auth-forgot-email", email, 3, 3600_000)) return genericOk;
 
   const user = await env.DB.prepare(
     "SELECT id, email, status FROM users WHERE email = ? LIMIT 1"

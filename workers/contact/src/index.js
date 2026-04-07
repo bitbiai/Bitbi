@@ -1,3 +1,5 @@
+import { getClientIp, isSharedRateLimited } from './lib/rate-limit.js';
+
 /**
  * Cloudflare Worker — Contact Form Handler
  * Receives POST from the contact form and sends email via Resend API.
@@ -18,24 +20,10 @@
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
 const TO_EMAIL = 'bit@bitbi.ai';
 const FROM_EMAIL = 'contact@contact.bitbi.ai';
-
-/* In-memory rate limiter (per-isolate, best-effort) */
-const rateLimitBuckets = new Map();
-
-function isRateLimited(key, maxRequests, windowMs) {
-    const now = Date.now();
-    let bucket = rateLimitBuckets.get(key);
-    if (!bucket || now - bucket.start > windowMs) {
-        bucket = { start: now, count: 0 };
-        rateLimitBuckets.set(key, bucket);
-    }
-    bucket.count++;
-    return bucket.count > maxRequests;
-}
-
-function getClientIp(request) {
-    return request.headers.get('CF-Connecting-IP') || request.headers.get('X-Real-IP') || 'unknown';
-}
+const CONTACT_BURST_LIMIT = 3;
+const CONTACT_BURST_WINDOW_MS = 10 * 60 * 1000;
+const CONTACT_HOURLY_LIMIT = 5;
+const CONTACT_HOURLY_WINDOW_MS = 60 * 60 * 1000;
 
 /* Strip control characters (CR, LF, NUL, etc.) from values used in email headers */
 function sanitizeHeaderValue(str) {
@@ -80,9 +68,30 @@ export default {
             });
         }
 
-        /* Rate limit: 5 submissions per hour per IP */
+        /* Shared durable abuse gates with in-memory fallback */
         const ip = getClientIp(request);
-        if (isRateLimited(`contact:${ip}`, 5, 3600000)) {
+        const burstLimited = await isSharedRateLimited(
+            env,
+            'contact-submit-ip-burst',
+            ip,
+            CONTACT_BURST_LIMIT,
+            CONTACT_BURST_WINDOW_MS,
+        );
+        if (burstLimited) {
+            return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+            });
+        }
+
+        const hourlyLimited = await isSharedRateLimited(
+            env,
+            'contact-submit-ip-hourly',
+            ip,
+            CONTACT_HOURLY_LIMIT,
+            CONTACT_HOURLY_WINDOW_MS,
+        );
+        if (hourlyLimited) {
             return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
                 status: 429,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },

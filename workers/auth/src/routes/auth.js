@@ -4,7 +4,7 @@ import { parseCookies, buildSessionCookie, buildExpiredSessionCookie } from "../
 import { hashPassword, verifyPassword } from "../lib/passwords.js";
 import { nowIso, addDaysIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
 import { getSessionUser } from "../lib/session.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 
@@ -28,7 +28,7 @@ export async function handleMe(ctx) {
 export async function handleRegister(ctx) {
   const { request, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`register:${ip}`, 5, 3600_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-register-ip", ip, 5, 3600_000)) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -86,7 +86,7 @@ export async function handleRegister(ctx) {
   }
 
   // Per-email rate limit (returns generic success to prevent enumeration)
-  if (isRateLimited(`register-email:${email}`, 3, 3600_000)) {
+  if (await isSharedRateLimited(env, "auth-register-email", email, 3, 3600_000)) {
     return json(
       {
         ok: true,
@@ -150,7 +150,7 @@ export async function handleRegister(ctx) {
 export async function handleLogin(ctx) {
   const { request, env, isSecure } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`login:${ip}`, 10, 900_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-login-ip", ip, 10, 900_000)) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -178,7 +178,7 @@ export async function handleLogin(ctx) {
   }
 
   // Per-email rate limit
-  if (isRateLimited(`login-email:${email}`, 10, 900_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-login-email", email, 10, 900_000)) return rateLimitResponse();
 
   const user = await env.DB.prepare(
     `

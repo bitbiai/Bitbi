@@ -65,6 +65,19 @@ function makeConsumedQuotaUsage(userId, count, dayStart = quotaDayStart()) {
   });
 }
 
+function makeActiveRateLimitCounter(scope, limiterKey, count, windowMs) {
+  const nowMs = Date.now();
+  const windowStartMs = nowMs - (nowMs % windowMs);
+  return {
+    scope,
+    limiter_key: limiterKey,
+    window_start_ms: windowStartMs,
+    count,
+    expires_at: new Date(windowStartMs + windowMs).toISOString(),
+    updated_at: new Date(nowMs).toISOString(),
+  };
+}
+
 test.describe('Worker routes', () => {
   test('auth happy path: login, me, logout', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -330,6 +343,125 @@ test.describe('Worker routes', () => {
     expect(
       env.DB.state.favorites.some((row) => row.user_id === 'fav-user-100-new' && row.item_id === 'item-101')
     ).toBe(false);
+  });
+
+  test('shared limiter: login is blocked when the durable IP limit is already exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'limited-login-user',
+          email: 'limited@example.com',
+          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('auth-login-ip', '203.0.113.55', 10, 900_000),
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'limited@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.55',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: forgot-password preserves generic success when the durable email limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'forgot-user',
+          email: 'forgot@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('auth-forgot-email', 'forgot@example.com', 3, 3_600_000),
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/forgot-password', 'POST', {
+        email: 'forgot@example.com',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.56',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      message: 'If an account with this email exists, a reset link has been sent.',
+    });
+  });
+
+  test('shared limiter: AI generation is blocked when the durable per-user rate limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'ai-rate-user',
+          email: 'airate@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('ai-generate-user', 'ai-rate-user', 20, 3_600_000),
+      ],
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const token = await seedSession(env, 'ai-rate-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'blocked by shared limiter',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
   });
 
   test('AI lifecycle: save image then delete image removes metadata and blob', async () => {
@@ -701,6 +833,8 @@ test.describe('Worker routes', () => {
 
   test('contact worker: accepts allowed origin and rejects forbidden origin', async () => {
     const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv();
+    env.RESEND_API_KEY = 'test-key';
     const originalFetch = global.fetch;
     const resendCalls = [];
 
@@ -729,7 +863,7 @@ test.describe('Worker routes', () => {
             website: '',
           }),
         }),
-        { RESEND_API_KEY: 'test-key' }
+        env
       );
 
       expect(okRes.status).toBe(200);
@@ -753,12 +887,101 @@ test.describe('Worker routes', () => {
             website: '',
           }),
         }),
-        { RESEND_API_KEY: 'test-key' }
+        env
       );
 
       expect(forbiddenRes.status).toBe(403);
       expect(await forbiddenRes.text()).toBe('Forbidden');
       expect(resendCalls).toHaveLength(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('contact worker: shared limiter blocks abusive submissions before mail send', async () => {
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv({
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('contact-submit-ip-burst', '203.0.113.77', 3, 10 * 60 * 1000),
+      ],
+    });
+    env.RESEND_API_KEY = 'test-key';
+    const originalFetch = global.fetch;
+    let resendCallCount = 0;
+
+    global.fetch = async () => {
+      resendCallCount += 1;
+      return new Response(JSON.stringify({ id: 'email-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const res = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.77',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Hello',
+            message: 'Testing limiter',
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(res.status).toBe(429);
+      await expect(res.json()).resolves.toMatchObject({
+        error: 'Too many requests. Please try again later.',
+      });
+      expect(resendCallCount).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('contact worker: upstream provider failures still return a stable 502', async () => {
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv();
+    env.RESEND_API_KEY = 'test-key';
+    const originalFetch = global.fetch;
+
+    global.fetch = async () => new Response('upstream failed', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+
+    try {
+      const res = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.78',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Hello',
+            message: 'Testing upstream failure',
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(res.status).toBe(502);
+      await expect(res.json()).resolves.toMatchObject({
+        error: 'Email send failed',
+      });
     } finally {
       global.fetch = originalFetch;
     }

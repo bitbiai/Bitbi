@@ -107,6 +107,7 @@ class MockD1 {
       profiles: [],
       favorites: [],
       adminAuditLog: [],
+      rateLimitCounters: [],
       aiFolders: [],
       aiImages: [],
       aiGenerationLog: [],
@@ -213,6 +214,49 @@ class MockD1 {
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO rate_limit_counters (scope, limiter_key, window_start_ms, count, expires_at, updated_at)')) {
+      const [scope, limiterKey, windowStartMs, expiresAt, updatedAt] = bindings;
+      const existing = this.state.rateLimitCounters.find(
+        (row) =>
+          row.scope === scope &&
+          row.limiter_key === limiterKey &&
+          row.window_start_ms === windowStartMs
+      );
+      if (existing) {
+        existing.count += 1;
+        existing.updated_at = updatedAt;
+        existing.expires_at = expiresAt;
+      } else {
+        this.state.rateLimitCounters.push({
+          scope,
+          limiter_key: limiterKey,
+          window_start_ms: windowStartMs,
+          count: 1,
+          expires_at: expiresAt,
+          updated_at: updatedAt,
+        });
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT count FROM rate_limit_counters WHERE scope = ? AND limiter_key = ? AND window_start_ms = ? LIMIT 1') {
+      const [scope, limiterKey, windowStartMs] = bindings;
+      const row = this.state.rateLimitCounters.find(
+        (item) =>
+          item.scope === scope &&
+          item.limiter_key === limiterKey &&
+          item.window_start_ms === windowStartMs
+      );
+      return row ? { count: row.count } : null;
+    }
+
+    if (query === 'DELETE FROM rate_limit_counters WHERE expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.rateLimitCounters.length;
+      this.state.rateLimitCounters = this.state.rateLimitCounters.filter((row) => row.expires_at >= now);
+      return { success: true, meta: { changes: before - this.state.rateLimitCounters.length } };
     }
 
     if (query === 'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1') {

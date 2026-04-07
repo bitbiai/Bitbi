@@ -8,5 +8,13 @@
       "pattern": "contact.bitbi.ai",
       "custom_domain": true
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bitbi-auth-db",
+      "database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
+      "preview_database_id": "local-bitbi-auth-db"
+    }
   ]
 }
