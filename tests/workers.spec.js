@@ -31,6 +31,40 @@ function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
 }
 
+const ONE_PIXEL_PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=';
+
+function makeFavorites(userId, count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    user_id: userId,
+    item_type: 'gallery',
+    item_id: `item-${index + 1}`,
+    title: `Favorite ${index + 1}`,
+    thumb_url: `/thumb-${index + 1}.png`,
+    created_at: nowIso(),
+  }));
+}
+
+function quotaDayStart(ts = nowIso()) {
+  return ts.slice(0, 10) + 'T00:00:00.000Z';
+}
+
+function makeConsumedQuotaUsage(userId, count, dayStart = quotaDayStart()) {
+  return Array.from({ length: count }, (_, index) => {
+    const createdAt = nowIso();
+    return {
+      id: `quota-${userId}-${index + 1}`,
+      user_id: userId,
+      day_start: dayStart,
+      slot: index + 1,
+      status: 'consumed',
+      created_at: createdAt,
+      expires_at: null,
+      consumed_at: createdAt,
+    };
+  });
+}
+
 test.describe('Worker routes', () => {
   test('auth happy path: login, me, logout', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -172,6 +206,132 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.adminAuditLog[0].action).toBe('delete_user');
   });
 
+  test('favorites: adding a new favorite at 99 of 100 succeeds', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'fav-user-99',
+          email: 'fav99@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      favorites: makeFavorites('fav-user-99', 99),
+    });
+
+    const token = await seedSession(env, 'fav-user-99');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'item-100',
+        title: 'Favorite 100',
+        thumb_url: '/thumb-100.png',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true });
+    expect(env.DB.state.favorites).toHaveLength(100);
+    expect(
+      env.DB.state.favorites.some((row) => row.user_id === 'fav-user-99' && row.item_id === 'item-100')
+    ).toBe(true);
+  });
+
+  test('favorites: re-adding an existing favorite at 100 of 100 is an idempotent no-op', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'fav-user-100-existing',
+          email: 'fav100existing@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      favorites: makeFavorites('fav-user-100-existing', 100),
+    });
+
+    const token = await seedSession(env, 'fav-user-100-existing');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'item-100',
+        title: 'Favorite 100',
+        thumb_url: '/thumb-100.png',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true });
+    expect(env.DB.state.favorites).toHaveLength(100);
+    expect(
+      env.DB.state.favorites.filter((row) => row.user_id === 'fav-user-100-existing' && row.item_id === 'item-100')
+    ).toHaveLength(1);
+  });
+
+  test('favorites: adding a new favorite at 100 of 100 still fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'fav-user-100-new',
+          email: 'fav100new@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      favorites: makeFavorites('fav-user-100-new', 100),
+    });
+
+    const token = await seedSession(env, 'fav-user-100-new');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'item-101',
+        title: 'Favorite 101',
+        thumb_url: '/thumb-101.png',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Favorites limit reached.',
+    });
+    expect(env.DB.state.favorites).toHaveLength(100);
+    expect(
+      env.DB.state.favorites.some((row) => row.user_id === 'fav-user-100-new' && row.item_id === 'item-101')
+    ).toBe(false);
+  });
+
   test('AI lifecycle: save image then delete image removes metadata and blob', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -227,6 +387,176 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiImages.some((row) => row.id === imageId)).toBe(false);
     expect(env.USER_IMAGES.objects.has(savedRow.r2_key)).toBe(false);
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+  });
+
+  test('AI generate: concurrent near-limit requests do not exceed the daily cap', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let firstRunStartedResolve;
+    let releaseFirstRunResolve;
+    const firstRunStarted = new Promise((resolve) => {
+      firstRunStartedResolve = resolve;
+    });
+    const releaseFirstRun = new Promise((resolve) => {
+      releaseFirstRunResolve = resolve;
+    });
+    let aiCalls = 0;
+
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'quota-user',
+          email: 'quota@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-user', 9),
+      aiRun: async () => {
+        aiCalls += 1;
+        if (aiCalls === 1) {
+          firstRunStartedResolve();
+          await releaseFirstRun;
+        }
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+
+    const token = await seedSession(env, 'quota-user');
+    const requestHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+
+    const firstPromise = authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'first request',
+        steps: 4,
+      }, requestHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    await firstRunStarted;
+
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'second request',
+        steps: 4,
+      }, requestHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(secondRes.status).toBe(429);
+    await expect(secondRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'DAILY_IMAGE_LIMIT_REACHED',
+    });
+
+    releaseFirstRunResolve();
+    const firstRes = await firstPromise;
+
+    expect(firstRes.status).toBe(200);
+    await expect(firstRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: { model: '@cf/black-forest-labs/flux-1-schnell' },
+    });
+    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-user')).toHaveLength(10);
+    expect(
+      env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-user' && row.status === 'reserved')
+    ).toHaveLength(0);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(1);
+  });
+
+  test('AI generate: failed model runs do not permanently consume quota', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'quota-fail-user',
+          email: 'quota-fail@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-fail-user', 9),
+      aiRun: async () => {
+        throw new Error('model failure');
+      },
+    });
+
+    const token = await seedSession(env, 'quota-fail-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'will fail',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image generation failed: model failure',
+    });
+    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(9);
+    expect(
+      env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-fail-user' && row.status === 'reserved')
+    ).toHaveLength(0);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(0);
+  });
+
+  test('AI generate: admin users remain exempt from the daily quota', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'quota-admin',
+          email: 'quota-admin@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'admin',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-admin', 10),
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const token = await seedSession(env, 'quota-admin');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'admin request',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: { model: '@cf/black-forest-labs/flux-1-schnell' },
+    });
+    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-admin')).toHaveLength(10);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-admin')).toHaveLength(1);
   });
 
   test('AI single delete keeps a durable cleanup entry when inline blob deletion fails', async () => {

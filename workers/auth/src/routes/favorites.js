@@ -54,7 +54,17 @@ async function handleAdd(ctx) {
     return json({ ok: false, error: "Invalid thumb_url." }, { status: 400 });
   }
 
-  // Check limit
+  const existing = await ctx.env.DB.prepare(
+    "SELECT 1 AS existing FROM favorites WHERE user_id = ? AND item_type = ? AND item_id = ? LIMIT 1"
+  )
+    .bind(session.user.id, item_type, item_id)
+    .first();
+
+  if (existing) {
+    return json({ ok: true });
+  }
+
+  // Check limit for new favorites only.
   const count = await ctx.env.DB.prepare(
     "SELECT COUNT(*) AS c FROM favorites WHERE user_id = ?"
   )

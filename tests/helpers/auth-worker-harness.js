@@ -110,6 +110,7 @@ class MockD1 {
       aiFolders: [],
       aiImages: [],
       aiGenerationLog: [],
+      aiDailyQuotaUsage: [],
       userActivityLog: [],
       r2CleanupQueue: [],
       ...deepClone(seed),
@@ -247,6 +248,50 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.profiles.length } };
     }
 
+    if (query === 'SELECT 1 AS existing FROM favorites WHERE user_id = ? AND item_type = ? AND item_id = ? LIMIT 1') {
+      const [userId, itemType, itemId] = bindings;
+      const row = this.state.favorites.find(
+        (item) => item.user_id === userId && item.item_type === itemType && item.item_id === itemId
+      );
+      return row ? { existing: 1 } : null;
+    }
+
+    if (query === 'SELECT COUNT(*) AS c FROM favorites WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        c: this.state.favorites.filter((row) => row.user_id === userId).length,
+      };
+    }
+
+    if (query === 'INSERT OR IGNORE INTO favorites (user_id, item_type, item_id, title, thumb_url) VALUES (?, ?, ?, ?, ?)') {
+      const [userId, itemType, itemId, title, thumbUrl] = bindings;
+      const existing = this.state.favorites.find(
+        (row) => row.user_id === userId && row.item_type === itemType && row.item_id === itemId
+      );
+      if (existing) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.favorites.push({
+        id: this.state.favorites.length + 1,
+        user_id: userId,
+        item_type: itemType,
+        item_id: itemId,
+        title,
+        thumb_url: thumbUrl,
+        created_at: nowIso(),
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM favorites WHERE user_id = ? AND item_type = ? AND item_id = ?') {
+      const [userId, itemType, itemId] = bindings;
+      const before = this.state.favorites.length;
+      this.state.favorites = this.state.favorites.filter(
+        (row) => !(row.user_id === userId && row.item_type === itemType && row.item_id === itemId)
+      );
+      return { success: true, meta: { changes: before - this.state.favorites.length } };
+    }
+
     if (query === 'DELETE FROM users WHERE id = ?') {
       const [userId] = bindings;
       const hasAiChildren =
@@ -298,6 +343,23 @@ class MockD1 {
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_generation_log (id, user_id, created_at) VALUES')) {
+      const [id, userId, createdAt] = bindings;
+      this.state.aiGenerationLog.push({
+        id,
+        user_id: userId,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM ai_generation_log WHERE id = ?') {
+      const [logId] = bindings;
+      const before = this.state.aiGenerationLog.length;
+      this.state.aiGenerationLog = this.state.aiGenerationLog.filter((row) => row.id !== logId);
+      return { success: true, meta: { changes: before - this.state.aiGenerationLog.length } };
     }
 
     if (query === 'SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?') {
@@ -453,11 +515,85 @@ class MockD1 {
       return { cnt };
     }
 
+    if (query === "DELETE FROM ai_daily_quota_usage WHERE user_id = ? AND day_start = ? AND status = 'reserved' AND expires_at < ?") {
+      const [userId, dayStart, now] = bindings;
+      const before = this.state.aiDailyQuotaUsage.length;
+      this.state.aiDailyQuotaUsage = this.state.aiDailyQuotaUsage.filter(
+        (row) => !(row.user_id === userId && row.day_start === dayStart && row.status === 'reserved' && row.expires_at < now)
+      );
+      return { success: true, meta: { changes: before - this.state.aiDailyQuotaUsage.length } };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS cnt FROM ai_daily_quota_usage WHERE user_id = ?')) {
+      const [userId, dayStart, now] = bindings;
+      const cnt = this.state.aiDailyQuotaUsage.filter(
+        (row) =>
+          row.user_id === userId &&
+          row.day_start === dayStart &&
+          (row.status === 'consumed' || (row.status === 'reserved' && row.expires_at >= now))
+      ).length;
+      return { cnt };
+    }
+
+    if (query.startsWith("INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at)")) {
+      const [id, userId, dayStart, createdAt, expiresAt, existingUserId, existingDayStart] = bindings;
+      const occupiedSlots = new Set(
+        this.state.aiDailyQuotaUsage
+          .filter((row) => row.user_id === existingUserId && row.day_start === existingDayStart)
+          .map((row) => row.slot)
+      );
+      let slot = null;
+      for (let candidate = 1; candidate <= 10; candidate += 1) {
+        if (!occupiedSlots.has(candidate)) {
+          slot = candidate;
+          break;
+        }
+      }
+      if (slot === null) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.aiDailyQuotaUsage.push({
+        id,
+        user_id: userId,
+        day_start: dayStart,
+        slot,
+        status: 'reserved',
+        created_at: createdAt,
+        expires_at: expiresAt,
+        consumed_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "DELETE FROM ai_daily_quota_usage WHERE id = ? AND status = 'reserved'") {
+      const [reservationId] = bindings;
+      const before = this.state.aiDailyQuotaUsage.length;
+      this.state.aiDailyQuotaUsage = this.state.aiDailyQuotaUsage.filter(
+        (row) => !(row.id === reservationId && row.status === 'reserved')
+      );
+      return { success: true, meta: { changes: before - this.state.aiDailyQuotaUsage.length } };
+    }
+
+    if (query === "UPDATE ai_daily_quota_usage SET status = 'consumed', expires_at = NULL, consumed_at = ? WHERE id = ? AND status = 'reserved'") {
+      const [consumedAt, reservationId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiDailyQuotaUsage) {
+        if (row.id === reservationId && row.status === 'reserved') {
+          row.status = 'consumed';
+          row.expires_at = null;
+          row.consumed_at = consumedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     throw new Error(`Unsupported query in test harness: ${query}`);
   }
 }
 
 function createAuthTestEnv(seed = {}) {
+  const aiRun = typeof seed.aiRun === 'function' ? seed.aiRun : async () => null;
   const DB = new MockD1(seed);
   const PRIVATE_MEDIA = new MockBucket(seed.privateMedia);
   const USER_IMAGES = new MockBucket(seed.userImages);
@@ -470,8 +606,8 @@ function createAuthTestEnv(seed = {}) {
     PRIVATE_MEDIA,
     USER_IMAGES,
     AI: {
-      async run() {
-        return null;
+      async run(...args) {
+        return aiRun(...args);
       },
     },
   };

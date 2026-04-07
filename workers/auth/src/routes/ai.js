@@ -1,7 +1,7 @@
 import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
-import { nowIso, randomTokenHex } from "../lib/tokens.js";
+import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
 import { isRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
 
 const MODEL = "@cf/black-forest-labs/flux-1-schnell";
@@ -12,6 +12,11 @@ const DEFAULT_STEPS = 4;
 const GENERATION_LIMIT = 20; // per user per hour (in-memory rate limit)
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user per UTC day
+const QUOTA_RESERVATION_TTL_MINUTES = 60;
+const QUOTA_SLOT_SELECT_SQL = Array.from(
+  { length: DAILY_IMAGE_LIMIT },
+  (_, index) => `SELECT ${index + 1} AS slot`
+).join(" UNION ALL ");
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -52,14 +57,78 @@ function slugify(name) {
     .slice(0, 60) || "folder";
 }
 
-// Helper: count today's generations for a user (UTC day boundary)
-async function getDailyUsage(env, userId) {
-  const todayUtc = new Date().toISOString().slice(0, 10);
-  const dayStart = todayUtc + "T00:00:00.000Z";
+function getQuotaDayStart(ts = nowIso()) {
+  return ts.slice(0, 10) + "T00:00:00.000Z";
+}
+
+function quotaUnavailableResponse() {
+  return json(
+    { ok: false, error: "Service temporarily unavailable. Please try again later." },
+    { status: 503 }
+  );
+}
+
+async function deleteExpiredQuotaReservations(env, userId, dayStart, now) {
+  await env.DB.prepare(
+    "DELETE FROM ai_daily_quota_usage WHERE user_id = ? AND day_start = ? AND status = 'reserved' AND expires_at < ?"
+  ).bind(userId, dayStart, now).run();
+}
+
+// Helper: count today's successful generations plus active reservations for a user.
+async function getDailyUsage(env, userId, now = nowIso()) {
+  const dayStart = getQuotaDayStart(now);
+  await deleteExpiredQuotaReservations(env, userId, dayStart, now);
   const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS cnt FROM ai_generation_log WHERE user_id = ? AND created_at >= ?"
-  ).bind(userId, dayStart).first();
+    `SELECT COUNT(*) AS cnt
+     FROM ai_daily_quota_usage
+     WHERE user_id = ?
+       AND day_start = ?
+       AND (status = 'consumed' OR (status = 'reserved' AND expires_at >= ?))`
+  ).bind(userId, dayStart, now).first();
   return row ? row.cnt : 0;
+}
+
+async function reserveDailyQuota(env, userId, now = nowIso()) {
+  const dayStart = getQuotaDayStart(now);
+  await deleteExpiredQuotaReservations(env, userId, dayStart, now);
+
+  for (let attempt = 0; attempt < DAILY_IMAGE_LIMIT; attempt += 1) {
+    const reservationId = randomTokenHex(16);
+    const result = await env.DB.prepare(
+      `INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at)
+       SELECT ?, ?, ?, candidate.slot, 'reserved', ?, ?
+       FROM (${QUOTA_SLOT_SELECT_SQL}) AS candidate
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM ai_daily_quota_usage existing
+         WHERE existing.user_id = ?
+           AND existing.day_start = ?
+           AND existing.slot = candidate.slot
+       )
+       LIMIT 1`
+    ).bind(
+      reservationId,
+      userId,
+      dayStart,
+      now,
+      addMinutesIso(QUOTA_RESERVATION_TTL_MINUTES),
+      userId,
+      dayStart
+    ).run();
+
+    if (result?.meta?.changes > 0) {
+      return { reservationId, dayStart };
+    }
+  }
+
+  return null;
+}
+
+async function releaseQuotaReservation(env, reservationId) {
+  if (!reservationId) return;
+  await env.DB.prepare(
+    "DELETE FROM ai_daily_quota_usage WHERE id = ? AND status = 'reserved'"
+  ).bind(reservationId).run();
 }
 
 // ── GET /api/ai/quota ──
@@ -72,7 +141,13 @@ async function handleQuota(ctx) {
     return json({ ok: true, data: { isAdmin: true } });
   }
 
-  const usedToday = await getDailyUsage(env, session.user.id);
+  let usedToday;
+  try {
+    usedToday = await getDailyUsage(env, session.user.id);
+  } catch (e) {
+    if (String(e).includes("no such table")) return quotaUnavailableResponse();
+    throw e;
+  }
   const remaining = Math.max(0, DAILY_IMAGE_LIMIT - usedToday);
   return json({
     ok: true,
@@ -93,25 +168,11 @@ async function handleGenerateImage(ctx) {
 
   const userId = session.user.id;
   const isAdmin = session.user.role === "admin";
+  let quotaReservationId = null;
 
   // Rate limit per user (in-memory, per-isolate)
   if (isRateLimited(`ai-gen:${userId}`, GENERATION_LIMIT, GENERATION_WINDOW_MS)) {
     return rateLimitResponse();
-  }
-
-  // Daily generation limit for non-admin members (server-enforced via D1)
-  if (!isAdmin) {
-    const usedToday = await getDailyUsage(env, userId);
-    if (usedToday >= DAILY_IMAGE_LIMIT) {
-      return json(
-        {
-          ok: false,
-          code: "DAILY_IMAGE_LIMIT_REACHED",
-          error: `You've reached your daily image generation limit (${DAILY_IMAGE_LIMIT}/${DAILY_IMAGE_LIMIT}). Please come back tomorrow for more creations.`,
-        },
-        { status: 429 }
-      );
-    }
   }
 
   const body = await readJsonBody(request);
@@ -141,6 +202,27 @@ async function handleGenerateImage(ctx) {
 
   const aiInput = { prompt, num_steps: steps };
   if (seed !== null) aiInput.seed = seed;
+
+  // Daily generation limit for non-admin members (server-enforced via D1)
+  if (!isAdmin) {
+    try {
+      const reservation = await reserveDailyQuota(env, userId);
+      if (!reservation) {
+        return json(
+          {
+            ok: false,
+            code: "DAILY_IMAGE_LIMIT_REACHED",
+            error: `You've reached your daily image generation limit (${DAILY_IMAGE_LIMIT}/${DAILY_IMAGE_LIMIT}). Please come back tomorrow for more creations.`,
+          },
+          { status: 429 }
+        );
+      }
+      quotaReservationId = reservation.reservationId;
+    } catch (e) {
+      if (String(e).includes("no such table")) return quotaUnavailableResponse();
+      throw e;
+    }
+  }
 
   let base64 = null;
   let mimeType = "image/png";
@@ -179,19 +261,56 @@ async function handleGenerateImage(ctx) {
       }
     }
   } catch (e) {
+    if (quotaReservationId) {
+      try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
+    }
     const msg = e && e.message ? e.message : String(e);
     return json({ ok: false, error: `Image generation failed: ${msg}` }, { status: 502 });
   }
 
   if (!base64) {
+    if (quotaReservationId) {
+      try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
+    }
     return json({ ok: false, error: "No image was generated." }, { status: 502 });
   }
 
-  // Log generation for quota tracking
+  // Log generation for quota tracking / history
   const logId = randomTokenHex(16);
-  await env.DB.prepare(
-    "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
-  ).bind(logId, userId, nowIso()).run();
+  const completedAt = nowIso();
+  try {
+    if (quotaReservationId) {
+      const results = await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE ai_daily_quota_usage SET status = 'consumed', expires_at = NULL, consumed_at = ? WHERE id = ? AND status = 'reserved'"
+        ).bind(completedAt, quotaReservationId),
+        env.DB.prepare(
+          "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
+        ).bind(logId, userId, completedAt),
+      ]);
+      if (results?.[0]?.meta?.changes !== 1) {
+        try {
+          await env.DB.prepare("DELETE FROM ai_generation_log WHERE id = ?").bind(logId).run();
+        } catch { /* ignore */ }
+        return json(
+          { ok: false, error: "Image generation could not be finalized. Please try again." },
+          { status: 500 }
+        );
+      }
+    } else {
+      await env.DB.prepare(
+        "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
+      ).bind(logId, userId, completedAt).run();
+    }
+  } catch (e) {
+    if (quotaReservationId) {
+      try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
+    }
+    return json(
+      { ok: false, error: "Image generation could not be finalized. Please try again." },
+      { status: 500 }
+    );
+  }
 
   return json({
     ok: true,
