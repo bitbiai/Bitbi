@@ -947,6 +947,75 @@ test.describe('Worker routes', () => {
     }
   });
 
+  test('contact worker: burst limiter allows three submissions and blocks the fourth', async () => {
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv();
+    env.RESEND_API_KEY = 'test-key';
+    const originalFetch = global.fetch;
+    let resendCallCount = 0;
+
+    global.fetch = async () => {
+      resendCallCount += 1;
+      return new Response(JSON.stringify({ id: `email-${resendCallCount}` }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const res = await contactWorker.fetch(
+          new Request('https://contact.bitbi.ai/', {
+            method: 'POST',
+            headers: {
+              Origin: 'https://bitbi.ai',
+              'Content-Type': 'application/json',
+              'CF-Connecting-IP': '203.0.113.88',
+            },
+            body: JSON.stringify({
+              name: 'Visitor',
+              email: 'visitor@example.com',
+              subject: `Hello ${attempt}`,
+              message: `Attempt ${attempt}`,
+              website: '',
+            }),
+          }),
+          env
+        );
+
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toMatchObject({ ok: true });
+      }
+
+      const blockedRes = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.88',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Hello 4',
+            message: 'Attempt 4',
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(blockedRes.status).toBe(429);
+      await expect(blockedRes.json()).resolves.toMatchObject({
+        error: 'Too many requests. Please try again later.',
+      });
+      expect(resendCallCount).toBe(3);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('contact worker: upstream provider failures still return a stable 502', async () => {
     const contactWorker = await loadWorker('workers/contact/src/index.js');
     const env = createAuthTestEnv();

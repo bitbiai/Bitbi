@@ -13,10 +13,6 @@ const GENERATION_LIMIT = 20; // per user per hour (in-memory rate limit)
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user per UTC day
 const QUOTA_RESERVATION_TTL_MINUTES = 60;
-const QUOTA_SLOT_SELECT_SQL = Array.from(
-  { length: DAILY_IMAGE_LIMIT },
-  (_, index) => `SELECT ${index + 1} AS slot`
-).join(" UNION ALL ");
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -91,29 +87,20 @@ async function getDailyUsage(env, userId, now = nowIso()) {
 async function reserveDailyQuota(env, userId, now = nowIso()) {
   const dayStart = getQuotaDayStart(now);
   await deleteExpiredQuotaReservations(env, userId, dayStart, now);
+  const expiresAt = addMinutesIso(QUOTA_RESERVATION_TTL_MINUTES);
 
-  for (let attempt = 0; attempt < DAILY_IMAGE_LIMIT; attempt += 1) {
+  for (let slot = 1; slot <= DAILY_IMAGE_LIMIT; slot += 1) {
     const reservationId = randomTokenHex(16);
     const result = await env.DB.prepare(
       `INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at)
-       SELECT ?, ?, ?, candidate.slot, 'reserved', ?, ?
-       FROM (${QUOTA_SLOT_SELECT_SQL}) AS candidate
-       WHERE NOT EXISTS (
-         SELECT 1
-         FROM ai_daily_quota_usage existing
-         WHERE existing.user_id = ?
-           AND existing.day_start = ?
-           AND existing.slot = candidate.slot
-       )
-       LIMIT 1`
+       VALUES (?, ?, ?, ?, 'reserved', ?, ?)`
     ).bind(
       reservationId,
       userId,
       dayStart,
+      slot,
       now,
-      addMinutesIso(QUOTA_RESERVATION_TTL_MINUTES),
-      userId,
-      dayStart
+      expiresAt
     ).run();
 
     if (result?.meta?.changes > 0) {

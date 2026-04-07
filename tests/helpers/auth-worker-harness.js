@@ -579,21 +579,12 @@ class MockD1 {
       return { cnt };
     }
 
-    if (query.startsWith("INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at)")) {
-      const [id, userId, dayStart, createdAt, expiresAt, existingUserId, existingDayStart] = bindings;
-      const occupiedSlots = new Set(
-        this.state.aiDailyQuotaUsage
-          .filter((row) => row.user_id === existingUserId && row.day_start === existingDayStart)
-          .map((row) => row.slot)
+    if (query === "INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at) VALUES (?, ?, ?, ?, 'reserved', ?, ?)") {
+      const [id, userId, dayStart, slot, createdAt, expiresAt] = bindings;
+      const existing = this.state.aiDailyQuotaUsage.find(
+        (row) => row.user_id === userId && row.day_start === dayStart && row.slot === slot
       );
-      let slot = null;
-      for (let candidate = 1; candidate <= 10; candidate += 1) {
-        if (!occupiedSlots.has(candidate)) {
-          slot = candidate;
-          break;
-        }
-      }
-      if (slot === null) {
+      if (existing) {
         return { success: true, meta: { changes: 0 } };
       }
       this.state.aiDailyQuotaUsage.push({
