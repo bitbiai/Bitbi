@@ -125,7 +125,7 @@ test.describe('Worker routes', () => {
     const res = await authWorker.fetch(
       authJsonRequest('/api/profile', 'PATCH', {
         display_name: '  <b>Alice</b>  ',
-        bio: 'Hello <i>world</i>\u0007',
+        bio: 'Hello <i>world</i>\r\n\u0007',
         website: ' https://example.com ',
         youtube_url: ' https://youtube.com/@alice ',
       }, {
@@ -141,16 +141,16 @@ test.describe('Worker routes', () => {
     await expect(res.json()).resolves.toMatchObject({
       ok: true,
       profile: {
-        display_name: 'Alice',
-        bio: 'Hello world',
+        display_name: 'bAlice/b',
+        bio: 'Hello iworld/i',
         website: 'https://example.com',
         youtube_url: 'https://youtube.com/@alice',
       },
     });
     expect(env.DB.state.profiles).toContainEqual(expect.objectContaining({
       user_id: 'profile-user',
-      display_name: 'Alice',
-      bio: 'Hello world',
+      display_name: 'bAlice/b',
+      bio: 'Hello iworld/i',
       website: 'https://example.com',
       youtube_url: 'https://youtube.com/@alice',
     }));

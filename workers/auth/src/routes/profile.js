@@ -10,7 +10,7 @@ import { logUserActivity } from "../lib/activity.js";
 
 function normalizePlainText(value) {
   return String(value ?? "")
-    .replace(/<[^>]*>?/g, "") // tags including unclosed
+    .replace(/[<>]/g, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }
