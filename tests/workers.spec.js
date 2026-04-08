@@ -15,6 +15,11 @@ async function loadAuthModules() {
   return import(passwordPath);
 }
 
+async function loadRequestModule() {
+  const requestPath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/request.js')).href;
+  return import(requestPath);
+}
+
 function authJsonRequest(pathname, method, body, headers = {}) {
   const requestHeaders = new Headers(headers);
   if (body !== undefined) {
@@ -79,6 +84,25 @@ function makeActiveRateLimitCounter(scope, limiterKey, count, windowMs) {
 }
 
 test.describe('Worker routes', () => {
+  test('auth email validation uses bounded string checks', async () => {
+    const { isValidEmail } = await loadRequestModule();
+
+    expect(isValidEmail(null)).toBe(false);
+    expect(isValidEmail(42)).toBe(false);
+    expect(isValidEmail('   ')).toBe(false);
+    expect(isValidEmail(`${'a'.repeat(243)}@example.com`)).toBe(false);
+    expect(isValidEmail('user name@example.com')).toBe(false);
+    expect(isValidEmail('user@@example.com')).toBe(false);
+    expect(isValidEmail('@example.com')).toBe(false);
+    expect(isValidEmail('user@')).toBe(false);
+    expect(isValidEmail('user@example')).toBe(false);
+    expect(isValidEmail('user@.example.com')).toBe(false);
+    expect(isValidEmail('user@example.com.')).toBe(false);
+    expect(isValidEmail('user@example..com')).toBe(false);
+    expect(isValidEmail(' user@example.com ')).toBe(true);
+    expect(isValidEmail('user@example.com')).toBe(true);
+  });
+
   test('auth happy path: login, me, logout', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { hashPassword } = await loadAuthModules();
