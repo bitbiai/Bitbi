@@ -292,6 +292,34 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.profiles.length } };
     }
 
+    if (query === 'SELECT display_name, bio, website, youtube_url, created_at FROM profiles WHERE user_id = ?') {
+      const [userId] = bindings;
+      return this.state.profiles.find((row) => row.user_id === userId) || null;
+    }
+
+    if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at) VALUES')) {
+      const [userId, displayName, bio, website, youtubeUrl, createdAt, updatedAt] = bindings;
+      const existing = this.state.profiles.find((row) => row.user_id === userId);
+      if (existing) {
+        existing.display_name = displayName;
+        existing.bio = bio;
+        existing.website = website;
+        existing.youtube_url = youtubeUrl;
+        existing.updated_at = updatedAt;
+      } else {
+        this.state.profiles.push({
+          user_id: userId,
+          display_name: displayName,
+          bio,
+          website,
+          youtube_url: youtubeUrl,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        });
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'SELECT 1 AS existing FROM favorites WHERE user_id = ? AND item_type = ? AND item_id = ? LIMIT 1') {
       const [userId, itemType, itemId] = bindings;
       const row = this.state.favorites.find(

@@ -103,6 +103,96 @@ test.describe('Worker routes', () => {
     expect(isValidEmail('user@example.com')).toBe(true);
   });
 
+  test('profile update normalizes plain-text fields and keeps URL validation separate', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'profile-user',
+          email: 'profile@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'profile-user');
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/profile', 'PATCH', {
+        display_name: '  <b>Alice</b>  ',
+        bio: 'Hello <i>world</i>\u0007',
+        website: ' https://example.com ',
+        youtube_url: ' https://youtube.com/@alice ',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      profile: {
+        display_name: 'Alice',
+        bio: 'Hello world',
+        website: 'https://example.com',
+        youtube_url: 'https://youtube.com/@alice',
+      },
+    });
+    expect(env.DB.state.profiles).toContainEqual(expect.objectContaining({
+      user_id: 'profile-user',
+      display_name: 'Alice',
+      bio: 'Hello world',
+      website: 'https://example.com',
+      youtube_url: 'https://youtube.com/@alice',
+    }));
+  });
+
+  test('profile update rejects non-https URL schemes instead of trying to sanitize them', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'profile-user-invalid-url',
+          email: 'profile2@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'profile-user-invalid-url');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/profile', 'PATCH', {
+        website: 'data:text/html,hello',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'website must be a valid https:// URL.',
+    });
+    expect(env.DB.state.profiles).toHaveLength(0);
+  });
+
   test('auth happy path: login, me, logout', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { hashPassword } = await loadAuthModules();

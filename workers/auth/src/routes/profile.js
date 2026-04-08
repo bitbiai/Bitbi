@@ -8,12 +8,11 @@ import { requireUser } from "../lib/session.js";
 import { nowIso } from "../lib/tokens.js";
 import { logUserActivity } from "../lib/activity.js";
 
-function stripHtml(str) {
-  return str
-    .replace(/<[^>]*>?/g, "")       // tags including unclosed
-    .replace(/&[#a-zA-Z0-9]+;/g, "") // HTML entities
-    .replace(/javascript:/gi, "")    // protocol handlers
-    .replace(/on\w+\s*=/gi, "");     // event handlers
+function normalizePlainText(value) {
+  return String(value ?? "")
+    .replace(/<[^>]*>?/g, "") // tags including unclosed
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }
 
 const FIELD_LIMITS = {
@@ -79,7 +78,9 @@ export async function handleUpdateProfile(ctx) {
 
   for (const [key, max] of Object.entries(FIELD_LIMITS)) {
     if (key in body) {
-      const val = stripHtml(String(body[key] ?? "")).trim();
+      const val = URL_FIELDS.includes(key)
+        ? String(body[key] ?? "").trim()
+        : normalizePlainText(body[key]).trim();
       if (val.length > max) {
         return json(
           { ok: false, error: `${key} must be at most ${max} characters.` },
