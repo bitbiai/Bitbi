@@ -66,18 +66,48 @@ try { initSmoothScroll(); } catch (e) { console.warn('smoothScroll:', e); }
 try { initContact(); } catch (e) { console.warn('contact:', e); }
 
 /* Cookie consent with YouTube control */
+const ALLOWED_YOUTUBE_HOSTS = new Set([
+    'www.youtube.com',
+    'youtube.com',
+    'www.youtube-nocookie.com',
+    'youtube-nocookie.com',
+]);
+
+function getTrustedYouTubeSrc(frame) {
+    const rawSrc = frame.getAttribute('data-src');
+    if (!rawSrc) return null;
+
+    try {
+        const url = new URL(rawSrc, window.location.href);
+        if (url.protocol !== 'https:') return null;
+        if (!ALLOWED_YOUTUBE_HOSTS.has(url.hostname)) return null;
+        return url.toString();
+    } catch {
+        return null;
+    }
+}
+
+function hideYouTubeEmbed(frame, placeholder) {
+    frame.removeAttribute('src');
+    frame.style.display = 'none';
+    placeholder.style.display = 'flex';
+}
+
 function applyConsent(c) {
     const frame = document.getElementById('ytFrame');
     const placeholder = document.getElementById('ytPlaceholder');
     if (frame && placeholder) {
         if (c.marketing) {
-            frame.src = frame.getAttribute('data-src');
-            frame.style.display = '';
-            placeholder.style.display = 'none';
+            const trustedSrc = getTrustedYouTubeSrc(frame);
+            if (trustedSrc) {
+                frame.src = trustedSrc;
+                frame.style.display = '';
+                placeholder.style.display = 'none';
+            } else {
+                hideYouTubeEmbed(frame, placeholder);
+            }
         } else {
-            frame.removeAttribute('src');
-            frame.style.display = 'none';
-            placeholder.style.display = 'flex';
+            hideYouTubeEmbed(frame, placeholder);
         }
     }
 }

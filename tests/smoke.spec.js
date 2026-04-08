@@ -41,6 +41,61 @@ test.describe('Homepage', () => {
     );
   });
 
+  test('YouTube embed loads only after stored marketing consent with an allowed host', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('bitbi_cookie_consent', JSON.stringify({
+        v: '1',
+        ts: Date.now(),
+        necessary: true,
+        analytics: false,
+        marketing: true,
+      }));
+    });
+
+    await page.goto('/');
+
+    await expect(page.locator('#ytFrame')).toHaveAttribute(
+      'src',
+      'https://www.youtube-nocookie.com/embed/_S2cGC6cOxk',
+    );
+    await expect(page.locator('#ytPlaceholder')).toBeHidden();
+  });
+
+  test('YouTube embed ignores a tampered non-YouTube data-src even with marketing consent', async ({ page }) => {
+    await page.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        url.origin === 'http://localhost:3000' &&
+        route.request().resourceType() === 'document' &&
+        (url.pathname === '/' || url.pathname === '/index.html')
+      ) {
+        const response = await route.fetch();
+        const body = (await response.text()).replace(
+          'data-src="https://www.youtube-nocookie.com/embed/_S2cGC6cOxk"',
+          'data-src="https://evil.example/embed/_S2cGC6cOxk"',
+        );
+        await route.fulfill({ response, body });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.addInitScript(() => {
+      localStorage.setItem('bitbi_cookie_consent', JSON.stringify({
+        v: '1',
+        ts: Date.now(),
+        necessary: true,
+        analytics: false,
+        marketing: true,
+      }));
+    });
+
+    await page.goto('/');
+
+    await expect(page.locator('#ytFrame')).not.toHaveAttribute('src', /./);
+    await expect(page.locator('#ytPlaceholder')).toBeVisible();
+  });
+
   test('contact form shell is present', async ({ page }) => {
     await page.goto('/');
     const form = page.locator('#contactForm');
