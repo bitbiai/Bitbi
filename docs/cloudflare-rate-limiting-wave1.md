@@ -4,29 +4,31 @@
 
 Wave 1 adds a Cloudflare WAF rate limiting rule in front of the auth worker on `bitbi.ai`. It targets the sensitive POST endpoints most commonly attacked via credential stuffing, brute-force login, and account enumeration. The rule operates at the Cloudflare edge, blocking abusive traffic before it reaches the Worker.
 
-## Why Cloudflare WAF instead of replacing Worker code
+## Why Cloudflare WAF instead of relying only on Worker code
 
-The auth worker already has per-isolate, in-memory rate limiting (see [Current repo state](#current-repo-state)). That in-code layer has a structural limitation: Cloudflare Workers run across many isolates, and each isolate maintains its own independent counter. An attacker's requests may be spread across isolates, so no single isolate sees the full request volume. The in-code limiter is therefore best-effort.
+The current repo now has worker-side rate limiting in two forms: shared durable fixed-window counters backed by D1 for abuse-sensitive endpoints, and a smaller set of legacy per-isolate in-memory counters. Those layers still execute only after the request reaches the Worker.
 
-A Cloudflare WAF rate limiting rule counts requests globally at the edge, across all isolates. Wave 1 adds this outer layer without touching any runtime code, so the existing in-code rate limiting remains as a second defense layer. This avoids regression risk and provides defense in depth: the WAF rule catches high-rate abuse globally, and the per-isolate limiter catches anything that slips through or falls outside the WAF rule's scope.
+A Cloudflare WAF rate limiting rule counts requests globally at the edge, across all isolates, before any Worker invocation or D1 work. Wave 1 adds this outer layer without replacing the runtime limiters, so the current setup remains defense in depth: the WAF rule blocks high-rate abuse globally at the edge, and the Worker-side limiters handle application-specific cases behind it.
 
 ## Current repo state
 
 ### Auth worker (`workers/auth/`)
 
-The auth worker has per-isolate, in-memory rate limiting implemented in `workers/auth/src/lib/rate-limit.js`. It uses a sliding-window algorithm backed by a `Map` that lives in Worker memory. Limits are applied per route inside the route handlers (e.g., login: 10 requests per 15 minutes per IP + per email, register: 5 per hour per IP + 3 per hour per email). These counters reset when an isolate is recycled or when requests land on a different isolate.
+The auth worker now uses `isSharedRateLimited()` from `workers/auth/src/lib/rate-limit.js` for the most abuse-sensitive routes. Those counters are stored in D1 table `rate_limit_counters` (migration `0015_add_rate_limit_counters.sql`) and are shared across isolates. If D1 or the table is unavailable, auth falls back to the older in-memory limiter.
+
+Some lower-risk auth paths still use pure in-memory limits (for example verify-email token checks, reset token validation/reset, avatar upload, and favorites add). Those remain isolate-local.
 
 The auth worker is routed via `bitbi.ai/api/*` (defined in `workers/auth/wrangler.jsonc`).
 
-No runtime code was changed for Wave 1. The in-code rate limiting remains active and must stay in place.
+Wave 1 itself did not add runtime code. Later repo work added the D1-backed shared limiter, but the dashboard WAF rule remains a separate outer layer and must stay in place.
 
 ### Contact worker (`workers/contact/`)
 
-The contact worker has its own independent per-isolate, in-memory rate limiter defined inline in `workers/contact/src/index.js`. It enforces 5 submissions per hour per IP using a fixed-window counter. The same per-isolate limitations apply.
+The contact worker now uses `workers/contact/src/lib/rate-limit.js` for shared fixed-window D1 counters on two scopes: a burst limit (`3` requests per `10` minutes per IP) and an hourly limit (`5` requests per hour per IP). If D1 or table `rate_limit_counters` is unavailable, the worker falls back to in-memory counters.
 
 The contact worker is routed via `contact.bitbi.ai` (defined in `workers/contact/wrangler.jsonc`).
 
-Wave 1 does **not** add any Cloudflare WAF protection for `contact.bitbi.ai`. The contact worker relies solely on its in-code rate limiting for now. See [Current limitations](#current-limitations).
+Wave 1 does **not** add any Cloudflare WAF protection for `contact.bitbi.ai`. The contact worker therefore relies entirely on its Worker-side limiter stack for now. See [Current limitations](#current-limitations).
 
 ## Active production rule
 
@@ -65,7 +67,7 @@ This proves:
 
 - **Free plan rule capacity**: The Cloudflare Free plan allows exactly 1 rate limiting rule. That single slot is now occupied by `bitbi-auth-sensitive-posts-ip` (1/1 used). No additional WAF rate limiting rules can be created without upgrading the plan.
 - **Minimum period**: The Free plan limits the rate limiting period to a minimum of 10 seconds. Longer windows (e.g., per-minute or per-hour) are not available at this tier.
-- **contact.bitbi.ai not covered**: The contact form endpoint on `contact.bitbi.ai` is not protected by any Cloudflare WAF rate limiting rule. It relies solely on its in-code per-isolate rate limiter (`workers/contact/src/index.js`, 5 requests per hour per IP).
+- **contact.bitbi.ai not covered**: The contact form endpoint on `contact.bitbi.ai` is not protected by any Cloudflare WAF rate limiting rule. It relies solely on Worker-side rate limiting: D1-backed fixed-window counters when `rate_limit_counters` is present, with in-memory fallback if D1 or the table is unavailable.
 
 ## Rollback
 
@@ -81,7 +83,8 @@ Files inspected for this documentation:
 
 | File | Relevance |
 |---|---|
-| `workers/auth/src/lib/rate-limit.js` | Auth worker's per-isolate sliding-window rate limiter (in-code, unchanged) |
+| `workers/auth/src/lib/rate-limit.js` | Auth worker limiter helpers: shared D1 counters + in-memory fallback |
+| `workers/auth/migrations/0015_add_rate_limit_counters.sql` | Shared durable rate-limit counter schema |
 | `workers/auth/wrangler.jsonc` | Auth worker routing: `bitbi.ai/api/*` |
-| `workers/contact/src/index.js` | Contact worker's inline per-isolate rate limiter (in-code, unchanged) |
+| `workers/contact/src/lib/rate-limit.js` | Contact worker shared D1 limiter + in-memory fallback |
 | `workers/contact/wrangler.jsonc` | Contact worker routing: `contact.bitbi.ai` |

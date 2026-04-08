@@ -64,6 +64,39 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 4. **Page metadata** — `index.html` and `experiments/*.html` must each contain `<meta name="description">`, `<link rel="canonical">`, and `og:title`.
 5. **Playwright smoke tests** — runs `npx playwright test` (Chromium) against a local `serve` instance. Validates page loads, navigation, static asset responses, auth modal, and admin page structure.
 
+### Worker Deploy Order
+
+When a change adds or depends on new D1 tables, apply remote migrations from `workers/auth/` before deploying the worker code that uses them.
+
+1. `cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --remote`
+2. Deploy `workers/auth` for auth/API/cron changes.
+3. Deploy `workers/contact` after `0015_add_rate_limit_counters.sql` is present, because it shares `bitbi-auth-db` for durable contact abuse counters.
+4. Pages deploy is separate; publishing the static site does not deploy `workers/`.
+
+Current migration-to-worker dependencies:
+- `0010_add_r2_cleanup_queue` — auth worker AI delete flows and scheduled R2 cleanup retries
+- `0012_add_user_activity_log` — admin user-activity views and durable activity logging
+- `0014_add_ai_daily_quota_usage` — `/api/ai/quota` and non-admin daily image quota enforcement
+- `0015_add_rate_limit_counters` — shared durable rate limiting in both auth and contact workers
+
+Some paths degrade gracefully if a table is missing, but the intended production deploy path is still migrations first, then worker deploys.
+
+### Worker Bindings
+
+| Worker | Required bindings / secrets | Operational note |
+|--------|-----------------------------|------------------|
+| `workers/auth/` | D1 `DB`; AI `AI`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron also cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, and pending R2 cleanup jobs |
+| `workers/contact/` | D1 `DB`; secret `RESEND_API_KEY` | Uses the shared `rate_limit_counters` table for durable contact abuse limiting |
+| `workers/crypto/` | secret `COINGECKO_API_KEY` | No D1 or R2 bindings |
+
+### Post-Deploy Checks
+
+- `https://bitbi.ai/api/health` returns HTTP 200 from the auth worker
+- Auth routes backed by new schema return application JSON instead of `500`/`503` (`/api/admin/user-activity` for `0012`, `/api/ai/quota` for `0014`, AI delete/bulk-delete flows for `0010`)
+- One real contact-form submission from `https://bitbi.ai` returns the expected `200`/`400`/`429` shape, and contact worker logs do not show durable limiter fallback after `0015`
+
+**Cloudflare Free plan constraint**: the single WAF rate-limiting rule slot is already used by the auth-domain rule documented in `docs/cloudflare-rate-limiting-wave1.md`, so `contact.bitbi.ai` depends on worker-side limiting rather than dashboard WAF protection.
+
 ## Architecture
 
 ### R2 Media Delivery

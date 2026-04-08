@@ -1,20 +1,10 @@
 import { getClientIp, isSharedRateLimited } from './lib/rate-limit.js';
 
 /**
- * Cloudflare Worker — Contact Form Handler
- * Receives POST from the contact form and sends email via Resend API.
- *
- * SETUP:
- * 1. Sign up at https://resend.com (free: 100 emails/day)
- * 2. Add & verify your domain (bitbi.ai) in Resend dashboard
- * 3. Create an API key in Resend
- * 4. Deploy this worker on Cloudflare:
- *    - Go to Cloudflare Dashboard > Workers & Pages > Create Worker
- *    - Paste this code and deploy
- *    - Add secret: Settings > Variables > RESEND_API_KEY = your key
- *    - Add route: contact.bitbi.ai/* -> this worker
- *      (or use Workers Routes under your bitbi.ai domain DNS settings)
- *    - In DNS, add a AAAA record for "contact" pointing to 100:: (proxied)
+ * Contact form worker for `https://contact.bitbi.ai`.
+ * Depends on `RESEND_API_KEY` plus D1 binding `DB` for shared contact abuse counters.
+ * Apply `workers/auth/migrations/0015_add_rate_limit_counters.sql` before deploy if
+ * durable rate limiting is expected; otherwise the limiter falls back to in-memory.
  */
 
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
