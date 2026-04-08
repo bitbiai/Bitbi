@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a reproducible bug or broken behavior in Bitbi
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in Bitbi. Please fill out the details below so the issue can be reviewed properly.
+
+  - type: input
+    id: page
+    attributes:
+      label: Affected page or feature
+      description: Where does the problem happen?
+      placeholder: e.g. homepage, profile, admin, image studio, login, sound lab
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly.
+      placeholder: Tell me what is broken or behaving incorrectly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps so the bug can be reproduced.
+      placeholder: |
+        1. Go to ...
+        2. Click on ...
+        3. Scroll / rotate / submit ...
+        4. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: Describe the expected behavior.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device type
+      options:
+        - Desktop
+        - Mobile
+        - Tablet
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: e.g. Safari, Chrome, Firefox, Edge
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. macOS, iPhone iOS, Android, Windows
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or extra context
+      description: Add screenshots, error messages, console output, or any other useful details.
