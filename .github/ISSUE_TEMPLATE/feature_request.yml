@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest an improvement, idea, or new feature for Bitbi
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement for Bitbi. Please fill out the details below.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the need, frustration, or missing functionality.
+      placeholder: Explain the problem or limitation clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or improvement you would like to see.
+      placeholder: Explain your idea clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefit
+    attributes:
+      label: Why would this improve Bitbi?
+      description: Explain why this would be useful for users or for the project.
+      placeholder: Describe the expected benefit.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Homepage
+        - Profile
+        - Admin
+        - Image Studio
+        - AI Gallery
+        - Experiments
+        - Sound Lab
+        - Authentication
+        - Mobile UX
+        - Desktop UX
+        - Backend / API
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra context
+      description: Add screenshots, examples, references, or anything else that helps explain the request.
