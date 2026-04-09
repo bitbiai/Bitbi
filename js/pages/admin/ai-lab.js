@@ -2497,7 +2497,7 @@ export function createAdminAiLab({ showToast } = {}) {
                         if (data === '[DONE]') continue;
                         try {
                             const parsed = JSON.parse(data);
-                            const chunk = parsed.response || '';
+                            const chunk = parsed.choices?.[0]?.delta?.content || '';
                             if (chunk) {
                                 fullText += chunk;
                                 textSpan.textContent = fullText;
