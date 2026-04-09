@@ -43,6 +43,7 @@ src/
 │   ├── rate-limit.js     ← in-memory + shared D1 rate limiting helpers
 │   ├── email.js          ← sendVerificationEmail, sendResetEmail, createAndSendVerificationToken
 │   ├── activity.js       ← fire-and-forget user activity logging
+│   ├── admin-ai-response.js ← admin-only AI proxy response-code normalization
 │   └── constants.js      ← VALID_MONSTER_IDS
 └── routes/
     ├── health.js         ← GET /api/health

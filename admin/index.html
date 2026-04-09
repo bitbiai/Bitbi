@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave5">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave6">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -646,7 +646,10 @@
                                         <h4 id="aiCompareALabel" class="admin-ai__compare-title">Waiting for run</h4>
                                         <p id="aiCompareAMeta" class="admin-ai__compare-id"></p>
                                     </div>
-                                    <button type="button" id="aiCompareACopy" class="btn-action" hidden>Copy Output</button>
+                                    <div class="admin-ai__compare-actions">
+                                        <button type="button" id="aiCompareACopy" class="btn-action" hidden>Copy Output</button>
+                                        <button type="button" id="aiCompareACopyDiff" class="btn-action" hidden disabled>Copy Differences</button>
+                                    </div>
                                 </div>
                                 <pre id="aiCompareAText" class="admin-ai__output admin-ai__output--text"></pre>
                                 <div id="aiCompareAUsage" class="admin-ai__compare-usage" hidden></div>
@@ -658,7 +661,10 @@
                                         <h4 id="aiCompareBLabel" class="admin-ai__compare-title">Waiting for run</h4>
                                         <p id="aiCompareBMeta" class="admin-ai__compare-id"></p>
                                     </div>
-                                    <button type="button" id="aiCompareBCopy" class="btn-action" hidden>Copy Output</button>
+                                    <div class="admin-ai__compare-actions">
+                                        <button type="button" id="aiCompareBCopy" class="btn-action" hidden>Copy Output</button>
+                                        <button type="button" id="aiCompareBCopyDiff" class="btn-action" hidden disabled>Copy Differences</button>
+                                    </div>
                                 </div>
                                 <pre id="aiCompareBText" class="admin-ai__output admin-ai__output--text"></pre>
                                 <div id="aiCompareBUsage" class="admin-ai__compare-usage" hidden></div>
@@ -825,6 +831,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260409-wave5"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260409-wave6"></script>
 </body>
 </html>

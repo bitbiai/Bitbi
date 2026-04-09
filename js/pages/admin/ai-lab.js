@@ -4,12 +4,13 @@ import {
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js?v=20260409-wave5';
+} from '../../shared/auth-api.js?v=20260409-wave6';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare'];
 const HISTORY_LIMIT = 6;
-const ADMIN_AI_UI_VERSION = '20260409-wave5';
+// Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
+const ADMIN_AI_UI_VERSION = '20260409-wave6';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -701,12 +702,14 @@ export function createAdminAiLab({ showToast } = {}) {
             aUsage: document.getElementById('aiCompareAUsage'),
             aError: document.getElementById('aiCompareAError'),
             aCopy: document.getElementById('aiCompareACopy'),
+            aCopyDiff: document.getElementById('aiCompareACopyDiff'),
             bLabel: document.getElementById('aiCompareBLabel'),
             bMeta: document.getElementById('aiCompareBMeta'),
             bText: document.getElementById('aiCompareBText'),
             bUsage: document.getElementById('aiCompareBUsage'),
             bError: document.getElementById('aiCompareBError'),
             bCopy: document.getElementById('aiCompareBCopy'),
+            bCopyDiff: document.getElementById('aiCompareBCopyDiff'),
             onlyDifferences: document.getElementById('aiCompareOnlyDifferences'),
             diff: document.getElementById('aiCompareDiff'),
             debug: document.getElementById('aiCompareDebug'),
@@ -1612,10 +1615,72 @@ export function createAdminAiLab({ showToast } = {}) {
         return 'No unique phrasing detected for this model in difference-only view.';
     }
 
+    function getCompareDifferenceView(entry, diff, side) {
+        const originalText = entry?.text || '';
+        const emptyCopyMessage = diff?.available
+            ? 'No distinctive compare text available to copy.'
+            : 'Difference-only copy requires two successful compare outputs.';
+
+        if (!state.preferences.compareOnlyDifferences) {
+            return {
+                displayText: originalText,
+                copyText: '',
+                showCopyButton: false,
+                copyDisabled: true,
+                copyTitle: 'Enable Show Only Differences to copy distinctive text only.',
+            };
+        }
+
+        if (!entry?.ok || !originalText) {
+            return {
+                displayText: originalText,
+                copyText: '',
+                showCopyButton: false,
+                copyDisabled: true,
+                copyTitle: emptyCopyMessage,
+            };
+        }
+
+        if (!diff?.available) {
+            return {
+                displayText: originalText,
+                copyText: '',
+                showCopyButton: true,
+                copyDisabled: true,
+                copyTitle: emptyCopyMessage,
+            };
+        }
+
+        const uniqueChunks = side === 'a' ? diff.onlyA : diff.onlyB;
+        if (uniqueChunks.length > 0) {
+            const copyText = uniqueChunks.join('\n\n');
+            return {
+                displayText: copyText,
+                copyText,
+                showCopyButton: true,
+                copyDisabled: false,
+                copyTitle: 'Copy only the distinctive compare text.',
+            };
+        }
+
+        return {
+            displayText: getCompareCardText(entry, diff, side),
+            copyText: '',
+            showCopyButton: true,
+            copyDisabled: true,
+            copyTitle: emptyCopyMessage,
+        };
+    }
+
     function renderCompareCard(cardRefs, entry, options = {}) {
         cardRefs.error.hidden = true;
         cardRefs.usage.hidden = true;
         cardRefs.copy.hidden = true;
+        if (cardRefs.copyDiff) {
+            cardRefs.copyDiff.hidden = true;
+            cardRefs.copyDiff.disabled = true;
+            cardRefs.copyDiff.title = '';
+        }
         cardRefs.text.textContent = '';
 
         if (!entry) {
@@ -1645,6 +1710,11 @@ export function createAdminAiLab({ showToast } = {}) {
 
         cardRefs.text.textContent = displayText;
         cardRefs.copy.hidden = !entry.text;
+        if (cardRefs.copyDiff) {
+            cardRefs.copyDiff.hidden = !options.copyDiff?.visible;
+            cardRefs.copyDiff.disabled = !!options.copyDiff?.disabled;
+            cardRefs.copyDiff.title = options.copyDiff?.title || '';
+        }
 
         if (isObject(entry.usage)) {
             cardRefs.usage.hidden = false;
@@ -1754,6 +1824,8 @@ export function createAdminAiLab({ showToast } = {}) {
         const entries = Array.isArray(response?.result?.results) ? response.result.results : [];
         const resultCode = getResultCode(result);
         const diff = buildCompareDiff(entries);
+        const viewA = getCompareDifferenceView(entries[0] || null, diff, 'a');
+        const viewB = getCompareDifferenceView(entries[1] || null, diff, 'b');
 
         renderMeta(refs.compare.meta, response ? [
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
@@ -1775,11 +1847,17 @@ export function createAdminAiLab({ showToast } = {}) {
                 usage: refs.compare.aUsage,
                 error: refs.compare.aError,
                 copy: refs.compare.aCopy,
+                copyDiff: refs.compare.aCopyDiff,
             },
             entries[0] || null,
             {
-                displayText: getCompareCardText(entries[0] || null, diff, 'a'),
+                displayText: viewA.displayText,
                 onlyDifferences: state.preferences.compareOnlyDifferences && diff.available && !!entries[0]?.ok,
+                copyDiff: {
+                    visible: viewA.showCopyButton,
+                    disabled: viewA.copyDisabled,
+                    title: viewA.copyTitle,
+                },
             }
         );
         renderCompareCard(
@@ -1790,11 +1868,17 @@ export function createAdminAiLab({ showToast } = {}) {
                 usage: refs.compare.bUsage,
                 error: refs.compare.bError,
                 copy: refs.compare.bCopy,
+                copyDiff: refs.compare.bCopyDiff,
             },
             entries[1] || null,
             {
-                displayText: getCompareCardText(entries[1] || null, diff, 'b'),
+                displayText: viewB.displayText,
                 onlyDifferences: state.preferences.compareOnlyDifferences && diff.available && !!entries[1]?.ok,
+                copyDiff: {
+                    visible: viewB.showCopyButton,
+                    disabled: viewB.copyDisabled,
+                    title: viewB.copyTitle,
+                },
             }
         );
         renderCompareDiff(entries);
@@ -2267,6 +2351,21 @@ export function createAdminAiLab({ showToast } = {}) {
         setStatus(`${state.activeMode} form reset.`, 'success');
     }
 
+    function copyCompareDifferences(side) {
+        const response = state.results.compare?.raw;
+        const entries = Array.isArray(response?.result?.results) ? response.result.results : [];
+        const diff = buildCompareDiff(entries);
+        const entry = entries[side === 'a' ? 0 : 1] || null;
+        const view = getCompareDifferenceView(entry, diff, side);
+
+        if (!view.copyText) {
+            if (showToast) showToast(view.copyTitle || 'No distinctive compare text available to copy.', 'error');
+            return;
+        }
+
+        copyText(view.copyText, showToast, 'Compare differences copied.');
+    }
+
     function attachFieldSync(ref, mode, field, parser) {
         const eventName = ref.tagName === 'SELECT' ? 'change' : 'input';
         ref.addEventListener(eventName, () => {
@@ -2389,6 +2488,8 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.compare.bCopy.addEventListener('click', () => {
             copyText(state.results.compare?.raw?.result?.results?.[1]?.text || '', showToast, 'Compare output copied.');
         });
+        refs.compare.aCopyDiff.addEventListener('click', () => copyCompareDifferences('a'));
+        refs.compare.bCopyDiff.addEventListener('click', () => copyCompareDifferences('b'));
     }
 
     return {

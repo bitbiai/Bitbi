@@ -106,6 +106,25 @@ async function setAiLabTimeouts(page, overrides) {
   }, overrides);
 }
 
+async function installClipboardSpy(page) {
+  await page.addInitScript(() => {
+    window.__bitbiClipboard = { value: '' };
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.__bitbiClipboard.value = String(text);
+        },
+        readText: async () => window.__bitbiClipboard.value,
+      },
+    });
+  });
+}
+
+async function readClipboardValue(page) {
+  return page.evaluate(() => window.__bitbiClipboard?.value || '');
+}
+
 async function mockAdminAiLab(page) {
   const catalog = createMockAiCatalog();
 
@@ -251,6 +270,76 @@ async function mockAdminAiLab(page) {
   });
 
   await page.route('**/api/admin/ai/compare', async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.prompt === 'identical compare output') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'compare',
+          models: catalog.models.text,
+          result: {
+            results: [
+              {
+                ok: true,
+                model: catalog.models.text[0],
+                text: 'BITBI keeps the compare output deliberately aligned for contract testing.',
+                usage: { total_tokens: 13 },
+                elapsedMs: 101,
+              },
+              {
+                ok: true,
+                model: catalog.models.text[1],
+                text: 'BITBI keeps the compare output deliberately aligned for contract testing.',
+                usage: { total_tokens: 14 },
+                elapsedMs: 111,
+              },
+            ],
+            maxTokens: 250,
+            temperature: 0.7,
+          },
+          elapsedMs: 240,
+        }),
+      });
+      return;
+    }
+
+    if (body.prompt === 'partial compare failure') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'compare',
+          code: 'partial_success',
+          models: catalog.models.text,
+          result: {
+            results: [
+              {
+                ok: true,
+                model: catalog.models.text[0],
+                text: 'BITBI keeps one model output available while the other fails.',
+                usage: { total_tokens: 12 },
+                elapsedMs: 119,
+              },
+              {
+                ok: false,
+                model: catalog.models.text[1],
+                code: 'upstream_error',
+                error: 'Mock compare upstream failure.',
+              },
+            ],
+            maxTokens: 250,
+            temperature: 0.7,
+          },
+          elapsedMs: 260,
+          warnings: ['One or more model runs failed during comparison.'],
+        }),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -427,6 +516,7 @@ test.describe('Account pages (unauthenticated)', () => {
 test.describe('Admin AI Lab', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
+    await installClipboardSpy(page);
     await mockAdminAiLab(page);
   });
 
@@ -437,8 +527,8 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave5"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave5"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave6"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave6"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -571,13 +661,13 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiTextState')).toContainText('Prompt rejected by mock.');
   });
 
-  test('filters compare output when show only differences is enabled', async ({
+  test('filters compare output and supports full-copy plus diff-only copy actions', async ({
     page,
   }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Compare' }).click();
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
     await page.locator('#aiCompareRun').click();
     await expect(page.locator('#aiCompareAText')).toContainText(
       'BITBI blends AI imagery with a premium admin control surface.',
@@ -605,6 +695,23 @@ test.describe('Admin AI Lab', () => {
       'Only differences view enabled',
     );
     await expect(page.locator('#aiCompareDiff')).not.toContainText('Shared Phrasing');
+    await expect(page.locator('#aiCompareACopyDiff')).toBeVisible();
+    await expect(page.locator('#aiCompareBCopyDiff')).toBeVisible();
+
+    await page.locator('#aiCompareACopy').click();
+    await expect.poll(() => readClipboardValue(page)).toContain(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+
+    await page.locator('#aiCompareACopyDiff').click();
+    await expect.poll(() => readClipboardValue(page)).toBe(
+      'It feels precise and cinematic.',
+    );
+
+    await page.locator('#aiCompareBCopyDiff').click();
+    await expect.poll(() => readClipboardValue(page)).toBe(
+      'It feels agile and technical.',
+    );
 
     await page.reload();
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
@@ -620,6 +727,40 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiCompareAText')).toContainText(
       'BITBI blends AI imagery with a premium admin control surface.',
     );
+    await expect(page.locator('#aiCompareACopyDiff')).toBeHidden();
+    await page.locator('#aiCompareACopy').click();
+    await expect.poll(() => readClipboardValue(page)).toContain(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+  });
+
+  test('keeps diff-only copy stable for identical and partial-success compare states', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await page.locator('#aiComparePrompt').fill('identical compare output');
+    await page.locator('#aiCompareRun').click();
+    await page.locator('#aiCompareOnlyDifferences').check();
+    await expect(page.locator('#aiCompareAText')).toContainText(
+      'No unique phrasing detected in difference-only view.',
+    );
+    await expect(page.locator('#aiCompareACopyDiff')).toBeVisible();
+    await expect(page.locator('#aiCompareACopyDiff')).toBeDisabled();
+
+    await page.locator('#aiComparePrompt').fill('partial compare failure');
+    await page.locator('#aiCompareRun').click();
+    await expect(page.locator('#aiCompareState')).toContainText('partial success');
+    await expect(page.locator('#aiCompareAError')).toBeHidden();
+    await expect(page.locator('#aiCompareBError')).toContainText('Mock compare upstream failure.');
+    await expect(page.locator('#aiCompareDiff')).toContainText(
+      'Difference aid becomes available when both compare outputs succeed.',
+    );
+    await expect(page.locator('#aiCompareACopyDiff')).toBeVisible();
+    await expect(page.locator('#aiCompareACopyDiff')).toBeDisabled();
+    await expect(page.locator('#aiCompareBCopyDiff')).toBeHidden();
   });
 
   test('cancels an in-flight text request without overwriting the previous result', async ({

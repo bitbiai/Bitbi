@@ -212,3 +212,18 @@ All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION
 - `docs/` contains internal compliance/audit notes — not deployed, not user-facing
 - **Cache busting**: All CSS/JS `<link>`/`<script>` tags use `?v=YYYYMMDD` query params (e.g. `?v=20260317`). When modifying CSS or JS files, update the version string in the HTML files that reference them
 - **Subpage pattern**: Subpages (profile, admin, legal) start with a minimal nav shell, then `initSiteHeader()` from `js/shared/site-header.js` injects the full nav + mobile menu at runtime. All subpages load the same CSS cascade: `tokens → reset → base → components → auth → page-specific → utilities`
+
+### Admin Release Token Checklist
+
+Use one admin release token formatted like `YYYYMMDD-waveN` whenever an admin deploy changes versioned admin assets.
+
+- Bump `admin/index.html` together:
+  - `../css/admin/admin.css?v=...`
+  - `../js/pages/admin/main.js?v=...`
+- Bump every versioned admin import in `js/pages/admin/main.js` together so the admin page does not mix old shared modules with new entrypoint logic.
+- Bump the `../../shared/auth-api.js?v=...` import and `ADMIN_AI_UI_VERSION` together in `js/pages/admin/ai-lab.js`.
+- If the deploy also changes admin AI API contracts, deploy worker changes first, then deploy the static/admin assets.
+- After deploy, hard refresh or purge cache and smoke-test:
+  - `/admin/index.html#dashboard`
+  - `/admin/index.html#ai-lab`
+  - one AI Lab text or compare run
