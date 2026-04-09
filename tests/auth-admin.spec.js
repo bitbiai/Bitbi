@@ -697,8 +697,8 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave6"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave6"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave8"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave8"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -1150,6 +1150,76 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiCompareState')).toContainText('timed out');
     await expect(page.locator('#aiCompareAText')).not.toContainText('Slow compare A.');
     await expect(page.locator('#aiCompareBText')).not.toContainText('Slow compare B.');
+  });
+
+  test('Live Agent section appears after Compare and shows the chat UI', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    // Mode button exists after Compare
+    const modes = page.locator('[data-ai-mode]');
+    const labels = await modes.allTextContents();
+    const compareIdx = labels.indexOf('Compare');
+    const liveAgentIdx = labels.indexOf('Live Agent');
+    expect(compareIdx).toBeGreaterThanOrEqual(0);
+    expect(liveAgentIdx).toBe(compareIdx + 1);
+
+    // Switch to Live Agent
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+    await expect(
+      page.locator('#aiLabPanelLiveAgent .admin-section-title'),
+    ).toHaveText('Live Agent');
+    await expect(page.locator('#aiLiveAgentSystem')).toBeVisible();
+    await expect(page.locator('#aiLiveAgentInput')).toBeVisible();
+    await expect(page.locator('#aiLiveAgentSend')).toBeVisible();
+    await expect(page.locator('#aiLiveAgentSend')).toBeEnabled();
+    await expect(page.locator('#aiLiveAgentCancel')).toBeDisabled();
+    await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
+  });
+
+  test('Live Agent rejects empty user input', async ({ page }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+
+    // Send with empty input
+    await page.locator('#aiLiveAgentSend').click();
+    await expect(page.locator('#aiLiveAgentState')).toContainText(
+      'Enter a message before sending',
+    );
+    // No bubbles in transcript
+    await expect(
+      page.locator('.admin-ai__chat-msg'),
+    ).toHaveCount(0);
+  });
+
+  test('Live Agent clear resets conversation', async ({ page }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+
+    // Mock a streaming response
+    await page.route('**/api/admin/ai/live-agent', async (route) => {
+      const body = 'data: {"response":"Hello"}\n\ndata: [DONE]\n\n';
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream; charset=utf-8',
+        body,
+      });
+    });
+
+    await page.locator('#aiLiveAgentInput').fill('Hi there');
+    await page.locator('#aiLiveAgentSend').click();
+    await expect(page.locator('.admin-ai__chat-msg')).toHaveCount(2);
+
+    // Clear
+    await page.locator('#aiLiveAgentClear').click();
+    await expect(page.locator('.admin-ai__chat-msg')).toHaveCount(0);
+    await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
   });
 });
 

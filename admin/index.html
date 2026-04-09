@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave6">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave8">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -312,6 +312,7 @@
                         <button type="button" class="admin-ai__mode" data-ai-mode="image" aria-selected="false">Image</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="embeddings" aria-selected="false">Embeddings</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="live-agent" aria-selected="false">Live Agent</button>
                     </div>
                 </div>
 
@@ -683,6 +684,40 @@
                         </details>
                     </div>
                 </div>
+
+                <!-- Live Agent panel -->
+                <div id="aiLabPanelLiveAgent" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-ai__panel-header">
+                        <div>
+                            <h3 class="admin-section-title">Live Agent</h3>
+                            <p class="admin-shell__desc">Multi-turn chat testing surface. Model: <strong>Gemma 4 26B A4B</strong></p>
+                        </div>
+                        <div class="admin-ai__panel-actions">
+                            <button type="button" id="aiLiveAgentClear" class="btn-action">Clear Chat</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-ai__surface admin-ai__surface--spaced">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">System Prompt</span>
+                                <span id="aiLiveAgentSystemCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiLiveAgentSystem" class="admin-ai__textarea" rows="3" maxlength="1200">You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.</textarea>
+                        </label>
+
+                        <div id="aiLiveAgentTranscript" class="admin-ai__chat-transcript" aria-live="polite" aria-label="Chat transcript"></div>
+
+                        <div class="admin-ai__chat-input-row">
+                            <label class="sr-only" for="aiLiveAgentInput">Message</label>
+                            <textarea id="aiLiveAgentInput" class="admin-ai__textarea admin-ai__chat-input" rows="2" maxlength="4000" placeholder="Type a message..."></textarea>
+                            <button type="button" id="aiLiveAgentSend" class="admin-ai__run">Send</button>
+                            <button type="button" id="aiLiveAgentCancel" class="btn-action" disabled>Cancel</button>
+                        </div>
+
+                        <div id="aiLiveAgentState" class="admin-ai__result-state admin-ai__result-state--neutral">Ready.</div>
+                    </div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════
@@ -831,6 +866,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260409-wave6"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260409-wave8"></script>
 </body>
 </html>

@@ -303,6 +303,103 @@ function validateComparePayload(body) {
   };
 }
 
+const LIVE_AGENT_LIMITS = {
+  maxMessages: 40,
+  maxSystemLength: 1200,
+  maxMessageLength: 4000,
+};
+
+function validateLiveAgentPayload(body) {
+  const input = ensureObject(body);
+  const messages = input.messages;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new InputError("messages must be a non-empty array.", 400, "validation_error");
+  }
+  if (messages.length > LIVE_AGENT_LIMITS.maxMessages) {
+    throw new InputError(
+      `messages must contain at most ${LIVE_AGENT_LIMITS.maxMessages} items.`,
+      400,
+      "validation_error"
+    );
+  }
+
+  const validated = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+      throw new InputError(`messages[${i}] must be an object.`, 400, "validation_error");
+    }
+
+    const role = msg.role;
+    if (role !== "system" && role !== "user" && role !== "assistant") {
+      throw new InputError(
+        `messages[${i}].role must be "system", "user", or "assistant".`,
+        400,
+        "validation_error"
+      );
+    }
+
+    if (typeof msg.content !== "string") {
+      throw new InputError(`messages[${i}].content must be a string.`, 400, "validation_error");
+    }
+
+    const maxLen = role === "system" ? LIVE_AGENT_LIMITS.maxSystemLength : LIVE_AGENT_LIMITS.maxMessageLength;
+    const trimmed = msg.content.trim();
+    if (!trimmed) {
+      throw new InputError(`messages[${i}].content must not be empty.`, 400, "validation_error");
+    }
+    if (trimmed.length > maxLen) {
+      throw new InputError(
+        `messages[${i}].content must be at most ${maxLen} characters.`,
+        400,
+        "validation_error"
+      );
+    }
+
+    validated.push({ role, content: trimmed });
+  }
+
+  if (!validated.some((m) => m.role === "user")) {
+    throw new InputError("messages must include at least one user message.", 400, "validation_error");
+  }
+
+  return { messages: validated };
+}
+
+async function proxyLiveAgentToAiLab(env, payload, adminUser) {
+  if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
+    return serviceUnavailableResponse();
+  }
+
+  let response;
+  try {
+    response = await env.AI_LAB.fetch(
+      new Request(`${AI_LAB_BASE_URL}/internal/ai/live-agent`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          accept: "text/event-stream",
+          "x-bitbi-admin-user-id": adminUser.id,
+          "x-bitbi-admin-user-email": adminUser.email,
+        },
+        body: JSON.stringify(payload),
+      })
+    );
+  } catch (error) {
+    console.error("Admin AI live-agent proxy request failed", error);
+    return serviceUnavailableResponse();
+  }
+
+  // Stream responses pass through directly; JSON error responses go through normalisation
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/event-stream")) {
+    return response;
+  }
+
+  return withAdminAiCode(response);
+}
+
 async function proxyToAiLab(env, path, init, adminUser) {
   if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     return serviceUnavailableResponse();
@@ -443,6 +540,23 @@ export async function handleAdminAI(ctx) {
         { method: "POST", body: validateComparePayload(body) },
         result.user
       );
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error);
+      throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/live-agent" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-liveagent-ip", 20, 600_000);
+    if (limited) return limited;
+
+    const body = await readJsonBody(request);
+    if (!body) {
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
+    }
+
+    try {
+      return proxyLiveAgentToAiLab(env, validateLiveAgentPayload(body), result.user);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error);
       throw error;

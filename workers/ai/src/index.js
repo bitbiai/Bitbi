@@ -2,6 +2,7 @@ import { methodNotAllowed, notFound } from "./lib/responses.js";
 import { handleCompare } from "./routes/compare.js";
 import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleImage } from "./routes/image.js";
+import { handleLiveAgent } from "./routes/live-agent.js";
 import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
 
@@ -35,6 +36,11 @@ export default {
     if (pathname === "/internal/ai/compare") {
       if (method !== "POST") return methodNotAllowed(["POST"]);
       return handleCompare(ctx);
+    }
+
+    if (pathname === "/internal/ai/live-agent") {
+      if (method !== "POST") return methodNotAllowed(["POST"]);
+      return handleLiveAgent(ctx);
     }
 
     return notFound();

@@ -73,6 +73,16 @@ function createAiLabRunStub() {
       };
     }
 
+    if (modelId === '@cf/google/gemma-4-26b-a4b-it' && payload.stream) {
+      const sseBody = 'data: {"response":"Live "}\n\ndata: {"response":"agent "}\n\ndata: {"response":"response."}\n\ndata: [DONE]\n\n';
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sseBody));
+          controller.close();
+        },
+      });
+    }
+
     return {
       response: `Stubbed output for ${modelId}`,
       usage: {
@@ -815,6 +825,83 @@ test.describe('Worker routes', () => {
           error: expect.any(String),
         }),
       ]));
+    });
+
+    test('POST /api/admin/ai/live-agent returns a streaming response for valid chat messages', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', {
+          messages: [
+            { role: 'system', content: 'You are a test assistant.' },
+            { role: 'user', content: 'Hello' },
+          ],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const contentType = res.headers.get('content-type') || '';
+      expect(contentType).toContain('text/event-stream');
+      const text = await res.text();
+      expect(text).toContain('data:');
+      expect(text).toContain('[DONE]');
+    });
+
+    test('POST /api/admin/ai/live-agent rejects requests without a user message', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', {
+          messages: [
+            { role: 'system', content: 'You are a test assistant.' },
+          ],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
+      expect(body.error).toContain('user message');
+    });
+
+    test('POST /api/admin/ai/live-agent rejects unauthenticated requests', async () => {
+      const { authWorker, env } = await createAdminAiContractHarness({ withSession: false });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', {
+          messages: [
+            { role: 'user', content: 'Hello' },
+          ],
+        }, { Origin: 'https://bitbi.ai' }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+    });
+
+    test('POST /api/admin/ai/live-agent rejects empty messages array', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/live-agent', 'POST', {
+          messages: [],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
     });
   });
 

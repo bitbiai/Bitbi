@@ -154,6 +154,32 @@ export function apiAdminAiCompare(payload, options) {
     return request('POST', '/admin/ai/compare', payload, options);
 }
 
+export async function apiAdminAiLiveAgent(payload, options = {}) {
+    try {
+        const opts = {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        };
+        if (options.signal) opts.signal = options.signal;
+        const res = await fetch(BASE + '/admin/ai/live-agent', opts);
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('text/event-stream') && res.ok && res.body) {
+            return { ok: true, stream: true, body: res.body };
+        }
+        let data;
+        try { data = await res.json(); } catch { data = null; }
+        if (res.ok) return { ok: true, data };
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    }
+}
+
 /* ── Email Verification ── */
 
 export function apiVerifyEmail(token) {

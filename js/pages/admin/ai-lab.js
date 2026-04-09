@@ -1,16 +1,17 @@
 import {
     apiAdminAiCompare,
+    apiAdminAiLiveAgent,
     apiAdminAiModels,
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js?v=20260409-wave6';
+} from '../../shared/auth-api.js?v=20260409-wave8';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
-const MODES = ['models', 'text', 'image', 'embeddings', 'compare'];
+const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
 const HISTORY_LIMIT = 6;
 // Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
-const ADMIN_AI_UI_VERSION = '20260409-wave6';
+const ADMIN_AI_UI_VERSION = '20260409-wave8';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -598,6 +599,7 @@ export function createAdminAiLab({ showToast } = {}) {
             image: document.getElementById('aiLabPanelImage'),
             embeddings: document.getElementById('aiLabPanelEmbeddings'),
             compare: document.getElementById('aiLabPanelCompare'),
+            'live-agent': document.getElementById('aiLabPanelLiveAgent'),
         },
         models: {
             presets: document.getElementById('aiModelsPresets'),
@@ -715,6 +717,16 @@ export function createAdminAiLab({ showToast } = {}) {
             debug: document.getElementById('aiCompareDebug'),
             raw: document.getElementById('aiCompareRaw'),
             copyRaw: document.getElementById('aiCompareCopyRaw'),
+        },
+        liveAgent: {
+            system: document.getElementById('aiLiveAgentSystem'),
+            systemCount: document.getElementById('aiLiveAgentSystemCount'),
+            transcript: document.getElementById('aiLiveAgentTranscript'),
+            input: document.getElementById('aiLiveAgentInput'),
+            send: document.getElementById('aiLiveAgentSend'),
+            cancel: document.getElementById('aiLiveAgentCancel'),
+            clear: document.getElementById('aiLiveAgentClear'),
+            state: document.getElementById('aiLiveAgentState'),
         },
     };
 
@@ -1272,7 +1284,10 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function renderResetLabel() {
-        const label = state.activeMode === 'models' ? 'Refresh View' : 'Reset Current Form';
+        let label;
+        if (state.activeMode === 'models') label = 'Refresh View';
+        else if (state.activeMode === 'live-agent') label = 'Reset Chat';
+        else label = 'Reset Current Form';
         refs.resetBtn.textContent = label;
     }
 
@@ -2332,6 +2347,14 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        if (state.activeMode === 'live-agent') {
+            liveAgentClear();
+            refs.liveAgent.system.value = 'You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.';
+            liveAgentUpdateSystemCount();
+            setStatus('Live Agent chat reset.', 'success');
+            return;
+        }
+
         const labels = {
             text: 'Text',
             image: 'Image',
@@ -2364,6 +2387,170 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         copyText(view.copyText, showToast, 'Compare differences copied.');
+    }
+
+    /* ── Live Agent chat ── */
+
+    const liveAgentState = {
+        messages: [],   // { role, content } — the full conversation
+        controller: null,
+        busy: false,
+    };
+
+    function liveAgentSetBusy(busy) {
+        liveAgentState.busy = busy;
+        refs.liveAgent.send.disabled = busy;
+        refs.liveAgent.send.textContent = busy ? 'Sending...' : 'Send';
+        refs.liveAgent.cancel.disabled = !busy;
+        refs.liveAgent.input.disabled = busy;
+    }
+
+    function liveAgentAppendBubble(role, content) {
+        const el = document.createElement('div');
+        el.className = `admin-ai__chat-msg admin-ai__chat-msg--${role}`;
+        const roleLabel = document.createElement('span');
+        roleLabel.className = 'admin-ai__chat-role';
+        roleLabel.textContent = role;
+        el.appendChild(roleLabel);
+        const textNode = document.createElement('span');
+        textNode.textContent = content;
+        el.appendChild(textNode);
+        refs.liveAgent.transcript.appendChild(el);
+        refs.liveAgent.transcript.scrollTop = refs.liveAgent.transcript.scrollHeight;
+        return el;
+    }
+
+    function liveAgentSetState(tone, message) {
+        setResultState(refs.liveAgent.state, tone, message);
+    }
+
+    function liveAgentUpdateSystemCount() {
+        const val = refs.liveAgent.system.value || '';
+        refs.liveAgent.systemCount.textContent = `${val.length} / 1200`;
+    }
+
+    async function liveAgentSend() {
+        const userText = (refs.liveAgent.input.value || '').trim();
+        if (!userText) {
+            liveAgentSetState('error', 'Enter a message before sending.');
+            return;
+        }
+
+        // Build messages array: optional system + conversation history + new user message
+        const system = (refs.liveAgent.system.value || '').trim();
+        const outMessages = [];
+        if (system) {
+            outMessages.push({ role: 'system', content: system });
+        }
+        for (const msg of liveAgentState.messages) {
+            outMessages.push({ role: msg.role, content: msg.content });
+        }
+        outMessages.push({ role: 'user', content: userText });
+
+        // Persist user message locally and render
+        liveAgentState.messages.push({ role: 'user', content: userText });
+        liveAgentAppendBubble('user', userText);
+        refs.liveAgent.input.value = '';
+        liveAgentSetBusy(true);
+        liveAgentSetState('loading', 'Waiting for response...');
+
+        const controller = new AbortController();
+        liveAgentState.controller = controller;
+
+        const res = await apiAdminAiLiveAgent({ messages: outMessages }, { signal: controller.signal });
+        if (controller !== liveAgentState.controller) return;
+
+        if (res.aborted) {
+            liveAgentSetBusy(false);
+            liveAgentSetState('aborted', 'Request cancelled.');
+            return;
+        }
+
+        if (!res.ok) {
+            liveAgentSetBusy(false);
+            const code = res.code || '';
+            liveAgentSetState('error', ADMIN_AI_CODE_MESSAGES[code] || res.error || 'Live agent request failed.');
+            return;
+        }
+
+        if (res.stream && res.body) {
+            // Stream SSE response
+            const assistantBubble = liveAgentAppendBubble('assistant', '');
+            const textSpan = assistantBubble.querySelector('span:last-child');
+            assistantBubble.classList.add('admin-ai__chat-msg--streaming');
+            let fullText = '';
+
+            try {
+                const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += value;
+
+                    // Parse SSE lines
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        try {
+                            const parsed = JSON.parse(data);
+                            const chunk = parsed.response || '';
+                            if (chunk) {
+                                fullText += chunk;
+                                textSpan.textContent = fullText;
+                                refs.liveAgent.transcript.scrollTop = refs.liveAgent.transcript.scrollHeight;
+                            }
+                        } catch {
+                            // Non-JSON SSE line, skip
+                        }
+                    }
+                }
+            } catch (e) {
+                if (e?.name !== 'AbortError') {
+                    liveAgentSetState('error', 'Stream interrupted.');
+                }
+            }
+
+            assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
+            if (fullText) {
+                liveAgentState.messages.push({ role: 'assistant', content: fullText });
+                liveAgentSetState('success', 'Response received.');
+            } else {
+                liveAgentSetState('error', 'Model returned empty response.');
+            }
+        } else {
+            // Non-streaming fallback
+            const text = res.data?.result?.text || res.data?.response || '';
+            if (text) {
+                liveAgentAppendBubble('assistant', text);
+                liveAgentState.messages.push({ role: 'assistant', content: text });
+                liveAgentSetState('success', 'Response received.');
+            } else {
+                liveAgentSetState('error', 'Model returned empty response.');
+            }
+        }
+
+        liveAgentState.controller = null;
+        liveAgentSetBusy(false);
+    }
+
+    function liveAgentCancel() {
+        if (liveAgentState.controller) {
+            liveAgentState.controller.abort();
+            liveAgentState.controller = null;
+        }
+        liveAgentSetBusy(false);
+        liveAgentSetState('aborted', 'Request cancelled.');
+    }
+
+    function liveAgentClear() {
+        liveAgentCancel();
+        liveAgentState.messages = [];
+        refs.liveAgent.transcript.innerHTML = '';
+        liveAgentSetState('neutral', 'Ready.');
     }
 
     function attachFieldSync(ref, mode, field, parser) {
@@ -2490,6 +2677,18 @@ export function createAdminAiLab({ showToast } = {}) {
         });
         refs.compare.aCopyDiff.addEventListener('click', () => copyCompareDifferences('a'));
         refs.compare.bCopyDiff.addEventListener('click', () => copyCompareDifferences('b'));
+
+        /* Live Agent */
+        refs.liveAgent.send.addEventListener('click', liveAgentSend);
+        refs.liveAgent.cancel.addEventListener('click', liveAgentCancel);
+        refs.liveAgent.clear.addEventListener('click', liveAgentClear);
+        refs.liveAgent.system.addEventListener('input', liveAgentUpdateSystemCount);
+        refs.liveAgent.input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !liveAgentState.busy) {
+                e.preventDefault();
+                liveAgentSend();
+            }
+        });
     }
 
     return {
@@ -2498,6 +2697,7 @@ export function createAdminAiLab({ showToast } = {}) {
             state.initialized = true;
             bindEvents();
             syncFormInputs();
+            liveAgentUpdateSystemCount();
             renderAll();
         },
 
