@@ -24,7 +24,7 @@ import {
 } from '../../shared/auth-api.js';
 
 import { galleryItems } from '../../shared/gallery-data.js';
-import { createAdminAiLab } from './ai-lab.js';
+import { createAdminAiLab } from './ai-lab.js?v=20260409-wave4';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs

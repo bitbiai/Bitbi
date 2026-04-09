@@ -9,6 +9,34 @@ import {
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare'];
 const HISTORY_LIMIT = 6;
+const DEFAULT_REQUEST_TIMEOUTS = {
+    text: 20_000,
+    image: 45_000,
+    embeddings: 15_000,
+    compare: 30_000,
+};
+const TASK_UI = {
+    text: {
+        label: 'Text',
+        busyText: 'Running...',
+        idleText: 'Run Text Test',
+    },
+    image: {
+        label: 'Image',
+        busyText: 'Generating...',
+        idleText: 'Run Image Test',
+    },
+    embeddings: {
+        label: 'Embeddings',
+        busyText: 'Running...',
+        idleText: 'Run Embeddings',
+    },
+    compare: {
+        label: 'Compare',
+        busyText: 'Comparing...',
+        idleText: 'Run Compare',
+    },
+};
 
 const DEFAULT_FORMS = {
     text: {
@@ -137,6 +165,22 @@ function isObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function resolveRequestTimeouts(overrides) {
+    const resolved = { ...DEFAULT_REQUEST_TIMEOUTS };
+    if (!isObject(overrides)) return resolved;
+
+    for (const [task, fallback] of Object.entries(DEFAULT_REQUEST_TIMEOUTS)) {
+        const candidate = Number(overrides[task]);
+        if (Number.isFinite(candidate) && candidate >= 100) {
+            resolved[task] = Math.round(candidate);
+        } else {
+            resolved[task] = fallback;
+        }
+    }
+
+    return resolved;
+}
+
 function loadPersisted() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -197,6 +241,13 @@ function formatElapsed(elapsedMs) {
     return `${(elapsedMs / 1000).toFixed(2)} s`;
 }
 
+function formatTimeoutDuration(timeoutMs) {
+    if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return 'the configured limit';
+    if (timeoutMs < 1000) return `${timeoutMs} ms`;
+    const seconds = timeoutMs / 1000;
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
+}
+
 function formatValue(value) {
     if (value === null || value === undefined || value === '') return '—';
     if (typeof value === 'number') return String(value);
@@ -216,6 +267,62 @@ function truncateText(value, maxLength = 88) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     if (text.length <= maxLength) return text;
     return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function normalizeCompareText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function uniqueCaseInsensitive(items) {
+    const seen = new Set();
+    return items.filter((item) => {
+        const key = item.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function splitCompareChunks(value) {
+    const text = String(value || '');
+    const chunks = text
+        .split(/\n+/)
+        .flatMap((line) => line.split(/(?<=[.!?])\s+/))
+        .map((chunk) => normalizeCompareText(chunk))
+        .filter(Boolean);
+
+    return uniqueCaseInsensitive(chunks);
+}
+
+function buildCompareDiff(entries) {
+    const a = entries?.[0];
+    const b = entries?.[1];
+    if (!a?.ok || !b?.ok || !a.text || !b.text) {
+        return {
+            available: false,
+            message: 'Difference aid becomes available when both compare outputs succeed.',
+        };
+    }
+
+    const textA = normalizeCompareText(a.text);
+    const textB = normalizeCompareText(b.text);
+    const chunksA = splitCompareChunks(a.text);
+    const chunksB = splitCompareChunks(b.text);
+    const chunkSetB = new Set(chunksB.map((chunk) => chunk.toLowerCase()));
+    const chunkSetA = new Set(chunksA.map((chunk) => chunk.toLowerCase()));
+    const shared = chunksA.filter((chunk) => chunkSetB.has(chunk.toLowerCase())).slice(0, 4);
+    const onlyA = chunksA.filter((chunk) => !chunkSetB.has(chunk.toLowerCase())).slice(0, 4);
+    const onlyB = chunksB.filter((chunk) => !chunkSetA.has(chunk.toLowerCase())).slice(0, 4);
+
+    return {
+        available: true,
+        identical: !!textA && textA === textB,
+        charCountA: textA.length,
+        charCountB: textB.length,
+        shared,
+        onlyA,
+        onlyB,
+    };
 }
 
 function slugify(value, fallback = 'result') {
@@ -329,6 +436,7 @@ export function createAdminAiLab({ showToast } = {}) {
             MODES.includes(persisted?.activeMode) && persisted.activeMode !== 'dashboard'
                 ? persisted.activeMode
                 : 'models',
+        timeouts: resolveRequestTimeouts(globalThis?.BITBI_ADMIN_AI_LAB_TIMEOUTS),
         forms: mergeForms(persisted?.forms),
         history: mergeHistory(persisted?.history),
         catalog: {
@@ -345,6 +453,12 @@ export function createAdminAiLab({ showToast } = {}) {
         },
         controllers: {
             models: null,
+            text: null,
+            image: null,
+            embeddings: null,
+            compare: null,
+        },
+        timers: {
             text: null,
             image: null,
             embeddings: null,
@@ -482,6 +596,7 @@ export function createAdminAiLab({ showToast } = {}) {
             bUsage: document.getElementById('aiCompareBUsage'),
             bError: document.getElementById('aiCompareBError'),
             bCopy: document.getElementById('aiCompareBCopy'),
+            diff: document.getElementById('aiCompareDiff'),
             debug: document.getElementById('aiCompareDebug'),
             raw: document.getElementById('aiCompareRaw'),
             copyRaw: document.getElementById('aiCompareCopyRaw'),
@@ -523,6 +638,52 @@ export function createAdminAiLab({ showToast } = {}) {
         buttonRefs.run.disabled = !!isBusy;
         buttonRefs.run.textContent = isBusy ? busyText : idleText;
         buttonRefs.cancel.disabled = !isBusy;
+    }
+
+    function clearTaskTimer(task, controller = null) {
+        const timerEntry = state.timers[task];
+        if (!timerEntry) return;
+        if (controller && timerEntry.controller !== controller) return;
+
+        clearTimeout(timerEntry.id);
+        state.timers[task] = null;
+    }
+
+    function startTaskTimer(task, controller) {
+        const timeoutMs = state.timeouts[task];
+        if (!timeoutMs) return;
+
+        clearTaskTimer(task);
+        state.timers[task] = {
+            controller,
+            id: setTimeout(() => {
+                if (state.controllers[task] !== controller || state.results[task]?.status !== 'loading') {
+                    return;
+                }
+
+                const config = TASK_UI[task];
+                const previous = getRetainedResult(task);
+                clearTaskTimer(task, controller);
+                controller.abort();
+                if (state.controllers[task] === controller) {
+                    state.controllers[task] = null;
+                }
+
+                state.results[task] = {
+                    status: 'timeout',
+                    error: `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}.`,
+                    raw: previous.raw,
+                    debugRaw: previous.raw,
+                    receivedAt: previous.receivedAt,
+                };
+                setTaskBusy(task, false, config.busyText, config.idleText);
+                setStatus(
+                    `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}. Retry with the current inputs when ready.`,
+                    'timeout'
+                );
+                renderAll();
+            }, timeoutMs),
+        };
     }
 
     function updateCounter(inputEl, outputEl, maxLength, formatter) {
@@ -1102,6 +1263,17 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        if (result.status === 'timeout') {
+            setResultState(
+                refs.text.state,
+                'timeout',
+                response
+                    ? `${result.error || 'Text request timed out.'} Previous result preserved.`
+                    : result.error || 'Text request timed out.'
+            );
+            return;
+        }
+
         if (result.status === 'error') {
             setResultState(
                 refs.text.state,
@@ -1187,6 +1359,17 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        if (result.status === 'timeout') {
+            setResultState(
+                refs.image.state,
+                'timeout',
+                response
+                    ? `${result.error || 'Image request timed out.'} Previous result preserved.`
+                    : result.error || 'Image request timed out.'
+            );
+            return;
+        }
+
         if (result.status === 'error') {
             setResultState(
                 refs.image.state,
@@ -1257,6 +1440,17 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        if (result.status === 'timeout') {
+            setResultState(
+                refs.embeddings.state,
+                'timeout',
+                response
+                    ? `${result.error || 'Embeddings request timed out.'} Previous result preserved.`
+                    : result.error || 'Embeddings request timed out.'
+            );
+            return;
+        }
+
         if (result.status === 'error') {
             setResultState(
                 refs.embeddings.state,
@@ -1295,6 +1489,7 @@ export function createAdminAiLab({ showToast } = {}) {
             entry.model?.id || '',
             entry.model?.vendor || '',
             typeof entry.elapsedMs === 'number' ? formatElapsed(entry.elapsedMs) : '',
+            entry.text ? `${normalizeCompareText(entry.text).length} chars` : '',
         ]
             .filter(Boolean)
             .join(' · ');
@@ -1316,6 +1511,95 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
+    function renderCompareSummaryChip(container, text, variant = '') {
+        const chip = document.createElement('div');
+        chip.className = `admin-ai__compare-summary-chip${variant ? ` admin-ai__compare-summary-chip--${variant}` : ''}`;
+        chip.textContent = text;
+        container.appendChild(chip);
+    }
+
+    function appendCompareDiffBlock(parent, title, items, emptyText) {
+        const block = document.createElement('div');
+        block.className = 'admin-ai__diff-block';
+
+        const label = document.createElement('div');
+        label.className = 'admin-ai__mini-title';
+        label.textContent = title;
+        block.appendChild(label);
+
+        const list = document.createElement('div');
+        list.className = 'admin-ai__diff-list';
+
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'admin-ai__diff-empty';
+            empty.textContent = emptyText;
+            list.appendChild(empty);
+        } else {
+            items.forEach((item) => {
+                const row = document.createElement('div');
+                row.className = 'admin-ai__diff-item';
+                row.textContent = truncateText(item, 220);
+                row.title = item;
+                list.appendChild(row);
+            });
+        }
+
+        block.appendChild(list);
+        parent.appendChild(block);
+    }
+
+    function renderCompareDiff(entries) {
+        refs.compare.diff.innerHTML = '';
+
+        if (!entries || entries.length === 0) {
+            refs.compare.diff.hidden = true;
+            return;
+        }
+
+        refs.compare.diff.hidden = false;
+
+        const diff = buildCompareDiff(entries);
+        const head = document.createElement('div');
+        head.className = 'admin-ai__compare-diff-head';
+
+        const title = document.createElement('div');
+        title.className = 'admin-ai__mini-title';
+        title.textContent = 'Difference Aid';
+        head.appendChild(title);
+
+        if (!diff.available) {
+            const note = document.createElement('div');
+            note.className = 'admin-ai__diff-note';
+            note.textContent = diff.message;
+            head.appendChild(note);
+            refs.compare.diff.appendChild(head);
+            return;
+        }
+
+        const summary = document.createElement('div');
+        summary.className = 'admin-ai__compare-summary';
+        renderCompareSummaryChip(summary, diff.identical ? 'Outputs are identical' : 'Outputs differ', diff.identical ? 'identical' : 'different');
+        renderCompareSummaryChip(summary, `Model A: ${diff.charCountA} chars`);
+        renderCompareSummaryChip(summary, `Model B: ${diff.charCountB} chars`);
+        renderCompareSummaryChip(summary, `${diff.shared.length} shared chunk${diff.shared.length === 1 ? '' : 's'}`);
+        renderCompareSummaryChip(summary, `${diff.onlyA.length + diff.onlyB.length} distinctive chunk${diff.onlyA.length + diff.onlyB.length === 1 ? '' : 's'}`);
+        head.appendChild(summary);
+        refs.compare.diff.appendChild(head);
+
+        const grid = document.createElement('div');
+        grid.className = 'admin-ai__diff-grid';
+        appendCompareDiffBlock(
+            grid,
+            'Shared Phrasing',
+            diff.shared,
+            diff.identical ? 'The two outputs normalize to the same text.' : 'No identical sentence-level chunks were found.'
+        );
+        appendCompareDiffBlock(grid, 'Model A Distinctive', diff.onlyA, 'No unique phrasing detected for model A.');
+        appendCompareDiffBlock(grid, 'Model B Distinctive', diff.onlyB, 'No unique phrasing detected for model B.');
+        refs.compare.diff.appendChild(grid);
+    }
+
     function renderCompareResult() {
         const result = state.results.compare;
         const response = result?.raw || null;
@@ -1325,6 +1609,8 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
             { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Models', value: entries.length },
+            { label: 'Succeeded', value: entries.filter((entry) => entry?.ok).length },
+            { label: 'Failed', value: entries.filter((entry) => !entry?.ok).length },
             { label: 'Temperature', value: response.result?.temperature },
             { label: 'Max Tokens', value: response.result?.maxTokens },
         ] : []);
@@ -1352,6 +1638,7 @@ export function createAdminAiLab({ showToast } = {}) {
             },
             entries[1] || null
         );
+        renderCompareDiff(entries);
 
         if (!result) {
             setResultState(refs.compare.state, 'neutral', 'No compare run yet.');
@@ -1372,6 +1659,17 @@ export function createAdminAiLab({ showToast } = {}) {
                 refs.compare.state,
                 'aborted',
                 response ? 'Compare request cancelled. Previous result preserved.' : 'Compare request cancelled.'
+            );
+            return;
+        }
+
+        if (result.status === 'timeout') {
+            setResultState(
+                refs.compare.state,
+                'timeout',
+                response
+                    ? `${result.error || 'Compare request timed out.'} Previous result preserved.`
+                    : result.error || 'Compare request timed out.'
             );
             return;
         }
@@ -1417,6 +1715,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!controller || state.results[task]?.status !== 'loading') return;
 
         const previous = getRetainedResult(task);
+        clearTaskTimer(task, controller);
         controller.abort();
         state.controllers[task] = null;
         state.results[task] = {
@@ -1427,14 +1726,8 @@ export function createAdminAiLab({ showToast } = {}) {
             receivedAt: previous.receivedAt,
         };
 
-        const busyLabels = {
-            text: ['Running...', 'Run Text Test'],
-            image: ['Generating...', 'Run Image Test'],
-            embeddings: ['Running...', 'Run Embeddings'],
-            compare: ['Comparing...', 'Run Compare'],
-        };
-        const [busyText, idleText] = busyLabels[task];
-        setTaskBusy(task, false, busyText, idleText);
+        const config = TASK_UI[task];
+        setTaskBusy(task, false, config.busyText, config.idleText);
         setStatus(`${label} request cancelled.`, 'aborted');
         renderAll();
     }
@@ -1483,6 +1776,7 @@ export function createAdminAiLab({ showToast } = {}) {
         addHistoryEntry('text', state.forms.text.prompt);
 
         const seq = ++state.requestSeq.text;
+        clearTaskTimer('text');
         state.controllers.text?.abort();
         const controller = new AbortController();
         const previous = getRetainedResult('text');
@@ -1493,9 +1787,10 @@ export function createAdminAiLab({ showToast } = {}) {
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
         };
-        setTaskBusy('text', true, 'Running...', 'Run Text Test');
+        setTaskBusy('text', true, TASK_UI.text.busyText, TASK_UI.text.idleText);
         setStatus('Running text test...', 'loading');
         renderTextResult();
+        startTaskTimer('text', controller);
 
         const payload = {
             preset: state.forms.text.preset || undefined,
@@ -1513,7 +1808,8 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.controllers.text === controller) {
             state.controllers.text = null;
         }
-        setTaskBusy('text', false, 'Running...', 'Run Text Test');
+        clearTaskTimer('text', controller);
+        setTaskBusy('text', false, TASK_UI.text.busyText, TASK_UI.text.idleText);
 
         if (res.aborted) return;
         if (!res.ok) {
@@ -1548,6 +1844,7 @@ export function createAdminAiLab({ showToast } = {}) {
         addHistoryEntry('image', state.forms.image.prompt);
 
         const seq = ++state.requestSeq.image;
+        clearTaskTimer('image');
         state.controllers.image?.abort();
         const controller = new AbortController();
         const previous = getRetainedResult('image');
@@ -1558,9 +1855,10 @@ export function createAdminAiLab({ showToast } = {}) {
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
         };
-        setTaskBusy('image', true, 'Generating...', 'Run Image Test');
+        setTaskBusy('image', true, TASK_UI.image.busyText, TASK_UI.image.idleText);
         setStatus('Generating image...', 'loading');
         renderImageResult();
+        startTaskTimer('image', controller);
 
         const payload = {
             preset: state.forms.image.preset || undefined,
@@ -1581,7 +1879,8 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.controllers.image === controller) {
             state.controllers.image = null;
         }
-        setTaskBusy('image', false, 'Generating...', 'Run Image Test');
+        clearTaskTimer('image', controller);
+        setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
 
         if (res.aborted) return;
         if (!res.ok) {
@@ -1616,6 +1915,7 @@ export function createAdminAiLab({ showToast } = {}) {
         addHistoryEntry('embeddings', state.forms.embeddings.input);
 
         const seq = ++state.requestSeq.embeddings;
+        clearTaskTimer('embeddings');
         state.controllers.embeddings?.abort();
         const controller = new AbortController();
         const previous = getRetainedResult('embeddings');
@@ -1626,9 +1926,10 @@ export function createAdminAiLab({ showToast } = {}) {
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
         };
-        setTaskBusy('embeddings', true, 'Running...', 'Run Embeddings');
+        setTaskBusy('embeddings', true, TASK_UI.embeddings.busyText, TASK_UI.embeddings.idleText);
         setStatus('Generating embeddings...', 'loading');
         renderEmbeddingsResult();
+        startTaskTimer('embeddings', controller);
 
         const input = state.forms.embeddings.input
             .split(/\r?\n/)
@@ -1648,7 +1949,8 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.controllers.embeddings === controller) {
             state.controllers.embeddings = null;
         }
-        setTaskBusy('embeddings', false, 'Running...', 'Run Embeddings');
+        clearTaskTimer('embeddings', controller);
+        setTaskBusy('embeddings', false, TASK_UI.embeddings.busyText, TASK_UI.embeddings.idleText);
 
         if (res.aborted) return;
         if (!res.ok) {
@@ -1693,6 +1995,7 @@ export function createAdminAiLab({ showToast } = {}) {
         addHistoryEntry('compare', state.forms.compare.prompt);
 
         const seq = ++state.requestSeq.compare;
+        clearTaskTimer('compare');
         state.controllers.compare?.abort();
         const controller = new AbortController();
         const previous = getRetainedResult('compare');
@@ -1703,9 +2006,10 @@ export function createAdminAiLab({ showToast } = {}) {
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
         };
-        setTaskBusy('compare', true, 'Comparing...', 'Run Compare');
+        setTaskBusy('compare', true, TASK_UI.compare.busyText, TASK_UI.compare.idleText);
         setStatus('Running model comparison...', 'loading');
         renderCompareResult();
+        startTaskTimer('compare', controller);
 
         const payload = {
             models: [state.forms.compare.modelA, state.forms.compare.modelB],
@@ -1722,7 +2026,8 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.controllers.compare === controller) {
             state.controllers.compare = null;
         }
-        setTaskBusy('compare', false, 'Comparing...', 'Run Compare');
+        clearTaskTimer('compare', controller);
+        setTaskBusy('compare', false, TASK_UI.compare.busyText, TASK_UI.compare.idleText);
 
         if (res.aborted) return;
         if (!res.ok) {

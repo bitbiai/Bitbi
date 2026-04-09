@@ -7,22 +7,8 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function seedCookieConsent(page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'bitbi_cookie_consent',
-      JSON.stringify({
-        necessary: true,
-        analytics: false,
-        marketing: false,
-        timestamp: Date.now(),
-      }),
-    );
-  });
-}
-
-async function mockAdminAiLab(page) {
-  const catalog = {
+function createMockAiCatalog() {
+  return {
     ok: true,
     task: 'models',
     presets: [
@@ -98,6 +84,30 @@ async function mockAdminAiLab(page) {
       },
     },
   };
+}
+
+async function seedCookieConsent(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'bitbi_cookie_consent',
+      JSON.stringify({
+        necessary: true,
+        analytics: false,
+        marketing: false,
+        timestamp: Date.now(),
+      }),
+    );
+  });
+}
+
+async function setAiLabTimeouts(page, overrides) {
+  await page.addInitScript((config) => {
+    window.BITBI_ADMIN_AI_LAB_TIMEOUTS = config;
+  }, overrides);
+}
+
+async function mockAdminAiLab(page) {
+  const catalog = createMockAiCatalog();
 
   await page.route('**/api/admin/me', async (route) => {
     await route.fulfill({
@@ -240,14 +250,14 @@ async function mockAdminAiLab(page) {
             {
               ok: true,
               model: catalog.models.text[0],
-              text: 'Model A compare output.',
+              text: 'BITBI blends AI imagery with a premium admin control surface. It feels precise and cinematic.',
               usage: { total_tokens: 11 },
               elapsedMs: 111,
             },
             {
               ok: true,
               model: catalog.models.text[1],
-              text: 'Model B compare output.',
+              text: 'BITBI blends AI imagery with a premium admin control surface. It feels agile and technical.',
               usage: { total_tokens: 17 },
               elapsedMs: 123,
             },
@@ -467,13 +477,24 @@ test.describe('Admin AI Lab', () => {
     );
     await page.locator('#aiCompareRun').click();
     await expect(page.locator('#aiCompareAText')).toContainText(
-      'Model A compare output.',
+      'It feels precise and cinematic.',
     );
     await expect(page.locator('#aiCompareBText')).toContainText(
-      'Model B compare output.',
+      'It feels agile and technical.',
     );
     await expect(page.locator('#aiCompareAMeta')).toContainText('Meta');
     await expect(page.locator('#aiCompareBMeta')).toContainText('OpenAI');
+    await expect(page.locator('#aiCompareDiff')).toBeVisible();
+    await expect(page.locator('#aiCompareDiff')).toContainText('Outputs differ');
+    await expect(page.locator('#aiCompareDiff')).toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+    await expect(page.locator('#aiCompareDiff')).toContainText(
+      'It feels precise and cinematic.',
+    );
+    await expect(page.locator('#aiCompareDiff')).toContainText(
+      'It feels agile and technical.',
+    );
 
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
@@ -485,6 +506,7 @@ test.describe('Admin AI Lab', () => {
   }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
 
     await page.getByRole('button', { name: 'Text', exact: true }).click();
     await page.locator('#aiTextPrompt').fill('Persist me');
@@ -573,6 +595,157 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiTextOutput')).not.toContainText(
       'Slow response that should never replace the cancelled state.',
     );
+  });
+
+  test('times out slow AI Lab requests with a distinct timeout state', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    await setAiLabTimeouts(page, {
+      text: 180,
+      image: 180,
+      embeddings: 180,
+      compare: 180,
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await page.unroute('**/api/admin/ai/test-text');
+    await page.route('**/api/admin/ai/test-text', async (route) => {
+      await wait(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'text',
+          model: catalog.models.text[1],
+          preset: 'balanced',
+          result: {
+            text: 'Slow text response.',
+            usage: { total_tokens: 40 },
+            maxTokens: 300,
+            temperature: 0.7,
+          },
+          elapsedMs: 800,
+        }),
+      });
+    });
+    await page.locator('#aiTextPrompt').fill('timeout text');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiTextState')).toContainText('timed out');
+    await expect(page.locator('#aiTextState')).not.toContainText('cancelled');
+    await expect(page.locator('#aiTextRun')).toBeEnabled();
+    await expect(page.locator('#aiTextCancel')).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Image' }).click();
+    await page.unroute('**/api/admin/ai/test-image');
+    await page.route('**/api/admin/ai/test-image', async (route) => {
+      await wait(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'image',
+          model: catalog.models.image[0],
+          preset: 'image_fast',
+          result: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            mimeType: 'image/png',
+            steps: 4,
+            seed: 12345,
+            requestedSize: { width: 1024, height: 1024 },
+            appliedSize: null,
+          },
+          elapsedMs: 800,
+        }),
+      });
+    });
+    await page.locator('#aiImagePrompt').fill('timeout image');
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('timed out');
+    await expect(page.locator('#aiImageRun')).toBeEnabled();
+    await expect(page.locator('#aiImageCancel')).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Embeddings' }).click();
+    await page.unroute('**/api/admin/ai/test-embeddings');
+    await page.route('**/api/admin/ai/test-embeddings', async (route) => {
+      await wait(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'embeddings',
+          model: catalog.models.embeddings[0],
+          preset: 'embedding_default',
+          result: {
+            vectors: [[0.1, 0.2, 0.3]],
+            dimensions: 3,
+            count: 1,
+            shape: [1, 3],
+            pooling: null,
+          },
+          elapsedMs: 800,
+        }),
+      });
+    });
+    await page.locator('#aiEmbeddingsInput').fill('timeout embeddings');
+    await page.locator('#aiEmbeddingsRun').click();
+    await expect(page.locator('#aiEmbeddingsState')).toContainText('timed out');
+    await expect(page.locator('#aiEmbeddingsRun')).toBeEnabled();
+    await expect(page.locator('#aiEmbeddingsCancel')).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Compare' }).click();
+    await page.unroute('**/api/admin/ai/compare');
+    await page.route('**/api/admin/ai/compare', async (route) => {
+      await wait(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'compare',
+          models: catalog.models.text,
+          result: {
+            results: [
+              {
+                ok: true,
+                model: catalog.models.text[0],
+                text: 'Slow compare A.',
+                usage: { total_tokens: 12 },
+                elapsedMs: 400,
+              },
+              {
+                ok: true,
+                model: catalog.models.text[1],
+                text: 'Slow compare B.',
+                usage: { total_tokens: 14 },
+                elapsedMs: 420,
+              },
+            ],
+            maxTokens: 250,
+            temperature: 0.7,
+          },
+          elapsedMs: 900,
+        }),
+      });
+    });
+    await page.locator('#aiComparePrompt').fill('timeout compare');
+    await page.locator('#aiCompareRun').click();
+    await expect(page.locator('#aiCompareState')).toContainText('timed out');
+    await expect(page.locator('#aiCompareState')).not.toContainText('cancelled');
+    await expect(page.locator('#aiLabStatus')).toContainText('timed out');
+    await expect(page.locator('#aiCompareRun')).toBeEnabled();
+    await expect(page.locator('#aiCompareCancel')).toBeDisabled();
+
+    await wait(750);
+    await expect(page.locator('#aiCompareState')).toContainText('timed out');
+    await expect(page.locator('#aiCompareAText')).not.toContainText('Slow compare A.');
+    await expect(page.locator('#aiCompareBText')).not.toContainText('Slow compare B.');
   });
 });
 

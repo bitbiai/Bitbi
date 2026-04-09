@@ -32,17 +32,21 @@ function authJsonRequest(pathname, method, body, headers = {}) {
   });
 }
 
-function createAdminUser(id = 'admin-ai-user') {
+function createContractUser({ id = 'admin-ai-user', role = 'admin' } = {}) {
   return {
     id,
     email: `${id}@example.com`,
     password_hash: 'unused',
     created_at: nowIso(),
     status: 'active',
-    role: 'admin',
+    role,
     email_verified_at: nowIso(),
     verification_method: 'email_verified',
   };
+}
+
+function createAdminUser(id = 'admin-ai-user') {
+  return createContractUser({ id, role: 'admin' });
 }
 
 function createAiLabRunStub() {
@@ -84,13 +88,13 @@ function createAiLabServiceBinding(aiWorker, aiEnv) {
   };
 }
 
-async function createAdminAiContractHarness() {
+async function createAdminAiContractHarness(options = {}) {
   const authWorker = await loadWorker('workers/auth/src/index.js');
   const aiWorker = await loadWorker('workers/ai/src/index.js');
-  const adminUser = createAdminUser();
-  const aiRun = createAiLabRunStub();
+  const user = options.user || createAdminUser();
+  const aiRun = options.aiRun || createAiLabRunStub();
   const env = createAuthTestEnv({
-    users: [adminUser],
+    users: [user],
   });
   env.AI_LAB = createAiLabServiceBinding(aiWorker, {
     AI: {
@@ -100,17 +104,20 @@ async function createAdminAiContractHarness() {
     },
   });
 
-  const token = await seedSession(env, adminUser.id);
   const authHeaders = {
     Origin: 'https://bitbi.ai',
-    Cookie: `bitbi_session=${token}`,
     'CF-Connecting-IP': '203.0.113.25',
   };
+  if (options.withSession !== false) {
+    const token = await seedSession(env, user.id);
+    authHeaders.Cookie = `bitbi_session=${token}`;
+  }
 
   return {
     authWorker,
     env,
     authHeaders,
+    user,
   };
 }
 
@@ -460,6 +467,167 @@ test.describe('Worker routes', () => {
           vendor: expect.any(String),
         }),
       }));
+    });
+
+    test('GET /api/admin/ai/models rejects unauthenticated requests with the error shape used by the UI', async () => {
+      const { authWorker, env } = await createAdminAiContractHarness({ withSession: false });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/models', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.25',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(401);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: expect.any(String),
+      }));
+    });
+
+    test('GET /api/admin/ai/models rejects non-admin sessions with the same error contract', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        user: createContractUser({ id: 'member-ai-user', role: 'user' }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/models', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: expect.any(String),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-text returns a warning-bearing success shape when the explicit model overrides the preset', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          model: '@cf/meta/llama-3.1-8b-instruct-fast',
+          prompt: 'Summarize the AI lab.',
+          system: 'You are concise.',
+          maxTokens: 280,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'text',
+        warnings: expect.any(Array),
+        result: expect.objectContaining({
+          text: expect.any(String),
+        }),
+      }));
+      expect(body.warnings[0]).toContain('overrides preset');
+    });
+
+    test('POST /api/admin/ai/test-text returns the error shape used by the UI when the model is not allowlisted', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          model: '@cf/not-allowlisted/model',
+          prompt: 'Summarize the AI lab.',
+          maxTokens: 280,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('not allowlisted'),
+      }));
+    });
+
+    test('POST /api/admin/ai/compare returns the validation error shape used by the UI for duplicate model selections', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', {
+          models: [
+            '@cf/openai/gpt-oss-20b',
+            '@cf/openai/gpt-oss-20b',
+          ],
+          prompt: 'Compare these models.',
+          system: 'You are concise.',
+          maxTokens: 250,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: 'models must not contain duplicates.',
+      }));
+    });
+
+    test('POST /api/admin/ai/compare returns a warning-bearing success shape when one model run fails', async () => {
+      const baseAiRun = createAiLabRunStub();
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          if (modelId === '@cf/openai/gpt-oss-20b') {
+            throw new Error('Simulated compare failure.');
+          }
+          return baseAiRun(modelId, payload);
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', {
+          models: [
+            '@cf/meta/llama-3.1-8b-instruct-fast',
+            '@cf/openai/gpt-oss-20b',
+          ],
+          prompt: 'Compare these models.',
+          system: 'You are concise.',
+          maxTokens: 250,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'compare',
+        warnings: expect.any(Array),
+        result: expect.objectContaining({
+          results: expect.any(Array),
+        }),
+      }));
+      expect(body.warnings[0]).toContain('One or more model runs failed during comparison.');
+      expect(body.result.results).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          ok: true,
+          text: expect.any(String),
+        }),
+        expect.objectContaining({
+          ok: false,
+          error: expect.any(String),
+        }),
+      ]));
     });
   });
 
