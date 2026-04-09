@@ -19,6 +19,12 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"services": [
+		{
+			"binding": "AI_LAB",
+			"service": "bitbi-ai"
+		}
+	],
 	"r2_buckets": [
 		{
 			"binding": "PRIVATE_MEDIA",

@@ -29,6 +29,10 @@ cd workers/auth && npx wrangler deploy                                       # d
 cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --local    # run migrations locally
 cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --remote   # run migrations in prod
 
+# AI worker (workers/ai/)
+cd workers/ai && npx wrangler dev                                            # local dev
+cd workers/ai && npx wrangler deploy                                         # deploy to Cloudflare
+
 # Contact worker (workers/contact/)
 cd workers/contact && npx wrangler dev                                       # local dev
 cd workers/contact && npx wrangler deploy                                    # deploy to Cloudflare
@@ -69,9 +73,10 @@ GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `mai
 When a change adds or depends on new D1 tables, apply remote migrations from `workers/auth/` before deploying the worker code that uses them.
 
 1. `cd workers/auth && npx wrangler d1 migrations apply bitbi-auth-db --remote`
-2. Deploy `workers/auth` for auth/API/cron changes.
-3. Deploy `workers/contact` after `0015_add_rate_limit_counters.sql` is present, because it shares `bitbi-auth-db` for durable contact abuse counters.
-4. Pages deploy is separate; publishing the static site does not deploy `workers/`.
+2. Deploy `workers/ai` before `workers/auth` whenever auth changes depend on the internal AI lab service binding.
+3. Deploy `workers/auth` for auth/API/cron changes.
+4. Deploy `workers/contact` after `0015_add_rate_limit_counters.sql` is present, because it shares `bitbi-auth-db` for durable contact abuse counters.
+5. Pages deploy is separate; publishing the static site does not deploy `workers/`.
 
 Current migration-to-worker dependencies:
 - `0010_add_r2_cleanup_queue` — auth worker AI delete flows and scheduled R2 cleanup retries
@@ -85,7 +90,8 @@ Some paths degrade gracefully if a table is missing, but the intended production
 
 | Worker | Required bindings / secrets | Operational note |
 |--------|-----------------------------|------------------|
-| `workers/auth/` | D1 `DB`; AI `AI`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron also cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, and pending R2 cleanup jobs |
+| `workers/auth/` | D1 `DB`; AI `AI`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron also cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, and pending R2 cleanup jobs; `/api/admin/ai/*` now proxies admin-only lab traffic into `workers/ai/` |
+| `workers/ai/` | AI `AI` | Internal service-only worker for admin AI experiments; deploy this before auth when changing the lab proxy flow |
 | `workers/contact/` | D1 `DB`; secret `RESEND_API_KEY` | Uses the shared `rate_limit_counters` table for durable contact abuse limiting |
 | `workers/crypto/` | secret `COINGECKO_API_KEY` | No D1 or R2 bindings |
 
@@ -189,6 +195,7 @@ Three workers, deployed separately from the static site:
 | Worker | Endpoint | Purpose |
 |--------|----------|---------|
 | `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. **Read `workers/auth/CLAUDE.md` before modifying** — it has full route docs, handler signatures, DB schema, and rate limits |
+| `workers/ai/src/index.js` | internal service binding only | Admin-only AI lab worker — model routing, text/image/embedding experiments, and compare flows via `workers/auth` |
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
 | `workers/crypto/src/index.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
 

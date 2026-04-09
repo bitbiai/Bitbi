@@ -1,0 +1,36 @@
+export const LIMITS = {
+  text: {
+    maxPromptLength: 4000,
+    maxSystemLength: 1200,
+    defaultMaxTokens: 300,
+    maxTokens: 1200,
+    defaultTemperature: 0.7,
+    minTemperature: 0,
+    maxTemperature: 2,
+  },
+  image: {
+    maxPromptLength: 2048,
+    defaultSteps: 4,
+    minSteps: 1,
+    maxSteps: 8,
+    allowedDimensions: [256, 512, 768, 1024],
+    maxPixels: 1024 * 1024,
+    maxSeed: 2147483647,
+  },
+  embeddings: {
+    maxBatchSize: 8,
+    maxItemLength: 2000,
+    maxTotalChars: 8000,
+  },
+  compare: {
+    minModels: 2,
+    maxModels: 3,
+    maxPromptLength: 4000,
+    maxSystemLength: 1200,
+    defaultMaxTokens: 250,
+    maxTokens: 600,
+    defaultTemperature: 0.7,
+    minTemperature: 0,
+    maxTemperature: 2,
+  },
+};

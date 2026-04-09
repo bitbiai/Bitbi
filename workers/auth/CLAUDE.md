@@ -50,6 +50,7 @@ src/
     ├── password.js       ← POST /api/forgot-password, GET /api/reset-password/validate, POST /api/reset-password
     ├── verification.js   ← GET /api/verify-email, POST /api/resend-verification
     ├── admin.js          ← all /api/admin/* (single dispatcher)
+    ├── admin-ai.js       ← admin-only /api/admin/ai/* proxy to workers/ai
     ├── profile.js        ← GET/PATCH /api/profile
     ├── avatar.js         ← GET/POST/DELETE /api/profile/avatar
     ├── favorites.js      ← GET/POST/DELETE /api/favorites
@@ -109,6 +110,11 @@ src/
 - `GET /api/admin/avatars/:userId` — serve a user's avatar
 - `GET /api/admin/activity?limit=&cursor=` — cursor-paginated audit log with action counts
 - `GET /api/admin/user-activity?limit=&cursor=&search=` — cursor-paginated user activity log
+- `GET /api/admin/ai/models` — list AI lab presets and allowlisted models (requires admin)
+- `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
+- `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
+- `POST /api/admin/ai/test-embeddings` — proxy an embeddings test into `workers/ai` (requires admin)
+- `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI
 - `GET /api/ai/folders` — list folders (+ counts)
@@ -132,6 +138,8 @@ src/
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`.
 
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
+
+**Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
 Migrations in `migrations/` are numbered sequentially from `0001_init` through `0015_add_rate_limit_counters`.
 

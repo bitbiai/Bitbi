@@ -52,6 +52,6 @@ BITBI is intentionally lightweight and direct:
 ├── account/             # Auth flow pages (profile, forgot-password, reset-password, verify-email)
 ├── admin/               # Admin dashboard
 ├── legal/               # Legal pages (privacy, imprint, datenschutz)
-├── workers/             # Cloudflare Workers (auth, contact, crypto)
+├── workers/             # Cloudflare Workers (auth, ai, contact, crypto)
 ├── index.html           # Main landing page
 └── sitemap.xml          # Search engine sitemap

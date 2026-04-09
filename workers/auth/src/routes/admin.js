@@ -3,6 +3,7 @@ import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { handleAdminAI } from "./admin-ai.js";
 
 function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
   return env.DB.prepare(
@@ -20,6 +21,11 @@ function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
 
 export async function handleAdmin(ctx) {
   const { request, env, url, pathname, method } = ctx;
+
+  const adminAiResult = await handleAdminAI(ctx);
+  if (adminAiResult) {
+    return adminAiResult;
+  }
 
   // GET /api/admin/me
   if (pathname === "/api/admin/me" && method === "GET") {
