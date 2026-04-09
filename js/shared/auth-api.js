@@ -4,14 +4,17 @@
 
 const BASE = '/api';
 
-async function request(method, path, body) {
+async function request(method, path, body, options = {}) {
     try {
         const opts = {
             method,
             credentials: 'include',
             headers: {},
         };
-        if (body) {
+        if (options.signal) {
+            opts.signal = options.signal;
+        }
+        if (body !== undefined) {
             opts.headers['Content-Type'] = 'application/json';
             opts.body = JSON.stringify(body);
         }
@@ -21,6 +24,9 @@ async function request(method, path, body) {
         if (res.ok) return { ok: true, data };
         return { ok: false, error: data?.error || `Error ${res.status}`, data };
     } catch (e) {
+        if (e?.name === 'AbortError') {
+            return { ok: false, aborted: true, error: 'Request cancelled.' };
+        }
         return { ok: false, error: 'Network error. Please try again.' };
     }
 }
@@ -126,6 +132,26 @@ export function apiAdminUserActivity(limit, cursor, search) {
     if (search) params.set('search', search);
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/user-activity${qs}`);
+}
+
+export function apiAdminAiModels(options) {
+    return request('GET', '/admin/ai/models', undefined, options);
+}
+
+export function apiAdminAiTestText(payload, options) {
+    return request('POST', '/admin/ai/test-text', payload, options);
+}
+
+export function apiAdminAiTestImage(payload, options) {
+    return request('POST', '/admin/ai/test-image', payload, options);
+}
+
+export function apiAdminAiTestEmbeddings(payload, options) {
+    return request('POST', '/admin/ai/test-embeddings', payload, options);
+}
+
+export function apiAdminAiCompare(payload, options) {
+    return request('POST', '/admin/ai/compare', payload, options);
 }
 
 /* ── Email Verification ── */

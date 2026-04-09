@@ -24,6 +24,7 @@ import {
 } from '../../shared/auth-api.js';
 
 import { galleryItems } from '../../shared/gallery-data.js';
+import { createAdminAiLab } from './ai-lab.js';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs
@@ -63,6 +64,7 @@ const sections = {
     users:     document.getElementById('sectionUsers'),
     content:   document.getElementById('sectionContent'),
     media:     document.getElementById('sectionMedia'),
+    'ai-lab':  document.getElementById('sectionAiLab'),
     access:    document.getElementById('sectionAccess'),
     activity:  document.getElementById('sectionActivity'),
 };
@@ -73,6 +75,7 @@ const sectionMeta = {
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
     content:   { title: 'Content',          desc: 'Site content entries and publishing' },
     media:     { title: 'Media Library',    desc: 'Assets, images, audio, and video files' },
+    'ai-lab':  { title: 'AI Lab',           desc: 'Admin-only AI tests, previews, and model comparisons' },
     access:    { title: 'Access Control',   desc: 'Membership gating and role-based access' },
     activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
 };
@@ -87,6 +90,8 @@ function showToast(message, type = 'success') {
     $toast.appendChild(el);
     setTimeout(() => { el.remove(); }, 3000);
 }
+
+const aiLab = createAdminAiLab({ showToast });
 
 /* ═══════════════════════════════════════════════════════════
    Date formatter
@@ -202,6 +207,7 @@ function showSection(name) {
     if (name === 'activity') loadActivity();
     if (name === 'content' && !contentLoaded) { loadContent(); contentLoaded = true; }
     if (name === 'media' && !mediaLoaded) { loadMedia(); mediaLoaded = true; }
+    if (name === 'ai-lab') aiLab.show();
     if (name === 'access' && !accessLoaded) { loadAccess(); accessLoaded = true; }
 }
 

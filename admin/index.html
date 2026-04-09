@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260407">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -67,6 +67,7 @@
         <a href="#users" class="admin-nav__link" data-section="users">Users</a>
         <a href="#content" class="admin-nav__link" data-section="content">Content</a>
         <a href="#media" class="admin-nav__link" data-section="media">Media</a>
+        <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
         <a href="#access" class="admin-nav__link" data-section="access">Access</a>
         <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
     </div>
@@ -138,6 +139,10 @@
                     <a href="#media" class="admin-quick-link glass glass-card reveal" data-nav="media">
                         <span class="admin-quick-link__icon">&#x1F3A8;</span>
                         <span class="admin-quick-link__label">Media Library</span>
+                    </a>
+                    <a href="#ai-lab" class="admin-quick-link glass glass-card reveal" data-nav="ai-lab">
+                        <span class="admin-quick-link__icon">&#x1F9EA;</span>
+                        <span class="admin-quick-link__label">AI Lab</span>
                     </a>
                     <a href="#activity" class="admin-quick-link glass glass-card reveal" data-nav="activity">
                         <span class="admin-quick-link__icon">&#x1F4CB;</span>
@@ -275,6 +280,344 @@
                                 <span>Per-user storage. No global admin view available yet.</span>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 AI LAB
+                 ═══════════════════════════════════════ -->
+            <div id="sectionAiLab" class="admin-section" style="display:none">
+                <div class="glass glass-card reveal visible admin-ai">
+                    <div class="admin-ai__header">
+                        <div>
+                            <h3 class="admin-section-title">Admin AI Lab</h3>
+                            <p class="admin-shell__desc">Internal admin-only testing surface for the dedicated AI lab worker. Existing public and production AI flows remain untouched.</p>
+                        </div>
+                        <div class="admin-ai__header-actions">
+                            <button type="button" id="aiLabRefreshModels" class="btn-action">Refresh Models</button>
+                            <button type="button" id="aiLabResetForm" class="btn-action">Reset Current Form</button>
+                        </div>
+                    </div>
+
+                    <div id="aiLabStatus" class="admin-ai__status admin-ai__status--neutral" role="status">Loading AI model catalog...</div>
+                    <div class="admin-ai__catalog-bar">
+                        <span id="aiLabCatalogStamp" class="admin-ai__catalog-note"></span>
+                        <span id="aiLabCatalogSummary" class="admin-ai__catalog-note"></span>
+                    </div>
+
+                    <div class="admin-ai__modes" role="tablist" aria-label="AI Lab modes">
+                        <button type="button" class="admin-ai__mode admin-ai__mode--active" data-ai-mode="models" aria-selected="true">Models</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="text" aria-selected="false">Text</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="image" aria-selected="false">Image</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="embeddings" aria-selected="false">Embeddings</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
+                    </div>
+                </div>
+
+                <div id="aiLabPanelModels" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-shell-grid">
+                        <div class="admin-shell">
+                            <h3 class="admin-section-title">Presets</h3>
+                            <p class="admin-shell__desc">Recommended starting points returned by the admin AI lab catalog.</p>
+                            <div id="aiModelsPresets"></div>
+                        </div>
+                        <div class="admin-shell">
+                            <h3 class="admin-section-title">Text Models</h3>
+                            <p class="admin-shell__desc">Allowlisted text generation models for experiments and compare mode.</p>
+                            <div id="aiModelsText"></div>
+                        </div>
+                        <div class="admin-shell">
+                            <h3 class="admin-section-title">Image Models</h3>
+                            <p class="admin-shell__desc">Allowlisted image generation models for direct preview tests.</p>
+                            <div id="aiModelsImage"></div>
+                        </div>
+                        <div class="admin-shell">
+                            <h3 class="admin-section-title">Embeddings Models</h3>
+                            <p class="admin-shell__desc">Allowlisted embedding models and any future scaffolding notes.</p>
+                            <div id="aiModelsEmbeddings"></div>
+                            <div class="admin-ai__future-note">
+                                <div class="admin-ai__future-title">Future</div>
+                                <div id="aiModelsFuture"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aiLabPanelText" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-ai__panel-header">
+                        <div>
+                            <h3 class="admin-section-title">Text Test</h3>
+                            <p class="admin-shell__desc">Run a single admin text generation request and inspect both the rendered answer and the raw response.</p>
+                        </div>
+                        <button type="button" id="aiTextSample" class="btn-action">Use Sample Prompt</button>
+                    </div>
+                    <div class="admin-ai__split">
+                        <div class="admin-ai__surface">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Preset</span>
+                                    <select id="aiTextPreset" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Explicit Model</span>
+                                    <select id="aiTextModel" class="admin-ai__input"></select>
+                                </label>
+                            </div>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">System Prompt</span>
+                                    <span id="aiTextSystemCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiTextSystem" class="admin-ai__textarea" rows="4" maxlength="1200"></textarea>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Prompt</span>
+                                    <span id="aiTextPromptCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiTextPrompt" class="admin-ai__textarea" rows="7" maxlength="4000"></textarea>
+                            </label>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Max Tokens</span>
+                                    <input id="aiTextMaxTokens" class="admin-ai__input" type="number" min="1" max="1200" step="1">
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Temperature</span>
+                                    <input id="aiTextTemperature" class="admin-ai__input" type="number" min="0" max="2" step="0.1">
+                                </label>
+                            </div>
+                            <div class="admin-ai__actions">
+                                <button type="button" id="aiTextRun" class="admin-ai__run">Run Text Test</button>
+                            </div>
+                        </div>
+                        <div class="admin-ai__surface">
+                            <div id="aiTextState" class="admin-ai__result-state">No text run yet.</div>
+                            <div class="admin-ai__result-actions">
+                                <button type="button" id="aiTextCopy" class="btn-action" hidden>Copy Output</button>
+                            </div>
+                            <pre id="aiTextOutput" class="admin-ai__output admin-ai__output--text"></pre>
+                            <div id="aiTextMeta" class="admin-ai__meta"></div>
+                            <div id="aiTextWarnings" class="admin-ai__warnings" hidden></div>
+                            <div id="aiTextUsage" class="admin-ai__usage" hidden></div>
+                            <details id="aiTextDebug" class="admin-ai__debug" hidden>
+                                <summary>Raw JSON</summary>
+                                <div class="admin-ai__debug-actions">
+                                    <button type="button" id="aiTextCopyRaw" class="btn-action">Copy Raw JSON</button>
+                                </div>
+                                <pre id="aiTextRaw" class="admin-ai__raw"></pre>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aiLabPanelImage" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-ai__panel-header">
+                        <div>
+                            <h3 class="admin-section-title">Image Test</h3>
+                            <p class="admin-shell__desc">Run an image generation request and preview the returned base64 payload directly in the admin page.</p>
+                        </div>
+                        <button type="button" id="aiImageSample" class="btn-action">Use Sample Prompt</button>
+                    </div>
+                    <div class="admin-ai__split">
+                        <div class="admin-ai__surface">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Preset</span>
+                                    <select id="aiImagePreset" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Explicit Model</span>
+                                    <select id="aiImageModel" class="admin-ai__input"></select>
+                                </label>
+                            </div>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Prompt</span>
+                                    <span id="aiImagePromptCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiImagePrompt" class="admin-ai__textarea" rows="6" maxlength="2048"></textarea>
+                            </label>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--4">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Width</span>
+                                    <input id="aiImageWidth" class="admin-ai__input" type="number" min="256" max="1024" step="256">
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Height</span>
+                                    <input id="aiImageHeight" class="admin-ai__input" type="number" min="256" max="1024" step="256">
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Steps</span>
+                                    <input id="aiImageSteps" class="admin-ai__input" type="number" min="1" max="8" step="1">
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Seed</span>
+                                    <input id="aiImageSeed" class="admin-ai__input" type="number" min="0" step="1" placeholder="Optional">
+                                </label>
+                            </div>
+                            <div class="admin-ai__actions">
+                                <button type="button" id="aiImageRun" class="admin-ai__run">Run Image Test</button>
+                            </div>
+                        </div>
+                        <div class="admin-ai__surface">
+                            <div id="aiImageState" class="admin-ai__result-state">No image run yet.</div>
+                            <div id="aiImagePreview" class="admin-ai__preview">
+                                <div class="admin-ai__empty">Run an image test to see the preview.</div>
+                            </div>
+                            <div id="aiImageMeta" class="admin-ai__meta"></div>
+                            <div id="aiImageWarnings" class="admin-ai__warnings" hidden></div>
+                            <details id="aiImageDebug" class="admin-ai__debug" hidden>
+                                <summary>Raw JSON</summary>
+                                <div class="admin-ai__debug-actions">
+                                    <button type="button" id="aiImageCopyRaw" class="btn-action">Copy Raw JSON</button>
+                                </div>
+                                <pre id="aiImageRaw" class="admin-ai__raw"></pre>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aiLabPanelEmbeddings" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-ai__panel-header">
+                        <div>
+                            <h3 class="admin-section-title">Embeddings Test</h3>
+                            <p class="admin-shell__desc">Each non-empty line becomes one embedding input item. The UI shows a summary first and keeps raw vectors behind a debug toggle.</p>
+                        </div>
+                        <button type="button" id="aiEmbeddingsSample" class="btn-action">Use Sample Input</button>
+                    </div>
+                    <div class="admin-ai__split">
+                        <div class="admin-ai__surface">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Preset</span>
+                                    <select id="aiEmbeddingsPreset" class="admin-ai__input"></select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Explicit Model</span>
+                                    <select id="aiEmbeddingsModel" class="admin-ai__input"></select>
+                                </label>
+                            </div>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Input Items</span>
+                                    <span id="aiEmbeddingsInputCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiEmbeddingsInput" class="admin-ai__textarea" rows="10" maxlength="8000" placeholder="One line per item"></textarea>
+                            </label>
+                            <div class="admin-ai__actions">
+                                <button type="button" id="aiEmbeddingsRun" class="admin-ai__run">Run Embeddings</button>
+                            </div>
+                        </div>
+                        <div class="admin-ai__surface">
+                            <div id="aiEmbeddingsState" class="admin-ai__result-state">No embeddings run yet.</div>
+                            <div id="aiEmbeddingsSummary" class="admin-ai__summary">Run an embeddings test to inspect the response.</div>
+                            <div id="aiEmbeddingsPreview" class="admin-ai__output admin-ai__output--compact"></div>
+                            <div id="aiEmbeddingsMeta" class="admin-ai__meta"></div>
+                            <div id="aiEmbeddingsWarnings" class="admin-ai__warnings" hidden></div>
+                            <details id="aiEmbeddingsDebug" class="admin-ai__debug" hidden>
+                                <summary>Raw JSON</summary>
+                                <div class="admin-ai__debug-actions">
+                                    <button type="button" id="aiEmbeddingsCopyRaw" class="btn-action">Copy Raw JSON</button>
+                                </div>
+                                <pre id="aiEmbeddingsRaw" class="admin-ai__raw"></pre>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aiLabPanelCompare" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <div class="admin-ai__panel-header">
+                        <div>
+                            <h3 class="admin-section-title">Compare Test</h3>
+                            <p class="admin-shell__desc">Send the same prompt to two allowlisted text models and inspect the responses side by side.</p>
+                        </div>
+                        <div class="admin-ai__panel-actions">
+                            <button type="button" id="aiCompareSwap" class="btn-action">Swap Models</button>
+                            <button type="button" id="aiCompareSample" class="btn-action">Use Sample Prompt</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-ai__surface admin-ai__surface--spaced">
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Model A</span>
+                                <select id="aiCompareModelA" class="admin-ai__input"></select>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Model B</span>
+                                <select id="aiCompareModelB" class="admin-ai__input"></select>
+                            </label>
+                        </div>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">System Prompt</span>
+                                <span id="aiCompareSystemCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiCompareSystem" class="admin-ai__textarea" rows="4" maxlength="1200"></textarea>
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">Prompt</span>
+                                <span id="aiComparePromptCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiComparePrompt" class="admin-ai__textarea" rows="6" maxlength="4000"></textarea>
+                        </label>
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Max Tokens</span>
+                                <input id="aiCompareMaxTokens" class="admin-ai__input" type="number" min="1" max="600" step="1">
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Temperature</span>
+                                <input id="aiCompareTemperature" class="admin-ai__input" type="number" min="0" max="2" step="0.1">
+                            </label>
+                        </div>
+                        <div class="admin-ai__actions">
+                            <button type="button" id="aiCompareRun" class="admin-ai__run">Run Compare</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-ai__surface admin-ai__surface--spaced">
+                        <div id="aiCompareState" class="admin-ai__result-state">No compare run yet.</div>
+                        <div id="aiCompareMeta" class="admin-ai__meta"></div>
+                        <div id="aiCompareWarnings" class="admin-ai__warnings" hidden></div>
+
+                        <div class="admin-ai__compare-grid">
+                            <article id="aiCompareCardA" class="admin-ai__compare-card">
+                                <div class="admin-ai__compare-head">
+                                    <div>
+                                        <h4 id="aiCompareALabel" class="admin-ai__compare-title">Waiting for run</h4>
+                                        <p id="aiCompareAMeta" class="admin-ai__compare-id"></p>
+                                    </div>
+                                    <button type="button" id="aiCompareACopy" class="btn-action" hidden>Copy Output</button>
+                                </div>
+                                <pre id="aiCompareAText" class="admin-ai__output admin-ai__output--text"></pre>
+                                <div id="aiCompareAUsage" class="admin-ai__compare-usage" hidden></div>
+                                <div id="aiCompareAError" class="admin-ai__compare-error" hidden></div>
+                            </article>
+                            <article id="aiCompareCardB" class="admin-ai__compare-card">
+                                <div class="admin-ai__compare-head">
+                                    <div>
+                                        <h4 id="aiCompareBLabel" class="admin-ai__compare-title">Waiting for run</h4>
+                                        <p id="aiCompareBMeta" class="admin-ai__compare-id"></p>
+                                    </div>
+                                    <button type="button" id="aiCompareBCopy" class="btn-action" hidden>Copy Output</button>
+                                </div>
+                                <pre id="aiCompareBText" class="admin-ai__output admin-ai__output--text"></pre>
+                                <div id="aiCompareBUsage" class="admin-ai__compare-usage" hidden></div>
+                                <div id="aiCompareBError" class="admin-ai__compare-error" hidden></div>
+                            </article>
+                        </div>
+
+                        <details id="aiCompareDebug" class="admin-ai__debug" hidden>
+                            <summary>Raw JSON</summary>
+                            <div class="admin-ai__debug-actions">
+                                <button type="button" id="aiCompareCopyRaw" class="btn-action">Copy Raw JSON</button>
+                            </div>
+                            <pre id="aiCompareRaw" class="admin-ai__raw"></pre>
+                        </details>
                     </div>
                 </div>
             </div>
@@ -425,6 +768,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260407"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260409"></script>
 </body>
 </html>
