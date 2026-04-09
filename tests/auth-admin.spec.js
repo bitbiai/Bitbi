@@ -3,6 +3,10 @@ const { test, expect } = require('@playwright/test');
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function seedCookieConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -173,6 +177,7 @@ async function mockAdminAiLab(page) {
   });
 
   await page.route('**/api/admin/ai/test-image', async (route) => {
+    const body = route.request().postDataJSON();
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -184,8 +189,13 @@ async function mockAdminAiLab(page) {
         result: {
           imageBase64: ONE_PX_PNG_BASE64,
           mimeType: 'image/png',
-          steps: 4,
-          seed: 12345,
+          steps: body.steps ?? 4,
+          seed: body.seed ?? 12345,
+          requestedSize:
+            body.width && body.height
+              ? { width: body.width, height: body.height }
+              : null,
+          appliedSize: null,
         },
         elapsedMs: 456,
         warnings: ['Mock image warning'],
@@ -224,6 +234,7 @@ async function mockAdminAiLab(page) {
       body: JSON.stringify({
         ok: true,
         task: 'compare',
+        models: catalog.models.text,
         result: {
           results: [
             {
@@ -408,29 +419,52 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
 
     await page.getByRole('button', { name: 'Text', exact: true }).click();
-    await page.locator('#aiTextPrompt').fill('Summarize BITBI in one short paragraph.');
+    await page.selectOption('#aiTextSampleSelect', 'release-notes');
+    await page.locator('#aiTextSample').click();
+    await expect(page.locator('#aiTextPrompt')).toHaveValue(
+      /Turn this feature idea into 5 concise release notes/,
+    );
     await page.locator('#aiTextRun').click();
     await expect(page.locator('#aiTextOutput')).toContainText(
       'Mocked text output from admin AI Lab.',
     );
+    await expect(page.locator('#aiTextMeta')).toContainText('Model Label');
     await expect(page.locator('#aiTextMeta')).toContainText('@cf/openai/gpt-oss-20b');
+    await expect(page.locator('#aiTextMeta')).toContainText('Received');
 
     await page.getByRole('button', { name: 'Image' }).click();
-    await page.locator('#aiImagePrompt').fill('A futuristic neon skyline at night');
+    await page.selectOption('#aiImageSampleSelect', 'editorial-portrait');
+    await page.locator('#aiImageSample').click();
+    await expect(page.locator('#aiImagePrompt')).toHaveValue(
+      /An editorial portrait of a digital artist/,
+    );
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImagePreview img')).toBeVisible();
     await expect(page.locator('#aiImageMeta')).toContainText('image/png');
+    await expect(page.locator('#aiImageDownload')).toBeVisible();
+    const imageDownload = page.waitForEvent('download');
+    await page.locator('#aiImageDownload').click();
+    await expect((await imageDownload).suggestedFilename()).toContain('ai-lab-image');
 
     await page.getByRole('button', { name: 'Embeddings' }).click();
-    await page.locator('#aiEmbeddingsInput').fill('first line\nsecond line');
+    await page.selectOption('#aiEmbeddingsSampleSelect', 'taxonomy');
+    await page.locator('#aiEmbeddingsSample').click();
+    await expect(page.locator('#aiEmbeddingsInput')).toHaveValue(
+      /cyberpunk neon skyline/,
+    );
     await page.locator('#aiEmbeddingsRun').click();
     await expect(page.locator('#aiEmbeddingsSummary')).toContainText(
       '2 vectors returned.',
     );
     await expect(page.locator('#aiEmbeddingsPreview')).toContainText('0.1000');
+    await expect(page.locator('#aiEmbeddingsMeta')).toContainText('Shape');
 
     await page.getByRole('button', { name: 'Compare' }).click();
-    await page.locator('#aiComparePrompt').fill('Write a short creative tagline.');
+    await page.selectOption('#aiCompareSampleSelect', 'hero-intro');
+    await page.locator('#aiCompareSample').click();
+    await expect(page.locator('#aiComparePrompt')).toHaveValue(
+      /Write a 2-sentence homepage intro/,
+    );
     await page.locator('#aiCompareRun').click();
     await expect(page.locator('#aiCompareAText')).toContainText(
       'Model A compare output.',
@@ -438,6 +472,8 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiCompareBText')).toContainText(
       'Model B compare output.',
     );
+    await expect(page.locator('#aiCompareAMeta')).toContainText('Meta');
+    await expect(page.locator('#aiCompareBMeta')).toContainText('OpenAI');
 
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
@@ -452,11 +488,21 @@ test.describe('Admin AI Lab', () => {
 
     await page.getByRole('button', { name: 'Text', exact: true }).click();
     await page.locator('#aiTextPrompt').fill('Persist me');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiTextOutput')).toContainText(
+      'Mocked text output from admin AI Lab.',
+    );
     await page.reload();
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Text', exact: true }).click();
     await expect(page.locator('#aiTextPrompt')).toHaveValue('Persist me');
+    await expect(page.locator('#aiTextPromptHistory')).toContainText('Persist me');
+
+    await page.locator('#aiTextHistoryClear').click();
+    await expect(page.locator('#aiTextPromptHistory')).toContainText(
+      'Recent text prompts will appear here.',
+    );
 
     await page.locator('#aiTextPrompt').fill('force error');
     await page.locator('#aiTextRun').click();
@@ -465,6 +511,67 @@ test.describe('Admin AI Lab', () => {
     );
     await expect(page.locator('#aiTextState')).toContainText(
       'Prompt rejected by mock.',
+    );
+  });
+
+  test('cancels an in-flight text request without overwriting the previous result', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await page.locator('#aiTextPrompt').fill('Fast success');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiTextOutput')).toContainText(
+      'Mocked text output from admin AI Lab.',
+    );
+
+    await page.unroute('**/api/admin/ai/test-text');
+    await page.route('**/api/admin/ai/test-text', async (route) => {
+      await wait(900);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'text',
+          model: {
+            id: '@cf/meta/llama-3.1-8b-instruct-fast',
+            task: 'text',
+            label: 'Llama 3.1 8B Instruct Fast',
+            vendor: 'Meta',
+          },
+          preset: 'fast',
+          result: {
+            text: 'Slow response that should never replace the cancelled state.',
+            usage: {
+              total_tokens: 99,
+            },
+            maxTokens: 300,
+            temperature: 0.7,
+          },
+          elapsedMs: 999,
+        }),
+      });
+    });
+
+    await page.locator('#aiTextPrompt').fill('Cancel this slow request');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiTextCancel')).toBeEnabled();
+    await expect(page.locator('#aiTextState')).toContainText('Running text test');
+
+    await page.locator('#aiTextCancel').click();
+    await expect(page.locator('#aiLabStatus')).toContainText('Text request cancelled.');
+    await expect(page.locator('#aiTextState')).toContainText('Text request cancelled.');
+    await expect(page.locator('#aiTextOutput')).toContainText(
+      'Mocked text output from admin AI Lab.',
+    );
+
+    await wait(1000);
+    await expect(page.locator('#aiTextState')).toContainText('Text request cancelled.');
+    await expect(page.locator('#aiTextOutput')).not.toContainText(
+      'Slow response that should never replace the cancelled state.',
     );
   });
 });

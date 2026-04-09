@@ -8,6 +8,7 @@ import {
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare'];
+const HISTORY_LIMIT = 6;
 
 const DEFAULT_FORMS = {
     text: {
@@ -42,25 +43,94 @@ const DEFAULT_FORMS = {
     },
 };
 
-const SAMPLES = {
-    text: {
-        system: 'You are a concise assistant for a creative technology portfolio.',
-        prompt: 'Write a short admin-ready summary of BITBI in 4 bullet points.',
-    },
-    image: {
-        prompt: 'A cinematic futuristic city at night, rain-slick streets, neon reflections, sharp detail.',
-    },
-    embeddings: {
-        input: 'BITBI is an experimental AI art portfolio.\nThe site includes visuals, sound, and admin tools.',
-    },
-    compare: {
-        system: 'You are concise.',
-        prompt: 'Write a short landing page tagline for an experimental AI art portfolio.',
-    },
+const SAMPLE_LIBRARY = {
+    text: [
+        {
+            id: 'summary',
+            label: 'Portfolio Summary',
+            system: 'You are a concise assistant for a creative technology portfolio.',
+            prompt: 'Write a short admin-ready summary of BITBI in 4 bullet points.',
+        },
+        {
+            id: 'release-notes',
+            label: 'Release Notes',
+            system: 'You are a product editor. Be concrete and efficient.',
+            prompt: 'Turn this feature idea into 5 concise release notes for an admin changelog: new AI lab worker, admin-only routing, safer compare mode, additive rollout, no public exposure.',
+        },
+        {
+            id: 'landing-copy',
+            label: 'Landing Copy',
+            system: 'You are a sharp marketing writer who avoids hype.',
+            prompt: 'Write a compact hero paragraph for an experimental AI art and audio portfolio that feels premium and technical.',
+        },
+    ],
+    image: [
+        {
+            id: 'neon-city',
+            label: 'Neon City',
+            prompt: 'A cinematic futuristic city at night, rain-slick streets, neon reflections, sharp detail.',
+        },
+        {
+            id: 'editorial-portrait',
+            label: 'Editorial Portrait',
+            prompt: 'An editorial portrait of a digital artist in a minimal studio, dramatic side light, clean composition, premium magazine photography.',
+        },
+        {
+            id: 'abstract-cover',
+            label: 'Abstract Cover',
+            prompt: 'An abstract cover image with liquid chrome shapes, cyan highlights, dark background, elegant composition, high contrast.',
+        },
+    ],
+    embeddings: [
+        {
+            id: 'portfolio-lines',
+            label: 'Portfolio Lines',
+            input: 'BITBI is an experimental AI art portfolio.\nThe site includes visuals, sound, and admin tools.',
+        },
+        {
+            id: 'taxonomy',
+            label: 'Tag Taxonomy',
+            input: 'cyberpunk neon skyline\nminimal editorial portrait\nabstract chrome sculpture\nambient synth soundtrack',
+        },
+        {
+            id: 'content-snippets',
+            label: 'Content Snippets',
+            input: 'Admin-only AI lab for safe experimentation.\nPublic production routes remain isolated.\nCompare allowlisted models with bounded limits.',
+        },
+    ],
+    compare: [
+        {
+            id: 'tagline',
+            label: 'Tagline',
+            system: 'You are concise.',
+            prompt: 'Write a short landing page tagline for an experimental AI art portfolio.',
+        },
+        {
+            id: 'hero-intro',
+            label: 'Hero Intro',
+            system: 'You are a concise copywriter with strong visual language.',
+            prompt: 'Write a 2-sentence homepage intro for a premium creative technology portfolio that blends AI imagery, audio, and experiments.',
+        },
+        {
+            id: 'art-direction',
+            label: 'Art Direction',
+            system: 'You are an art director. Be specific and compact.',
+            prompt: 'Describe the visual direction for a futuristic portfolio homepage in 6 short bullets.',
+        },
+    ],
 };
 
 function cloneDefaultForms() {
     return JSON.parse(JSON.stringify(DEFAULT_FORMS));
+}
+
+function cloneDefaultHistory() {
+    return {
+        text: [],
+        image: [],
+        embeddings: [],
+        compare: [],
+    };
 }
 
 function isObject(value) {
@@ -95,6 +165,23 @@ function mergeForms(savedForms) {
     return merged;
 }
 
+function mergeHistory(savedHistory) {
+    const merged = cloneDefaultHistory();
+    if (!isObject(savedHistory)) return merged;
+
+    for (const key of Object.keys(merged)) {
+        const values = Array.isArray(savedHistory[key]) ? savedHistory[key] : [];
+        merged[key] = values
+            .filter((value) => typeof value === 'string')
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .filter((value, index, list) => list.indexOf(value) === index)
+            .slice(0, HISTORY_LIMIT);
+    }
+
+    return merged;
+}
+
 function formatTime(date) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
     return new Intl.DateTimeFormat('de-DE', {
@@ -123,6 +210,34 @@ function safeJson(value) {
     } catch {
         return String(value);
     }
+}
+
+function truncateText(value, maxLength = 88) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function slugify(value, fallback = 'result') {
+    const slug = String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40);
+    return slug || fallback;
+}
+
+function mimeToExtension(mimeType) {
+    if (!mimeType) return 'png';
+    if (mimeType.includes('png')) return 'png';
+    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+    if (mimeType.includes('webp')) return 'webp';
+    if (mimeType.includes('gif')) return 'gif';
+    return 'bin';
+}
+
+function findSample(task, sampleId) {
+    return (SAMPLE_LIBRARY[task] || []).find((sample) => sample.id === sampleId) || SAMPLE_LIBRARY[task]?.[0] || null;
 }
 
 function setOptions(selectEl, items, placeholder) {
@@ -215,6 +330,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 ? persisted.activeMode
                 : 'models',
         forms: mergeForms(persisted?.forms),
+        history: mergeHistory(persisted?.history),
         catalog: {
             status: 'idle',
             data: null,
@@ -267,6 +383,7 @@ export function createAdminAiLab({ showToast } = {}) {
         text: {
             preset: document.getElementById('aiTextPreset'),
             model: document.getElementById('aiTextModel'),
+            sampleSelect: document.getElementById('aiTextSampleSelect'),
             system: document.getElementById('aiTextSystem'),
             systemCount: document.getElementById('aiTextSystemCount'),
             prompt: document.getElementById('aiTextPrompt'),
@@ -274,7 +391,10 @@ export function createAdminAiLab({ showToast } = {}) {
             maxTokens: document.getElementById('aiTextMaxTokens'),
             temperature: document.getElementById('aiTextTemperature'),
             run: document.getElementById('aiTextRun'),
+            cancel: document.getElementById('aiTextCancel'),
             sample: document.getElementById('aiTextSample'),
+            history: document.getElementById('aiTextPromptHistory'),
+            clearHistory: document.getElementById('aiTextHistoryClear'),
             state: document.getElementById('aiTextState'),
             output: document.getElementById('aiTextOutput'),
             meta: document.getElementById('aiTextMeta'),
@@ -288,6 +408,7 @@ export function createAdminAiLab({ showToast } = {}) {
         image: {
             preset: document.getElementById('aiImagePreset'),
             model: document.getElementById('aiImageModel'),
+            sampleSelect: document.getElementById('aiImageSampleSelect'),
             prompt: document.getElementById('aiImagePrompt'),
             promptCount: document.getElementById('aiImagePromptCount'),
             width: document.getElementById('aiImageWidth'),
@@ -295,11 +416,15 @@ export function createAdminAiLab({ showToast } = {}) {
             steps: document.getElementById('aiImageSteps'),
             seed: document.getElementById('aiImageSeed'),
             run: document.getElementById('aiImageRun'),
+            cancel: document.getElementById('aiImageCancel'),
             sample: document.getElementById('aiImageSample'),
+            history: document.getElementById('aiImagePromptHistory'),
+            clearHistory: document.getElementById('aiImageHistoryClear'),
             state: document.getElementById('aiImageState'),
             preview: document.getElementById('aiImagePreview'),
             meta: document.getElementById('aiImageMeta'),
             warnings: document.getElementById('aiImageWarnings'),
+            download: document.getElementById('aiImageDownload'),
             debug: document.getElementById('aiImageDebug'),
             raw: document.getElementById('aiImageRaw'),
             copyRaw: document.getElementById('aiImageCopyRaw'),
@@ -307,10 +432,14 @@ export function createAdminAiLab({ showToast } = {}) {
         embeddings: {
             preset: document.getElementById('aiEmbeddingsPreset'),
             model: document.getElementById('aiEmbeddingsModel'),
+            sampleSelect: document.getElementById('aiEmbeddingsSampleSelect'),
             input: document.getElementById('aiEmbeddingsInput'),
             inputCount: document.getElementById('aiEmbeddingsInputCount'),
             run: document.getElementById('aiEmbeddingsRun'),
+            cancel: document.getElementById('aiEmbeddingsCancel'),
             sample: document.getElementById('aiEmbeddingsSample'),
+            history: document.getElementById('aiEmbeddingsPromptHistory'),
+            clearHistory: document.getElementById('aiEmbeddingsHistoryClear'),
             state: document.getElementById('aiEmbeddingsState'),
             summary: document.getElementById('aiEmbeddingsSummary'),
             preview: document.getElementById('aiEmbeddingsPreview'),
@@ -324,6 +453,7 @@ export function createAdminAiLab({ showToast } = {}) {
             modelA: document.getElementById('aiCompareModelA'),
             modelB: document.getElementById('aiCompareModelB'),
             swap: document.getElementById('aiCompareSwap'),
+            sampleSelect: document.getElementById('aiCompareSampleSelect'),
             system: document.getElementById('aiCompareSystem'),
             systemCount: document.getElementById('aiCompareSystemCount'),
             prompt: document.getElementById('aiComparePrompt'),
@@ -331,7 +461,10 @@ export function createAdminAiLab({ showToast } = {}) {
             maxTokens: document.getElementById('aiCompareMaxTokens'),
             temperature: document.getElementById('aiCompareTemperature'),
             run: document.getElementById('aiCompareRun'),
+            cancel: document.getElementById('aiCompareCancel'),
             sample: document.getElementById('aiCompareSample'),
+            history: document.getElementById('aiComparePromptHistory'),
+            clearHistory: document.getElementById('aiCompareHistoryClear'),
             state: document.getElementById('aiCompareState'),
             meta: document.getElementById('aiCompareMeta'),
             warnings: document.getElementById('aiCompareWarnings'),
@@ -362,6 +495,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 JSON.stringify({
                     activeMode: state.activeMode,
                     forms: state.forms,
+                    history: state.history,
                 })
             );
         } catch {
@@ -378,9 +512,17 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.status.textContent = message;
     }
 
-    function setButtonBusy(button, isBusy, busyText, idleText) {
-        button.disabled = !!isBusy;
-        button.textContent = isBusy ? busyText : idleText;
+    function setResultState(element, tone, message) {
+        element.className = `admin-ai__result-state admin-ai__result-state--${tone}`;
+        element.textContent = message;
+    }
+
+    function setTaskBusy(task, isBusy, busyText, idleText) {
+        const buttonRefs = refs[task];
+        if (!buttonRefs?.run || !buttonRefs?.cancel) return;
+        buttonRefs.run.disabled = !!isBusy;
+        buttonRefs.run.textContent = isBusy ? busyText : idleText;
+        buttonRefs.cancel.disabled = !isBusy;
     }
 
     function updateCounter(inputEl, outputEl, maxLength, formatter) {
@@ -390,6 +532,14 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
         outputEl.textContent = `${value.length} / ${maxLength}`;
+    }
+
+    function getRetainedResult(task) {
+        const current = state.results[task];
+        return {
+            raw: current?.raw || null,
+            receivedAt: current?.receivedAt || null,
+        };
     }
 
     function renderWarnings(container, warnings) {
@@ -465,6 +615,148 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         detailsEl.hidden = false;
         preEl.textContent = safeJson(rawData);
+    }
+
+    function populateSampleSelect(selectEl, task) {
+        const samples = SAMPLE_LIBRARY[task] || [];
+        const current = selectEl.value;
+        selectEl.innerHTML = '';
+
+        samples.forEach((sample) => {
+            const option = document.createElement('option');
+            option.value = sample.id;
+            option.textContent = sample.label;
+            selectEl.appendChild(option);
+        });
+
+        if (current && samples.some((sample) => sample.id === current)) {
+            selectEl.value = current;
+        } else if (samples[0]) {
+            selectEl.value = samples[0].id;
+        }
+    }
+
+    function addHistoryEntry(task, value) {
+        const entry = String(value || '').trim();
+        if (!entry) return;
+
+        const next = [entry]
+            .concat(state.history[task].filter((item) => item !== entry))
+            .slice(0, HISTORY_LIMIT);
+
+        state.history[task] = next;
+        persistState();
+        renderHistories();
+    }
+
+    function clearHistory(task, label) {
+        state.history[task] = [];
+        persistState();
+        renderHistories();
+        setStatus(`${label} history cleared.`, 'success');
+    }
+
+    function renderHistory(container, clearButton, items, emptyText, onSelect) {
+        container.innerHTML = '';
+        clearButton.hidden = items.length === 0;
+
+        if (items.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'admin-ai__history-empty';
+            empty.textContent = emptyText;
+            container.appendChild(empty);
+            return;
+        }
+
+        items.forEach((item) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'admin-ai__history-item';
+            button.textContent = truncateText(item);
+            button.title = item;
+            button.addEventListener('click', () => onSelect(item));
+            container.appendChild(button);
+        });
+    }
+
+    function renderHistories() {
+        renderHistory(
+            refs.text.history,
+            refs.text.clearHistory,
+            state.history.text,
+            'Recent text prompts will appear here.',
+            (value) => {
+                state.forms.text.prompt = value;
+                syncFormInputs();
+                persistState();
+            }
+        );
+        renderHistory(
+            refs.image.history,
+            refs.image.clearHistory,
+            state.history.image,
+            'Recent image prompts will appear here.',
+            (value) => {
+                state.forms.image.prompt = value;
+                syncFormInputs();
+                persistState();
+            }
+        );
+        renderHistory(
+            refs.embeddings.history,
+            refs.embeddings.clearHistory,
+            state.history.embeddings,
+            'Recent embedding inputs will appear here.',
+            (value) => {
+                state.forms.embeddings.input = value;
+                syncFormInputs();
+                persistState();
+            }
+        );
+        renderHistory(
+            refs.compare.history,
+            refs.compare.clearHistory,
+            state.history.compare,
+            'Recent compare prompts will appear here.',
+            (value) => {
+                state.forms.compare.prompt = value;
+                syncFormInputs();
+                persistState();
+            }
+        );
+    }
+
+    function downloadImageResult() {
+        const response = state.results.image?.raw;
+        const payload = response?.result;
+        if (!payload?.imageBase64) {
+            if (showToast) showToast('No image available to download.', 'error');
+            return;
+        }
+
+        const mimeType = payload.mimeType || 'image/png';
+        const extension = mimeToExtension(mimeType);
+        const dateStamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = [
+            'ai-lab',
+            'image',
+            slugify(response?.preset || 'preset'),
+            slugify(response?.model?.label || response?.model?.id || 'model'),
+            slugify(state.forms.image.prompt || 'prompt'),
+            dateStamp,
+        ].join('-') + `.${extension}`;
+
+        const bytes = Uint8Array.from(atob(payload.imageBase64), (char) => char.charCodeAt(0));
+        const blob = new Blob([bytes], { type: mimeType });
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = href;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 1000);
+        if (showToast) showToast('Image download started.');
     }
 
     function renderCatalogList(container, items, emptyMessage) {
@@ -639,6 +931,11 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function syncFormInputs() {
+        populateSampleSelect(refs.text.sampleSelect, 'text');
+        populateSampleSelect(refs.image.sampleSelect, 'image');
+        populateSampleSelect(refs.embeddings.sampleSelect, 'embeddings');
+        populateSampleSelect(refs.compare.sampleSelect, 'compare');
+
         refs.text.system.value = state.forms.text.system;
         refs.text.prompt.value = state.forms.text.prompt;
         refs.text.maxTokens.value = state.forms.text.maxTokens;
@@ -659,6 +956,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         populateSelects();
         updateCounters();
+        renderHistories();
     }
 
     function updateCounters() {
@@ -761,77 +1059,70 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function renderTextResult() {
         const result = state.results.text;
+        const response = result?.raw || null;
+        const outputText = response?.result?.text || '';
 
-        refs.text.output.textContent = '';
-        renderMeta(refs.text.meta, []);
-        renderWarnings(refs.text.warnings, []);
-        renderUsage(refs.text.usage, null);
-        renderDebug(refs.text.debug, refs.text.raw, null);
-        refs.text.copy.hidden = true;
+        refs.text.output.textContent = outputText;
+        refs.text.copy.hidden = !outputText;
+
+        renderMeta(refs.text.meta, response ? [
+            { label: 'Preset', value: response.preset || 'Preset default' },
+            { label: 'Model Label', value: response.model?.label },
+            { label: 'Model ID', value: response.model?.id },
+            { label: 'Vendor', value: response.model?.vendor },
+            { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
+            { label: 'Received', value: formatTime(result?.receivedAt) },
+            { label: 'Temperature', value: response.result?.temperature },
+            { label: 'Max Tokens', value: response.result?.maxTokens },
+        ] : []);
+        renderWarnings(refs.text.warnings, response ? getWarnings(response) : []);
+        renderUsage(refs.text.usage, response?.result?.usage || null);
+        renderDebug(refs.text.debug, refs.text.raw, result?.debugRaw || response);
 
         if (!result) {
-            refs.text.state.textContent = 'No text run yet.';
+            setResultState(refs.text.state, 'neutral', 'No text run yet.');
             return;
         }
 
         if (result.status === 'loading') {
-            refs.text.state.textContent = 'Running text test...';
+            setResultState(
+                refs.text.state,
+                'loading',
+                response ? 'Running text test. Previous result shown below.' : 'Running text test...'
+            );
+            return;
+        }
+
+        if (result.status === 'aborted') {
+            setResultState(
+                refs.text.state,
+                'aborted',
+                response ? 'Text request cancelled. Previous result preserved.' : 'Text request cancelled.'
+            );
             return;
         }
 
         if (result.status === 'error') {
-            refs.text.state.textContent = result.error || 'Text request failed.';
-            renderDebug(refs.text.debug, refs.text.raw, result.raw);
+            setResultState(
+                refs.text.state,
+                'error',
+                response
+                    ? `${result.error || 'Text request failed.'} Previous result preserved.`
+                    : result.error || 'Text request failed.'
+            );
             return;
         }
 
-        const response = result.raw || {};
-        const outputText = response?.result?.text || '';
-        refs.text.state.textContent = 'Text response ready.';
-        refs.text.output.textContent = outputText;
-        refs.text.copy.hidden = !outputText;
-
-        renderMeta(refs.text.meta, [
-            { label: 'Preset', value: response.preset || 'Preset default' },
-            { label: 'Model', value: response.model?.id },
-            { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
-            { label: 'Temperature', value: response.result?.temperature },
-            { label: 'Max Tokens', value: response.result?.maxTokens },
-        ]);
-        renderWarnings(refs.text.warnings, getWarnings(response));
-        renderUsage(refs.text.usage, response.result?.usage || null);
-        renderDebug(refs.text.debug, refs.text.raw, response);
+        setResultState(refs.text.state, 'success', 'Text response ready.');
     }
 
     function renderImageResult() {
         const result = state.results.image;
+        const response = result?.raw || null;
+        const payload = response?.result || {};
 
         refs.image.preview.innerHTML = '<div class="admin-ai__empty">Run an image test to see the preview.</div>';
-        renderMeta(refs.image.meta, []);
-        renderWarnings(refs.image.warnings, []);
-        renderDebug(refs.image.debug, refs.image.raw, null);
-
-        if (!result) {
-            refs.image.state.textContent = 'No image run yet.';
-            return;
-        }
-
-        if (result.status === 'loading') {
-            refs.image.state.textContent = 'Generating image...';
-            refs.image.preview.innerHTML = '<div class="admin-ai__loading"><div class="admin-ai__spinner"></div><span>Waiting for image output...</span></div>';
-            return;
-        }
-
-        if (result.status === 'error') {
-            refs.image.state.textContent = result.error || 'Image request failed.';
-            refs.image.preview.innerHTML = '<div class="admin-ai__empty">Image generation failed.</div>';
-            renderDebug(refs.image.debug, refs.image.raw, result.raw);
-            return;
-        }
-
-        const response = result.raw || {};
-        const payload = response.result || {};
-        refs.image.state.textContent = 'Image response ready.';
+        refs.image.download.hidden = true;
 
         if (payload.imageBase64) {
             const img = document.createElement('img');
@@ -840,69 +1131,150 @@ export function createAdminAiLab({ showToast } = {}) {
             img.alt = state.forms.image.prompt || 'AI Lab image result';
             refs.image.preview.innerHTML = '';
             refs.image.preview.appendChild(img);
-        } else {
+            refs.image.download.hidden = false;
+        } else if (result?.status === 'loading' && !response) {
+            refs.image.preview.innerHTML = '<div class="admin-ai__loading"><div class="admin-ai__spinner"></div><span>Waiting for image output...</span></div>';
+        } else if (response) {
             refs.image.preview.innerHTML = '<div class="admin-ai__empty">No image base64 returned by the worker.</div>';
         }
 
-        renderMeta(refs.image.meta, [
+        renderMeta(refs.image.meta, response ? [
             { label: 'Preset', value: response.preset || 'Preset default' },
-            { label: 'Model', value: response.model?.id },
+            { label: 'Model Label', value: response.model?.label },
+            { label: 'Model ID', value: response.model?.id },
+            { label: 'Vendor', value: response.model?.vendor },
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
+            { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Mime', value: payload.mimeType },
             { label: 'Steps', value: payload.steps },
             { label: 'Seed', value: payload.seed },
-        ]);
-        renderWarnings(refs.image.warnings, getWarnings(response));
-        renderDebug(refs.image.debug, refs.image.raw, response);
-    }
-
-    function renderEmbeddingsResult() {
-        const result = state.results.embeddings;
-
-        refs.embeddings.summary.textContent = 'Run an embeddings test to inspect the response.';
-        refs.embeddings.preview.textContent = '';
-        renderMeta(refs.embeddings.meta, []);
-        renderWarnings(refs.embeddings.warnings, []);
-        renderDebug(refs.embeddings.debug, refs.embeddings.raw, null);
+            {
+                label: 'Requested Size',
+                value: payload.requestedSize
+                    ? `${payload.requestedSize.width}×${payload.requestedSize.height}`
+                    : null,
+            },
+            {
+                label: 'Applied Size',
+                value: payload.appliedSize
+                    ? `${payload.appliedSize.width}×${payload.appliedSize.height}`
+                    : null,
+            },
+        ] : []);
+        renderWarnings(refs.image.warnings, response ? getWarnings(response) : []);
+        renderDebug(refs.image.debug, refs.image.raw, result?.debugRaw || response);
 
         if (!result) {
-            refs.embeddings.state.textContent = 'No embeddings run yet.';
+            setResultState(refs.image.state, 'neutral', 'No image run yet.');
             return;
         }
 
         if (result.status === 'loading') {
-            refs.embeddings.state.textContent = 'Generating embeddings...';
-            refs.embeddings.summary.textContent = 'Waiting for vector response...';
+            setResultState(
+                refs.image.state,
+                'loading',
+                response ? 'Generating image. Previous result shown below.' : 'Generating image...'
+            );
+            return;
+        }
+
+        if (result.status === 'aborted') {
+            setResultState(
+                refs.image.state,
+                'aborted',
+                response ? 'Image request cancelled. Previous result preserved.' : 'Image request cancelled.'
+            );
             return;
         }
 
         if (result.status === 'error') {
-            refs.embeddings.state.textContent = result.error || 'Embeddings request failed.';
-            renderDebug(refs.embeddings.debug, refs.embeddings.raw, result.raw);
+            setResultState(
+                refs.image.state,
+                'error',
+                response
+                    ? `${result.error || 'Image request failed.'} Previous result preserved.`
+                    : result.error || 'Image request failed.'
+            );
+            if (!response) {
+                refs.image.preview.innerHTML = '<div class="admin-ai__empty">Image generation failed.</div>';
+            }
             return;
         }
 
-        const response = result.raw || {};
-        const payload = response.result || {};
+        setResultState(refs.image.state, 'success', 'Image response ready.');
+    }
+
+    function renderEmbeddingsResult() {
+        const result = state.results.embeddings;
+        const response = result?.raw || null;
+        const payload = response?.result || {};
         const firstVector = Array.isArray(payload.vectors?.[0]) ? payload.vectors[0] : [];
         const preview = firstVector.slice(0, 8).map((value) => Number(value).toFixed(4)).join(', ');
 
-        refs.embeddings.state.textContent = 'Embeddings response ready.';
-        refs.embeddings.summary.textContent =
-            `${payload.count || 0} vector${payload.count === 1 ? '' : 's'} returned.`;
+        refs.embeddings.summary.textContent = response
+            ? `${payload.count || 0} vector${payload.count === 1 ? '' : 's'} returned.`
+            : 'Run an embeddings test to inspect the response.';
         refs.embeddings.preview.textContent = preview
             ? `First vector preview: [${preview}${firstVector.length > 8 ? ', …' : ''}]`
-            : 'No vector preview available.';
+            : '';
 
-        renderMeta(refs.embeddings.meta, [
+        renderMeta(refs.embeddings.meta, response ? [
             { label: 'Preset', value: response.preset || 'Preset default' },
-            { label: 'Model', value: response.model?.id },
+            { label: 'Model Label', value: response.model?.label },
+            { label: 'Model ID', value: response.model?.id },
+            { label: 'Vendor', value: response.model?.vendor },
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
+            { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Vectors', value: payload.count },
             { label: 'Dimensions', value: payload.dimensions },
-        ]);
-        renderWarnings(refs.embeddings.warnings, getWarnings(response));
-        renderDebug(refs.embeddings.debug, refs.embeddings.raw, response);
+            { label: 'Shape', value: Array.isArray(payload.shape) ? payload.shape.join(' × ') : null },
+            { label: 'Pooling', value: payload.pooling },
+        ] : []);
+        renderWarnings(refs.embeddings.warnings, response ? getWarnings(response) : []);
+        renderDebug(refs.embeddings.debug, refs.embeddings.raw, result?.debugRaw || response);
+
+        if (!result) {
+            setResultState(refs.embeddings.state, 'neutral', 'No embeddings run yet.');
+            return;
+        }
+
+        if (result.status === 'loading') {
+            setResultState(
+                refs.embeddings.state,
+                'loading',
+                response ? 'Generating embeddings. Previous result shown below.' : 'Generating embeddings...'
+            );
+            if (!response) refs.embeddings.summary.textContent = 'Waiting for vector response...';
+            return;
+        }
+
+        if (result.status === 'aborted') {
+            setResultState(
+                refs.embeddings.state,
+                'aborted',
+                response ? 'Embeddings request cancelled. Previous result preserved.' : 'Embeddings request cancelled.'
+            );
+            return;
+        }
+
+        if (result.status === 'error') {
+            setResultState(
+                refs.embeddings.state,
+                'error',
+                response
+                    ? `${result.error || 'Embeddings request failed.'} Previous result preserved.`
+                    : result.error || 'Embeddings request failed.'
+            );
+            if (!response) {
+                refs.embeddings.summary.textContent = 'No embeddings response available.';
+            }
+            return;
+        }
+
+        setResultState(refs.embeddings.state, 'success', 'Embeddings response ready.');
+        if (!preview) {
+            refs.embeddings.preview.textContent = 'No vector preview available.';
+        }
     }
 
     function renderCompareCard(cardRefs, entry) {
@@ -919,7 +1291,13 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         cardRefs.label.textContent = entry.model?.label || entry.model?.id || 'Model';
-        cardRefs.meta.textContent = entry.model?.id || '';
+        cardRefs.meta.textContent = [
+            entry.model?.id || '',
+            entry.model?.vendor || '',
+            typeof entry.elapsedMs === 'number' ? formatElapsed(entry.elapsedMs) : '',
+        ]
+            .filter(Boolean)
+            .join(' · ');
 
         if (!entry.ok) {
             cardRefs.error.hidden = false;
@@ -940,60 +1318,18 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function renderCompareResult() {
         const result = state.results.compare;
-
-        refs.compare.state.textContent = 'No compare run yet.';
-        renderMeta(refs.compare.meta, []);
-        renderWarnings(refs.compare.warnings, []);
-        renderDebug(refs.compare.debug, refs.compare.raw, null);
-        renderCompareCard(
-            {
-                label: refs.compare.aLabel,
-                meta: refs.compare.aMeta,
-                text: refs.compare.aText,
-                usage: refs.compare.aUsage,
-                error: refs.compare.aError,
-                copy: refs.compare.aCopy,
-            },
-            null
-        );
-        renderCompareCard(
-            {
-                label: refs.compare.bLabel,
-                meta: refs.compare.bMeta,
-                text: refs.compare.bText,
-                usage: refs.compare.bUsage,
-                error: refs.compare.bError,
-                copy: refs.compare.bCopy,
-            },
-            null
-        );
-
-        if (!result) return;
-
-        if (result.status === 'loading') {
-            refs.compare.state.textContent = 'Running model comparison...';
-            return;
-        }
-
-        if (result.status === 'error') {
-            refs.compare.state.textContent = result.error || 'Compare request failed.';
-            renderDebug(refs.compare.debug, refs.compare.raw, result.raw);
-            return;
-        }
-
-        const response = result.raw || {};
+        const response = result?.raw || null;
         const entries = Array.isArray(response?.result?.results) ? response.result.results : [];
-        refs.compare.state.textContent = 'Compare response ready.';
 
-        renderMeta(refs.compare.meta, [
+        renderMeta(refs.compare.meta, response ? [
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
+            { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Models', value: entries.length },
             { label: 'Temperature', value: response.result?.temperature },
             { label: 'Max Tokens', value: response.result?.maxTokens },
-        ]);
-        renderWarnings(refs.compare.warnings, getWarnings(response));
-        renderDebug(refs.compare.debug, refs.compare.raw, response);
-
+        ] : []);
+        renderWarnings(refs.compare.warnings, response ? getWarnings(response) : []);
+        renderDebug(refs.compare.debug, refs.compare.raw, result?.debugRaw || response);
         renderCompareCard(
             {
                 label: refs.compare.aLabel,
@@ -1016,6 +1352,42 @@ export function createAdminAiLab({ showToast } = {}) {
             },
             entries[1] || null
         );
+
+        if (!result) {
+            setResultState(refs.compare.state, 'neutral', 'No compare run yet.');
+            return;
+        }
+
+        if (result.status === 'loading') {
+            setResultState(
+                refs.compare.state,
+                'loading',
+                response ? 'Running model comparison. Previous result shown below.' : 'Running model comparison...'
+            );
+            return;
+        }
+
+        if (result.status === 'aborted') {
+            setResultState(
+                refs.compare.state,
+                'aborted',
+                response ? 'Compare request cancelled. Previous result preserved.' : 'Compare request cancelled.'
+            );
+            return;
+        }
+
+        if (result.status === 'error') {
+            setResultState(
+                refs.compare.state,
+                'error',
+                response
+                    ? `${result.error || 'Compare request failed.'} Previous result preserved.`
+                    : result.error || 'Compare request failed.'
+            );
+            return;
+        }
+
+        setResultState(refs.compare.state, 'success', 'Compare response ready.');
     }
 
     function renderAll() {
@@ -1031,9 +1403,40 @@ export function createAdminAiLab({ showToast } = {}) {
     function setCatalogButtonsDisabled(isDisabled) {
         const noCatalog = !hasCatalog() && isDisabled;
         refs.text.run.disabled = noCatalog || state.results.text?.status === 'loading';
+        refs.text.cancel.disabled = state.results.text?.status !== 'loading';
         refs.image.run.disabled = noCatalog || state.results.image?.status === 'loading';
+        refs.image.cancel.disabled = state.results.image?.status !== 'loading';
         refs.embeddings.run.disabled = noCatalog || state.results.embeddings?.status === 'loading';
+        refs.embeddings.cancel.disabled = state.results.embeddings?.status !== 'loading';
         refs.compare.run.disabled = noCatalog || state.results.compare?.status === 'loading';
+        refs.compare.cancel.disabled = state.results.compare?.status !== 'loading';
+    }
+
+    function cancelTask(task, label) {
+        const controller = state.controllers[task];
+        if (!controller || state.results[task]?.status !== 'loading') return;
+
+        const previous = getRetainedResult(task);
+        controller.abort();
+        state.controllers[task] = null;
+        state.results[task] = {
+            status: 'aborted',
+            error: 'Request cancelled.',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+
+        const busyLabels = {
+            text: ['Running...', 'Run Text Test'],
+            image: ['Generating...', 'Run Image Test'],
+            embeddings: ['Running...', 'Run Embeddings'],
+            compare: ['Comparing...', 'Run Compare'],
+        };
+        const [busyText, idleText] = busyLabels[task];
+        setTaskBusy(task, false, busyText, idleText);
+        setStatus(`${label} request cancelled.`, 'aborted');
+        renderAll();
     }
 
     async function refreshCatalog(forceStatus) {
@@ -1077,11 +1480,20 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        addHistoryEntry('text', state.forms.text.prompt);
+
         const seq = ++state.requestSeq.text;
         state.controllers.text?.abort();
-        state.controllers.text = new AbortController();
-        state.results.text = { status: 'loading' };
-        setButtonBusy(refs.text.run, true, 'Running...', 'Run Text Test');
+        const controller = new AbortController();
+        const previous = getRetainedResult('text');
+        state.controllers.text = controller;
+        state.results.text = {
+            status: 'loading',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+        setTaskBusy('text', true, 'Running...', 'Run Text Test');
         setStatus('Running text test...', 'loading');
         renderTextResult();
 
@@ -1095,20 +1507,34 @@ export function createAdminAiLab({ showToast } = {}) {
         };
 
         const res = await apiAdminAiTestText(payload, {
-            signal: state.controllers.text.signal,
+            signal: controller.signal,
         });
         if (seq !== state.requestSeq.text) return;
-        setButtonBusy(refs.text.run, false, 'Running...', 'Run Text Test');
+        if (state.controllers.text === controller) {
+            state.controllers.text = null;
+        }
+        setTaskBusy('text', false, 'Running...', 'Run Text Test');
 
         if (res.aborted) return;
         if (!res.ok) {
-            state.results.text = { status: 'error', error: res.error, raw: res.data || null };
+            state.results.text = {
+                status: 'error',
+                error: res.error,
+                raw: previous.raw,
+                debugRaw: res.data || previous.raw,
+                receivedAt: previous.receivedAt,
+            };
             setStatus(res.error || 'Text test failed.', 'error');
             renderTextResult();
             return;
         }
 
-        state.results.text = { status: 'success', raw: res.data };
+        state.results.text = {
+            status: 'success',
+            raw: res.data,
+            debugRaw: res.data,
+            receivedAt: new Date(),
+        };
         setStatus('Text test completed.', 'success');
         renderTextResult();
     }
@@ -1119,11 +1545,20 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        addHistoryEntry('image', state.forms.image.prompt);
+
         const seq = ++state.requestSeq.image;
         state.controllers.image?.abort();
-        state.controllers.image = new AbortController();
-        state.results.image = { status: 'loading' };
-        setButtonBusy(refs.image.run, true, 'Generating...', 'Run Image Test');
+        const controller = new AbortController();
+        const previous = getRetainedResult('image');
+        state.controllers.image = controller;
+        state.results.image = {
+            status: 'loading',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+        setTaskBusy('image', true, 'Generating...', 'Run Image Test');
         setStatus('Generating image...', 'loading');
         renderImageResult();
 
@@ -1140,20 +1575,34 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         const res = await apiAdminAiTestImage(payload, {
-            signal: state.controllers.image.signal,
+            signal: controller.signal,
         });
         if (seq !== state.requestSeq.image) return;
-        setButtonBusy(refs.image.run, false, 'Generating...', 'Run Image Test');
+        if (state.controllers.image === controller) {
+            state.controllers.image = null;
+        }
+        setTaskBusy('image', false, 'Generating...', 'Run Image Test');
 
         if (res.aborted) return;
         if (!res.ok) {
-            state.results.image = { status: 'error', error: res.error, raw: res.data || null };
+            state.results.image = {
+                status: 'error',
+                error: res.error,
+                raw: previous.raw,
+                debugRaw: res.data || previous.raw,
+                receivedAt: previous.receivedAt,
+            };
             setStatus(res.error || 'Image test failed.', 'error');
             renderImageResult();
             return;
         }
 
-        state.results.image = { status: 'success', raw: res.data };
+        state.results.image = {
+            status: 'success',
+            raw: res.data,
+            debugRaw: res.data,
+            receivedAt: new Date(),
+        };
         setStatus('Image test completed.', 'success');
         renderImageResult();
     }
@@ -1164,11 +1613,20 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        addHistoryEntry('embeddings', state.forms.embeddings.input);
+
         const seq = ++state.requestSeq.embeddings;
         state.controllers.embeddings?.abort();
-        state.controllers.embeddings = new AbortController();
-        state.results.embeddings = { status: 'loading' };
-        setButtonBusy(refs.embeddings.run, true, 'Running...', 'Run Embeddings');
+        const controller = new AbortController();
+        const previous = getRetainedResult('embeddings');
+        state.controllers.embeddings = controller;
+        state.results.embeddings = {
+            status: 'loading',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+        setTaskBusy('embeddings', true, 'Running...', 'Run Embeddings');
         setStatus('Generating embeddings...', 'loading');
         renderEmbeddingsResult();
 
@@ -1184,20 +1642,34 @@ export function createAdminAiLab({ showToast } = {}) {
         };
 
         const res = await apiAdminAiTestEmbeddings(payload, {
-            signal: state.controllers.embeddings.signal,
+            signal: controller.signal,
         });
         if (seq !== state.requestSeq.embeddings) return;
-        setButtonBusy(refs.embeddings.run, false, 'Running...', 'Run Embeddings');
+        if (state.controllers.embeddings === controller) {
+            state.controllers.embeddings = null;
+        }
+        setTaskBusy('embeddings', false, 'Running...', 'Run Embeddings');
 
         if (res.aborted) return;
         if (!res.ok) {
-            state.results.embeddings = { status: 'error', error: res.error, raw: res.data || null };
+            state.results.embeddings = {
+                status: 'error',
+                error: res.error,
+                raw: previous.raw,
+                debugRaw: res.data || previous.raw,
+                receivedAt: previous.receivedAt,
+            };
             setStatus(res.error || 'Embeddings test failed.', 'error');
             renderEmbeddingsResult();
             return;
         }
 
-        state.results.embeddings = { status: 'success', raw: res.data };
+        state.results.embeddings = {
+            status: 'success',
+            raw: res.data,
+            debugRaw: res.data,
+            receivedAt: new Date(),
+        };
         setStatus('Embeddings test completed.', 'success');
         renderEmbeddingsResult();
     }
@@ -1218,11 +1690,20 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        addHistoryEntry('compare', state.forms.compare.prompt);
+
         const seq = ++state.requestSeq.compare;
         state.controllers.compare?.abort();
-        state.controllers.compare = new AbortController();
-        state.results.compare = { status: 'loading' };
-        setButtonBusy(refs.compare.run, true, 'Comparing...', 'Run Compare');
+        const controller = new AbortController();
+        const previous = getRetainedResult('compare');
+        state.controllers.compare = controller;
+        state.results.compare = {
+            status: 'loading',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+        setTaskBusy('compare', true, 'Comparing...', 'Run Compare');
         setStatus('Running model comparison...', 'loading');
         renderCompareResult();
 
@@ -1235,20 +1716,34 @@ export function createAdminAiLab({ showToast } = {}) {
         };
 
         const res = await apiAdminAiCompare(payload, {
-            signal: state.controllers.compare.signal,
+            signal: controller.signal,
         });
         if (seq !== state.requestSeq.compare) return;
-        setButtonBusy(refs.compare.run, false, 'Comparing...', 'Run Compare');
+        if (state.controllers.compare === controller) {
+            state.controllers.compare = null;
+        }
+        setTaskBusy('compare', false, 'Comparing...', 'Run Compare');
 
         if (res.aborted) return;
         if (!res.ok) {
-            state.results.compare = { status: 'error', error: res.error, raw: res.data || null };
+            state.results.compare = {
+                status: 'error',
+                error: res.error,
+                raw: previous.raw,
+                debugRaw: res.data || previous.raw,
+                receivedAt: previous.receivedAt,
+            };
             setStatus(res.error || 'Compare request failed.', 'error');
             renderCompareResult();
             return;
         }
 
-        state.results.compare = { status: 'success', raw: res.data };
+        state.results.compare = {
+            status: 'success',
+            raw: res.data,
+            debugRaw: res.data,
+            receivedAt: new Date(),
+        };
         setStatus('Compare request completed.', 'success');
         renderCompareResult();
     }
@@ -1258,6 +1753,16 @@ export function createAdminAiLab({ showToast } = {}) {
             renderModelsPanel();
             setStatus('Model catalog view refreshed.', 'success');
             return;
+        }
+
+        const labels = {
+            text: 'Text',
+            image: 'Image',
+            embeddings: 'Embeddings',
+            compare: 'Compare',
+        };
+        if (state.results[state.activeMode]?.status === 'loading') {
+            cancelTask(state.activeMode, labels[state.activeMode]);
         }
 
         const defaults = cloneDefaultForms();
@@ -1313,24 +1818,32 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.compare.temperature, 'compare', 'temperature', (value) => value === '' ? '' : Number(value));
 
         refs.text.sample.addEventListener('click', () => {
-            state.forms.text.system = SAMPLES.text.system;
-            state.forms.text.prompt = SAMPLES.text.prompt;
+            const sample = findSample('text', refs.text.sampleSelect.value);
+            if (!sample) return;
+            state.forms.text.system = sample.system || '';
+            state.forms.text.prompt = sample.prompt || '';
             syncFormInputs();
             persistState();
         });
         refs.image.sample.addEventListener('click', () => {
-            state.forms.image.prompt = SAMPLES.image.prompt;
+            const sample = findSample('image', refs.image.sampleSelect.value);
+            if (!sample) return;
+            state.forms.image.prompt = sample.prompt || '';
             syncFormInputs();
             persistState();
         });
         refs.embeddings.sample.addEventListener('click', () => {
-            state.forms.embeddings.input = SAMPLES.embeddings.input;
+            const sample = findSample('embeddings', refs.embeddings.sampleSelect.value);
+            if (!sample) return;
+            state.forms.embeddings.input = sample.input || '';
             syncFormInputs();
             persistState();
         });
         refs.compare.sample.addEventListener('click', () => {
-            state.forms.compare.system = SAMPLES.compare.system;
-            state.forms.compare.prompt = SAMPLES.compare.prompt;
+            const sample = findSample('compare', refs.compare.sampleSelect.value);
+            if (!sample) return;
+            state.forms.compare.system = sample.system || '';
+            state.forms.compare.prompt = sample.prompt || '';
             syncFormInputs();
             persistState();
         });
@@ -1343,24 +1856,34 @@ export function createAdminAiLab({ showToast } = {}) {
         });
 
         refs.text.run.addEventListener('click', runText);
+        refs.text.cancel.addEventListener('click', () => cancelTask('text', 'Text'));
         refs.image.run.addEventListener('click', runImage);
+        refs.image.cancel.addEventListener('click', () => cancelTask('image', 'Image'));
         refs.embeddings.run.addEventListener('click', runEmbeddings);
+        refs.embeddings.cancel.addEventListener('click', () => cancelTask('embeddings', 'Embeddings'));
         refs.compare.run.addEventListener('click', runCompare);
+        refs.compare.cancel.addEventListener('click', () => cancelTask('compare', 'Compare'));
+
+        refs.text.clearHistory.addEventListener('click', () => clearHistory('text', 'Text'));
+        refs.image.clearHistory.addEventListener('click', () => clearHistory('image', 'Image'));
+        refs.embeddings.clearHistory.addEventListener('click', () => clearHistory('embeddings', 'Embeddings'));
+        refs.compare.clearHistory.addEventListener('click', () => clearHistory('compare', 'Compare'));
 
         refs.text.copy.addEventListener('click', () => {
             copyText(state.results.text?.raw?.result?.text || '', showToast, 'Text output copied.');
         });
         refs.text.copyRaw.addEventListener('click', () => {
-            copyText(safeJson(state.results.text?.raw), showToast, 'Raw JSON copied.');
+            copyText(safeJson(state.results.text?.debugRaw || state.results.text?.raw), showToast, 'Raw JSON copied.');
         });
+        refs.image.download.addEventListener('click', downloadImageResult);
         refs.image.copyRaw.addEventListener('click', () => {
-            copyText(safeJson(state.results.image?.raw), showToast, 'Raw JSON copied.');
+            copyText(safeJson(state.results.image?.debugRaw || state.results.image?.raw), showToast, 'Raw JSON copied.');
         });
         refs.embeddings.copyRaw.addEventListener('click', () => {
-            copyText(safeJson(state.results.embeddings?.raw), showToast, 'Raw JSON copied.');
+            copyText(safeJson(state.results.embeddings?.debugRaw || state.results.embeddings?.raw), showToast, 'Raw JSON copied.');
         });
         refs.compare.copyRaw.addEventListener('click', () => {
-            copyText(safeJson(state.results.compare?.raw), showToast, 'Raw JSON copied.');
+            copyText(safeJson(state.results.compare?.debugRaw || state.results.compare?.raw), showToast, 'Raw JSON copied.');
         });
         refs.compare.aCopy.addEventListener('click', () => {
             copyText(state.results.compare?.raw?.result?.results?.[0]?.text || '', showToast, 'Compare output copied.');

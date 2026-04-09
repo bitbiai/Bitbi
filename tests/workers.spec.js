@@ -32,6 +32,88 @@ function authJsonRequest(pathname, method, body, headers = {}) {
   });
 }
 
+function createAdminUser(id = 'admin-ai-user') {
+  return {
+    id,
+    email: `${id}@example.com`,
+    password_hash: 'unused',
+    created_at: nowIso(),
+    status: 'active',
+    role: 'admin',
+    email_verified_at: nowIso(),
+    verification_method: 'email_verified',
+  };
+}
+
+function createAiLabRunStub() {
+  return async (modelId, payload) => {
+    if (modelId === '@cf/black-forest-labs/flux-1-schnell') {
+      return `data:image/png;base64,${ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', '')}`;
+    }
+
+    if (
+      modelId === '@cf/baai/bge-m3' ||
+      modelId === '@cf/google/embeddinggemma-300m'
+    ) {
+      const input = Array.isArray(payload.text) ? payload.text : [payload.text];
+      return {
+        data: input.map((_, index) => ({
+          embedding: [0.1 + index, 0.2 + index, 0.3 + index, 0.4 + index],
+        })),
+        shape: [input.length, 4],
+        pooling: 'cls',
+      };
+    }
+
+    return {
+      response: `Stubbed output for ${modelId}`,
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 18,
+        total_tokens: 30,
+      },
+    };
+  };
+}
+
+function createAiLabServiceBinding(aiWorker, aiEnv) {
+  return {
+    async fetch(request) {
+      return aiWorker.fetch(request, aiEnv, createExecutionContext().execCtx);
+    },
+  };
+}
+
+async function createAdminAiContractHarness() {
+  const authWorker = await loadWorker('workers/auth/src/index.js');
+  const aiWorker = await loadWorker('workers/ai/src/index.js');
+  const adminUser = createAdminUser();
+  const aiRun = createAiLabRunStub();
+  const env = createAuthTestEnv({
+    users: [adminUser],
+  });
+  env.AI_LAB = createAiLabServiceBinding(aiWorker, {
+    AI: {
+      async run(...args) {
+        return aiRun(...args);
+      },
+    },
+  });
+
+  const token = await seedSession(env, adminUser.id);
+  const authHeaders = {
+    Origin: 'https://bitbi.ai',
+    Cookie: `bitbi_session=${token}`,
+    'CF-Connecting-IP': '203.0.113.25',
+  };
+
+  return {
+    authWorker,
+    env,
+    authHeaders,
+  };
+}
+
 function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
 }
@@ -191,6 +273,194 @@ test.describe('Worker routes', () => {
       error: 'website must be a valid https:// URL.',
     });
     expect(env.DB.state.profiles).toHaveLength(0);
+  });
+
+  test.describe('Admin AI contract routes', () => {
+    test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/models', 'GET', undefined, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        task: 'models',
+        models: {
+          text: expect.any(Array),
+          image: expect.any(Array),
+          embeddings: expect.any(Array),
+        },
+        presets: expect.any(Array),
+      });
+      expect(body.models.text[0]).toEqual(expect.objectContaining({
+        id: expect.any(String),
+        task: 'text',
+        label: expect.any(String),
+        vendor: expect.any(String),
+      }));
+      expect(body.presets[0]).toEqual(expect.objectContaining({
+        name: expect.any(String),
+        task: expect.any(String),
+        model: expect.any(String),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-text returns the text response contract used by the UI', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          preset: 'balanced',
+          prompt: 'Summarize the AI lab.',
+          system: 'You are concise.',
+          maxTokens: 280,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'text',
+        model: expect.objectContaining({
+          id: expect.any(String),
+          task: 'text',
+          label: expect.any(String),
+          vendor: expect.any(String),
+        }),
+        result: expect.objectContaining({
+          text: expect.any(String),
+          usage: expect.any(Object),
+          maxTokens: 280,
+          temperature: 0.7,
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          preset: 'image_fast',
+          prompt: 'A cinematic skyline.',
+          width: 1024,
+          height: 1024,
+          steps: 4,
+          seed: 12345,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        model: expect.objectContaining({
+          id: expect.any(String),
+          task: 'image',
+          label: expect.any(String),
+          vendor: expect.any(String),
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          mimeType: expect.any(String),
+          steps: 4,
+          seed: 12345,
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+      expect(body.result).toHaveProperty('requestedSize');
+      expect(body.result).toHaveProperty('appliedSize');
+    });
+
+    test('POST /api/admin/ai/test-embeddings returns the embeddings response contract used by the UI', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-embeddings', 'POST', {
+          preset: 'embedding_default',
+          input: ['first snippet', 'second snippet'],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'embeddings',
+        model: expect.objectContaining({
+          id: expect.any(String),
+          task: 'embeddings',
+          label: expect.any(String),
+          vendor: expect.any(String),
+        }),
+        result: expect.objectContaining({
+          vectors: expect.any(Array),
+          dimensions: expect.any(Number),
+          count: 2,
+          shape: expect.any(Array),
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+      expect(body.result.vectors[0]).toEqual(expect.any(Array));
+    });
+
+    test('POST /api/admin/ai/compare returns the compare response contract used by the UI', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/compare', 'POST', {
+          models: [
+            '@cf/meta/llama-3.1-8b-instruct-fast',
+            '@cf/openai/gpt-oss-20b',
+          ],
+          prompt: 'Compare these models.',
+          system: 'You are concise.',
+          maxTokens: 250,
+          temperature: 0.7,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'compare',
+        models: expect.any(Array),
+        result: expect.objectContaining({
+          results: expect.any(Array),
+          maxTokens: 250,
+          temperature: 0.7,
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+      expect(body.result.results).toHaveLength(2);
+      expect(body.result.results[0]).toEqual(expect.objectContaining({
+        ok: expect.any(Boolean),
+        model: expect.objectContaining({
+          id: expect.any(String),
+          task: 'text',
+          label: expect.any(String),
+          vendor: expect.any(String),
+        }),
+      }));
+    });
   });
 
   test('auth happy path: login, me, logout', async () => {
