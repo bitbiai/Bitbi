@@ -8,28 +8,6 @@ export const AI_IMAGE_MODELS = Object.freeze([
         supportsSteps: true,
         supportsSeed: true,
     }),
-    Object.freeze({
-        id: '@cf/black-forest-labs/flux-2-klein-9b',
-        label: 'FLUX.2 Klein 9B',
-        requestMode: 'multipart',
-        supportsSteps: false,
-        supportsSeed: false,
-        multipartDefaults: Object.freeze({
-            width: 1024,
-            height: 1024,
-        }),
-    }),
-    Object.freeze({
-        id: '@cf/black-forest-labs/flux-2-dev',
-        label: 'FLUX.2 Dev',
-        requestMode: 'multipart',
-        supportsSteps: false,
-        supportsSeed: false,
-        multipartDefaults: Object.freeze({
-            width: 1024,
-            height: 1024,
-        }),
-    }),
 ]);
 
 const AI_IMAGE_MODEL_MAP = new Map(AI_IMAGE_MODELS.map((model) => [model.id, model]));

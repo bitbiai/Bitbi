@@ -58,6 +58,32 @@ const IMAGE_MODELS = {
     defaultMimeType: "image/jpeg",
     description: "Fast image generation using prompt, seed, and steps.",
   },
+  "@cf/black-forest-labs/flux-2-klein-9b": {
+    id: "@cf/black-forest-labs/flux-2-klein-9b",
+    task: "image",
+    label: "FLUX.2 Klein 9B",
+    vendor: "Black Forest Labs",
+    inputFormat: "multipart",
+    supportsSeed: false,
+    supportsSteps: false,
+    supportsDimensions: true,
+    defaultSize: { width: 1024, height: 1024 },
+    defaultMimeType: "image/jpeg",
+    description: "Multipart image generation with prompt and bounded dimensions.",
+  },
+  "@cf/black-forest-labs/flux-2-dev": {
+    id: "@cf/black-forest-labs/flux-2-dev",
+    task: "image",
+    label: "FLUX.2 Dev",
+    vendor: "Black Forest Labs",
+    inputFormat: "multipart",
+    supportsSeed: false,
+    supportsSteps: false,
+    supportsDimensions: true,
+    defaultSize: { width: 1024, height: 1024 },
+    defaultMimeType: "image/jpeg",
+    description: "Higher-capability multipart image generation for admin experiments.",
+  },
 };
 
 const EMBEDDING_MODELS = {

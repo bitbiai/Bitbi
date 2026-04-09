@@ -51,7 +51,11 @@ function createAdminUser(id = 'admin-ai-user') {
 
 function createAiLabRunStub() {
   return async (modelId, payload) => {
-    if (modelId === '@cf/black-forest-labs/flux-1-schnell') {
+    if (
+      modelId === '@cf/black-forest-labs/flux-1-schnell' ||
+      modelId === '@cf/black-forest-labs/flux-2-klein-9b' ||
+      modelId === '@cf/black-forest-labs/flux-2-dev'
+    ) {
       return `data:image/png;base64,${ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', '')}`;
     }
 
@@ -320,6 +324,11 @@ test.describe('Worker routes', () => {
         label: expect.any(String),
         vendor: expect.any(String),
       }));
+      expect(body.models.image.map((model) => model.id)).toEqual(expect.arrayContaining([
+        '@cf/black-forest-labs/flux-1-schnell',
+        '@cf/black-forest-labs/flux-2-klein-9b',
+        '@cf/black-forest-labs/flux-2-dev',
+      ]));
       expect(body.presets[0]).toEqual(expect.objectContaining({
         name: expect.any(String),
         task: expect.any(String),
@@ -400,6 +409,124 @@ test.describe('Worker routes', () => {
       }));
       expect(body.result).toHaveProperty('requestedSize');
       expect(body.result).toHaveProperty('appliedSize');
+    });
+
+    test('POST /api/admin/ai/test-image allows FLUX.2 Klein 9B and uses the multipart AI path', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          preset: 'image_fast',
+          model: '@cf/black-forest-labs/flux-2-klein-9b',
+          prompt: 'Admin Klein image experiment.',
+          width: 1024,
+          height: 1024,
+          steps: 6,
+          seed: 12345,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        preset: 'image_fast',
+        model: expect.objectContaining({
+          id: '@cf/black-forest-labs/flux-2-klein-9b',
+          task: 'image',
+          label: 'FLUX.2 Klein 9B',
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          steps: null,
+          seed: null,
+          requestedSize: { width: 1024, height: 1024 },
+          appliedSize: { width: 1024, height: 1024 },
+        }),
+      }));
+      expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-klein-9b');
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        multipart: expect.objectContaining({
+          contentType: expect.stringContaining('multipart/form-data'),
+          body: expect.anything(),
+        }),
+      }));
+      const fields = await readMultipartFields(capturedPayload.multipart);
+      expect(fields).toEqual({
+        prompt: 'Admin Klein image experiment.',
+        width: '1024',
+        height: '1024',
+      });
+    });
+
+    test('POST /api/admin/ai/test-image allows FLUX.2 Dev and uses the multipart AI path', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          preset: 'image_fast',
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'Admin Dev image experiment.',
+          width: 768,
+          height: 768,
+          steps: 5,
+          seed: 9876,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        preset: 'image_fast',
+        model: expect.objectContaining({
+          id: '@cf/black-forest-labs/flux-2-dev',
+          task: 'image',
+          label: 'FLUX.2 Dev',
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          steps: null,
+          seed: null,
+          requestedSize: { width: 768, height: 768 },
+          appliedSize: { width: 768, height: 768 },
+        }),
+      }));
+      expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-dev');
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        multipart: expect.objectContaining({
+          contentType: expect.stringContaining('multipart/form-data'),
+          body: expect.anything(),
+        }),
+      }));
+      const fields = await readMultipartFields(capturedPayload.multipart);
+      expect(fields).toEqual({
+        prompt: 'Admin Dev image experiment.',
+        width: '768',
+        height: '768',
+      });
     });
 
     test('POST /api/admin/ai/test-embeddings returns the embeddings response contract used by the UI', async () => {
@@ -1131,10 +1258,9 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('AI generate: FLUX.2 Klein 9B uses the multipart worker path and returns the selected model', async () => {
+  test('AI generate: public route rejects FLUX.2 Klein 9B so it is not exposed outside admin AI Lab', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
-    let capturedModelId = null;
-    let capturedPayload = null;
+    let aiCalls = 0;
     const env = createAuthTestEnv({
       users: [
         {
@@ -1148,9 +1274,8 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiRun: async (modelId, payload) => {
-        capturedModelId = modelId;
-        capturedPayload = payload;
+      aiRun: async () => {
+        aiCalls += 1;
         return { image: ONE_PIXEL_PNG_DATA_URI };
       },
     });
@@ -1158,7 +1283,7 @@ test.describe('Worker routes', () => {
     const token = await seedSession(env, 'ai-klein-user');
     const res = await authWorker.fetch(
       authJsonRequest('/api/ai/generate-image', 'POST', {
-        prompt: 'multipart klein image',
+        prompt: 'public klein image attempt',
         model: '@cf/black-forest-labs/flux-2-klein-9b',
         steps: 8,
         seed: 42,
@@ -1170,35 +1295,17 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({
-      ok: true,
-      data: {
-        model: '@cf/black-forest-labs/flux-2-klein-9b',
-        steps: null,
-        seed: null,
-      },
+      ok: false,
+      error: 'Unsupported image model.',
     });
-    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-klein-9b');
-    expect(capturedPayload).toEqual(expect.objectContaining({
-      multipart: expect.objectContaining({
-        contentType: expect.stringContaining('multipart/form-data'),
-        body: expect.anything(),
-      }),
-    }));
-
-    const fields = await readMultipartFields(capturedPayload.multipart);
-    expect(fields).toEqual({
-      prompt: 'multipart klein image',
-      width: '1024',
-      height: '1024',
-    });
+    expect(aiCalls).toBe(0);
   });
 
-  test('AI generate: FLUX.2 Dev uses the multipart worker path and returns the selected model', async () => {
+  test('AI generate: public route rejects FLUX.2 Dev so it is not exposed outside admin AI Lab', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
-    let capturedModelId = null;
-    let capturedPayload = null;
+    let aiCalls = 0;
     const env = createAuthTestEnv({
       users: [
         {
@@ -1212,9 +1319,8 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiRun: async (modelId, payload) => {
-        capturedModelId = modelId;
-        capturedPayload = payload;
+      aiRun: async () => {
+        aiCalls += 1;
         return { image: ONE_PIXEL_PNG_DATA_URI };
       },
     });
@@ -1222,7 +1328,7 @@ test.describe('Worker routes', () => {
     const token = await seedSession(env, 'ai-dev-user');
     const res = await authWorker.fetch(
       authJsonRequest('/api/ai/generate-image', 'POST', {
-        prompt: 'multipart dev image',
+        prompt: 'public dev image attempt',
         model: '@cf/black-forest-labs/flux-2-dev',
         steps: 6,
         seed: 77,
@@ -1234,29 +1340,12 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({
-      ok: true,
-      data: {
-        model: '@cf/black-forest-labs/flux-2-dev',
-        steps: null,
-        seed: null,
-      },
+      ok: false,
+      error: 'Unsupported image model.',
     });
-    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-dev');
-    expect(capturedPayload).toEqual(expect.objectContaining({
-      multipart: expect.objectContaining({
-        contentType: expect.stringContaining('multipart/form-data'),
-        body: expect.anything(),
-      }),
-    }));
-
-    const fields = await readMultipartFields(capturedPayload.multipart);
-    expect(fields).toEqual({
-      prompt: 'multipart dev image',
-      width: '1024',
-      height: '1024',
-    });
+    expect(aiCalls).toBe(0);
   });
 
   test('AI generate: unsupported model IDs are rejected server-side before reaching Workers AI', async () => {

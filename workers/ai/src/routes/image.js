@@ -23,7 +23,7 @@ export async function handleImage({ request, env }) {
         imageBase64: output.imageBase64,
         mimeType: output.mimeType,
         steps: output.appliedSteps,
-        seed: input.seed,
+        seed: output.appliedSeed,
         requestedSize:
           input.width && input.height
             ? {

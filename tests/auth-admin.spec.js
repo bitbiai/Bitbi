@@ -66,6 +66,20 @@ function createMockAiCatalog() {
           vendor: 'Black Forest Labs',
           description: 'Fast image model',
         },
+        {
+          id: '@cf/black-forest-labs/flux-2-klein-9b',
+          task: 'image',
+          label: 'FLUX.2 Klein 9B',
+          vendor: 'Black Forest Labs',
+          description: 'Multipart image model for admin experiments',
+        },
+        {
+          id: '@cf/black-forest-labs/flux-2-dev',
+          task: 'image',
+          label: 'FLUX.2 Dev',
+          vendor: 'Black Forest Labs',
+          description: 'Higher-capability multipart image model for admin experiments',
+        },
       ],
       embeddings: [
         {
@@ -220,27 +234,38 @@ async function mockAdminAiLab(page) {
 
   await page.route('**/api/admin/ai/test-image', async (route) => {
     const body = route.request().postDataJSON();
+    const selectedModel =
+      catalog.models.image.find((entry) => entry.id === body.model) ||
+      catalog.models.image.find((entry) => entry.id === '@cf/black-forest-labs/flux-1-schnell') ||
+      catalog.models.image[0];
+    const usesLegacyControls = selectedModel.id === '@cf/black-forest-labs/flux-1-schnell';
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
         task: 'image',
-        model: catalog.models.image[0],
-        preset: 'image_fast',
+        model: selectedModel,
+        preset: body.preset || 'image_fast',
         result: {
           imageBase64: ONE_PX_PNG_BASE64,
           mimeType: 'image/png',
-          steps: body.steps ?? 4,
-          seed: body.seed ?? 12345,
+          steps: usesLegacyControls ? body.steps ?? 4 : null,
+          seed: usesLegacyControls ? body.seed ?? 12345 : null,
           requestedSize:
             body.width && body.height
               ? { width: body.width, height: body.height }
               : null,
-          appliedSize: null,
+          appliedSize:
+            !usesLegacyControls && body.width && body.height
+              ? { width: body.width, height: body.height }
+              : null,
         },
         elapsedMs: 456,
-        warnings: ['Mock image warning'],
+        warnings: body.model && body.model !== '@cf/black-forest-labs/flux-1-schnell'
+          ? ['Explicit model overrides the default image preset.']
+          : ['Mock image warning'],
       }),
     });
   });
@@ -597,7 +622,7 @@ test.describe('Image Studio (authenticated)', () => {
     await seedCookieConsent(page);
   });
 
-  test('account Image Studio exposes the new model options and sends the selected model to the backend', async ({
+  test('account Image Studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
     page,
   }) => {
     const requests = [];
@@ -608,39 +633,49 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#studioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
-    await expect(page.locator('#studioModel option')).toHaveCount(3);
+    await expect(page.locator('#studioModel option')).toHaveCount(1);
     await expect(page.locator('#studioModel')).toContainText('FLUX.1 Schnell');
-    await expect(page.locator('#studioModel')).toContainText('FLUX.2 Klein 9B');
-    await expect(page.locator('#studioModel')).toContainText('FLUX.2 Dev');
+    await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Klein 9B');
+    await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Dev');
 
     await page.locator('#studioPrompt').fill('legacy model request');
     await page.locator('#studioGenerate').click();
     await expect(page.locator('#studioPreview img')).toBeVisible();
-
-    await page.selectOption('#studioModel', '@cf/black-forest-labs/flux-2-klein-9b');
-    await page.locator('#studioPrompt').fill('klein model request');
-    await page.locator('#studioGenerate').click();
-    await expect(page.locator('#studioGenMsg')).toContainText('Image generated.');
-
-    await page.selectOption('#studioModel', '@cf/black-forest-labs/flux-2-dev');
-    await page.locator('#studioPrompt').fill('dev model request');
-    await page.locator('#studioGenerate').click();
-    await expect(page.locator('#studioGenMsg')).toContainText('Image generated.');
 
     expect(requests).toEqual([
       expect.objectContaining({
         prompt: 'legacy model request',
         model: '@cf/black-forest-labs/flux-1-schnell',
       }),
-      expect.objectContaining({
-        prompt: 'klein model request',
-        model: '@cf/black-forest-labs/flux-2-klein-9b',
-      }),
-      expect.objectContaining({
-        prompt: 'dev model request',
-        model: '@cf/black-forest-labs/flux-2-dev',
-      }),
     ]);
+  });
+
+  test('homepage create studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
+    page,
+  }) => {
+    const requests = [];
+    await mockAuthenticatedImageStudio(page, requests);
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('.gallery-mode__btn[data-mode="create"]')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#galStudioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#galStudioModel option')).toHaveCount(1);
+    await expect(page.locator('#galStudioModel')).toContainText('FLUX.1 Schnell');
+    await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Klein 9B');
+    await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
+
+    await page.locator('#galStudioPrompt').fill('homepage legacy model request');
+    await page.locator('#galStudioGenerate').click();
+    await expect(page.locator('#galStudioPreview img')).toBeVisible();
+
+    expect(requests.at(-1)).toEqual(expect.objectContaining({
+      prompt: 'homepage legacy model request',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
   });
 });
 
@@ -667,6 +702,9 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
+    await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
+    await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
+    await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
 
     await page.getByRole('button', { name: 'Text', exact: true }).click();
     await page.selectOption('#aiTextSampleSelect', 'release-notes');
@@ -688,9 +726,13 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImagePrompt')).toHaveValue(
       /An editorial portrait of a digital artist/,
     );
+    await expect(page.locator('#aiImageModel option')).toHaveCount(4);
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImagePreview img')).toBeVisible();
     await expect(page.locator('#aiImageMeta')).toContainText('image/png');
+    await expect(page.locator('#aiImageMeta')).toContainText('FLUX.2 Dev');
+    await expect(page.locator('#aiImageMeta')).toContainText('@cf/black-forest-labs/flux-2-dev');
     await expect(page.locator('#aiImageDownload')).toBeVisible();
     const imageDownload = page.waitForEvent('download');
     await page.locator('#aiImageDownload').click();

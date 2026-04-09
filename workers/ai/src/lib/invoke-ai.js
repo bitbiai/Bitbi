@@ -180,6 +180,47 @@ function extractEmbeddingsResponse(result) {
   return null;
 }
 
+function buildMultipartImageRequest(model, input) {
+  const form = new FormData();
+  form.append("prompt", input.prompt);
+
+  const width = input.width || model.defaultSize?.width || null;
+  const height = input.height || model.defaultSize?.height || null;
+
+  if (width && height) {
+    form.append("width", String(width));
+    form.append("height", String(height));
+  }
+
+  if (model.supportsSteps && input.steps !== null && input.steps !== undefined) {
+    form.append("steps", String(input.steps));
+  }
+
+  if (model.supportsSeed && input.seed !== null && input.seed !== undefined) {
+    form.append("seed", String(input.seed));
+  }
+
+  const response = new Response(form);
+  const contentType = response.headers.get("content-type");
+  const body = response.body;
+
+  if (!contentType || !body) {
+    throw new Error("Failed to encode multipart image request.");
+  }
+
+  return {
+    payload: {
+      multipart: {
+        body,
+        contentType,
+      },
+    },
+    appliedSteps: model.supportsSteps ? input.steps : null,
+    appliedSeed: model.supportsSeed ? input.seed : null,
+    appliedSize: width && height ? { width, height } : null,
+  };
+}
+
 export async function invokeText(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
@@ -208,23 +249,38 @@ export async function invokeImage(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
   const warnings = [];
-  const payload = {
-    prompt: input.prompt,
-    steps: Math.min(input.steps, model.maxSteps || input.steps),
-  };
-
-  if (input.seed !== null) {
-    payload.seed = input.seed;
-  }
-
+  let payload;
+  let appliedSteps = null;
+  let appliedSeed = null;
   let appliedSize = null;
-  if (input.width && input.height) {
-    if (model.supportsDimensions) {
-      payload.width = input.width;
-      payload.height = input.height;
-      appliedSize = { width: input.width, height: input.height };
-    } else {
-      warnings.push(`Model "${model.id}" ignores width and height overrides.`);
+
+  if (model.inputFormat === "multipart") {
+    const multipartRequest = buildMultipartImageRequest(model, input);
+    payload = multipartRequest.payload;
+    appliedSteps = multipartRequest.appliedSteps;
+    appliedSeed = multipartRequest.appliedSeed;
+    appliedSize = multipartRequest.appliedSize;
+  } else {
+    payload = {
+      prompt: input.prompt,
+      steps: Math.min(input.steps, model.maxSteps || input.steps),
+    };
+
+    if (input.seed !== null) {
+      payload.seed = input.seed;
+    }
+
+    appliedSteps = payload.steps;
+    appliedSeed = input.seed;
+
+    if (input.width && input.height) {
+      if (model.supportsDimensions) {
+        payload.width = input.width;
+        payload.height = input.height;
+        appliedSize = { width: input.width, height: input.height };
+      } else {
+        warnings.push(`Model "${model.id}" ignores width and height overrides.`);
+      }
     }
   }
 
@@ -237,7 +293,8 @@ export async function invokeImage(env, model, input) {
 
   return {
     ...image,
-    appliedSteps: payload.steps,
+    appliedSteps,
+    appliedSeed,
     appliedSize,
     warnings,
     elapsedMs: Date.now() - startedAt,

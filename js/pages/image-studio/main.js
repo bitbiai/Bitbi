@@ -27,7 +27,7 @@ import {
 import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
-} from '../../shared/ai-image-models.mjs?v=20260409-wave7';
+} from '../../shared/ai-image-models.mjs?v=20260409-wave7-fix';
 import { initStudioDeck, initStudioFolderDeck } from '../../shared/studio-deck.js';
 
 /* ── DOM refs ── */
