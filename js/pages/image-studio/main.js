@@ -23,7 +23,11 @@ import {
     apiAiDeleteImage,
     apiAiBulkMoveImages,
     apiAiBulkDeleteImages,
-} from '../../shared/auth-api.js';
+} from '../../shared/auth-api.js?v=20260409-wave7';
+import {
+    DEFAULT_AI_IMAGE_MODEL,
+    getAiImageModelOptions,
+} from '../../shared/ai-image-models.mjs?v=20260409-wave7';
 import { initStudioDeck, initStudioFolderDeck } from '../../shared/studio-deck.js';
 
 /* ── DOM refs ── */
@@ -33,6 +37,7 @@ const $content = document.getElementById('studioContent');
 
 // Generator
 const $prompt      = document.getElementById('studioPrompt');
+const $model       = document.getElementById('studioModel');
 const $steps       = document.getElementById('studioSteps');
 const $seed        = document.getElementById('studioSeed');
 const $randomize   = document.getElementById('studioRandomize');
@@ -122,6 +127,16 @@ function populateFolderOptions(selectEl) {
     }
     selectEl.innerHTML = opts.join('');
     if (current) selectEl.value = current;
+}
+
+function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
+    if (!selectEl) return;
+
+    const options = getAiImageModelOptions().map(
+        ({ id, label }) => `<option value="${id}">${escapeHtml(label)}</option>`
+    );
+    selectEl.innerHTML = options.join('');
+    selectEl.value = currentValue;
 }
 
 const UNFOLDERED = '__unfoldered__';
@@ -292,8 +307,9 @@ async function handleGenerate() {
 
     const steps = $steps.value ? Number($steps.value) : null;
     const seed  = $seed.value  ? Number($seed.value)  : null;
+    const model = $model?.value || DEFAULT_AI_IMAGE_MODEL;
 
-    const res = await apiAiGenerateImage(prompt, steps, seed);
+    const res = await apiAiGenerateImage(prompt, steps, seed, model);
 
     $generateBtn.disabled = false;
     $generateBtn.textContent = 'Generate';
@@ -679,6 +695,7 @@ async function init() {
     }
 
     showState($content);
+    populateModelOptions($model);
 
     /* Attach mobile deck swipe + click-to-preview to saved images grid */
     if ($imageGrid) imageDeck = initStudioDeck($imageGrid);

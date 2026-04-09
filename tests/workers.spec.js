@@ -127,6 +127,16 @@ function parseSessionCookie(setCookie) {
 
 const ONE_PIXEL_PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=';
 
+async function readMultipartFields(multipart) {
+  const response = new Response(multipart.body, {
+    headers: {
+      'content-type': multipart.contentType,
+    },
+  });
+  const formData = await response.formData();
+  return Object.fromEntries(Array.from(formData.entries(), ([key, value]) => [key, String(value)]));
+}
+
 function makeFavorites(userId, count) {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
@@ -1064,6 +1074,234 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+  });
+
+  test('AI generate: default model still uses the existing JSON path when no model is provided', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let capturedModelId = null;
+    let capturedPayload = null;
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'ai-default-user',
+          email: 'default-image@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiRun: async (modelId, payload) => {
+        capturedModelId = modelId;
+        capturedPayload = payload;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+
+    const token = await seedSession(env, 'ai-default-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'default image path',
+        steps: 6,
+        seed: 12345,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        model: '@cf/black-forest-labs/flux-1-schnell',
+        steps: 6,
+        seed: 12345,
+      },
+    });
+    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-1-schnell');
+    expect(capturedPayload).toEqual({
+      prompt: 'default image path',
+      num_steps: 6,
+      seed: 12345,
+    });
+  });
+
+  test('AI generate: FLUX.2 Klein 9B uses the multipart worker path and returns the selected model', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let capturedModelId = null;
+    let capturedPayload = null;
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'ai-klein-user',
+          email: 'klein-image@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiRun: async (modelId, payload) => {
+        capturedModelId = modelId;
+        capturedPayload = payload;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+
+    const token = await seedSession(env, 'ai-klein-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'multipart klein image',
+        model: '@cf/black-forest-labs/flux-2-klein-9b',
+        steps: 8,
+        seed: 42,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        model: '@cf/black-forest-labs/flux-2-klein-9b',
+        steps: null,
+        seed: null,
+      },
+    });
+    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-klein-9b');
+    expect(capturedPayload).toEqual(expect.objectContaining({
+      multipart: expect.objectContaining({
+        contentType: expect.stringContaining('multipart/form-data'),
+        body: expect.anything(),
+      }),
+    }));
+
+    const fields = await readMultipartFields(capturedPayload.multipart);
+    expect(fields).toEqual({
+      prompt: 'multipart klein image',
+      width: '1024',
+      height: '1024',
+    });
+  });
+
+  test('AI generate: FLUX.2 Dev uses the multipart worker path and returns the selected model', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let capturedModelId = null;
+    let capturedPayload = null;
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'ai-dev-user',
+          email: 'dev-image@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiRun: async (modelId, payload) => {
+        capturedModelId = modelId;
+        capturedPayload = payload;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+
+    const token = await seedSession(env, 'ai-dev-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'multipart dev image',
+        model: '@cf/black-forest-labs/flux-2-dev',
+        steps: 6,
+        seed: 77,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        model: '@cf/black-forest-labs/flux-2-dev',
+        steps: null,
+        seed: null,
+      },
+    });
+    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-dev');
+    expect(capturedPayload).toEqual(expect.objectContaining({
+      multipart: expect.objectContaining({
+        contentType: expect.stringContaining('multipart/form-data'),
+        body: expect.anything(),
+      }),
+    }));
+
+    const fields = await readMultipartFields(capturedPayload.multipart);
+    expect(fields).toEqual({
+      prompt: 'multipart dev image',
+      width: '1024',
+      height: '1024',
+    });
+  });
+
+  test('AI generate: unsupported model IDs are rejected server-side before reaching Workers AI', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'ai-invalid-model-user',
+          email: 'invalid-model@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+
+    const token = await seedSession(env, 'ai-invalid-model-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'invalid model attempt',
+        model: '@cf/not-allowlisted/model',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Unsupported image model.',
+    });
+    expect(aiCalls).toBe(0);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'ai-invalid-model-user')).toHaveLength(0);
   });
 
   test('AI lifecycle: save image then delete image removes metadata and blob', async () => {

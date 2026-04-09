@@ -9,7 +9,11 @@ import {
     apiAiGetQuota,
     apiAiGetFolders,
     apiAiSaveImage,
-} from '../../shared/auth-api.js';
+} from '../../shared/auth-api.js?v=20260409-wave7';
+import {
+    DEFAULT_AI_IMAGE_MODEL,
+    getAiImageModelOptions,
+} from '../../shared/ai-image-models.mjs?v=20260409-wave7';
 
 let initialized = false;
 let currentImageData = null;
@@ -20,7 +24,7 @@ let quotaLimit = 10;
 let $quotaEl = null;
 
 /* DOM refs (resolved on init) */
-let $prompt, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
+let $prompt, $model, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
 let $saveBar, $folderSelect, $saveBtn;
 
 /* ── Helpers ── */
@@ -76,6 +80,16 @@ function populateFolderOptions(selectEl) {
     if (current) selectEl.value = current;
 }
 
+function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
+    if (!selectEl) return;
+
+    const options = getAiImageModelOptions().map(
+        ({ id, label }) => `<option value="${id}">${escapeHtml(label)}</option>`
+    );
+    selectEl.innerHTML = options.join('');
+    selectEl.value = currentValue;
+}
+
 /* ── Folders ── */
 
 async function loadFolders() {
@@ -109,8 +123,9 @@ async function handleGenerate() {
 
     const steps = $steps.value ? Number($steps.value) : null;
     const seed  = $seed.value  ? Number($seed.value)  : null;
+    const model = $model?.value || DEFAULT_AI_IMAGE_MODEL;
 
-    const res = await apiAiGenerateImage(prompt, steps, seed);
+    const res = await apiAiGenerateImage(prompt, steps, seed, model);
 
     $generateBtn.disabled = false;
     $generateBtn.textContent = 'Generate';
@@ -192,6 +207,7 @@ export function initGalleryStudio() {
     initialized = true;
 
     $prompt        = document.getElementById('galStudioPrompt');
+    $model         = document.getElementById('galStudioModel');
     $steps         = document.getElementById('galStudioSteps');
     $seed          = document.getElementById('galStudioSeed');
     $randomize     = document.getElementById('galStudioRandomize');
@@ -203,6 +219,7 @@ export function initGalleryStudio() {
     $saveBtn       = document.getElementById('galStudioSaveBtn');
 
     if (!$prompt || !$generateBtn) return;
+    populateModelOptions($model);
 
     // Quota indicator (inject after the actions row, load from server)
     const $actions = document.querySelector('#galleryStudio .studio__actions');

@@ -3,8 +3,14 @@ import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
 import { isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
+import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
 
-const MODEL = "@cf/black-forest-labs/flux-1-schnell";
+const {
+  DEFAULT_AI_IMAGE_MODEL,
+  resolveAiImageModel,
+} = aiImageModels;
+
+const MODEL = DEFAULT_AI_IMAGE_MODEL;
 const MAX_PROMPT_LENGTH = 1000;
 const MIN_STEPS = 1;
 const MAX_STEPS = 8; // flux-1-schnell documented max
@@ -62,6 +68,53 @@ function quotaUnavailableResponse() {
     { ok: false, error: "Service temporarily unavailable. Please try again later." },
     { status: 503 }
   );
+}
+
+function buildAiImageInput(modelConfig, prompt, steps, seed) {
+  if (modelConfig.requestMode === "multipart") {
+    const form = new FormData();
+    form.append("prompt", prompt);
+
+    if (modelConfig.multipartDefaults?.width) {
+      form.append("width", String(modelConfig.multipartDefaults.width));
+    }
+    if (modelConfig.multipartDefaults?.height) {
+      form.append("height", String(modelConfig.multipartDefaults.height));
+    }
+    if (modelConfig.supportsSteps && steps !== null) {
+      form.append("steps", String(steps));
+    }
+    if (modelConfig.supportsSeed && seed !== null) {
+      form.append("seed", String(seed));
+    }
+
+    const response = new Response(form);
+    const contentType = response.headers.get("content-type");
+    const body = response.body;
+    if (!contentType || !body) {
+      throw new Error("Failed to encode multipart image request.");
+    }
+
+    return {
+      payload: {
+        multipart: {
+          body,
+          contentType,
+        },
+      },
+      steps: modelConfig.supportsSteps ? steps : null,
+      seed: modelConfig.supportsSeed ? seed : null,
+    };
+  }
+
+  const payload = { prompt, num_steps: steps };
+  if (seed !== null) payload.seed = seed;
+
+  return {
+    payload,
+    steps,
+    seed,
+  };
 }
 
 async function deleteExpiredQuotaReservations(env, userId, dayStart, now) {
@@ -175,6 +228,12 @@ async function handleGenerateImage(ctx) {
     );
   }
 
+  const requestedModel = body.model;
+  const modelConfig = resolveAiImageModel(requestedModel);
+  if (!modelConfig) {
+    return json({ ok: false, error: "Unsupported image model." }, { status: 400 });
+  }
+
   let steps = DEFAULT_STEPS;
   if (body.steps !== undefined && body.steps !== null) {
     steps = Math.max(MIN_STEPS, Math.min(MAX_STEPS, Math.floor(Number(body.steps))));
@@ -186,9 +245,7 @@ async function handleGenerateImage(ctx) {
     seed = Math.floor(Number(body.seed));
     if (isNaN(seed) || seed < 0) seed = null;
   }
-
-  const aiInput = { prompt, num_steps: steps };
-  if (seed !== null) aiInput.seed = seed;
+  const aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
 
   // Daily generation limit for non-admin members (server-enforced via D1)
   if (!isAdmin) {
@@ -215,7 +272,7 @@ async function handleGenerateImage(ctx) {
   let mimeType = "image/png";
 
   try {
-    const result = await env.AI.run(MODEL, aiInput);
+    const result = await env.AI.run(modelConfig.id, aiRequest.payload);
 
     // Collect candidate values to try, in priority order
     const candidates = [];
@@ -305,9 +362,9 @@ async function handleGenerateImage(ctx) {
       imageBase64: base64,
       mimeType,
       prompt,
-      steps,
-      seed,
-      model: MODEL,
+      steps: aiRequest.steps,
+      seed: aiRequest.seed,
+      model: modelConfig.id,
     },
   });
 }

@@ -175,10 +175,11 @@ export async function apiAiGetQuota() {
     return res.ok ? (res.data?.data || null) : null;
 }
 
-export function apiAiGenerateImage(prompt, steps, seed) {
+export function apiAiGenerateImage(prompt, steps, seed, model) {
     const body = { prompt };
     if (steps != null) body.steps = steps;
     if (seed != null) body.seed = seed;
+    if (model) body.model = model;
     return request('POST', '/ai/generate-image', body);
 }
 

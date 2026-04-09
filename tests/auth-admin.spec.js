@@ -374,6 +374,89 @@ async function mockAdminAiLab(page) {
   });
 }
 
+async function mockAuthenticatedImageStudio(page, requests = []) {
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        loggedIn: true,
+        user: {
+          id: 'studio-user-1',
+          email: 'studio@example.com',
+          role: 'user',
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/favorites', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        favorites: [],
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/quota', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          isAdmin: false,
+          dailyLimit: 10,
+          usedToday: 0,
+          remainingToday: 10,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/folders', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          folders: [],
+          counts: {},
+          unfolderedCount: 0,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/generate-image', async (route) => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+
+    const selectedModel = body.model || '@cf/black-forest-labs/flux-1-schnell';
+    const keepsLegacySteps = selectedModel === '@cf/black-forest-labs/flux-1-schnell';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          imageBase64: ONE_PX_PNG_BASE64,
+          mimeType: 'image/png',
+          prompt: body.prompt,
+          model: selectedModel,
+          steps: keepsLegacySteps ? body.steps ?? 4 : null,
+          seed: keepsLegacySteps ? body.seed ?? null : null,
+        },
+      }),
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Auth modal
 // ---------------------------------------------------------------------------
@@ -506,6 +589,58 @@ test.describe('Account pages (unauthenticated)', () => {
       timeout: 10_000,
     });
     await expect(page.locator('#adminPanel')).not.toBeVisible();
+  });
+});
+
+test.describe('Image Studio (authenticated)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('account Image Studio exposes the new model options and sends the selected model to the backend', async ({
+    page,
+  }) => {
+    const requests = [];
+    await mockAuthenticatedImageStudio(page, requests);
+
+    const response = await page.goto('/account/image-studio.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#studioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#studioModel option')).toHaveCount(3);
+    await expect(page.locator('#studioModel')).toContainText('FLUX.1 Schnell');
+    await expect(page.locator('#studioModel')).toContainText('FLUX.2 Klein 9B');
+    await expect(page.locator('#studioModel')).toContainText('FLUX.2 Dev');
+
+    await page.locator('#studioPrompt').fill('legacy model request');
+    await page.locator('#studioGenerate').click();
+    await expect(page.locator('#studioPreview img')).toBeVisible();
+
+    await page.selectOption('#studioModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await page.locator('#studioPrompt').fill('klein model request');
+    await page.locator('#studioGenerate').click();
+    await expect(page.locator('#studioGenMsg')).toContainText('Image generated.');
+
+    await page.selectOption('#studioModel', '@cf/black-forest-labs/flux-2-dev');
+    await page.locator('#studioPrompt').fill('dev model request');
+    await page.locator('#studioGenerate').click();
+    await expect(page.locator('#studioGenMsg')).toContainText('Image generated.');
+
+    expect(requests).toEqual([
+      expect.objectContaining({
+        prompt: 'legacy model request',
+        model: '@cf/black-forest-labs/flux-1-schnell',
+      }),
+      expect.objectContaining({
+        prompt: 'klein model request',
+        model: '@cf/black-forest-labs/flux-2-klein-9b',
+      }),
+      expect.objectContaining({
+        prompt: 'dev model request',
+        model: '@cf/black-forest-labs/flux-2-dev',
+      }),
+    ]);
   });
 });
 
