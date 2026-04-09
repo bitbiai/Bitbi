@@ -640,6 +640,28 @@
         margin-block-start: var(--space-2);
     }
 
+    .admin-ai__compare-toolbar {
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.72);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .admin-ai__toggle-input {
+        inline-size: 1rem;
+        block-size: 1rem;
+        accent-color: var(--color-cyan);
+        cursor: pointer;
+    }
+
     .admin-ai__run {
         padding: var(--space-3) var(--space-5);
         font-family: var(--font-mono);

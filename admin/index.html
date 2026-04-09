@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave4">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave5">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -630,6 +630,12 @@
 
                     <div class="admin-ai__surface admin-ai__surface--spaced">
                         <div id="aiCompareState" class="admin-ai__result-state">No compare run yet.</div>
+                        <div class="admin-ai__result-actions admin-ai__compare-toolbar">
+                            <label class="admin-ai__toggle" for="aiCompareOnlyDifferences">
+                                <input type="checkbox" id="aiCompareOnlyDifferences" class="admin-ai__toggle-input">
+                                <span>Show Only Differences</span>
+                            </label>
+                        </div>
                         <div id="aiCompareMeta" class="admin-ai__meta"></div>
                         <div id="aiCompareWarnings" class="admin-ai__warnings" hidden></div>
 
@@ -819,6 +825,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260409-wave4"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260409-wave5"></script>
 </body>
 </html>

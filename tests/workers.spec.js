@@ -484,6 +484,7 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(401);
       await expect(res.json()).resolves.toEqual(expect.objectContaining({
         ok: false,
+        code: 'unauthorized',
         error: expect.any(String),
       }));
     });
@@ -502,6 +503,51 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(403);
       await expect(res.json()).resolves.toEqual(expect.objectContaining({
         ok: false,
+        code: 'forbidden',
+        error: expect.any(String),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-text returns the bad_request code for invalid JSON bodies', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/admin/ai/test-text', {
+          method: 'POST',
+          headers: {
+            ...authHeaders,
+            'Content-Type': 'application/json',
+          },
+          body: '{"prompt":',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'bad_request',
+        error: expect.any(String),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-image returns the validation_error code for bounded payload failures', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          prompt: 'Broken dimensions.',
+          width: 1024,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
         error: expect.any(String),
       }));
     });
@@ -552,6 +598,7 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(400);
       await expect(res.json()).resolves.toEqual(expect.objectContaining({
         ok: false,
+        code: 'model_not_allowed',
         error: expect.stringContaining('not allowlisted'),
       }));
     });
@@ -577,6 +624,7 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(400);
       await expect(res.json()).resolves.toEqual(expect.objectContaining({
         ok: false,
+        code: 'duplicate_models',
         error: 'models must not contain duplicates.',
       }));
     });
@@ -612,6 +660,7 @@ test.describe('Worker routes', () => {
       expect(body).toEqual(expect.objectContaining({
         ok: true,
         task: 'compare',
+        code: 'partial_success',
         warnings: expect.any(Array),
         result: expect.objectContaining({
           results: expect.any(Array),
@@ -625,6 +674,7 @@ test.describe('Worker routes', () => {
         }),
         expect.objectContaining({
           ok: false,
+          code: 'upstream_error',
           error: expect.any(String),
         }),
       ]));

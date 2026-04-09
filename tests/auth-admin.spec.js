@@ -164,6 +164,19 @@ async function mockAdminAiLab(page) {
       return;
     }
 
+    if (body.prompt === 'force coded error') {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'model_not_allowed',
+          error: 'Model "@cf/not-allowlisted/model" is not allowlisted for task "text".',
+        }),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -424,6 +437,8 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave5"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave5"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -533,6 +548,77 @@ test.describe('Admin AI Lab', () => {
     );
     await expect(page.locator('#aiTextState')).toContainText(
       'Prompt rejected by mock.',
+    );
+  });
+
+  test('uses stable coded admin AI errors without losing readable fallback messages', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await page.locator('#aiTextPrompt').fill('force coded error');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiLabStatus')).toContainText(
+      'Selected model is not allowlisted for this AI Lab task.',
+    );
+    await expect(page.locator('#aiTextState')).toContainText('not allowlisted');
+
+    await page.locator('#aiTextPrompt').fill('force error');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiLabStatus')).toContainText('Prompt rejected by mock.');
+    await expect(page.locator('#aiTextState')).toContainText('Prompt rejected by mock.');
+  });
+
+  test('filters compare output when show only differences is enabled', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Compare' }).click();
+    await page.locator('#aiCompareRun').click();
+    await expect(page.locator('#aiCompareAText')).toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+    await expect(page.locator('#aiCompareBText')).toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+    await expect(page.locator('#aiCompareDiff')).toContainText('Shared Phrasing');
+
+    await page.locator('#aiCompareOnlyDifferences').check();
+    await expect(page.locator('#aiCompareMeta')).toContainText('Only differences');
+    await expect(page.locator('#aiCompareAText')).not.toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+    await expect(page.locator('#aiCompareBText')).not.toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
+    );
+    await expect(page.locator('#aiCompareAText')).toContainText(
+      'It feels precise and cinematic.',
+    );
+    await expect(page.locator('#aiCompareBText')).toContainText(
+      'It feels agile and technical.',
+    );
+    await expect(page.locator('#aiCompareDiff')).toContainText(
+      'Only differences view enabled',
+    );
+    await expect(page.locator('#aiCompareDiff')).not.toContainText('Shared Phrasing');
+
+    await page.reload();
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await expect(page.locator('#aiCompareOnlyDifferences')).toBeChecked();
+
+    await page.locator('#aiCompareRun').click();
+    await expect(page.locator('#aiCompareAText')).toContainText(
+      'It feels precise and cinematic.',
+    );
+    await page.locator('#aiCompareOnlyDifferences').uncheck();
+    await expect(page.locator('#aiCompareMeta')).toContainText('Full outputs');
+    await expect(page.locator('#aiCompareAText')).toContainText(
+      'BITBI blends AI imagery with a premium admin control surface.',
     );
   });
 

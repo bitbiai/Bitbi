@@ -4,11 +4,12 @@ import {
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js';
+} from '../../shared/auth-api.js?v=20260409-wave5';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare'];
 const HISTORY_LIMIT = 6;
+const ADMIN_AI_UI_VERSION = '20260409-wave5';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -36,6 +37,21 @@ const TASK_UI = {
         busyText: 'Comparing...',
         idleText: 'Run Compare',
     },
+};
+const ADMIN_AI_CODE_MESSAGES = {
+    unauthorized: 'Admin session required. Sign in again to continue.',
+    forbidden: 'Admin privileges required to use the AI Lab.',
+    rate_limited: 'Too many admin AI requests are in flight. Please wait and retry.',
+    model_not_allowed: 'Selected model is not allowlisted for this AI Lab task.',
+    duplicate_models: 'Choose two different compare models to continue.',
+    upstream_error: 'The AI worker could not complete the request cleanly.',
+    internal_error: 'The AI Lab encountered an internal error.',
+    bad_request: 'The request format was invalid.',
+    validation_error: 'Review the request values and try again.',
+    not_found: 'The requested AI Lab route was not found.',
+    request_aborted: 'Request cancelled.',
+    request_timeout: 'The request took too long and was cancelled.',
+    network_error: 'Network error. Please try again.',
 };
 
 const DEFAULT_FORMS = {
@@ -69,6 +85,10 @@ const DEFAULT_FORMS = {
         maxTokens: 250,
         temperature: 0.7,
     },
+};
+
+const DEFAULT_PREFERENCES = {
+    compareOnlyDifferences: false,
 };
 
 const SAMPLE_LIBRARY = {
@@ -161,6 +181,12 @@ function cloneDefaultHistory() {
     };
 }
 
+function cloneDefaultPreferences() {
+    return {
+        ...DEFAULT_PREFERENCES,
+    };
+}
+
 function isObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -226,6 +252,17 @@ function mergeHistory(savedHistory) {
     return merged;
 }
 
+function mergePreferences(savedPreferences) {
+    const merged = cloneDefaultPreferences();
+    if (!isObject(savedPreferences)) return merged;
+
+    if (typeof savedPreferences.compareOnlyDifferences === 'boolean') {
+        merged.compareOnlyDifferences = savedPreferences.compareOnlyDifferences;
+    }
+
+    return merged;
+}
+
 function formatTime(date) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
     return new Intl.DateTimeFormat('de-DE', {
@@ -246,6 +283,78 @@ function formatTimeoutDuration(timeoutMs) {
     if (timeoutMs < 1000) return `${timeoutMs} ms`;
     const seconds = timeoutMs / 1000;
     return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
+}
+
+function normalizeCode(value) {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    return normalized || null;
+}
+
+function getApiCode(result) {
+    return normalizeCode(result?.code || result?.data?.code);
+}
+
+function getResultCode(result) {
+    return normalizeCode(result?.errorCode || result?.raw?.code);
+}
+
+function describeAdminAiError(task, error, code) {
+    const normalizedCode = normalizeCode(code);
+    const message = String(error || '').trim();
+
+    if (!normalizedCode) {
+        return message || `${TASK_UI[task].label} request failed.`;
+    }
+
+    switch (normalizedCode) {
+    case 'model_not_allowed':
+        return message
+            ? `${ADMIN_AI_CODE_MESSAGES.model_not_allowed} ${message}`
+            : ADMIN_AI_CODE_MESSAGES.model_not_allowed;
+    case 'duplicate_models':
+        return ADMIN_AI_CODE_MESSAGES.duplicate_models;
+    case 'unauthorized':
+    case 'forbidden':
+    case 'rate_limited':
+    case 'upstream_error':
+    case 'internal_error':
+    case 'bad_request':
+    case 'validation_error':
+    case 'not_found':
+    case 'network_error':
+        return message || ADMIN_AI_CODE_MESSAGES[normalizedCode];
+    case 'request_timeout':
+        return message || ADMIN_AI_CODE_MESSAGES.request_timeout;
+    case 'request_aborted':
+        return message || ADMIN_AI_CODE_MESSAGES.request_aborted;
+    default:
+        return message || `${TASK_UI[task].label} request failed.`;
+    }
+}
+
+function describeCatalogError(error, code) {
+    const normalizedCode = normalizeCode(code);
+    const message = String(error || '').trim();
+
+    if (!normalizedCode) {
+        return message || 'Model catalog unavailable.';
+    }
+
+    switch (normalizedCode) {
+    case 'unauthorized':
+    case 'forbidden':
+    case 'rate_limited':
+    case 'upstream_error':
+    case 'internal_error':
+    case 'bad_request':
+    case 'validation_error':
+    case 'network_error':
+    case 'not_found':
+        return message || ADMIN_AI_CODE_MESSAGES[normalizedCode] || 'Model catalog unavailable.';
+    default:
+        return message || 'Model catalog unavailable.';
+    }
 }
 
 function formatValue(value) {
@@ -437,8 +546,10 @@ export function createAdminAiLab({ showToast } = {}) {
                 ? persisted.activeMode
                 : 'models',
         timeouts: resolveRequestTimeouts(globalThis?.BITBI_ADMIN_AI_LAB_TIMEOUTS),
+        uiVersion: ADMIN_AI_UI_VERSION,
         forms: mergeForms(persisted?.forms),
         history: mergeHistory(persisted?.history),
+        preferences: mergePreferences(persisted?.preferences),
         catalog: {
             status: 'idle',
             data: null,
@@ -596,6 +707,7 @@ export function createAdminAiLab({ showToast } = {}) {
             bUsage: document.getElementById('aiCompareBUsage'),
             bError: document.getElementById('aiCompareBError'),
             bCopy: document.getElementById('aiCompareBCopy'),
+            onlyDifferences: document.getElementById('aiCompareOnlyDifferences'),
             diff: document.getElementById('aiCompareDiff'),
             debug: document.getElementById('aiCompareDebug'),
             raw: document.getElementById('aiCompareRaw'),
@@ -609,8 +721,10 @@ export function createAdminAiLab({ showToast } = {}) {
                 STORAGE_KEY,
                 JSON.stringify({
                     activeMode: state.activeMode,
+                    uiVersion: state.uiVersion,
                     forms: state.forms,
                     history: state.history,
+                    preferences: state.preferences,
                 })
             );
         } catch {
@@ -669,13 +783,14 @@ export function createAdminAiLab({ showToast } = {}) {
                     state.controllers[task] = null;
                 }
 
-                state.results[task] = {
-                    status: 'timeout',
-                    error: `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}.`,
-                    raw: previous.raw,
-                    debugRaw: previous.raw,
-                    receivedAt: previous.receivedAt,
-                };
+        state.results[task] = {
+            status: 'timeout',
+            error: `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}.`,
+            errorCode: 'request_timeout',
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
                 setTaskBusy(task, false, config.busyText, config.idleText);
                 setStatus(
                     `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}. Retry with the current inputs when ready.`,
@@ -1114,6 +1229,7 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.compare.prompt.value = state.forms.compare.prompt;
         refs.compare.maxTokens.value = state.forms.compare.maxTokens;
         refs.compare.temperature.value = state.forms.compare.temperature;
+        refs.compare.onlyDifferences.checked = state.preferences.compareOnlyDifferences;
 
         populateSelects();
         updateCounters();
@@ -1222,6 +1338,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const result = state.results.text;
         const response = result?.raw || null;
         const outputText = response?.result?.text || '';
+        const resultCode = getResultCode(result);
 
         refs.text.output.textContent = outputText;
         refs.text.copy.hidden = !outputText;
@@ -1279,8 +1396,8 @@ export function createAdminAiLab({ showToast } = {}) {
                 refs.text.state,
                 'error',
                 response
-                    ? `${result.error || 'Text request failed.'} Previous result preserved.`
-                    : result.error || 'Text request failed.'
+                    ? `${describeAdminAiError('text', result.error, resultCode)} Previous result preserved.`
+                    : describeAdminAiError('text', result.error, resultCode)
             );
             return;
         }
@@ -1292,6 +1409,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const result = state.results.image;
         const response = result?.raw || null;
         const payload = response?.result || {};
+        const resultCode = getResultCode(result);
 
         refs.image.preview.innerHTML = '<div class="admin-ai__empty">Run an image test to see the preview.</div>';
         refs.image.download.hidden = true;
@@ -1375,8 +1493,8 @@ export function createAdminAiLab({ showToast } = {}) {
                 refs.image.state,
                 'error',
                 response
-                    ? `${result.error || 'Image request failed.'} Previous result preserved.`
-                    : result.error || 'Image request failed.'
+                    ? `${describeAdminAiError('image', result.error, resultCode)} Previous result preserved.`
+                    : describeAdminAiError('image', result.error, resultCode)
             );
             if (!response) {
                 refs.image.preview.innerHTML = '<div class="admin-ai__empty">Image generation failed.</div>';
@@ -1391,6 +1509,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const result = state.results.embeddings;
         const response = result?.raw || null;
         const payload = response?.result || {};
+        const resultCode = getResultCode(result);
         const firstVector = Array.isArray(payload.vectors?.[0]) ? payload.vectors[0] : [];
         const preview = firstVector.slice(0, 8).map((value) => Number(value).toFixed(4)).join(', ');
 
@@ -1456,8 +1575,8 @@ export function createAdminAiLab({ showToast } = {}) {
                 refs.embeddings.state,
                 'error',
                 response
-                    ? `${result.error || 'Embeddings request failed.'} Previous result preserved.`
-                    : result.error || 'Embeddings request failed.'
+                    ? `${describeAdminAiError('embeddings', result.error, resultCode)} Previous result preserved.`
+                    : describeAdminAiError('embeddings', result.error, resultCode)
             );
             if (!response) {
                 refs.embeddings.summary.textContent = 'No embeddings response available.';
@@ -1471,7 +1590,29 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function renderCompareCard(cardRefs, entry) {
+    function getCompareCardText(entry, diff, side) {
+        const originalText = entry?.text || '';
+        if (!state.preferences.compareOnlyDifferences) {
+            return originalText;
+        }
+
+        if (!entry?.ok || !originalText || !diff?.available) {
+            return originalText;
+        }
+
+        const uniqueChunks = side === 'a' ? diff.onlyA : diff.onlyB;
+        if (uniqueChunks.length > 0) {
+            return uniqueChunks.join('\n\n');
+        }
+
+        if (diff.identical) {
+            return 'No unique phrasing detected in difference-only view. Both outputs normalize to the same text.';
+        }
+
+        return 'No unique phrasing detected for this model in difference-only view.';
+    }
+
+    function renderCompareCard(cardRefs, entry, options = {}) {
         cardRefs.error.hidden = true;
         cardRefs.usage.hidden = true;
         cardRefs.copy.hidden = true;
@@ -1485,11 +1626,13 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         cardRefs.label.textContent = entry.model?.label || entry.model?.id || 'Model';
+        const displayText = options.displayText ?? entry.text ?? '';
         cardRefs.meta.textContent = [
             entry.model?.id || '',
             entry.model?.vendor || '',
             typeof entry.elapsedMs === 'number' ? formatElapsed(entry.elapsedMs) : '',
             entry.text ? `${normalizeCompareText(entry.text).length} chars` : '',
+            options.onlyDifferences ? 'differences only' : '',
         ]
             .filter(Boolean)
             .join(' · ');
@@ -1500,7 +1643,7 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        cardRefs.text.textContent = entry.text || '';
+        cardRefs.text.textContent = displayText;
         cardRefs.copy.hidden = !entry.text;
 
         if (isObject(entry.usage)) {
@@ -1580,6 +1723,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const summary = document.createElement('div');
         summary.className = 'admin-ai__compare-summary';
         renderCompareSummaryChip(summary, diff.identical ? 'Outputs are identical' : 'Outputs differ', diff.identical ? 'identical' : 'different');
+        if (state.preferences.compareOnlyDifferences) {
+            renderCompareSummaryChip(summary, 'Only differences view enabled', 'different');
+        }
         renderCompareSummaryChip(summary, `Model A: ${diff.charCountA} chars`);
         renderCompareSummaryChip(summary, `Model B: ${diff.charCountB} chars`);
         renderCompareSummaryChip(summary, `${diff.shared.length} shared chunk${diff.shared.length === 1 ? '' : 's'}`);
@@ -1589,12 +1735,14 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const grid = document.createElement('div');
         grid.className = 'admin-ai__diff-grid';
-        appendCompareDiffBlock(
-            grid,
-            'Shared Phrasing',
-            diff.shared,
-            diff.identical ? 'The two outputs normalize to the same text.' : 'No identical sentence-level chunks were found.'
-        );
+        if (!state.preferences.compareOnlyDifferences) {
+            appendCompareDiffBlock(
+                grid,
+                'Shared Phrasing',
+                diff.shared,
+                diff.identical ? 'The two outputs normalize to the same text.' : 'No identical sentence-level chunks were found.'
+            );
+        }
         appendCompareDiffBlock(grid, 'Model A Distinctive', diff.onlyA, 'No unique phrasing detected for model A.');
         appendCompareDiffBlock(grid, 'Model B Distinctive', diff.onlyB, 'No unique phrasing detected for model B.');
         refs.compare.diff.appendChild(grid);
@@ -1604,6 +1752,8 @@ export function createAdminAiLab({ showToast } = {}) {
         const result = state.results.compare;
         const response = result?.raw || null;
         const entries = Array.isArray(response?.result?.results) ? response.result.results : [];
+        const resultCode = getResultCode(result);
+        const diff = buildCompareDiff(entries);
 
         renderMeta(refs.compare.meta, response ? [
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
@@ -1611,6 +1761,7 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Models', value: entries.length },
             { label: 'Succeeded', value: entries.filter((entry) => entry?.ok).length },
             { label: 'Failed', value: entries.filter((entry) => !entry?.ok).length },
+            { label: 'View', value: state.preferences.compareOnlyDifferences ? 'Only differences' : 'Full outputs' },
             { label: 'Temperature', value: response.result?.temperature },
             { label: 'Max Tokens', value: response.result?.maxTokens },
         ] : []);
@@ -1625,7 +1776,11 @@ export function createAdminAiLab({ showToast } = {}) {
                 error: refs.compare.aError,
                 copy: refs.compare.aCopy,
             },
-            entries[0] || null
+            entries[0] || null,
+            {
+                displayText: getCompareCardText(entries[0] || null, diff, 'a'),
+                onlyDifferences: state.preferences.compareOnlyDifferences && diff.available && !!entries[0]?.ok,
+            }
         );
         renderCompareCard(
             {
@@ -1636,7 +1791,11 @@ export function createAdminAiLab({ showToast } = {}) {
                 error: refs.compare.bError,
                 copy: refs.compare.bCopy,
             },
-            entries[1] || null
+            entries[1] || null,
+            {
+                displayText: getCompareCardText(entries[1] || null, diff, 'b'),
+                onlyDifferences: state.preferences.compareOnlyDifferences && diff.available && !!entries[1]?.ok,
+            }
         );
         renderCompareDiff(entries);
 
@@ -1679,13 +1838,19 @@ export function createAdminAiLab({ showToast } = {}) {
                 refs.compare.state,
                 'error',
                 response
-                    ? `${result.error || 'Compare request failed.'} Previous result preserved.`
-                    : result.error || 'Compare request failed.'
+                    ? `${describeAdminAiError('compare', result.error, resultCode)} Previous result preserved.`
+                    : describeAdminAiError('compare', result.error, resultCode)
             );
             return;
         }
 
-        setResultState(refs.compare.state, 'success', 'Compare response ready.');
+        setResultState(
+            refs.compare.state,
+            'success',
+            response?.code === 'partial_success'
+                ? 'Compare response ready with partial success. Review warnings and per-model errors.'
+                : 'Compare response ready.'
+        );
     }
 
     function renderAll() {
@@ -1721,6 +1886,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.results[task] = {
             status: 'aborted',
             error: 'Request cancelled.',
+            errorCode: 'request_aborted',
             raw: previous.raw,
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
@@ -1749,7 +1915,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (!res.ok) {
             state.catalog.status = 'error';
-            state.catalog.error = res.error || 'Model catalog unavailable.';
+            state.catalog.error = describeCatalogError(res.error || 'Model catalog unavailable.', getApiCode(res));
             setStatus(state.catalog.error, 'error');
             setCatalogButtonsDisabled(false);
             renderModelsPanel();
@@ -1783,6 +1949,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.controllers.text = controller;
         state.results.text = {
             status: 'loading',
+            errorCode: null,
             raw: previous.raw,
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
@@ -1813,20 +1980,23 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (res.aborted) return;
         if (!res.ok) {
+            const errorCode = getApiCode(res);
             state.results.text = {
                 status: 'error',
                 error: res.error,
+                errorCode,
                 raw: previous.raw,
                 debugRaw: res.data || previous.raw,
                 receivedAt: previous.receivedAt,
             };
-            setStatus(res.error || 'Text test failed.', 'error');
+            setStatus(describeAdminAiError('text', res.error, errorCode), 'error');
             renderTextResult();
             return;
         }
 
         state.results.text = {
             status: 'success',
+            errorCode: getApiCode(res),
             raw: res.data,
             debugRaw: res.data,
             receivedAt: new Date(),
@@ -1851,6 +2021,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.controllers.image = controller;
         state.results.image = {
             status: 'loading',
+            errorCode: null,
             raw: previous.raw,
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
@@ -1884,20 +2055,23 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (res.aborted) return;
         if (!res.ok) {
+            const errorCode = getApiCode(res);
             state.results.image = {
                 status: 'error',
                 error: res.error,
+                errorCode,
                 raw: previous.raw,
                 debugRaw: res.data || previous.raw,
                 receivedAt: previous.receivedAt,
             };
-            setStatus(res.error || 'Image test failed.', 'error');
+            setStatus(describeAdminAiError('image', res.error, errorCode), 'error');
             renderImageResult();
             return;
         }
 
         state.results.image = {
             status: 'success',
+            errorCode: getApiCode(res),
             raw: res.data,
             debugRaw: res.data,
             receivedAt: new Date(),
@@ -1922,6 +2096,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.controllers.embeddings = controller;
         state.results.embeddings = {
             status: 'loading',
+            errorCode: null,
             raw: previous.raw,
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
@@ -1954,20 +2129,23 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (res.aborted) return;
         if (!res.ok) {
+            const errorCode = getApiCode(res);
             state.results.embeddings = {
                 status: 'error',
                 error: res.error,
+                errorCode,
                 raw: previous.raw,
                 debugRaw: res.data || previous.raw,
                 receivedAt: previous.receivedAt,
             };
-            setStatus(res.error || 'Embeddings test failed.', 'error');
+            setStatus(describeAdminAiError('embeddings', res.error, errorCode), 'error');
             renderEmbeddingsResult();
             return;
         }
 
         state.results.embeddings = {
             status: 'success',
+            errorCode: getApiCode(res),
             raw: res.data,
             debugRaw: res.data,
             receivedAt: new Date(),
@@ -2002,6 +2180,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.controllers.compare = controller;
         state.results.compare = {
             status: 'loading',
+            errorCode: null,
             raw: previous.raw,
             debugRaw: previous.raw,
             receivedAt: previous.receivedAt,
@@ -2031,25 +2210,34 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (res.aborted) return;
         if (!res.ok) {
+            const errorCode = getApiCode(res);
             state.results.compare = {
                 status: 'error',
                 error: res.error,
+                errorCode,
                 raw: previous.raw,
                 debugRaw: res.data || previous.raw,
                 receivedAt: previous.receivedAt,
             };
-            setStatus(res.error || 'Compare request failed.', 'error');
+            setStatus(describeAdminAiError('compare', res.error, errorCode), 'error');
             renderCompareResult();
             return;
         }
 
+        const successCode = getApiCode(res);
         state.results.compare = {
             status: 'success',
+            errorCode: successCode,
             raw: res.data,
             debugRaw: res.data,
             receivedAt: new Date(),
         };
-        setStatus('Compare request completed.', 'success');
+        setStatus(
+            successCode === 'partial_success'
+                ? 'Compare request completed with partial success. Review warnings and per-model errors.'
+                : 'Compare request completed.',
+            'success'
+        );
         renderCompareResult();
     }
 
@@ -2151,6 +2339,11 @@ export function createAdminAiLab({ showToast } = {}) {
             state.forms.compare.prompt = sample.prompt || '';
             syncFormInputs();
             persistState();
+        });
+        refs.compare.onlyDifferences.addEventListener('change', () => {
+            state.preferences.compareOnlyDifferences = refs.compare.onlyDifferences.checked;
+            persistState();
+            renderCompareResult();
         });
         refs.compare.swap.addEventListener('click', () => {
             const current = state.forms.compare.modelA;

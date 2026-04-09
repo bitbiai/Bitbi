@@ -21,22 +21,22 @@ export async function readJsonBody(request) {
 
 function ensureObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new ValidationError("JSON body must be an object.");
+    throw new ValidationError("JSON body must be an object.", 400, "bad_request");
   }
   return value;
 }
 
 function requiredString(value, field, maxLength) {
   if (typeof value !== "string") {
-    throw new ValidationError(`${field} must be a string.`);
+    throw new ValidationError(`${field} must be a string.`, 400, "validation_error");
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new ValidationError(`${field} is required.`);
+    throw new ValidationError(`${field} is required.`, 400, "validation_error");
   }
   if (trimmed.length > maxLength) {
-    throw new ValidationError(`${field} must be at most ${maxLength} characters.`);
+    throw new ValidationError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
   }
   return trimmed;
 }
@@ -44,13 +44,13 @@ function requiredString(value, field, maxLength) {
 function optionalString(value, field, maxLength) {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") {
-    throw new ValidationError(`${field} must be a string.`);
+    throw new ValidationError(`${field} must be a string.`, 400, "validation_error");
   }
 
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.length > maxLength) {
-    throw new ValidationError(`${field} must be at most ${maxLength} characters.`);
+    throw new ValidationError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
   }
   return trimmed;
 }
@@ -60,10 +60,10 @@ function optionalInteger(value, field, min, max, defaultValue = null) {
 
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
-    throw new ValidationError(`${field} must be an integer.`);
+    throw new ValidationError(`${field} must be an integer.`, 400, "validation_error");
   }
   if (parsed < min || parsed > max) {
-    throw new ValidationError(`${field} must be between ${min} and ${max}.`);
+    throw new ValidationError(`${field} must be between ${min} and ${max}.`, 400, "validation_error");
   }
   return parsed;
 }
@@ -73,10 +73,10 @@ function optionalNumber(value, field, min, max, defaultValue = null) {
 
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new ValidationError(`${field} must be a number.`);
+    throw new ValidationError(`${field} must be a number.`, 400, "validation_error");
   }
   if (parsed < min || parsed > max) {
-    throw new ValidationError(`${field} must be between ${min} and ${max}.`);
+    throw new ValidationError(`${field} must be between ${min} and ${max}.`, 400, "validation_error");
   }
   return parsed;
 }
@@ -92,7 +92,9 @@ function optionalDimension(value, field) {
 
   if (!LIMITS.image.allowedDimensions.includes(parsed)) {
     throw new ValidationError(
-      `${field} must be one of ${LIMITS.image.allowedDimensions.join(", ")}.`
+      `${field} must be one of ${LIMITS.image.allowedDimensions.join(", ")}.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -102,13 +104,13 @@ function optionalDimension(value, field) {
 function normalizeInputArray(input, field, maxItems, maxItemLength) {
   const values = typeof input === "string" ? [input] : input;
   if (!Array.isArray(values)) {
-    throw new ValidationError(`${field} must be a string or an array of strings.`);
+    throw new ValidationError(`${field} must be a string or an array of strings.`, 400, "validation_error");
   }
   if (values.length === 0) {
-    throw new ValidationError(`${field} must contain at least one item.`);
+    throw new ValidationError(`${field} must contain at least one item.`, 400, "validation_error");
   }
   if (values.length > maxItems) {
-    throw new ValidationError(`${field} must contain at most ${maxItems} items.`);
+    throw new ValidationError(`${field} must contain at most ${maxItems} items.`, 400, "validation_error");
   }
 
   const normalized = values.map((entry, index) =>
@@ -149,12 +151,14 @@ export function validateImageBody(body) {
   const height = optionalDimension(input.height, "height");
 
   if ((width && !height) || (!width && height)) {
-    throw new ValidationError("width and height must be provided together.");
+    throw new ValidationError("width and height must be provided together.", 400, "validation_error");
   }
 
   if (width && height && width * height > LIMITS.image.maxPixels) {
     throw new ValidationError(
-      `Image dimensions exceed the ${LIMITS.image.maxPixels} pixel safety cap.`
+      `Image dimensions exceed the ${LIMITS.image.maxPixels} pixel safety cap.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -187,7 +191,9 @@ export function validateEmbeddingsBody(body) {
 
   if (totalChars > LIMITS.embeddings.maxTotalChars) {
     throw new ValidationError(
-      `input exceeds the total ${LIMITS.embeddings.maxTotalChars} character cap.`
+      `input exceeds the total ${LIMITS.embeddings.maxTotalChars} character cap.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -204,10 +210,10 @@ export function validateCompareBody(body) {
   const uniqueModels = new Set(models);
 
   if (models.length < LIMITS.compare.minModels) {
-    throw new ValidationError(`models must contain at least ${LIMITS.compare.minModels} items.`);
+    throw new ValidationError(`models must contain at least ${LIMITS.compare.minModels} items.`, 400, "validation_error");
   }
   if (uniqueModels.size !== models.length) {
-    throw new ValidationError("models must not contain duplicates.");
+    throw new ValidationError("models must not contain duplicates.", 400, "duplicate_models");
   }
 
   return {

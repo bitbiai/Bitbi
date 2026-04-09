@@ -7,7 +7,7 @@ export async function handleImage({ request, env }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
-      return errorResponse("Invalid JSON body.", { status: 400 });
+      return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }
 
     const input = validateImageBody(body);

@@ -7,7 +7,7 @@ export async function handleCompare({ request, env }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
-      return errorResponse("Invalid JSON body.", { status: 400 });
+      return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }
 
     const input = validateCompareBody(body);
@@ -29,6 +29,7 @@ export async function handleCompare({ request, env }) {
             ok: false,
             model: getModelSummary(model),
             error: error?.message || "Text generation failed.",
+            code: error?.code || "upstream_error",
           };
         }
       })
@@ -42,12 +43,14 @@ export async function handleCompare({ request, env }) {
     if (results.every((result) => !result.ok)) {
       return errorResponse("All compare runs failed.", {
         status: 502,
+        code: "upstream_error",
         warnings,
       });
     }
 
     return ok({
       task: "compare",
+      ...(warnings.length > 0 ? { code: "partial_success" } : {}),
       models: models.map(getModelSummary),
       result: {
         results,

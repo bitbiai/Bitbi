@@ -3,12 +3,13 @@
    Entry point for admin/index.html
    ============================================================ */
 
-import { initSiteHeader }    from '../../shared/site-header.js';
-import { initParticles }     from '../../shared/particles.js';
-import { initBinaryRain }    from '../../shared/binary-rain.js';
-import { initBinaryFooter }  from '../../shared/binary-footer.js';
-import { initScrollReveal }  from '../../shared/scroll-reveal.js';
-import { initCookieConsent } from '../../shared/cookie-consent.js';
+// Keep these versioned admin imports aligned with admin/index.html to reduce stale module mismatches after deploys.
+import { initSiteHeader }    from '../../shared/site-header.js?v=20260409-wave5';
+import { initParticles }     from '../../shared/particles.js?v=20260409-wave5';
+import { initBinaryRain }    from '../../shared/binary-rain.js?v=20260409-wave5';
+import { initBinaryFooter }  from '../../shared/binary-footer.js?v=20260409-wave5';
+import { initScrollReveal }  from '../../shared/scroll-reveal.js?v=20260409-wave5';
+import { initCookieConsent } from '../../shared/cookie-consent.js?v=20260409-wave5';
 
 import {
     apiAdminMe,
@@ -21,10 +22,9 @@ import {
     apiAdminStats,
     apiAdminActivity,
     apiAdminUserActivity,
-} from '../../shared/auth-api.js';
-
-import { galleryItems } from '../../shared/gallery-data.js';
-import { createAdminAiLab } from './ai-lab.js?v=20260409-wave4';
+} from '../../shared/auth-api.js?v=20260409-wave5';
+import { galleryItems } from '../../shared/gallery-data.js?v=20260409-wave5';
+import { createAdminAiLab } from './ai-lab.js?v=20260409-wave5';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs

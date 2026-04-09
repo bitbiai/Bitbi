@@ -34,12 +34,13 @@ export function errorResponse(error, init = {}) {
 }
 
 export function notFound() {
-  return errorResponse("Not found", { status: 404 });
+  return errorResponse("Not found", { status: 404, code: "not_found" });
 }
 
 export function methodNotAllowed(allowed) {
   return errorResponse("Method not allowed.", {
     status: 405,
+    code: "method_not_allowed",
     headers: {
       allow: allowed.join(", "),
     },
@@ -50,10 +51,14 @@ export function fromError(error, fallbackMessage) {
   if (error?.name === "ValidationError") {
     return errorResponse(error.message, {
       status: error.status || 400,
-      code: error.code,
+      code: error.code || "validation_error",
     });
   }
 
   const message = error?.message ? `${fallbackMessage}: ${error.message}` : fallbackMessage;
-  return errorResponse(message, { status: error?.status || 502 });
+  const status = error?.status || 502;
+  return errorResponse(message, {
+    status,
+    code: status >= 500 ? "upstream_error" : "internal_error",
+  });
 }

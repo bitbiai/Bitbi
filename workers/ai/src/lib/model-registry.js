@@ -128,10 +128,11 @@ const REGISTRY = {
   embeddings: EMBEDDING_MODELS,
 };
 
-function invalidSelection(message) {
+function invalidSelection(message, code = "validation_error") {
   const error = new Error(message);
   error.name = "ValidationError";
   error.status = 400;
+  error.code = code;
   return error;
 }
 
@@ -158,7 +159,7 @@ function toPublicPreset(preset) {
 function getRegistryForTask(task) {
   const registry = REGISTRY[task];
   if (!registry) {
-    throw invalidSelection(`Unsupported AI task "${task}".`);
+    throw invalidSelection(`Unsupported AI task "${task}".`, "bad_request");
   }
   return registry;
 }
@@ -190,7 +191,7 @@ export function resolveModelSelection(task, selection = {}) {
   let preset = selection.preset ? PRESETS[selection.preset] : null;
 
   if (selection.preset && (!preset || preset.task !== task)) {
-    throw invalidSelection(`Preset "${selection.preset}" is not valid for task "${task}".`);
+    throw invalidSelection(`Preset "${selection.preset}" is not valid for task "${task}".`, "validation_error");
   }
 
   if (!preset && !selection.model) {
@@ -199,7 +200,7 @@ export function resolveModelSelection(task, selection = {}) {
 
   let model = selection.model ? registry[selection.model] : null;
   if (selection.model && !model) {
-    throw invalidSelection(`Model "${selection.model}" is not allowlisted for task "${task}".`);
+    throw invalidSelection(`Model "${selection.model}" is not allowlisted for task "${task}".`, "model_not_allowed");
   }
 
   if (!model && preset) {
@@ -207,7 +208,7 @@ export function resolveModelSelection(task, selection = {}) {
   }
 
   if (!model) {
-    throw invalidSelection(`A model selection is required for task "${task}".`);
+    throw invalidSelection(`A model selection is required for task "${task}".`, "validation_error");
   }
 
   if (selection.model && preset && selection.model !== preset.model) {
@@ -226,7 +227,7 @@ export function resolveCompareModels(modelIds) {
   return modelIds.map((modelId) => {
     const model = registry[modelId];
     if (!model) {
-      throw invalidSelection(`Model "${modelId}" is not allowlisted for task "text".`);
+      throw invalidSelection(`Model "${modelId}" is not allowlisted for task "text".`, "model_not_allowed");
     }
     return model;
   });

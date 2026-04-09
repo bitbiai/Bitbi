@@ -1,6 +1,6 @@
 import { readJsonBody } from "../lib/request.js";
 import { json } from "../lib/response.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp } from "../lib/rate-limit.js";
 import { requireAdmin } from "../lib/session.js";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
@@ -43,10 +43,11 @@ const LIMITS = {
 };
 
 class InputError extends Error {
-  constructor(message, status = 400) {
+  constructor(message, status = 400, code = "validation_error") {
     super(message);
     this.name = "InputError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -55,6 +56,7 @@ function inputErrorResponse(error) {
     {
       ok: false,
       error: error.message,
+      code: error.code || "validation_error",
     },
     { status: error.status || 400 }
   );
@@ -65,29 +67,96 @@ function serviceUnavailableResponse() {
     {
       ok: false,
       error: "AI lab service unavailable.",
+      code: "upstream_error",
     },
     { status: 503 }
   );
 }
 
+function inferAdminAiErrorCode(status, message = "") {
+  const normalized = String(message || "").toLowerCase();
+
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 405) return "method_not_allowed";
+  if (status === 429) return "rate_limited";
+  if (normalized.includes("not allowlisted")) return "model_not_allowed";
+  if (normalized.includes("duplicates")) return "duplicate_models";
+  if (normalized.includes("invalid json")) return "bad_request";
+  if (status >= 502) return "upstream_error";
+  if (status >= 500) return "internal_error";
+  if (status === 400) return "validation_error";
+  return "bad_request";
+}
+
+async function withAdminAiCode(response) {
+  if (!(response instanceof Response)) return response;
+
+  let body;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+
+  if (!body || typeof body !== "object") {
+    return response;
+  }
+
+  const nextCode = body.ok
+    ? (body.code || (
+      body.task === "compare" &&
+      Array.isArray(body.result?.results) &&
+      body.result.results.some((entry) => entry && entry.ok === false)
+        ? "partial_success"
+        : null
+    ))
+    : (body.code || inferAdminAiErrorCode(response.status, body.error));
+
+  if (!nextCode || body.code === nextCode) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+
+  return new Response(JSON.stringify({ ...body, code: nextCode }), {
+    status: response.status,
+    headers,
+  });
+}
+
+function adminAiRateLimitResponse() {
+  return json(
+    {
+      ok: false,
+      error: "Too many requests. Please try again later.",
+      code: "rate_limited",
+    },
+    { status: 429 }
+  );
+}
+
 function ensureObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new InputError("JSON body must be an object.");
+    throw new InputError("JSON body must be an object.", 400, "bad_request");
   }
   return value;
 }
 
 function requiredString(value, field, maxLength) {
   if (typeof value !== "string") {
-    throw new InputError(`${field} must be a string.`);
+    throw new InputError(`${field} must be a string.`, 400, "validation_error");
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new InputError(`${field} is required.`);
+    throw new InputError(`${field} is required.`, 400, "validation_error");
   }
   if (trimmed.length > maxLength) {
-    throw new InputError(`${field} must be at most ${maxLength} characters.`);
+    throw new InputError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
   }
   return trimmed;
 }
@@ -95,13 +164,13 @@ function requiredString(value, field, maxLength) {
 function optionalString(value, field, maxLength) {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") {
-    throw new InputError(`${field} must be a string.`);
+    throw new InputError(`${field} must be a string.`, 400, "validation_error");
   }
 
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.length > maxLength) {
-    throw new InputError(`${field} must be at most ${maxLength} characters.`);
+    throw new InputError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
   }
   return trimmed;
 }
@@ -111,10 +180,10 @@ function optionalInteger(value, field, min, max, defaultValue = null) {
 
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
-    throw new InputError(`${field} must be an integer.`);
+    throw new InputError(`${field} must be an integer.`, 400, "validation_error");
   }
   if (parsed < min || parsed > max) {
-    throw new InputError(`${field} must be between ${min} and ${max}.`);
+    throw new InputError(`${field} must be between ${min} and ${max}.`, 400, "validation_error");
   }
   return parsed;
 }
@@ -124,10 +193,10 @@ function optionalNumber(value, field, min, max, defaultValue = null) {
 
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new InputError(`${field} must be a number.`);
+    throw new InputError(`${field} must be a number.`, 400, "validation_error");
   }
   if (parsed < min || parsed > max) {
-    throw new InputError(`${field} must be between ${min} and ${max}.`);
+    throw new InputError(`${field} must be between ${min} and ${max}.`, 400, "validation_error");
   }
   return parsed;
 }
@@ -144,7 +213,9 @@ function optionalDimension(value, field) {
 
   if (!LIMITS.image.allowedDimensions.includes(parsed)) {
     throw new InputError(
-      `${field} must be one of ${LIMITS.image.allowedDimensions.join(", ")}.`
+      `${field} must be one of ${LIMITS.image.allowedDimensions.join(", ")}.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -154,13 +225,13 @@ function optionalDimension(value, field) {
 function normalizeStringArray(value, field, minItems, maxItems, maxItemLength) {
   const values = typeof value === "string" ? [value] : value;
   if (!Array.isArray(values)) {
-    throw new InputError(`${field} must be a string or an array of strings.`);
+    throw new InputError(`${field} must be a string or an array of strings.`, 400, "validation_error");
   }
   if (values.length < minItems) {
-    throw new InputError(`${field} must contain at least ${minItems} item(s).`);
+    throw new InputError(`${field} must contain at least ${minItems} item(s).`, 400, "validation_error");
   }
   if (values.length > maxItems) {
-    throw new InputError(`${field} must contain at most ${maxItems} item(s).`);
+    throw new InputError(`${field} must contain at most ${maxItems} item(s).`, 400, "validation_error");
   }
 
   return values.map((entry, index) => requiredString(entry, `${field}[${index}]`, maxItemLength));
@@ -197,12 +268,14 @@ function validateImagePayload(body) {
   const height = optionalDimension(input.height, "height");
 
   if ((width && !height) || (!width && height)) {
-    throw new InputError("width and height must be provided together.");
+    throw new InputError("width and height must be provided together.", 400, "validation_error");
   }
 
   if (width && height && width * height > LIMITS.image.maxPixels) {
     throw new InputError(
-      `Image dimensions exceed the ${LIMITS.image.maxPixels} pixel safety cap.`
+      `Image dimensions exceed the ${LIMITS.image.maxPixels} pixel safety cap.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -236,7 +309,9 @@ function validateEmbeddingsPayload(body) {
 
   if (totalChars > LIMITS.embeddings.maxTotalChars) {
     throw new InputError(
-      `input exceeds the total ${LIMITS.embeddings.maxTotalChars} character cap.`
+      `input exceeds the total ${LIMITS.embeddings.maxTotalChars} character cap.`,
+      400,
+      "validation_error"
     );
   }
 
@@ -258,7 +333,7 @@ function validateComparePayload(body) {
   );
 
   if (new Set(models).size !== models.length) {
-    throw new InputError("models must not contain duplicates.");
+    throw new InputError("models must not contain duplicates.", 400, "duplicate_models");
   }
 
   return {
@@ -311,16 +386,13 @@ async function proxyToAiLab(env, path, init, adminUser) {
     return serviceUnavailableResponse();
   }
 
-  return new Response(response.body, {
-    status: response.status,
-    headers: response.headers,
-  });
+  return withAdminAiCode(response);
 }
 
 async function rateLimitAdminAi(request, env, scope, maxRequests, windowMs) {
   const ip = getClientIp(request);
   if (await isSharedRateLimited(env, scope, ip, maxRequests, windowMs)) {
-    return rateLimitResponse();
+    return adminAiRateLimitResponse();
   }
   return null;
 }
@@ -334,7 +406,7 @@ export async function handleAdminAI(ctx) {
 
   const result = await requireAdmin(request, env);
   if (result instanceof Response) {
-    return result;
+    return withAdminAiCode(result);
   }
 
   if (pathname === "/api/admin/ai/models" && method === "GET") {
@@ -349,7 +421,7 @@ export async function handleAdminAI(ctx) {
 
     const body = await readJsonBody(request);
     if (!body) {
-      return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
     }
 
     try {
@@ -371,7 +443,7 @@ export async function handleAdminAI(ctx) {
 
     const body = await readJsonBody(request);
     if (!body) {
-      return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
     }
 
     try {
@@ -393,7 +465,7 @@ export async function handleAdminAI(ctx) {
 
     const body = await readJsonBody(request);
     if (!body) {
-      return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
     }
 
     try {
@@ -415,7 +487,7 @@ export async function handleAdminAI(ctx) {
 
     const body = await readJsonBody(request);
     if (!body) {
-      return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
     }
 
     try {
@@ -436,6 +508,7 @@ export async function handleAdminAI(ctx) {
       {
         ok: false,
         error: "Not found",
+        code: "not_found",
       },
       { status: 404 }
     );

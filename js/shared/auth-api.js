@@ -22,12 +22,12 @@ async function request(method, path, body, options = {}) {
         let data;
         try { data = await res.json(); } catch { data = null; }
         if (res.ok) return { ok: true, data };
-        return { ok: false, error: data?.error || `Error ${res.status}`, data };
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data };
     } catch (e) {
         if (e?.name === 'AbortError') {
-            return { ok: false, aborted: true, error: 'Request cancelled.' };
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
         }
-        return { ok: false, error: 'Network error. Please try again.' };
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
     }
 }
 
