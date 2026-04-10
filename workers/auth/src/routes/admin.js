@@ -5,6 +5,10 @@ import { requireAdmin } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { handleAdminAI } from "./admin-ai.js";
 
+function isMissingTextAssetTableError(error) {
+  return String(error || "").includes("no such table") && String(error || "").includes("ai_text_assets");
+}
+
 function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
   return env.DB.prepare(
     `INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
@@ -503,13 +507,27 @@ export async function handleAdmin(ctx) {
 
     const now = nowIso();
     let r2Keys = [];
+    let textAssetsEnabled = true;
     try {
       const images = await env.DB.prepare(
         "SELECT r2_key FROM ai_images WHERE user_id = ?"
       ).bind(targetUserId).all();
       r2Keys = (images.results || []).map((row) => row.r2_key);
 
-      await env.DB.batch([
+      try {
+        const textAssets = await env.DB.prepare(
+          "SELECT r2_key FROM ai_text_assets WHERE user_id = ?"
+        ).bind(targetUserId).all();
+        r2Keys = r2Keys.concat((textAssets.results || []).map((row) => row.r2_key));
+      } catch (error) {
+        if (isMissingTextAssetTableError(error)) {
+          textAssetsEnabled = false;
+        } else {
+          throw error;
+        }
+      }
+
+      const statements = [
         env.DB.prepare(
           `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
            SELECT r2_key, 'pending', ?
@@ -517,6 +535,21 @@ export async function handleAdmin(ctx) {
            WHERE user_id = ?`
         ).bind(now, targetUserId),
         env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(targetUserId),
+      ];
+
+      if (textAssetsEnabled) {
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+             SELECT r2_key, 'pending', ?
+             FROM ai_text_assets
+             WHERE user_id = ?`
+          ).bind(now, targetUserId),
+          env.DB.prepare("DELETE FROM ai_text_assets WHERE user_id = ?").bind(targetUserId)
+        );
+      }
+
+      statements.push(
         env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(targetUserId),
         env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
         env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
@@ -530,7 +563,9 @@ export async function handleAdmin(ctx) {
           target_status: targetUser.status,
           actor_email: result.user.email,
         }, now),
-      ]);
+      );
+
+      await env.DB.batch(statements);
     } catch (e) {
       const unavailable = String(e).includes("no such table");
       return json(

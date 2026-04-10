@@ -151,6 +151,19 @@ async function readMultipartFields(multipart) {
   return Object.fromEntries(Array.from(formData.entries(), ([key, value]) => [key, String(value)]));
 }
 
+function decodeStoredTextBody(body) {
+  if (body instanceof Uint8Array) {
+    return new TextDecoder().decode(body);
+  }
+  if (body instanceof ArrayBuffer) {
+    return new TextDecoder().decode(new Uint8Array(body));
+  }
+  if (ArrayBuffer.isView(body)) {
+    return new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+  }
+  return String(body || '');
+}
+
 function makeFavorites(userId, count) {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
@@ -1540,6 +1553,310 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
   });
 
+  [
+    {
+      label: 'text',
+      sourceModule: 'text',
+      title: 'Release Notes Draft',
+      data: {
+        preset: 'balanced',
+        model: {
+          id: '@cf/openai/gpt-oss-20b',
+          label: 'GPT OSS 20B',
+          vendor: 'OpenAI',
+        },
+        system: 'You are concise.',
+        prompt: 'Summarize the release.',
+        output: 'Release summary output.',
+        maxTokens: 300,
+        temperature: 0.7,
+        usage: { total_tokens: 42 },
+        warnings: ['Mock text warning'],
+        elapsedMs: 123,
+        receivedAt: nowIso(),
+      },
+      contains: ['Module: Text', 'Release summary output.'],
+    },
+    {
+      label: 'embeddings',
+      sourceModule: 'embeddings',
+      title: 'Embedding Snapshot',
+      data: {
+        preset: 'embedding_default',
+        model: {
+          id: '@cf/baai/bge-m3',
+          label: 'BGE M3',
+          vendor: 'BAAI',
+        },
+        inputItems: ['alpha', 'beta'],
+        vectors: [[0.1, 0.2], [0.3, 0.4]],
+        dimensions: 2,
+        count: 2,
+        shape: [2, 2],
+        pooling: 'cls',
+        warnings: [],
+        elapsedMs: 88,
+        receivedAt: nowIso(),
+      },
+      contains: ['Module: Embeddings', 'Vectors:', 'alpha'],
+    },
+    {
+      label: 'compare',
+      sourceModule: 'compare',
+      title: 'Compare Session',
+      data: {
+        prompt: 'Compare the outputs.',
+        system: 'You are concise.',
+        maxTokens: 250,
+        temperature: 0.7,
+        elapsedMs: 222,
+        receivedAt: nowIso(),
+        warnings: ['Mock compare warning'],
+        diffSummary: {
+          identical: false,
+          shared: ['Shared lead sentence.'],
+          onlyA: ['Cinematic phrasing.'],
+          onlyB: ['Technical phrasing.'],
+        },
+        results: [
+          {
+            ok: true,
+            model: {
+              id: '@cf/meta/llama-3.1-8b-instruct-fast',
+              label: 'Llama 3.1 8B Instruct Fast',
+              vendor: 'Meta',
+            },
+            text: 'Model A output.',
+            usage: { total_tokens: 11 },
+            elapsedMs: 111,
+          },
+          {
+            ok: true,
+            model: {
+              id: '@cf/google/gemma-4-26b-a4b-it',
+              label: 'Gemma 4 26B A4B',
+              vendor: 'Google',
+            },
+            text: 'Model B output.',
+            usage: { total_tokens: 13 },
+            elapsedMs: 123,
+          },
+        ],
+      },
+      contains: ['Module: Compare', 'Model A output.', 'Difference Aid:'],
+    },
+    {
+      label: 'live agent',
+      sourceModule: 'live_agent',
+      title: 'Live Agent Transcript',
+      data: {
+        model: {
+          id: '@cf/google/gemma-4-26b-a4b-it',
+          label: 'Gemma 4 26B A4B',
+          vendor: 'Google',
+        },
+        system: 'You are concise.',
+        transcript: [
+          { role: 'user', content: 'Hello agent.' },
+          { role: 'assistant', content: 'Hello admin.' },
+        ],
+        finalResponse: 'Hello admin.',
+        receivedAt: nowIso(),
+        warnings: [],
+      },
+      contains: ['Module: Live Agent', '[USER] Hello agent.', 'Final Response:'],
+    },
+  ].forEach((scenario) => {
+    test(`admin AI save-text-asset saves ${scenario.label} output as a shared folder text asset`, async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createAdminUser('admin-save-user')],
+        aiFolders: [
+          {
+            id: 'feed1234',
+            user_id: 'admin-save-user',
+            name: 'Research',
+            slug: 'research',
+            status: 'active',
+            created_at: nowIso(),
+          },
+        ],
+      });
+
+      const token = await seedSession(env, 'admin-save-user');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: scenario.title,
+          folderId: 'feed1234',
+          sourceModule: scenario.sourceModule,
+          data: scenario.data,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.30',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(201);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          folder_id: 'feed1234',
+          source_module: scenario.sourceModule,
+          file_name: expect.stringMatching(/\.txt$/),
+        },
+      });
+
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const row = env.DB.state.aiTextAssets[0];
+      expect(row.folder_id).toBe('feed1234');
+      expect(row.source_module).toBe(scenario.sourceModule);
+      expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+      const object = env.USER_IMAGES.objects.get(row.r2_key);
+      const text = decodeStoredTextBody(object.body);
+      expect(text).toContain(`Title: ${scenario.title}`);
+      for (const fragment of scenario.contains) {
+        expect(text).toContain(fragment);
+      }
+    });
+  });
+
+  test('admin AI save-text-asset rejects saving into a foreign folder', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-owner')],
+      aiFolders: [
+        {
+          id: 'deadbeef',
+          user_id: 'someone-else',
+          name: 'Foreign',
+          slug: 'foreign',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'admin-owner');
+    const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Blocked Save',
+          folderId: 'deadbeef',
+          sourceModule: 'text',
+        data: {
+          prompt: 'Prompt',
+          output: 'Output',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.31',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Folder not found.',
+    });
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(0);
+  });
+
+  test('AI assets route returns mixed image and text assets from the shared folder world', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'mixed-assets-user', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'f01da123',
+          user_id: 'mixed-assets-user',
+          name: 'Launches',
+          slug: 'launches',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+      aiImages: [
+        {
+          id: '1ab100cd',
+          user_id: 'mixed-assets-user',
+          folder_id: 'f01da123',
+          r2_key: 'users/mixed-assets-user/folders/launches/img100.png',
+          prompt: 'Launch poster',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 123,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'abc100ef',
+          user_id: 'mixed-assets-user',
+          folder_id: 'f01da123',
+          r2_key: 'users/mixed-assets-user/folders/launches/text/txt100.txt',
+          title: 'Compare Notes',
+          file_name: 'compare-notes.txt',
+          source_module: 'compare',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 222,
+          preview_text: 'Model A felt cinematic while Model B stayed technical.',
+          metadata_json: '{}',
+          created_at: '2026-04-10T12:05:00.000Z',
+        },
+      ],
+      userImages: {
+        'users/mixed-assets-user/folders/launches/text/txt100.txt': {
+          body: new TextEncoder().encode('Compare Notes').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'mixed-assets-user');
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets?folder_id=f01da123', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.ok).toBe(true);
+    expect(listBody.data.assets).toEqual([
+      expect.objectContaining({
+        id: 'abc100ef',
+        asset_type: 'text',
+        file_url: '/api/ai/text-assets/abc100ef/file',
+      }),
+      expect.objectContaining({
+        id: '1ab100cd',
+        asset_type: 'image',
+        file_url: '/api/ai/images/1ab100cd/file',
+      }),
+    ]);
+
+    const fileRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc100ef/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(fileRes.status).toBe(200);
+    expect(await fileRes.text()).toBe('Compare Notes');
+    expect(fileRes.headers.get('content-type')).toContain('text/plain');
+  });
+
   test('AI generate: concurrent near-limit requests do not exceed the daily cap', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     let firstRunStartedResolve;
@@ -1765,7 +2082,7 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.has('users/artist-2/folders/unsorted/deadbeef.png')).toBe(true);
   });
 
-  test('AI folder delete keeps durable cleanup entries when inline blob deletion fails', async () => {
+  test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -1814,6 +2131,22 @@ test.describe('Worker routes', () => {
           created_at: nowIso(),
         },
       ],
+      aiTextAssets: [
+        {
+          id: 'txt33',
+          user_id: 'artist-3',
+          folder_id: 'abc123ef',
+          r2_key: 'users/artist-3/folders/archive/text/txt33-notes.txt',
+          title: 'Compare Notes',
+          file_name: 'compare-notes.txt',
+          source_module: 'compare',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 320,
+          preview_text: 'Compare notes preview',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
       userImages: {
         'users/artist-3/folders/archive/aa11.png': {
           body: new Uint8Array([1]).buffer,
@@ -1823,6 +2156,11 @@ test.describe('Worker routes', () => {
         'users/artist-3/folders/archive/bb22.png': {
           body: new Uint8Array([2]).buffer,
           httpMetadata: { contentType: 'image/png' },
+          failDelete: true,
+        },
+        'users/artist-3/folders/archive/text/txt33-notes.txt': {
+          body: new TextEncoder().encode('Compare notes').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
           failDelete: true,
         },
       },
@@ -1842,12 +2180,15 @@ test.describe('Worker routes', () => {
     await expect(deleteRes.json()).resolves.toMatchObject({ ok: true });
     expect(env.DB.state.aiFolders).toHaveLength(0);
     expect(env.DB.state.aiImages).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
     expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
       'users/artist-3/folders/archive/aa11.png',
       'users/artist-3/folders/archive/bb22.png',
+      'users/artist-3/folders/archive/text/txt33-notes.txt',
     ]);
     expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/aa11.png')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/bb22.png')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/text/txt33-notes.txt')).toBe(true);
   });
 
   test('contact worker: accepts allowed origin and rejects forbidden origin', async () => {

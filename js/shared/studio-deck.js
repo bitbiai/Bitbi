@@ -326,10 +326,17 @@ export function initStudioDeck(grid) {
         onClick(e) {
             const item = e.target.closest('.studio__image-item');
             if (!item) return;
+            if (e.target.closest('a')) return;
+            if (e.target.closest('button') && !e.target.closest('.studio__image-delete')) return;
             /* Don't open modal when clicking delete or in selection mode */
             if (e.target.closest('.studio__image-delete')) return;
             if (e.target.closest('.studio__image-check')) return;
             if (grid.dataset.selectMode) return;
+            const openUrl = item.dataset.openUrl;
+            if (openUrl) {
+                window.open(openUrl, '_blank', 'noopener,noreferrer');
+                return;
+            }
             const img = item.querySelector('img');
             if (!img) return;
             openStudioModal(img.src, item.title || img.alt || 'Saved image');

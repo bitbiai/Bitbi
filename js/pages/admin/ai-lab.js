@@ -1,17 +1,20 @@
 import {
+    apiAiGetFolders,
+    apiAiSaveImage,
     apiAdminAiCompare,
     apiAdminAiLiveAgent,
     apiAdminAiModels,
+    apiAdminAiSaveTextAsset,
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js?v=20260409-wave8';
+} from '../../shared/auth-api.js?v=20260410-wave10';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
 const HISTORY_LIMIT = 6;
 // Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
-const ADMIN_AI_UI_VERSION = '20260410-wave9';
+const ADMIN_AI_UI_VERSION = '20260410-wave10';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -91,6 +94,12 @@ const DEFAULT_FORMS = {
 
 const DEFAULT_PREFERENCES = {
     compareOnlyDifferences: false,
+};
+
+const LIVE_AGENT_MODEL = {
+    id: '@cf/google/gemma-4-26b-a4b-it',
+    label: 'Gemma 4 26B A4B',
+    vendor: 'Google',
 };
 
 const SAMPLE_LIBRARY = {
@@ -530,6 +539,15 @@ function getModelLabel(catalog, task, modelId) {
     return model ? `${model.label} (${model.id})` : modelId;
 }
 
+function buildSaveTitle(seed, fallback) {
+    const cleaned = String(seed || '')
+        .replace(/\s+/g, ' ')
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, 120);
+    return cleaned || fallback;
+}
+
 export function createAdminAiLab({ showToast } = {}) {
     const root = document.getElementById('sectionAiLab');
     if (!root) {
@@ -584,6 +602,19 @@ export function createAdminAiLab({ showToast } = {}) {
             embeddings: 0,
             compare: 0,
         },
+        save: {
+            open: false,
+            task: null,
+            type: null,
+            intent: null,
+            saving: false,
+            title: '',
+            folderId: '',
+            folders: [],
+            stateTone: 'neutral',
+            stateMessage: 'Ready to save.',
+            note: '',
+        },
     };
 
     const refs = {
@@ -629,6 +660,7 @@ export function createAdminAiLab({ showToast } = {}) {
             warnings: document.getElementById('aiTextWarnings'),
             usage: document.getElementById('aiTextUsage'),
             copy: document.getElementById('aiTextCopy'),
+            save: document.getElementById('aiTextSave'),
             debug: document.getElementById('aiTextDebug'),
             raw: document.getElementById('aiTextRaw'),
             copyRaw: document.getElementById('aiTextCopyRaw'),
@@ -653,6 +685,7 @@ export function createAdminAiLab({ showToast } = {}) {
             meta: document.getElementById('aiImageMeta'),
             warnings: document.getElementById('aiImageWarnings'),
             download: document.getElementById('aiImageDownload'),
+            save: document.getElementById('aiImageSave'),
             debug: document.getElementById('aiImageDebug'),
             raw: document.getElementById('aiImageRaw'),
             copyRaw: document.getElementById('aiImageCopyRaw'),
@@ -673,6 +706,7 @@ export function createAdminAiLab({ showToast } = {}) {
             preview: document.getElementById('aiEmbeddingsPreview'),
             meta: document.getElementById('aiEmbeddingsMeta'),
             warnings: document.getElementById('aiEmbeddingsWarnings'),
+            save: document.getElementById('aiEmbeddingsSave'),
             debug: document.getElementById('aiEmbeddingsDebug'),
             raw: document.getElementById('aiEmbeddingsRaw'),
             copyRaw: document.getElementById('aiEmbeddingsCopyRaw'),
@@ -714,6 +748,7 @@ export function createAdminAiLab({ showToast } = {}) {
             bCopyDiff: document.getElementById('aiCompareBCopyDiff'),
             onlyDifferences: document.getElementById('aiCompareOnlyDifferences'),
             diff: document.getElementById('aiCompareDiff'),
+            save: document.getElementById('aiCompareSave'),
             debug: document.getElementById('aiCompareDebug'),
             raw: document.getElementById('aiCompareRaw'),
             copyRaw: document.getElementById('aiCompareCopyRaw'),
@@ -726,7 +761,21 @@ export function createAdminAiLab({ showToast } = {}) {
             send: document.getElementById('aiLiveAgentSend'),
             cancel: document.getElementById('aiLiveAgentCancel'),
             clear: document.getElementById('aiLiveAgentClear'),
+            save: document.getElementById('aiLiveAgentSave'),
             state: document.getElementById('aiLiveAgentState'),
+        },
+        saveModal: {
+            root: document.getElementById('aiLabSaveModal'),
+            closeButtons: Array.from(root.querySelectorAll('[data-ai-save-close]')),
+            title: document.getElementById('aiLabSaveTitle'),
+            desc: document.getElementById('aiLabSaveDesc'),
+            state: document.getElementById('aiLabSaveState'),
+            titleField: document.getElementById('aiLabSaveTitleField'),
+            input: document.getElementById('aiLabSaveInput'),
+            folder: document.getElementById('aiLabSaveFolder'),
+            note: document.getElementById('aiLabSaveNote'),
+            confirm: document.getElementById('aiLabSaveConfirm'),
+            cancel: document.getElementById('aiLabSaveCancel'),
         },
     };
 
@@ -1015,6 +1064,323 @@ export function createAdminAiLab({ showToast } = {}) {
                 persistState();
             }
         );
+    }
+
+    function setSaveState(tone, message) {
+        state.save.stateTone = tone;
+        state.save.stateMessage = message;
+    }
+
+    function renderSaveFolderOptions() {
+        const current = state.save.folderId || '';
+        refs.saveModal.folder.innerHTML = '<option value="">Assets</option>';
+        state.save.folders.forEach((folder) => {
+            const option = document.createElement('option');
+            option.value = folder.id;
+            option.textContent = folder.name;
+            refs.saveModal.folder.appendChild(option);
+        });
+        refs.saveModal.folder.value = current;
+    }
+
+    function renderSaveModal() {
+        const modal = refs.saveModal.root;
+        const isOpen = !!state.save.open;
+        modal.hidden = !isOpen;
+        modal.setAttribute('aria-hidden', String(!isOpen));
+        if (!isOpen) return;
+
+        const intent = state.save.intent;
+        const isImage = intent?.type === 'image';
+
+        refs.saveModal.title.textContent = intent?.modalTitle || 'Save Asset';
+        refs.saveModal.desc.textContent = intent?.description || 'Save the current AI Lab result.';
+        refs.saveModal.titleField.hidden = isImage;
+        refs.saveModal.input.value = state.save.title || '';
+        refs.saveModal.input.disabled = state.save.saving || isImage;
+        refs.saveModal.folder.disabled = state.save.saving;
+        refs.saveModal.note.textContent = state.save.note || '';
+        refs.saveModal.confirm.disabled = state.save.saving;
+        refs.saveModal.confirm.textContent = state.save.saving
+            ? 'Saving...'
+            : (intent?.confirmLabel || 'Save');
+        setResultState(refs.saveModal.state, state.save.stateTone, state.save.stateMessage);
+        renderSaveFolderOptions();
+    }
+
+    function closeSaveModal() {
+        if (!state.save.open) return;
+        if (state.save.saving) return;
+        state.save.open = false;
+        state.save.task = null;
+        state.save.type = null;
+        state.save.intent = null;
+        state.save.saving = false;
+        state.save.title = '';
+        state.save.folderId = '';
+        state.save.note = '';
+        setSaveState('neutral', 'Ready to save.');
+        renderSaveModal();
+    }
+
+    async function loadSaveFolders() {
+        const result = await apiAiGetFolders();
+        state.save.folders = Array.isArray(result?.folders) ? result.folders : [];
+    }
+
+    function getTextSaveIntent() {
+        const response = state.results.text?.raw;
+        const result = response?.result;
+        if (!result?.text) return null;
+        return {
+            type: 'text',
+            sourceModule: 'text',
+            modalTitle: 'Save Text Result',
+            description: 'Save the current text run as a UTF-8 .txt file in your existing Image Studio folder structure.',
+            confirmLabel: 'Save Text',
+            defaultTitle: buildSaveTitle(state.forms.text.prompt, 'AI Lab Text'),
+            note: 'The auth worker serializes the final .txt server-side and stores it beside your images.',
+            payload: {
+                preset: response?.preset || null,
+                model: response?.model || null,
+                system: state.forms.text.system || '',
+                prompt: state.forms.text.prompt || '',
+                output: result.text,
+                maxTokens: result.maxTokens,
+                temperature: result.temperature,
+                usage: result.usage || null,
+                warnings: getWarnings(response),
+                elapsedMs: response?.elapsedMs || null,
+                receivedAt: state.results.text?.receivedAt instanceof Date
+                    ? state.results.text.receivedAt.toISOString()
+                    : null,
+            },
+        };
+    }
+
+    function getImageSaveIntent() {
+        const response = state.results.image?.raw;
+        const result = response?.result;
+        if (!result?.imageBase64) return null;
+        return {
+            type: 'image',
+            modalTitle: 'Save Image',
+            description: 'Save the current image with the same folder logic and backend path used by the existing Image Studio.',
+            confirmLabel: 'Save Image',
+            defaultTitle: buildSaveTitle(state.forms.image.prompt, 'AI Lab Image'),
+            note: 'The existing image save endpoint generates the final filename automatically. Only the folder selection is required here.',
+            payload: {
+                imageData: `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`,
+                prompt: response?.prompt || state.forms.image.prompt || '',
+                model: response?.model?.id || state.forms.image.model || '',
+                steps: result.steps,
+                seed: result.seed,
+            },
+        };
+    }
+
+    function getEmbeddingsSaveIntent() {
+        const response = state.results.embeddings?.raw;
+        const result = response?.result;
+        if (!Array.isArray(result?.vectors) || result.vectors.length === 0) return null;
+        const inputItems = (state.forms.embeddings.input || '')
+            .split(/\r?\n/)
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+        return {
+            type: 'text',
+            sourceModule: 'embeddings',
+            modalTitle: 'Save Embeddings Result',
+            description: 'Save the current embeddings run as a structured .txt file in your existing folder structure.',
+            confirmLabel: 'Save Embeddings',
+            defaultTitle: buildSaveTitle(inputItems[0] || 'AI Lab Embeddings', 'AI Lab Embeddings'),
+            note: 'Vectors are serialized server-side into a plain-text file with bounded metadata and the recorded vector output.',
+            payload: {
+                preset: response?.preset || null,
+                model: response?.model || null,
+                inputItems,
+                vectors: result.vectors,
+                dimensions: result.dimensions,
+                count: result.count,
+                shape: Array.isArray(result.shape) ? result.shape : null,
+                pooling: result.pooling || null,
+                warnings: getWarnings(response),
+                elapsedMs: response?.elapsedMs || null,
+                receivedAt: state.results.embeddings?.receivedAt instanceof Date
+                    ? state.results.embeddings.receivedAt.toISOString()
+                    : null,
+            },
+        };
+    }
+
+    function getCompareSaveIntent() {
+        const response = state.results.compare?.raw;
+        const results = Array.isArray(response?.result?.results) ? response.result.results : [];
+        if (results.length === 0) return null;
+        const diff = buildCompareDiff(results);
+        return {
+            type: 'text',
+            sourceModule: 'compare',
+            modalTitle: 'Save Compare Result',
+            description: 'Save the current compare run as a structured .txt file with both model outputs and the existing difference aid summary.',
+            confirmLabel: 'Save Compare',
+            defaultTitle: buildSaveTitle(state.forms.compare.prompt, 'AI Lab Compare'),
+            note: 'The saved file includes the shared prompt, per-model outputs, warnings, and the compare difference summary.',
+            payload: {
+                prompt: state.forms.compare.prompt || '',
+                system: state.forms.compare.system || '',
+                maxTokens: response?.result?.maxTokens || null,
+                temperature: response?.result?.temperature || null,
+                elapsedMs: response?.elapsedMs || null,
+                receivedAt: state.results.compare?.receivedAt instanceof Date
+                    ? state.results.compare.receivedAt.toISOString()
+                    : null,
+                warnings: getWarnings(response),
+                diffSummary: diff.available ? diff : null,
+                results,
+            },
+        };
+    }
+
+    function getLiveAgentSaveIntent() {
+        if (!Array.isArray(liveAgentState.messages) || liveAgentState.messages.length === 0) return null;
+        const lastAssistant = [...liveAgentState.messages].reverse().find((entry) => entry.role === 'assistant');
+        const lastUser = [...liveAgentState.messages].reverse().find((entry) => entry.role === 'user');
+        return {
+            type: 'text',
+            sourceModule: 'live_agent',
+            modalTitle: 'Save Live Agent Transcript',
+            description: 'Save the current live-agent transcript as a structured .txt file in your existing folder structure.',
+            confirmLabel: 'Save Transcript',
+            defaultTitle: buildSaveTitle(lastUser?.content || 'AI Lab Live Agent', 'AI Lab Live Agent'),
+            note: 'The transcript is serialized server-side as plain text with the system prompt, ordered messages, and final assistant response.',
+            payload: {
+                model: LIVE_AGENT_MODEL,
+                system: refs.liveAgent.system.value || '',
+                transcript: liveAgentState.messages.map((entry) => ({
+                    role: entry.role,
+                    content: entry.content,
+                })),
+                finalResponse: lastAssistant?.content || '',
+                receivedAt: new Date().toISOString(),
+            },
+        };
+    }
+
+    function getSaveIntent(task) {
+        switch (task) {
+        case 'text':
+            return getTextSaveIntent();
+        case 'image':
+            return getImageSaveIntent();
+        case 'embeddings':
+            return getEmbeddingsSaveIntent();
+        case 'compare':
+            return getCompareSaveIntent();
+        case 'live-agent':
+            return getLiveAgentSaveIntent();
+        default:
+            return null;
+        }
+    }
+
+    async function openSaveModal(task) {
+        const intent = getSaveIntent(task);
+        if (!intent) {
+            if (showToast) showToast('Nothing available to save yet.', 'error');
+            return;
+        }
+
+        state.save.open = true;
+        state.save.task = task;
+        state.save.type = intent.type;
+        state.save.intent = intent;
+        state.save.saving = false;
+        state.save.title = intent.defaultTitle || '';
+        state.save.folderId = '';
+        state.save.note = intent.note || '';
+        setSaveState('loading', 'Loading folders...');
+        renderSaveModal();
+
+        try {
+            await loadSaveFolders();
+            setSaveState('neutral', 'Choose a folder and confirm the save.');
+        } catch {
+            state.save.folders = [];
+            setSaveState('error', 'Folder list unavailable. You can still save to Assets.');
+        }
+
+        renderSaveModal();
+        if (intent.type === 'image') {
+            refs.saveModal.folder.focus();
+        } else {
+            refs.saveModal.input.focus();
+            refs.saveModal.input.select();
+        }
+    }
+
+    async function confirmSaveModal() {
+        const intent = state.save.intent;
+        if (!state.save.open || !intent || state.save.saving) return;
+
+        if (intent.type !== 'image' && !(state.save.title || '').trim()) {
+            setSaveState('error', 'Title is required.');
+            renderSaveModal();
+            return;
+        }
+
+        state.save.saving = true;
+        setSaveState('loading', 'Saving asset...');
+        renderSaveModal();
+
+        try {
+            if (intent.type === 'image') {
+                const res = await apiAiSaveImage(
+                    intent.payload.imageData,
+                    intent.payload.prompt,
+                    intent.payload.model,
+                    intent.payload.steps,
+                    intent.payload.seed,
+                    state.save.folderId || null,
+                );
+
+                if (!res.ok) {
+                    setSaveState('error', res.error || 'Image save failed.');
+                    state.save.saving = false;
+                    renderSaveModal();
+                    return;
+                }
+
+                state.save.saving = false;
+                closeSaveModal();
+                setStatus('Image saved to the shared folder structure.', 'success');
+                if (showToast) showToast('Image saved.');
+                return;
+            }
+
+            const res = await apiAdminAiSaveTextAsset({
+                title: state.save.title,
+                folderId: state.save.folderId || null,
+                sourceModule: intent.sourceModule,
+                data: intent.payload,
+            });
+
+            if (!res.ok) {
+                setSaveState('error', res.error || 'Save failed.');
+                state.save.saving = false;
+                renderSaveModal();
+                return;
+            }
+
+            state.save.saving = false;
+            closeSaveModal();
+            setStatus('Text asset saved to the shared folder structure.', 'success');
+            if (showToast) showToast('Text asset saved.');
+        } catch {
+            setSaveState('error', 'Save failed. Please try again.');
+            state.save.saving = false;
+            renderSaveModal();
+        }
     }
 
     function downloadImageResult() {
@@ -1360,6 +1726,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.text.output.textContent = outputText;
         refs.text.copy.hidden = !outputText;
+        refs.text.save.hidden = !outputText;
 
         renderMeta(refs.text.meta, response ? [
             { label: 'Preset', value: response.preset || 'Preset default' },
@@ -1431,6 +1798,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.image.preview.innerHTML = '<div class="admin-ai__empty">Run an image test to see the preview.</div>';
         refs.image.download.hidden = true;
+        refs.image.save.hidden = !payload.imageBase64;
 
         if (payload.imageBase64) {
             const img = document.createElement('img');
@@ -1530,6 +1898,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const resultCode = getResultCode(result);
         const firstVector = Array.isArray(payload.vectors?.[0]) ? payload.vectors[0] : [];
         const preview = firstVector.slice(0, 8).map((value) => Number(value).toFixed(4)).join(', ');
+        refs.embeddings.save.hidden = !Array.isArray(payload.vectors) || payload.vectors.length === 0;
 
         refs.embeddings.summary.textContent = response
             ? `${payload.count || 0} vector${payload.count === 1 ? '' : 's'} returned.`
@@ -1841,6 +2210,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const diff = buildCompareDiff(entries);
         const viewA = getCompareDifferenceView(entries[0] || null, diff, 'a');
         const viewB = getCompareDifferenceView(entries[1] || null, diff, 'b');
+        refs.compare.save.hidden = entries.length === 0;
 
         renderMeta(refs.compare.meta, response ? [
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
@@ -1960,6 +2330,7 @@ export function createAdminAiLab({ showToast } = {}) {
         renderImageResult();
         renderEmbeddingsResult();
         renderCompareResult();
+        renderSaveModal();
     }
 
     function setCatalogButtonsDisabled(isDisabled) {
@@ -2403,6 +2774,11 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.liveAgent.send.textContent = busy ? 'Sending...' : 'Send';
         refs.liveAgent.cancel.disabled = !busy;
         refs.liveAgent.input.disabled = busy;
+        refs.liveAgent.save.disabled = busy || liveAgentState.messages.length === 0;
+    }
+
+    function syncLiveAgentSaveButton() {
+        refs.liveAgent.save.disabled = liveAgentState.busy || liveAgentState.messages.length === 0;
     }
 
     function liveAgentAppendBubble(role, content) {
@@ -2417,6 +2793,7 @@ export function createAdminAiLab({ showToast } = {}) {
         el.appendChild(textNode);
         refs.liveAgent.transcript.appendChild(el);
         refs.liveAgent.transcript.scrollTop = refs.liveAgent.transcript.scrollHeight;
+        syncLiveAgentSaveButton();
         return el;
     }
 
@@ -2540,6 +2917,7 @@ export function createAdminAiLab({ showToast } = {}) {
             if (fullText) {
                 liveAgentState.messages.push({ role: 'assistant', content: fullText });
                 liveAgentSetState('success', 'Response received.');
+                syncLiveAgentSaveButton();
             } else {
                 liveAgentSetState('error', 'Model returned empty response.');
             }
@@ -2550,6 +2928,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 liveAgentAppendBubble('assistant', text);
                 liveAgentState.messages.push({ role: 'assistant', content: text });
                 liveAgentSetState('success', 'Response received.');
+                syncLiveAgentSaveButton();
             } else {
                 liveAgentSetState('error', 'Model returned empty response.');
             }
@@ -2573,6 +2952,7 @@ export function createAdminAiLab({ showToast } = {}) {
         liveAgentState.messages = [];
         refs.liveAgent.transcript.innerHTML = '';
         liveAgentSetState('neutral', 'Ready.');
+        syncLiveAgentSaveButton();
     }
 
     function attachFieldSync(ref, mode, field, parser) {
@@ -2678,16 +3058,20 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.text.copy.addEventListener('click', () => {
             copyText(state.results.text?.raw?.result?.text || '', showToast, 'Text output copied.');
         });
+        refs.text.save.addEventListener('click', () => openSaveModal('text'));
         refs.text.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.text?.debugRaw || state.results.text?.raw), showToast, 'Raw JSON copied.');
         });
         refs.image.download.addEventListener('click', downloadImageResult);
+        refs.image.save.addEventListener('click', () => openSaveModal('image'));
         refs.image.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.image?.debugRaw || state.results.image?.raw), showToast, 'Raw JSON copied.');
         });
+        refs.embeddings.save.addEventListener('click', () => openSaveModal('embeddings'));
         refs.embeddings.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.embeddings?.debugRaw || state.results.embeddings?.raw), showToast, 'Raw JSON copied.');
         });
+        refs.compare.save.addEventListener('click', () => openSaveModal('compare'));
         refs.compare.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.compare?.debugRaw || state.results.compare?.raw), showToast, 'Raw JSON copied.');
         });
@@ -2699,16 +3083,33 @@ export function createAdminAiLab({ showToast } = {}) {
         });
         refs.compare.aCopyDiff.addEventListener('click', () => copyCompareDifferences('a'));
         refs.compare.bCopyDiff.addEventListener('click', () => copyCompareDifferences('b'));
+        refs.saveModal.input.addEventListener('input', () => {
+            state.save.title = refs.saveModal.input.value;
+        });
+        refs.saveModal.folder.addEventListener('change', () => {
+            state.save.folderId = refs.saveModal.folder.value;
+        });
+        refs.saveModal.confirm.addEventListener('click', confirmSaveModal);
+        refs.saveModal.closeButtons.forEach((button) => {
+            button.addEventListener('click', closeSaveModal);
+        });
 
         /* Live Agent */
         refs.liveAgent.send.addEventListener('click', liveAgentSend);
         refs.liveAgent.cancel.addEventListener('click', liveAgentCancel);
         refs.liveAgent.clear.addEventListener('click', liveAgentClear);
+        refs.liveAgent.save.addEventListener('click', () => openSaveModal('live-agent'));
         refs.liveAgent.system.addEventListener('input', liveAgentUpdateSystemCount);
         refs.liveAgent.input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey && !liveAgentState.busy) {
                 e.preventDefault();
                 liveAgentSend();
+            }
+        });
+        refs.saveModal.input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !state.save.saving && state.save.intent?.type !== 'image') {
+                e.preventDefault();
+                confirmSaveModal();
             }
         });
         initLiveAgentTextareaAutosize(refs.liveAgent.system);
@@ -2722,6 +3123,7 @@ export function createAdminAiLab({ showToast } = {}) {
             bindEvents();
             syncFormInputs();
             liveAgentUpdateSystemCount();
+            syncLiveAgentSaveButton();
             renderAll();
         },
 

@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260410-wave9">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260410-wave10">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -409,6 +409,7 @@
                             <div id="aiTextState" class="admin-ai__result-state">No text run yet.</div>
                             <div class="admin-ai__result-actions">
                                 <button type="button" id="aiTextCopy" class="btn-action" hidden>Copy Output</button>
+                                <button type="button" id="aiTextSave" class="btn-action" hidden>Save to Folder</button>
                             </div>
                             <pre id="aiTextOutput" class="admin-ai__output admin-ai__output--text"></pre>
                             <div id="aiTextMeta" class="admin-ai__meta"></div>
@@ -490,6 +491,7 @@
                             <div id="aiImageState" class="admin-ai__result-state">No image run yet.</div>
                             <div class="admin-ai__result-actions">
                                 <button type="button" id="aiImageDownload" class="btn-action" hidden>Download Image</button>
+                                <button type="button" id="aiImageSave" class="btn-action" hidden>Save to Folder</button>
                             </div>
                             <div id="aiImagePreview" class="admin-ai__preview">
                                 <div class="admin-ai__empty">Run an image test to see the preview.</div>
@@ -552,6 +554,9 @@
                         </div>
                         <div class="admin-ai__surface">
                             <div id="aiEmbeddingsState" class="admin-ai__result-state">No embeddings run yet.</div>
+                            <div class="admin-ai__result-actions">
+                                <button type="button" id="aiEmbeddingsSave" class="btn-action" hidden>Save to Folder</button>
+                            </div>
                             <div id="aiEmbeddingsSummary" class="admin-ai__summary">Run an embeddings test to inspect the response.</div>
                             <div id="aiEmbeddingsPreview" class="admin-ai__output admin-ai__output--compact"></div>
                             <div id="aiEmbeddingsMeta" class="admin-ai__meta"></div>
@@ -636,6 +641,7 @@
                                 <input type="checkbox" id="aiCompareOnlyDifferences" class="admin-ai__toggle-input">
                                 <span>Show Only Differences</span>
                             </label>
+                            <button type="button" id="aiCompareSave" class="btn-action" hidden>Save to Folder</button>
                         </div>
                         <div id="aiCompareMeta" class="admin-ai__meta"></div>
                         <div id="aiCompareWarnings" class="admin-ai__warnings" hidden></div>
@@ -693,6 +699,7 @@
                             <p class="admin-shell__desc">Multi-turn chat testing surface. Model: <strong>Gemma 4 26B A4B</strong></p>
                         </div>
                         <div class="admin-ai__panel-actions">
+                            <button type="button" id="aiLiveAgentSave" class="btn-action" disabled>Save Transcript</button>
                             <button type="button" id="aiLiveAgentClear" class="btn-action">Clear Chat</button>
                         </div>
                     </div>
@@ -716,6 +723,35 @@
                         </div>
 
                         <div id="aiLiveAgentState" class="admin-ai__result-state admin-ai__result-state--neutral">Ready.</div>
+                    </div>
+                </div>
+
+                <div id="aiLabSaveModal" class="admin-ai__save-modal" hidden aria-hidden="true">
+                    <div class="admin-ai__save-backdrop" data-ai-save-close></div>
+                    <div class="admin-ai__save-dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="aiLabSaveTitle">
+                        <div class="admin-ai__save-head">
+                            <div>
+                                <h4 id="aiLabSaveTitle" class="admin-section-title">Save Asset</h4>
+                                <p id="aiLabSaveDesc" class="admin-shell__desc">Save the current AI Lab result into your existing Image Studio folder structure.</p>
+                            </div>
+                            <button type="button" class="btn-action" data-ai-save-close>Close</button>
+                        </div>
+                        <div id="aiLabSaveState" class="admin-ai__result-state admin-ai__result-state--neutral">Ready to save.</div>
+                        <label id="aiLabSaveTitleField" class="admin-ai__field">
+                            <span class="admin-ai__label">Title</span>
+                            <input id="aiLabSaveInput" class="admin-ai__input" type="text" maxlength="120" placeholder="Asset title">
+                        </label>
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Folder</span>
+                            <select id="aiLabSaveFolder" class="admin-ai__input">
+                                <option value="">Assets</option>
+                            </select>
+                        </label>
+                        <div id="aiLabSaveNote" class="admin-ai__save-note"></div>
+                        <div class="admin-ai__actions">
+                            <button type="button" id="aiLabSaveConfirm" class="admin-ai__run">Save</button>
+                            <button type="button" id="aiLabSaveCancel" class="btn-action" data-ai-save-close>Cancel</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -866,6 +902,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260410-wave9"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260410-wave10"></script>
 </body>
 </html>

@@ -18,12 +18,13 @@ import {
     apiAiGetFoldersForDelete,
     apiAiCreateFolder,
     apiAiDeleteFolder,
-    apiAiGetImages,
+    apiAiGetAssets,
     apiAiSaveImage,
     apiAiDeleteImage,
+    apiAiDeleteTextAsset,
     apiAiBulkMoveImages,
     apiAiBulkDeleteImages,
-} from '../../shared/auth-api.js?v=20260409-wave7';
+} from '../../shared/auth-api.js?v=20260410-wave10';
 import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
@@ -99,6 +100,11 @@ let selectMode       = false;
 let selectedIds      = new Set();
 let folderDeck       = null;
 let imageDeck        = null;
+const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+});
 
 /* ── Helpers ── */
 function showState(el) {
@@ -147,7 +153,7 @@ function populateGalleryFilter(selectEl) {
     const current = selectEl.value;
     const opts = [
         '<option value="">All Folders</option>',
-        `<option value="${ALL_IMAGES}">All Images</option>`,
+        `<option value="${ALL_IMAGES}">All Assets</option>`,
         `<option value="${UNFOLDERED}">Assets</option>`,
     ];
     for (const f of safeFolders) {
@@ -159,6 +165,15 @@ function populateGalleryFilter(selectEl) {
 
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatAssetDate(iso) {
+    if (!iso) return '';
+    try {
+        return assetDateFormatter.format(new Date(iso));
+    } catch {
+        return '';
+    }
 }
 
 /* ── Quota indicator ── */
@@ -227,23 +242,23 @@ function showFolderView() {
 
     $folderGrid.innerHTML = '';
 
-    // "All Images" card — opens flat gallery across all folders
+    // "All Assets" card — opens flat gallery across all folders
     const allCard = document.createElement('div');
     allCard.className = 'studio__folder-card';
     allCard.innerHTML =
         `<span class="studio__folder-card-icon" aria-hidden="true">&#128444;</span>` +
-        `<span class="studio__folder-card-name">All Images</span>` +
-        `<span class="studio__folder-card-count">${total} image${total !== 1 ? 's' : ''}</span>`;
+        `<span class="studio__folder-card-name">All Assets</span>` +
+        `<span class="studio__folder-card-count">${total} asset${total !== 1 ? 's' : ''}</span>`;
     allCard.addEventListener('click', openAllImages);
     $folderGrid.appendChild(allCard);
 
-    // Assets card (unfoldered images)
+    // Assets card (unfoldered assets)
     const assetsCard = document.createElement('div');
     assetsCard.className = 'studio__folder-card';
     assetsCard.innerHTML =
         `<span class="studio__folder-card-icon" aria-hidden="true">&#128230;</span>` +
         `<span class="studio__folder-card-name">Assets</span>` +
-        `<span class="studio__folder-card-count">${unfolderedCount} image${unfolderedCount !== 1 ? 's' : ''}</span>`;
+        `<span class="studio__folder-card-count">${unfolderedCount} asset${unfolderedCount !== 1 ? 's' : ''}</span>`;
     assetsCard.addEventListener('click', () => openFolder(UNFOLDERED, 'Assets'));
     $folderGrid.appendChild(assetsCard);
 
@@ -255,7 +270,7 @@ function showFolderView() {
         card.innerHTML =
             `<span class="studio__folder-card-icon" aria-hidden="true">&#128193;</span>` +
             `<span class="studio__folder-card-name">${escapeHtml(f.name)}</span>` +
-            `<span class="studio__folder-card-count">${count} image${count !== 1 ? 's' : ''}</span>`;
+            `<span class="studio__folder-card-count">${count} asset${count !== 1 ? 's' : ''}</span>`;
         card.addEventListener('click', () => openFolder(f.id, f.name));
         $folderGrid.appendChild(card);
     }
@@ -394,30 +409,98 @@ async function loadGallery() {
     const isAllImages = filterVal === ALL_IMAGES || filterVal === '';
     const isUnfoldered = filterVal === UNFOLDERED;
     const folderId = (!isAllImages && !isUnfoldered && filterVal) ? filterVal : null;
-    let images;
+    let assets;
     try {
-        images = await apiAiGetImages(folderId, { onlyUnfoldered: isUnfoldered });
+        assets = await apiAiGetAssets(folderId, { onlyUnfoldered: isUnfoldered });
     } catch (e) {
         console.warn('Failed to load gallery:', e);
-        images = [];
+        assets = [];
     }
-    if (!Array.isArray(images)) images = [];
+    if (!Array.isArray(assets)) assets = [];
 
-    if (images.length === 0) {
-        $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved images yet. Generate and save your first one above.</div>';
+    if (assets.length === 0) {
+        $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved assets yet. Save an image here or from the Admin AI Lab to populate your folders.</div>';
         return;
     }
 
     $imageGrid.innerHTML = '';
-    for (const img of images) {
+    for (const asset of assets) {
+        if (asset.asset_type === 'text') {
+            const item = document.createElement('article');
+            item.className = 'studio__image-item studio__image-item--text';
+            item.dataset.assetType = 'text';
+            item.dataset.openUrl = asset.file_url || '';
+            item.title = asset.title || asset.file_name || 'Saved text asset';
+
+            const badge = document.createElement('span');
+            badge.className = 'studio__text-badge';
+            badge.textContent = String(asset.source_module || 'text').replace(/_/g, ' ').toUpperCase();
+            item.appendChild(badge);
+
+            const title = document.createElement('h3');
+            title.className = 'studio__text-title';
+            title.textContent = asset.title || asset.file_name || 'Saved text asset';
+            item.appendChild(title);
+
+            const preview = document.createElement('p');
+            preview.className = 'studio__text-preview';
+            preview.textContent = asset.preview_text || 'Saved AI Lab text asset.';
+            item.appendChild(preview);
+
+            const meta = document.createElement('div');
+            meta.className = 'studio__text-meta';
+            meta.textContent = [formatAssetDate(asset.created_at), asset.file_name || 'TXT']
+                .filter(Boolean)
+                .join(' · ');
+            item.appendChild(meta);
+
+            const actions = document.createElement('div');
+            actions.className = 'studio__text-actions';
+
+            const openLink = document.createElement('a');
+            openLink.className = 'studio__text-open';
+            openLink.href = asset.file_url || '#';
+            openLink.target = '_blank';
+            openLink.rel = 'noopener noreferrer';
+            openLink.textContent = 'Open';
+            actions.appendChild(openLink);
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'studio__image-delete studio__image-delete--inline';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm('Delete this text asset?')) return;
+                delBtn.disabled = true;
+                delBtn.textContent = '\u2026';
+                const del = await apiAiDeleteTextAsset(asset.id);
+                if (del.ok) {
+                    item.remove();
+                    if ($imageGrid.children.length === 0) {
+                        $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved assets yet.</div>';
+                    }
+                } else {
+                    delBtn.disabled = false;
+                    delBtn.textContent = 'Delete';
+                    showMsg($galleryMsg, del.error, 'error');
+                }
+            });
+            actions.appendChild(delBtn);
+
+            item.appendChild(actions);
+            $imageGrid.appendChild(item);
+            continue;
+        }
+
         const item = document.createElement('div');
         item.className = 'studio__image-item';
-        item.dataset.imageId = img.id;
-        item.title = img.prompt;
+        item.dataset.imageId = asset.id;
+        item.title = asset.title || asset.preview_text || '';
 
         const imgEl = document.createElement('img');
-        imgEl.src = `/api/ai/images/${img.id}/file`;
-        imgEl.alt = img.prompt;
+        imgEl.src = asset.file_url || `/api/ai/images/${asset.id}/file`;
+        imgEl.alt = asset.title || asset.preview_text || 'Saved image';
         imgEl.loading = 'lazy';
         item.appendChild(imgEl);
 
@@ -433,12 +516,12 @@ async function loadGallery() {
             if (!confirm('Delete this image?')) return;
             delBtn.disabled = true;
             delBtn.textContent = '\u2026';
-            const del = await apiAiDeleteImage(img.id);
+            const del = await apiAiDeleteImage(asset.id);
             if (del.ok) {
                 item.remove();
                 // Check if grid is now empty
                 if ($imageGrid.children.length === 0) {
-                    $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved images yet.</div>';
+                    $imageGrid.innerHTML = '<div class="studio__gallery-empty">No saved assets yet.</div>';
                 }
             } else {
                 delBtn.disabled = false;
@@ -525,7 +608,7 @@ async function handleDeleteFolder() {
     const target = safeFolders.find(f => f.id === folderId);
     const name = target ? target.name : 'this folder';
 
-    if (!confirm(`Delete folder "${name}" and all its images?\n\nThis cannot be undone.`)) return;
+    if (!confirm(`Delete folder "${name}" and all its assets?\n\nThis cannot be undone.`)) return;
 
     $deleteFolderConfirm.disabled = true;
     $deleteFolderConfirm.textContent = '\u2026';
@@ -551,7 +634,7 @@ async function handleDeleteFolder() {
 
 /* ── Selection Mode ── */
 function enterSelectMode() {
-    const items = $imageGrid.querySelectorAll('.studio__image-item');
+    const items = $imageGrid.querySelectorAll('.studio__image-item[data-image-id]');
     if (items.length === 0) return;
     selectMode = true;
     selectedIds.clear();
@@ -697,7 +780,7 @@ async function init() {
     showState($content);
     populateModelOptions($model);
 
-    /* Attach mobile deck swipe + click-to-preview to saved images grid */
+    /* Attach mobile deck swipe + click-to-preview to saved assets grid */
     if ($imageGrid) imageDeck = initStudioDeck($imageGrid);
     if ($folderGrid) folderDeck = initStudioFolderDeck($folderGrid);
 
@@ -710,7 +793,7 @@ async function init() {
     if (foldersOk) {
         showFolderView();
     } else {
-        showMsg($galleryMsg, 'Could not load folders. Showing all images.', 'error');
+        showMsg($galleryMsg, 'Could not load folders. Showing all saved assets.', 'error');
         openAllImages();
     }
 
@@ -756,6 +839,7 @@ async function init() {
         const item = e.target.closest('.studio__image-item');
         if (!item) return;
         if (e.target.closest('.studio__image-delete')) return;
+        if (e.target.closest('a')) return;
         toggleImageSelection(item);
     });
 

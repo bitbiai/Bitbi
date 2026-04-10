@@ -146,8 +146,10 @@ async function readClipboardValue(page) {
   return page.evaluate(() => window.__bitbiClipboard?.value || '');
 }
 
-async function mockAdminAiLab(page) {
+async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
+  const saveTextAssetRequests = captures.saveTextAssetRequests || [];
+  const saveImageRequests = captures.saveImageRequests || [];
 
   await page.route('**/api/admin/me', async (route) => {
     await route.fulfill({
@@ -404,9 +406,85 @@ async function mockAdminAiLab(page) {
       }),
     });
   });
+
+  await page.route('**/api/ai/folders', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          folders: [
+            { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+            { id: 'folder-research', name: 'Research', slug: 'research', created_at: '2026-04-09T09:00:00.000Z' },
+          ],
+          counts: {
+            'folder-launches': 2,
+            'folder-research': 1,
+          },
+          unfolderedCount: 3,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/admin/ai/save-text-asset', async (route) => {
+    const body = route.request().postDataJSON();
+    saveTextAssetRequests.push(body);
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id: `txt-${saveTextAssetRequests.length}`,
+          folder_id: body.folderId || null,
+          title: body.title,
+          file_name: `${String(body.title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
+          source_module: body.sourceModule,
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 420,
+          preview_text: 'Saved from admin AI Lab.',
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/images/save', async (route) => {
+    const body = route.request().postDataJSON();
+    saveImageRequests.push(body);
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id: `img-${saveImageRequests.length}`,
+          folder_id: body.folder_id || null,
+          prompt: body.prompt,
+          model: body.model,
+          steps: body.steps ?? null,
+          seed: body.seed ?? null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      }),
+    });
+  });
 }
 
-async function mockAuthenticatedImageStudio(page, requests = []) {
+async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
+  const folderPayload = options.folderPayload || {
+    folders: [],
+    counts: {},
+    unfolderedCount: 0,
+  };
+  const assetsPayload = options.assetsPayload || {
+    all: [],
+    unfoldered: [],
+    folders: {},
+  };
+
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
       status: 200,
@@ -455,12 +533,46 @@ async function mockAuthenticatedImageStudio(page, requests = []) {
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        data: {
-          folders: [],
-          counts: {},
-          unfolderedCount: 0,
-        },
+        data: folderPayload,
       }),
+    });
+  });
+
+  await page.route('**/api/ai/assets**', async (route) => {
+    const url = new URL(route.request().url());
+    let assets = assetsPayload.all || [];
+    if (url.searchParams.get('only_unfoldered') === '1') {
+      assets = assetsPayload.unfoldered || [];
+    } else if (url.searchParams.get('folder_id')) {
+      assets = assetsPayload.folders?.[url.searchParams.get('folder_id')] || [];
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { assets },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/text-assets/*/file', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: 'Saved AI Lab text asset.',
+    });
+  });
+
+  await page.route('**/api/ai/text-assets/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
     });
   });
 
@@ -684,6 +796,92 @@ test.describe('Image Studio (authenticated)', () => {
       model: '@cf/black-forest-labs/flux-1-schnell',
     }));
   });
+
+  test('account Image Studio shows mixed saved assets inside the shared folder world', async ({
+    page,
+  }) => {
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-launches': 2,
+        },
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-1',
+            asset_type: 'image',
+            folder_id: 'folder-launches',
+            title: 'Launch poster',
+            preview_text: 'Launch poster',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 123,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-1/file',
+          },
+          {
+            id: 'txt-1',
+            asset_type: 'text',
+            folder_id: 'folder-launches',
+            title: 'AI Lab Compare Notes',
+            file_name: 'ai-lab-compare-notes.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 420,
+            preview_text: 'Model A leaned cinematic while Model B stayed more technical.',
+            created_at: '2026-04-10T12:05:00.000Z',
+            file_url: '/api/ai/text-assets/txt-1/file',
+          },
+        ],
+        unfoldered: [],
+        folders: {
+          'folder-launches': [
+            {
+              id: 'img-1',
+              asset_type: 'image',
+              folder_id: 'folder-launches',
+              title: 'Launch poster',
+              preview_text: 'Launch poster',
+              model: '@cf/black-forest-labs/flux-1-schnell',
+              steps: 4,
+              seed: 123,
+              created_at: '2026-04-10T12:00:00.000Z',
+              file_url: '/api/ai/images/img-1/file',
+            },
+            {
+              id: 'txt-1',
+              asset_type: 'text',
+              folder_id: 'folder-launches',
+              title: 'AI Lab Compare Notes',
+              file_name: 'ai-lab-compare-notes.txt',
+              source_module: 'compare',
+              mime_type: 'text/plain; charset=utf-8',
+              size_bytes: 420,
+              preview_text: 'Model A leaned cinematic while Model B stayed more technical.',
+              created_at: '2026-04-10T12:05:00.000Z',
+              file_url: '/api/ai/text-assets/txt-1/file',
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+    await expect(page.locator('.studio__image-item--text')).toContainText('COMPARE');
+    await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
+    await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
+    await expect(page.locator('.studio__text-open')).toHaveAttribute('href', '/api/ai/text-assets/txt-1/file');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -724,8 +922,8 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260410-wave9"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260410-wave9"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260410-wave10"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260410-wave10"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -810,6 +1008,157 @@ test.describe('Admin AI Lab', () => {
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
     await expect(page.locator('#statTotal')).toHaveText('12');
+  });
+
+  test('saves text, embeddings, compare, and live-agent outputs into shared folders', async ({
+    page,
+  }) => {
+    const saveTextAssetRequests = [];
+    await page.unroute('**/api/admin/ai/save-text-asset');
+    await page.route('**/api/admin/ai/save-text-asset', async (route) => {
+      const body = route.request().postDataJSON();
+      saveTextAssetRequests.push(body);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: `txt-${saveTextAssetRequests.length}`,
+            folder_id: body.folderId || null,
+            title: body.title,
+            file_name: 'saved.txt',
+            source_module: body.sourceModule,
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 420,
+            preview_text: 'Saved from admin AI Lab.',
+            created_at: '2026-04-10T12:00:00.000Z',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await page.locator('#aiTextPrompt').fill('Save this text output');
+    await page.locator('#aiTextRun').click();
+    await page.locator('#aiTextSave').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+
+    await page.getByRole('button', { name: 'Embeddings' }).click();
+    await page.locator('#aiEmbeddingsInput').fill('first vector\nsecond vector');
+    await page.locator('#aiEmbeddingsRun').click();
+    await page.locator('#aiEmbeddingsSave').click();
+    await page.locator('#aiLabSaveInput').fill('Embedding Snapshot');
+    await page.selectOption('#aiLabSaveFolder', 'folder-research');
+    await page.locator('#aiLabSaveConfirm').click();
+
+    await page.getByRole('button', { name: 'Compare' }).click();
+    await page.locator('#aiCompareRun').click();
+    await page.locator('#aiCompareSave').click();
+    await page.locator('#aiLabSaveInput').fill('Compare Session');
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await page.route('**/api/admin/ai/live-agent', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'data: {"choices":[{"delta":{"content":"Hello from the live agent."}}]}\n\ndata: [DONE]\n\n',
+      });
+    });
+    await page.locator('#aiLiveAgentInput').fill('Summarize this transcript');
+    await page.locator('#aiLiveAgentSend').click();
+    await expect(page.locator('#aiLiveAgentTranscript')).toContainText('Hello from the live agent.');
+    await page.locator('#aiLiveAgentSave').click();
+    await page.locator('#aiLabSaveInput').fill('Live Agent Transcript');
+    await page.selectOption('#aiLabSaveFolder', 'folder-research');
+    await page.locator('#aiLabSaveConfirm').click();
+
+    expect(saveTextAssetRequests).toHaveLength(4);
+    expect(saveTextAssetRequests[0]).toEqual(expect.objectContaining({
+      sourceModule: 'text',
+      folderId: 'folder-launches',
+    }));
+    expect(saveTextAssetRequests[0].data).toEqual(expect.objectContaining({
+      prompt: 'Save this text output',
+      output: 'Mocked text output from admin AI Lab.',
+    }));
+    expect(saveTextAssetRequests[1]).toEqual(expect.objectContaining({
+      title: 'Embedding Snapshot',
+      sourceModule: 'embeddings',
+      folderId: 'folder-research',
+    }));
+    expect(saveTextAssetRequests[1].data).toEqual(expect.objectContaining({
+      inputItems: ['first vector', 'second vector'],
+    }));
+    expect(saveTextAssetRequests[2]).toEqual(expect.objectContaining({
+      title: 'Compare Session',
+      sourceModule: 'compare',
+      folderId: 'folder-launches',
+    }));
+    expect(saveTextAssetRequests[2].data.results).toHaveLength(2);
+    expect(saveTextAssetRequests[3]).toEqual(expect.objectContaining({
+      title: 'Live Agent Transcript',
+      sourceModule: 'live_agent',
+      folderId: 'folder-research',
+    }));
+    expect(saveTextAssetRequests[3].data.transcript.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('reuses the existing image save flow for AI Lab image results', async ({
+    page,
+  }) => {
+    const saveImageRequests = [];
+    await page.unroute('**/api/ai/images/save');
+    await page.route('**/api/ai/images/save', async (route) => {
+      const body = route.request().postDataJSON();
+      saveImageRequests.push(body);
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: 'img-1',
+            folder_id: body.folder_id || null,
+            prompt: body.prompt,
+            model: body.model,
+            steps: body.steps ?? null,
+            seed: body.seed ?? null,
+            created_at: '2026-04-10T12:00:00.000Z',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Image' }).click();
+    await page.locator('#aiImagePrompt').fill('Save this generated image');
+    await page.locator('#aiImageRun').click();
+    await page.locator('#aiImageSave').click();
+    await expect(page.locator('#aiLabSaveTitleField')).toBeHidden();
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+
+    expect(saveImageRequests).toHaveLength(1);
+    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
+      folder_id: 'folder-launches',
+      prompt: 'Save this generated image',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+      seed: 12345,
+    }));
+    expect(saveImageRequests[0].imageData).toMatch(/^data:image\/png;base64,/);
   });
 
   test('persists last-used form values and surfaces backend errors', async ({

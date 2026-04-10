@@ -249,6 +249,15 @@ export async function apiAiGetImages(folderId, { onlyUnfoldered } = {}) {
     return Array.isArray(res.data?.data?.images) ? res.data.data.images : [];
 }
 
+export async function apiAiGetAssets(folderId, { onlyUnfoldered } = {}) {
+    const params = new URLSearchParams();
+    if (onlyUnfoldered) params.set('only_unfoldered', '1');
+    else if (folderId) params.set('folder_id', folderId);
+    const qs = params.toString() ? `?${params}` : '';
+    const res = await request('GET', `/ai/assets${qs}`);
+    return Array.isArray(res.data?.data?.assets) ? res.data.data.assets : [];
+}
+
 export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) {
     const body = { imageData, prompt, model, steps, seed };
     if (folderId) body.folder_id = folderId;
@@ -259,12 +268,20 @@ export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
 
+export function apiAiDeleteTextAsset(assetId) {
+    return request('DELETE', `/ai/text-assets/${assetId}`);
+}
+
 export function apiAiBulkMoveImages(imageIds, folderId) {
     return request('PATCH', '/ai/images/bulk-move', { image_ids: imageIds, folder_id: folderId });
 }
 
 export function apiAiBulkDeleteImages(imageIds) {
     return request('POST', '/ai/images/bulk-delete', { image_ids: imageIds });
+}
+
+export function apiAdminAiSaveTextAsset(payload, options) {
+    return request('POST', '/admin/ai/save-text-asset', payload, options);
 }
 
 /* ── Favorites ── */

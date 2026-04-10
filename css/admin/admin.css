@@ -578,6 +578,10 @@
         margin-block-end: var(--space-4);
     }
 
+    .admin-ai__field[hidden] {
+        display: none;
+    }
+
     .admin-ai__label,
     .admin-ai__mini-title,
     .admin-ai__future-title {
@@ -1217,6 +1221,50 @@
         min-inline-size: 0;
     }
 
+    .admin-ai__save-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: grid;
+        place-items: center;
+        padding: var(--space-4);
+    }
+
+    .admin-ai__save-modal[hidden] {
+        display: none;
+    }
+
+    .admin-ai__save-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(6, 10, 16, 0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .admin-ai__save-dialog {
+        position: relative;
+        inline-size: min(100%, 34rem);
+        padding: var(--space-6);
+        z-index: 1;
+    }
+
+    .admin-ai__save-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__save-note {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.44);
+        margin-block-end: var(--space-4);
+    }
+
     @media (min-width: 720px) {
         .admin-ai__header,
         .admin-ai__panel-header {
@@ -1237,6 +1285,16 @@
 
         .admin-ai__form-grid--4 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 719px) {
+        .admin-ai__save-head {
+            flex-direction: column;
+        }
+
+        .admin-ai__chat-input-row {
+            flex-wrap: wrap;
         }
     }
 

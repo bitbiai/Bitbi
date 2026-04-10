@@ -110,6 +110,7 @@ class MockD1 {
       rateLimitCounters: [],
       aiFolders: [],
       aiImages: [],
+      aiTextAssets: [],
       aiGenerationLog: [],
       aiDailyQuotaUsage: [],
       userActivityLog: [],
@@ -368,7 +369,8 @@ class MockD1 {
       const [userId] = bindings;
       const hasAiChildren =
         this.state.aiFolders.some((row) => row.user_id === userId) ||
-        this.state.aiImages.some((row) => row.user_id === userId);
+        this.state.aiImages.some((row) => row.user_id === userId) ||
+        this.state.aiTextAssets.some((row) => row.user_id === userId);
       if (hasAiChildren) {
         throw new Error('FOREIGN KEY constraint failed');
       }
@@ -380,7 +382,62 @@ class MockD1 {
       this.state.profiles = this.state.profiles.filter((row) => row.user_id !== userId);
       this.state.favorites = this.state.favorites.filter((row) => row.user_id !== userId);
       this.state.aiGenerationLog = this.state.aiGenerationLog.filter((row) => row.user_id !== userId);
+      this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => row.user_id !== userId);
       return { success: true, meta: { changes: before - this.state.users.length } };
+    }
+
+    if (query.startsWith('SELECT id, name, slug') && query.includes('FROM ai_folders WHERE user_id = ? AND status IN')) {
+      const [userId] = bindings;
+      const includeDeleting = query.includes("('active', 'deleting')");
+      const rows = this.state.aiFolders
+        .filter((row) => row.user_id === userId && (includeDeleting ? ['active', 'deleting'].includes(row.status) : row.status === 'active'))
+        .slice()
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        .map((row) => {
+          const base = {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            created_at: row.created_at,
+          };
+          if (query.startsWith('SELECT id, name, slug, status, created_at')) {
+            base.status = row.status;
+          }
+          return base;
+        });
+      return { results: rows };
+    }
+
+    if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id') {
+      const [userId] = bindings;
+      const counts = new Map();
+      for (const row of this.state.aiImages) {
+        if (row.user_id !== userId) continue;
+        const key = row.folder_id ?? null;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return {
+        results: Array.from(counts.entries()).map(([folderId, cnt]) => ({
+          folder_id: folderId,
+          cnt,
+        })),
+      };
+    }
+
+    if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id') {
+      const [userId] = bindings;
+      const counts = new Map();
+      for (const row of this.state.aiTextAssets) {
+        if (row.user_id !== userId) continue;
+        const key = row.folder_id ?? null;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return {
+        results: Array.from(counts.entries()).map(([folderId, cnt]) => ({
+          folder_id: folderId,
+          cnt,
+        })),
+      };
     }
 
     if (query.startsWith('INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at) VALUES')) {
@@ -401,6 +458,28 @@ class MockD1 {
       return this.state.aiFolders.find((row) => row.id === folderId && row.user_id === userId && row.status === 'active') || null;
     }
 
+    if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) SELECT')) {
+      const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt, existsFolderId, existsUserId] = bindings;
+      const folder = this.state.aiFolders.find(
+        (row) => row.id === existsFolderId && row.user_id === existsUserId && row.status === 'active'
+      );
+      if (!folder) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.aiImages.push({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) VALUES')) {
       const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt] = bindings;
       this.state.aiImages.push({
@@ -412,6 +491,50 @@ class MockD1 {
         model,
         steps,
         seed,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at) SELECT')) {
+      const [id, userId, folderId, r2Key, title, fileName, sourceModule, mimeType, sizeBytes, previewText, metadataJson, createdAt, existsFolderId, existsUserId] = bindings;
+      const folder = this.state.aiFolders.find(
+        (row) => row.id === existsFolderId && row.user_id === existsUserId && row.status === 'active'
+      );
+      if (!folder) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.aiTextAssets.push({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        title,
+        file_name: fileName,
+        source_module: sourceModule,
+        mime_type: mimeType,
+        size_bytes: sizeBytes,
+        preview_text: previewText,
+        metadata_json: metadataJson,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at) VALUES')) {
+      const [id, userId, folderId, r2Key, title, fileName, sourceModule, mimeType, sizeBytes, previewText, metadataJson, createdAt] = bindings;
+      this.state.aiTextAssets.push({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        title,
+        file_name: fileName,
+        source_module: sourceModule,
+        mime_type: mimeType,
+        size_bytes: sizeBytes,
+        preview_text: previewText,
+        metadata_json: metadataJson,
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
@@ -449,12 +572,76 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
     if (query === 'SELECT r2_key FROM ai_images WHERE folder_id = ? AND user_id = ?') {
       const [folderId, userId] = bindings;
       return {
         results: this.state.aiImages
           .filter((row) => row.folder_id === folderId && row.user_id === userId)
           .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query === 'SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.folder_id === folderId && row.user_id === userId)
+          .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at FROM ai_images WHERE user_id = ?')) {
+      const [userId, maybeFolderId] = bindings;
+      let rows = this.state.aiImages.filter((row) => row.user_id === userId);
+      if (query.includes('AND folder_id IS NULL')) {
+        rows = rows.filter((row) => row.folder_id == null);
+      } else if (query.includes('AND folder_id = ?')) {
+        rows = rows.filter((row) => row.folder_id === maybeFolderId);
+      }
+      rows = rows.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200);
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          folder_id: row.folder_id,
+          prompt: row.prompt,
+          model: row.model,
+          steps: row.steps,
+          seed: row.seed,
+          created_at: row.created_at,
+        })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at FROM ai_text_assets WHERE user_id = ?')) {
+      const [userId, maybeFolderId] = bindings;
+      let rows = this.state.aiTextAssets.filter((row) => row.user_id === userId);
+      if (query.includes('AND folder_id IS NULL')) {
+        rows = rows.filter((row) => row.folder_id == null);
+      } else if (query.includes('AND folder_id = ?')) {
+        rows = rows.filter((row) => row.folder_id === maybeFolderId);
+      }
+      rows = rows.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200);
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          folder_id: row.folder_id,
+          title: row.title,
+          file_name: row.file_name,
+          source_module: row.source_module,
+          mime_type: row.mime_type,
+          size_bytes: row.size_bytes,
+          preview_text: row.preview_text,
+          created_at: row.created_at,
+        })),
       };
     }
 
@@ -470,6 +657,31 @@ class MockD1 {
       const before = this.state.aiImages.length;
       this.state.aiImages = this.state.aiImages.filter((row) => !(row.id === imageId && row.user_id === userId));
       return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === 'SELECT r2_key, file_name, mime_type FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row
+        ? {
+            r2_key: row.r2_key,
+            file_name: row.file_name,
+            mime_type: row.mime_type,
+          }
+        : null;
+    }
+
+    if (query === 'SELECT r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row ? { r2_key: row.r2_key } : null;
+    }
+
+    if (query === 'DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const before = this.state.aiTextAssets.length;
+      this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => !(row.id === assetId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.aiTextAssets.length } };
     }
 
     if (query === "UPDATE ai_folders SET status = 'deleting' WHERE id = ? AND user_id = ? AND status IN ('active', 'deleting')") {
@@ -503,11 +715,25 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.aiImages.length } };
     }
 
+    if (query === 'DELETE FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      const before = this.state.aiTextAssets.length;
+      this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => !(row.folder_id === folderId && row.user_id === userId));
+      return { success: true, meta: { changes: before - this.state.aiTextAssets.length } };
+    }
+
     if (query === 'DELETE FROM ai_images WHERE user_id = ?') {
       const [userId] = bindings;
       const before = this.state.aiImages.length;
       this.state.aiImages = this.state.aiImages.filter((row) => row.user_id !== userId);
       return { success: true, meta: { changes: before - this.state.aiImages.length } };
+    }
+
+    if (query === 'DELETE FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.aiTextAssets.length;
+      this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.aiTextAssets.length } };
     }
 
     if (query === 'DELETE FROM ai_folders WHERE id = ? AND user_id = ?') {
@@ -559,6 +785,54 @@ class MockD1 {
     if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_images WHERE user_id = ?")) {
       const [createdAt, userId] = bindings;
       const rows = this.state.aiImages.filter((row) => row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_text_assets WHERE id = ? AND user_id = ?")) {
+      const [createdAt, assetId, userId] = bindings;
+      const rows = this.state.aiTextAssets.filter((row) => row.id === assetId && row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_text_assets WHERE folder_id = ? AND user_id = ?")) {
+      const [createdAt, folderId, userId] = bindings;
+      const rows = this.state.aiTextAssets.filter((row) => row.folder_id === folderId && row.user_id === userId);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_text_assets WHERE user_id = ?")) {
+      const [createdAt, userId] = bindings;
+      const rows = this.state.aiTextAssets.filter((row) => row.user_id === userId);
       for (const row of rows) {
         this.state.r2CleanupQueue.push({
           id: this._cleanupSeq++,

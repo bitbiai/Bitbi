@@ -59,6 +59,14 @@ function slugify(name) {
     .slice(0, 60) || "folder";
 }
 
+function isMissingTextAssetTableError(error) {
+  return String(error || "").includes("no such table") && String(error || "").includes("ai_text_assets");
+}
+
+function sortByCreatedAtDesc(a, b) {
+  return String(b?.created_at || "").localeCompare(String(a?.created_at || ""));
+}
+
 function getQuotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + "T00:00:00.000Z";
 }
@@ -383,18 +391,36 @@ async function handleGetFolders(ctx) {
     `SELECT ${cols} FROM ai_folders WHERE user_id = ? AND status IN ${statusFilter} ORDER BY name ASC`
   ).bind(session.user.id).all();
 
-  // Aggregate per-folder image counts (no row cap)
-  const countRows = await env.DB.prepare(
+  // Aggregate per-folder asset counts (images + text assets) without row caps.
+  const imageCountRows = await env.DB.prepare(
     `SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id`
   ).bind(session.user.id).all();
 
+  let textCountRows = { results: [] };
+  try {
+    textCountRows = await env.DB.prepare(
+      `SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id`
+    ).bind(session.user.id).all();
+  } catch (error) {
+    if (!isMissingTextAssetTableError(error)) {
+      throw error;
+    }
+  }
+
   const counts = {};
   let unfolderedCount = 0;
-  for (const r of countRows.results) {
+  for (const r of imageCountRows.results) {
     if (r.folder_id === null) {
-      unfolderedCount = r.cnt;
+      unfolderedCount += r.cnt;
     } else {
-      counts[r.folder_id] = r.cnt;
+      counts[r.folder_id] = (counts[r.folder_id] || 0) + r.cnt;
+    }
+  }
+  for (const r of textCountRows.results || []) {
+    if (r.folder_id === null) {
+      unfolderedCount += r.cnt;
+    } else {
+      counts[r.folder_id] = (counts[r.folder_id] || 0) + r.cnt;
     }
   }
 
@@ -467,6 +493,92 @@ async function handleGetImages(ctx) {
 
   const rows = await env.DB.prepare(query).bind(...params).all();
   return json({ ok: true, data: { images: rows.results } });
+}
+
+// ── GET /api/ai/assets ──
+async function handleGetAssets(ctx) {
+  const { request, env, url } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const folderId = url.searchParams.get("folder_id") || null;
+  const onlyUnfoldered = url.searchParams.get("only_unfoldered") === "1";
+
+  let imageQuery;
+  let imageParams;
+  let textQuery;
+  let textParams;
+
+  if (onlyUnfoldered) {
+    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+                  FROM ai_images WHERE user_id = ? AND folder_id IS NULL
+                  ORDER BY created_at DESC LIMIT 200`;
+    imageParams = [session.user.id];
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+                 FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL
+                 ORDER BY created_at DESC LIMIT 200`;
+    textParams = [session.user.id];
+  } else if (folderId) {
+    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+                  FROM ai_images WHERE user_id = ? AND folder_id = ?
+                  ORDER BY created_at DESC LIMIT 200`;
+    imageParams = [session.user.id, folderId];
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+                 FROM ai_text_assets WHERE user_id = ? AND folder_id = ?
+                 ORDER BY created_at DESC LIMIT 200`;
+    textParams = [session.user.id, folderId];
+  } else {
+    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+                  FROM ai_images WHERE user_id = ?
+                  ORDER BY created_at DESC LIMIT 200`;
+    imageParams = [session.user.id];
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+                 FROM ai_text_assets WHERE user_id = ?
+                 ORDER BY created_at DESC LIMIT 200`;
+    textParams = [session.user.id];
+  }
+
+  const imageRows = await env.DB.prepare(imageQuery).bind(...imageParams).all();
+  let textRows = { results: [] };
+  try {
+    textRows = await env.DB.prepare(textQuery).bind(...textParams).all();
+  } catch (error) {
+    if (!isMissingTextAssetTableError(error)) {
+      throw error;
+    }
+  }
+
+  const assets = [
+    ...(imageRows.results || []).map((row) => ({
+      id: row.id,
+      asset_type: "image",
+      folder_id: row.folder_id,
+      title: row.prompt,
+      preview_text: row.prompt,
+      model: row.model,
+      steps: row.steps,
+      seed: row.seed,
+      created_at: row.created_at,
+      file_url: `/api/ai/images/${row.id}/file`,
+    })),
+    ...((textRows.results || []).map((row) => ({
+      id: row.id,
+      asset_type: "text",
+      folder_id: row.folder_id,
+      title: row.title,
+      file_name: row.file_name,
+      source_module: row.source_module,
+      mime_type: row.mime_type,
+      size_bytes: row.size_bytes,
+      preview_text: row.preview_text,
+      created_at: row.created_at,
+      file_url: `/api/ai/text-assets/${row.id}/file`,
+    }))),
+  ]
+    .sort(sortByCreatedAtDesc)
+    .slice(0, 200);
+
+  return json({ ok: true, data: { assets } });
 }
 
 // ── POST /api/ai/images/save ──
@@ -597,6 +709,42 @@ async function handleGetImageFile(ctx, imageId) {
   return new Response(object.body, { headers });
 }
 
+// ── GET /api/ai/text-assets/:id/file ──
+async function handleGetTextAssetFile(ctx, assetId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  let row;
+  try {
+    row = await env.DB.prepare(
+      "SELECT r2_key, file_name, mime_type FROM ai_text_assets WHERE id = ? AND user_id = ?"
+    ).bind(assetId, session.user.id).first();
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) {
+      return json({ ok: false, error: "Text asset service unavailable." }, { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!row) {
+    return json({ ok: false, error: "Text asset not found." }, { status: 404 });
+  }
+
+  const object = await env.USER_IMAGES.get(row.r2_key);
+  if (!object) {
+    return json({ ok: false, error: "Text asset file not found." }, { status: 404 });
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "text/plain; charset=utf-8");
+  headers.set("Cache-Control", "private, max-age=3600");
+  if (row.file_name) {
+    headers.set("Content-Disposition", `inline; filename="${row.file_name}"`);
+  }
+  return new Response(object.body, { headers });
+}
+
 // ── DELETE /api/ai/folders/:id ──
 async function handleDeleteFolder(ctx, folderId) {
   const { request, env } = ctx;
@@ -616,6 +764,7 @@ async function handleDeleteFolder(ctx, folderId) {
   }
 
   let r2Keys = [];
+  let textAssetsEnabled = true;
   const ts = nowIso();
   try {
     // Snapshot images for R2 cleanup (folder row still exists, folder_id intact)
@@ -624,21 +773,55 @@ async function handleDeleteFolder(ctx, folderId) {
     ).bind(folderId, session.user.id).all();
     r2Keys = (images.results || []).map(r => r.r2_key);
 
-    // Atomically queue blob cleanup, delete image rows, then remove the folder.
-    await env.DB.batch([
+    try {
+      const textAssets = await env.DB.prepare(
+        "SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
+      ).bind(folderId, session.user.id).all();
+      r2Keys = r2Keys.concat((textAssets.results || []).map((row) => row.r2_key));
+    } catch (error) {
+      if (isMissingTextAssetTableError(error)) {
+        textAssetsEnabled = false;
+      } else {
+        throw error;
+      }
+    }
+
+    // Atomically queue blob cleanup, delete asset rows, then remove the folder.
+    const statements = [
       env.DB.prepare(
         `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
          SELECT r2_key, 'pending', ?
          FROM ai_images
          WHERE folder_id = ? AND user_id = ?`
       ).bind(ts, folderId, session.user.id),
-      env.DB.prepare(
-        "DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?"
-      ).bind(folderId, session.user.id),
-      env.DB.prepare(
-        "DELETE FROM ai_folders WHERE id = ? AND user_id = ?"
-      ).bind(folderId, session.user.id),
-    ]);
+    ];
+
+    if (textAssetsEnabled) {
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+           SELECT r2_key, 'pending', ?
+           FROM ai_text_assets
+           WHERE folder_id = ? AND user_id = ?`
+        ).bind(ts, folderId, session.user.id)
+      );
+    }
+
+    statements.push(
+      env.DB.prepare("DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?").bind(folderId, session.user.id)
+    );
+
+    if (textAssetsEnabled) {
+      statements.push(
+        env.DB.prepare("DELETE FROM ai_text_assets WHERE folder_id = ? AND user_id = ?").bind(folderId, session.user.id)
+      );
+    }
+
+    statements.push(
+      env.DB.prepare("DELETE FROM ai_folders WHERE id = ? AND user_id = ?").bind(folderId, session.user.id)
+    );
+
+    await env.DB.batch(statements);
   } catch (e) {
     // Snapshot or batch failed — folder row may still exist in 'deleting'.
     // Revert to 'active' so the folder is not permanently hidden.
@@ -725,6 +908,73 @@ async function handleDeleteImage(ctx, imageId) {
       "DELETE FROM r2_cleanup_queue WHERE r2_key IN (?) AND status = 'pending'"
     ).bind(row.r2_key).run();
   } catch { /* leave queue entry for scheduled retry */ }
+
+  return json({ ok: true });
+}
+
+// ── DELETE /api/ai/text-assets/:id ──
+async function handleDeleteTextAsset(ctx, assetId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  let row;
+  try {
+    row = await env.DB.prepare(
+      "SELECT r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?"
+    ).bind(assetId, session.user.id).first();
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) {
+      return json({ ok: false, error: "Text asset service unavailable." }, { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!row) {
+    return json({ ok: false, error: "Text asset not found." }, { status: 404 });
+  }
+
+  const ts = nowIso();
+  let batchResults;
+  try {
+    batchResults = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+         SELECT r2_key, 'pending', ?
+         FROM ai_text_assets
+         WHERE id = ? AND user_id = ?`
+      ).bind(ts, assetId, session.user.id),
+      env.DB.prepare(
+        "DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      ).bind(assetId, session.user.id),
+    ]);
+  } catch (error) {
+    const unavailable = String(error).includes("no such table");
+    return json(
+      {
+        ok: false,
+        error: unavailable ? "Text asset service unavailable. Please try again later." : "Delete failed. Please try again.",
+      },
+      { status: unavailable ? 503 : 500 }
+    );
+  }
+
+  const deleted = batchResults[1].meta.changes || 0;
+  if (deleted !== 1) {
+    return json(
+      { ok: false, error: "Delete failed. Text asset may have already been removed." },
+      { status: 409 }
+    );
+  }
+
+  try {
+    await env.USER_IMAGES.delete(row.r2_key);
+    await env.DB.prepare(
+      "DELETE FROM r2_cleanup_queue WHERE r2_key IN (?) AND status = 'pending'"
+    ).bind(row.r2_key).run();
+  } catch {
+    // Leave queue entry for scheduled retry.
+  }
 
   return json({ ok: true });
 }
@@ -944,6 +1194,9 @@ export async function handleAI(ctx) {
   if (pathname === "/api/ai/images" && method === "GET") {
     return handleGetImages(ctx);
   }
+  if (pathname === "/api/ai/assets" && method === "GET") {
+    return handleGetAssets(ctx);
+  }
   if (pathname === "/api/ai/images/save" && method === "POST") {
     return handleSaveImage(ctx);
   }
@@ -966,10 +1219,20 @@ export async function handleAI(ctx) {
     return handleGetImageFile(ctx, fileMatch[1]);
   }
 
+  const textFileMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/file$/);
+  if (textFileMatch && method === "GET") {
+    return handleGetTextAssetFile(ctx, textFileMatch[1]);
+  }
+
   // DELETE /api/ai/images/:id
   const deleteMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)$/);
   if (deleteMatch && method === "DELETE") {
     return handleDeleteImage(ctx, deleteMatch[1]);
+  }
+
+  const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);
+  if (textDeleteMatch && method === "DELETE") {
+    return handleDeleteTextAsset(ctx, textDeleteMatch[1]);
   }
 
   return null;
