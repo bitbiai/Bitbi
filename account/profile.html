@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260405">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/account/profile.css?v=20260405">
+    <link rel="stylesheet" href="../css/account/profile.css?v=20260410-wave11">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260317">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -117,12 +117,33 @@
                     <div id="avatarMsg" class="profile__msg" role="status"></div>
                 </div>
 
-                <!-- Studio CTA Card (desktop) -->
-                <a href="/account/image-studio.html" class="profile__card profile__studio-card" aria-label="Open AI Image Studio">
-                    <span class="profile__studio-emoji" aria-hidden="true">&#10024;</span>
-                    <span class="profile__studio-label">AI Studio</span>
-                    <span class="profile__studio-hint">Create &middot; Explore</span>
-                </a>
+                <div id="profileStudioStack" class="profile__studio-stack" data-has-admin-lab="false">
+                    <a href="/account/image-studio.html" id="profileStudioCard" class="profile__card profile__studio-card" aria-label="Open AI Image Studio">
+                        <span class="profile__studio-kicker">Creative Tools</span>
+                        <span class="profile__studio-emoji" aria-hidden="true">&#10024;</span>
+                        <span class="profile__studio-copy">
+                            <span class="profile__studio-label">AI Studio</span>
+                            <span class="profile__studio-desc">Create new image runs, browse folders, and manage saved assets.</span>
+                        </span>
+                        <span class="profile__studio-tail">
+                            <span class="profile__studio-hint">Create &middot; Explore</span>
+                            <span class="profile__studio-arrow" aria-hidden="true">&#8599;</span>
+                        </span>
+                    </a>
+
+                    <a href="/admin/#ai-lab" id="profileAdminAiLabCard" class="profile__card profile__studio-card profile__studio-card--lab" aria-label="Open Admin AI Lab" hidden>
+                        <span class="profile__studio-kicker">Admin Surface</span>
+                        <span class="profile__studio-emoji profile__studio-emoji--lab" aria-hidden="true">&#129514;</span>
+                        <span class="profile__studio-copy">
+                            <span class="profile__studio-label">Admin AI Lab</span>
+                            <span class="profile__studio-desc">Run internal model tests, compare outputs, and preview admin-only AI tooling.</span>
+                        </span>
+                        <span class="profile__studio-tail">
+                            <span class="profile__studio-hint">Admin &middot; Internal</span>
+                            <span class="profile__studio-arrow" aria-hidden="true">&#8599;</span>
+                        </span>
+                    </a>
+                </div>
 
                 </div><!-- /.profile__top-pair -->
 
@@ -251,6 +272,6 @@
     </div>
 </footer>
 
-<script type="module" src="../js/pages/profile/main.js?v=20260405"></script>
+<script type="module" src="../js/pages/profile/main.js?v=20260410-wave11"></script>
 </body>
 </html>

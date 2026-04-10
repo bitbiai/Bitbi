@@ -24,6 +24,8 @@ const $summaryEmail   = document.getElementById('summaryEmail');
 const $summaryRole    = document.getElementById('summaryRole');
 const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
+const $studioStack    = document.getElementById('profileStudioStack');
+const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 
 const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
@@ -121,6 +123,15 @@ function showState(el) {
 
 /* ── Render profile data ── */
 function renderProfile(profile, account) {
+    const isAdmin = account?.role === 'admin';
+
+    if ($studioStack) {
+        $studioStack.dataset.hasAdminLab = isAdmin ? 'true' : 'false';
+    }
+    if ($adminAiLabCard) {
+        $adminAiLabCard.hidden = !isAdmin;
+    }
+
     // Summary card
     $summaryName.textContent = profile.display_name || '\u2014';
     $summaryEmail.textContent = account.email;

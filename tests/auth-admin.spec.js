@@ -601,6 +601,66 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   });
 }
 
+async function mockAuthenticatedProfile(page, { role = 'user' } = {}) {
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        loggedIn: true,
+        user: {
+          id: `${role}-profile-user`,
+          email: `${role}@bitbi.ai`,
+          role,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/profile', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profile: {
+          display_name: role === 'admin' ? 'Admin User' : 'Member User',
+          bio: '',
+          website: '',
+          youtube_url: '',
+        },
+        account: {
+          id: `${role}-profile-user`,
+          email: `${role}@bitbi.ai`,
+          role,
+          email_verified: true,
+          verification_method: 'email',
+          created_at: '2026-04-01T10:00:00.000Z',
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/favorites', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        favorites: [],
+      }),
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Auth modal
 // ---------------------------------------------------------------------------
@@ -881,6 +941,56 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
     await expect(page.locator('.studio__text-open')).toHaveAttribute('href', '/api/ai/text-assets/txt-1/file');
+  });
+});
+
+test.describe('Profile page (authenticated)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('non-admin profile shows only the AI Studio card in the profile action stack', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#profileStudioCard')).toBeVisible();
+    await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'false');
+    await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
+    await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+  });
+
+  test('admin profile shows the stacked AI Studio and Admin AI Lab cards and removes the old admin-area AI Lab entry', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'admin' });
+    await mockAdminAiLab(page);
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'true');
+    await expect(page.locator('#profileStudioCard')).toBeVisible();
+    await expect(page.locator('#profileAdminAiLabCard')).toBeVisible();
+    await expect(page.locator('#profileAdminAiLabCard')).toContainText('Admin AI Lab');
+
+    const studioBox = await page.locator('#profileStudioCard').boundingBox();
+    const labBox = await page.locator('#profileAdminAiLabCard').boundingBox();
+    expect(studioBox).not.toBeNull();
+    expect(labBox).not.toBeNull();
+    expect(Math.abs(studioBox.x - labBox.x)).toBeLessThanOrEqual(2);
+    expect(labBox.y).toBeGreaterThan(studioBox.y + studioBox.height - 1);
+
+    await page.locator('#profileAdminAiLabCard').click();
+    await expect(page).toHaveURL(/\/admin\/?#ai-lab$/);
+    await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('a.admin-nav__link[data-section="ai-lab"]')).toHaveCount(0);
+    await expect(page.locator('.admin-quick-link[data-nav="ai-lab"]')).toHaveCount(0);
   });
 });
 
