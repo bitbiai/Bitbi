@@ -13,6 +13,22 @@
 	"observability": {
 		"enabled": true
 	},
+	"queues": {
+		"producers": [
+			{
+				"queue": "bitbi-ai-image-derivatives",
+				"binding": "AI_IMAGE_DERIVATIVES_QUEUE"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "bitbi-ai-image-derivatives",
+				"max_batch_size": 5,
+				"max_batch_timeout": 5,
+				"max_retries": 8
+			}
+		]
+	},
 	"routes": [
 		{
 			"pattern": "bitbi.ai/api/*",
@@ -21,6 +37,9 @@
 	],
 	"ai": {
 		"binding": "AI"
+	},
+	"images": {
+		"binding": "IMAGES"
 	},
 	"services": [
 		{

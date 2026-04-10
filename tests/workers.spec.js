@@ -180,6 +180,50 @@ function quotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + 'T00:00:00.000Z';
 }
 
+function createAiImageDerivativeMessage({
+  imageId,
+  userId,
+  originalKey,
+  derivativesVersion = 1,
+  trigger = 'save',
+} = {}) {
+  return {
+    schema_version: 1,
+    type: 'ai_image_derivative.generate',
+    image_id: imageId,
+    user_id: userId,
+    original_key: originalKey,
+    derivatives_version: derivativesVersion,
+    enqueued_at: nowIso(),
+    correlation_id: `corr-${imageId}-${derivativesVersion}`,
+    trigger,
+  };
+}
+
+function createQueueBatch(messages) {
+  const states = messages.map(() => ({
+    acked: false,
+    retried: false,
+    retryOptions: null,
+  }));
+  return {
+    batch: {
+      messages: messages.map((body, index) => ({
+        body,
+        attempts: 1,
+        ack() {
+          states[index].acked = true;
+        },
+        retry(options) {
+          states[index].retried = true;
+          states[index].retryOptions = options || null;
+        },
+      })),
+    },
+    states,
+  };
+}
+
 function makeConsumedQuotaUsage(userId, count, dayStart = quotaDayStart()) {
   return Array.from({ length: count }, (_, index) => {
     const createdAt = nowIso();
@@ -1553,6 +1597,151 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
   });
 
+  test('AI save image enqueues a derivative job after the original and row are persisted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-queue-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'artist-queue-user');
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'queued derivative test',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(201);
+    const saveBody = await saveRes.json();
+    const imageId = saveBody.data.id;
+    const savedRow = env.DB.state.aiImages.find((row) => row.id === imageId);
+    expect(savedRow).toBeTruthy();
+    expect(env.USER_IMAGES.objects.has(savedRow.r2_key)).toBe(true);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages[0]).toMatchObject({
+      type: 'ai_image_derivative.generate',
+      image_id: imageId,
+      user_id: 'artist-queue-user',
+      original_key: savedRow.r2_key,
+      derivatives_version: 1,
+      trigger: 'save',
+    });
+    expect(saveBody.data).toMatchObject({
+      derivatives_status: 'pending',
+      derivatives_version: 1,
+      derivatives_enqueued: true,
+    });
+  });
+
+  test('AI image derivative consumer is idempotent for duplicate jobs', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const originalKey = 'users/dup-user/folders/unsorted/original.png';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'dup-user', role: 'user' })],
+      aiImages: [
+        {
+          id: 'feedbeef',
+          user_id: 'dup-user',
+          folder_id: null,
+          r2_key: originalKey,
+          prompt: 'Duplicate queue image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 42,
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        [originalKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+    });
+
+    const body = createAiImageDerivativeMessage({
+      imageId: 'feedbeef',
+      userId: 'dup-user',
+      originalKey,
+      derivativesVersion: 1,
+    });
+
+    const firstBatch = createQueueBatch([body]);
+    await authWorker.queue(firstBatch.batch, env, createExecutionContext().execCtx);
+    expect(firstBatch.states[0]).toMatchObject({ acked: true, retried: false });
+
+    const rowAfterFirstRun = env.DB.state.aiImages.find((row) => row.id === 'feedbeef');
+    expect(rowAfterFirstRun).toMatchObject({
+      derivatives_status: 'ready',
+      derivatives_version: 1,
+      thumb_key: 'users/dup-user/derivatives/v1/feedbeef/thumb.webp',
+      medium_key: 'users/dup-user/derivatives/v1/feedbeef/medium.webp',
+    });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(2);
+
+    const secondBatch = createQueueBatch([body]);
+    await authWorker.queue(secondBatch.batch, env, createExecutionContext().execCtx);
+    expect(secondBatch.states[0]).toMatchObject({ acked: true, retried: false });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(2);
+    expect(env.IMAGES.transformCalls).toHaveLength(2);
+  });
+
+  test('AI image derivative consumer ignores stale-version jobs when newer derivatives are already ready', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'stale-user', role: 'user' })],
+      aiImages: [
+        {
+          id: 'deadbeef',
+          user_id: 'stale-user',
+          folder_id: null,
+          r2_key: 'users/stale-user/folders/unsorted/original.png',
+          prompt: 'Stale derivative image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 11,
+          created_at: nowIso(),
+          thumb_key: 'users/stale-user/derivatives/v2/deadbeef/thumb.webp',
+          medium_key: 'users/stale-user/derivatives/v2/deadbeef/medium.webp',
+          thumb_mime_type: 'image/webp',
+          medium_mime_type: 'image/webp',
+          thumb_width: 320,
+          thumb_height: 240,
+          medium_width: 1280,
+          medium_height: 960,
+          derivatives_status: 'ready',
+          derivatives_version: 2,
+        },
+      ],
+    });
+
+    const staleBatch = createQueueBatch([
+      createAiImageDerivativeMessage({
+        imageId: 'deadbeef',
+        userId: 'stale-user',
+        originalKey: 'users/stale-user/folders/unsorted/original.png',
+        derivativesVersion: 1,
+      }),
+    ]);
+    await authWorker.queue(staleBatch.batch, env, createExecutionContext().execCtx);
+
+    expect(staleBatch.states[0]).toMatchObject({ acked: true, retried: false });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.IMAGES.transformCalls).toHaveLength(0);
+    expect(env.DB.state.aiImages.find((row) => row.id === 'deadbeef')).toMatchObject({
+      thumb_key: 'users/stale-user/derivatives/v2/deadbeef/thumb.webp',
+      medium_key: 'users/stale-user/derivatives/v2/deadbeef/medium.webp',
+      derivatives_status: 'ready',
+      derivatives_version: 2,
+    });
+  });
+
   [
     {
       label: 'text',
@@ -1792,6 +1981,16 @@ test.describe('Worker routes', () => {
           steps: 4,
           seed: 123,
           created_at: '2026-04-10T12:00:00.000Z',
+          thumb_key: 'users/mixed-assets-user/derivatives/v1/1ab100cd/thumb.webp',
+          medium_key: 'users/mixed-assets-user/derivatives/v1/1ab100cd/medium.webp',
+          thumb_mime_type: 'image/webp',
+          medium_mime_type: 'image/webp',
+          thumb_width: 320,
+          thumb_height: 320,
+          medium_width: 1280,
+          medium_height: 1280,
+          derivatives_status: 'ready',
+          derivatives_version: 1,
         },
       ],
       aiTextAssets: [
@@ -1814,6 +2013,14 @@ test.describe('Worker routes', () => {
         'users/mixed-assets-user/folders/launches/text/txt100.txt': {
           body: new TextEncoder().encode('Compare Notes').buffer,
           httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        },
+        'users/mixed-assets-user/derivatives/v1/1ab100cd/thumb.webp': {
+          body: new TextEncoder().encode('thumb').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/mixed-assets-user/derivatives/v1/1ab100cd/medium.webp': {
+          body: new TextEncoder().encode('medium').buffer,
+          httpMetadata: { contentType: 'image/webp' },
         },
       },
     });
@@ -1841,6 +2048,10 @@ test.describe('Worker routes', () => {
         id: '1ab100cd',
         asset_type: 'image',
         file_url: '/api/ai/images/1ab100cd/file',
+        original_url: '/api/ai/images/1ab100cd/file',
+        thumb_url: '/api/ai/images/1ab100cd/thumb',
+        medium_url: '/api/ai/images/1ab100cd/medium',
+        derivatives_status: 'ready',
       }),
     ]);
 
@@ -1855,6 +2066,197 @@ test.describe('Worker routes', () => {
     expect(fileRes.status).toBe(200);
     expect(await fileRes.text()).toBe('Compare Notes');
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
+  });
+
+  test('AI image thumb and medium routes preserve auth and ownership checks', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'owner-user', role: 'user' }),
+        createContractUser({ id: 'other-user', role: 'user' }),
+      ],
+      aiImages: [
+        {
+          id: 'ab11cd22',
+          user_id: 'owner-user',
+          folder_id: null,
+          r2_key: 'users/owner-user/folders/unsorted/original.png',
+          prompt: 'Protected derivative image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 9,
+          created_at: nowIso(),
+          thumb_key: 'users/owner-user/derivatives/v1/ab11cd22/thumb.webp',
+          medium_key: 'users/owner-user/derivatives/v1/ab11cd22/medium.webp',
+          thumb_mime_type: 'image/webp',
+          medium_mime_type: 'image/webp',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+        },
+      ],
+      userImages: {
+        'users/owner-user/derivatives/v1/ab11cd22/thumb.webp': {
+          body: new TextEncoder().encode('thumb-bytes').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/owner-user/derivatives/v1/ab11cd22/medium.webp': {
+          body: new TextEncoder().encode('medium-bytes').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const ownerToken = await seedSession(env, 'owner-user');
+    const otherToken = await seedSession(env, 'other-user');
+
+    const thumbRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/ab11cd22/thumb', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(thumbRes.status).toBe(200);
+    expect(await thumbRes.text()).toBe('thumb-bytes');
+    expect(thumbRes.headers.get('content-type')).toContain('image/webp');
+
+    const mediumRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/ab11cd22/medium', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mediumRes.status).toBe(200);
+    expect(await mediumRes.text()).toBe('medium-bytes');
+
+    const foreignRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/ab11cd22/thumb', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${otherToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreignRes.status).toBe(404);
+
+    const anonRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/ab11cd22/thumb', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(anonRes.status).toBe(401);
+  });
+
+  test('admin AI derivative backfill only enqueues assets that still need current work', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-derivative-backfill')],
+      aiImages: [
+        {
+          id: 'ready111',
+          user_id: 'admin-derivative-backfill',
+          folder_id: null,
+          r2_key: 'users/admin-derivative-backfill/folders/unsorted/ready.png',
+          prompt: 'Ready image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          created_at: '2026-04-10T12:05:00.000Z',
+          thumb_key: 'users/admin-derivative-backfill/derivatives/v1/ready111/thumb.webp',
+          medium_key: 'users/admin-derivative-backfill/derivatives/v1/ready111/medium.webp',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+        },
+        {
+          id: 'older222',
+          user_id: 'admin-derivative-backfill',
+          folder_id: null,
+          r2_key: 'users/admin-derivative-backfill/folders/unsorted/older.png',
+          prompt: 'Older derivative set',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 2,
+          created_at: '2026-04-10T12:04:00.000Z',
+          thumb_key: 'users/admin-derivative-backfill/derivatives/v0/older222/thumb.webp',
+          medium_key: 'users/admin-derivative-backfill/derivatives/v0/older222/medium.webp',
+          derivatives_status: 'ready',
+          derivatives_version: 0,
+        },
+        {
+          id: 'pending333',
+          user_id: 'admin-derivative-backfill',
+          folder_id: null,
+          r2_key: 'users/admin-derivative-backfill/folders/unsorted/pending.png',
+          prompt: 'Pending derivative set',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 3,
+          created_at: '2026-04-10T12:03:00.000Z',
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+        },
+        {
+          id: 'failed444',
+          user_id: 'admin-derivative-backfill',
+          folder_id: null,
+          r2_key: 'users/admin-derivative-backfill/folders/unsorted/failed.png',
+          prompt: 'Failed derivative set',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 4,
+          created_at: '2026-04-10T12:02:00.000Z',
+          derivatives_status: 'failed',
+          derivatives_version: 1,
+        },
+        {
+          id: 'active555',
+          user_id: 'admin-derivative-backfill',
+          folder_id: null,
+          r2_key: 'users/admin-derivative-backfill/folders/unsorted/processing.png',
+          prompt: 'Active processing lease',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 5,
+          created_at: '2026-04-10T12:01:00.000Z',
+          derivatives_status: 'processing',
+          derivatives_version: 1,
+          derivatives_lease_expires_at: '2099-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'admin-derivative-backfill');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/image-derivatives/backfill', 'POST', {
+        limit: 10,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.40',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        scanned: 3,
+        enqueued: 3,
+        derivatives_version: 1,
+      },
+    });
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages.map((message) => message.image_id)).toEqual([
+      'older222',
+      'pending333',
+      'failed444',
+    ]);
   });
 
   test('AI generate: concurrent near-limit requests do not exceed the daily cap', async () => {

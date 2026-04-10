@@ -29,7 +29,7 @@ import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
 } from '../../shared/ai-image-models.mjs?v=20260409-wave7-fix';
-import { initStudioDeck, initStudioFolderDeck } from '../../shared/studio-deck.js';
+import { initStudioDeck, initStudioFolderDeck } from '../../shared/studio-deck.js?v=20260410-wave11';
 
 /* ── DOM refs ── */
 const $loading = document.getElementById('loadingState');
@@ -174,6 +174,52 @@ function formatAssetDate(iso) {
     } catch {
         return '';
     }
+}
+
+function getImagePreviewState(asset) {
+    const status = asset?.derivatives_status || 'pending';
+    if (status === 'failed') {
+        return {
+            variant: 'failed',
+            label: 'Preview unavailable',
+            hint: 'Open the original while previews are rebuilt.',
+        };
+    }
+    if (status === 'processing') {
+        return {
+            variant: 'pending',
+            label: 'Preparing preview',
+            hint: 'Open the original while the queue finishes your preview.',
+        };
+    }
+    return {
+        variant: 'pending',
+        label: 'Preview pending',
+        hint: 'Open the original while the queue builds your preview.',
+    };
+}
+
+function buildImagePreviewPlaceholder(asset) {
+    const state = getImagePreviewState(asset);
+    const placeholder = document.createElement('div');
+    placeholder.className = 'studio__image-preview-state';
+
+    const badge = document.createElement('span');
+    badge.className = `studio__image-preview-badge studio__image-preview-badge--${state.variant}`;
+    badge.textContent = state.label;
+    placeholder.appendChild(badge);
+
+    const title = document.createElement('span');
+    title.className = 'studio__image-preview-title';
+    title.textContent = asset.title || asset.preview_text || 'Saved image';
+    placeholder.appendChild(title);
+
+    const hint = document.createElement('span');
+    hint.className = 'studio__image-preview-hint';
+    hint.textContent = state.hint;
+    placeholder.appendChild(hint);
+
+    return placeholder;
 }
 
 /* ── Quota indicator ── */
@@ -497,12 +543,22 @@ async function loadGallery() {
         item.className = 'studio__image-item';
         item.dataset.imageId = asset.id;
         item.title = asset.title || asset.preview_text || '';
+        item.dataset.previewUrl = asset.medium_url || asset.original_url || asset.file_url || '';
+        item.dataset.originalUrl = asset.original_url || asset.file_url || '';
 
-        const imgEl = document.createElement('img');
-        imgEl.src = asset.file_url || `/api/ai/images/${asset.id}/file`;
-        imgEl.alt = asset.title || asset.preview_text || 'Saved image';
-        imgEl.loading = 'lazy';
-        item.appendChild(imgEl);
+        if (asset.thumb_url) {
+            const imgEl = document.createElement('img');
+            imgEl.src = asset.thumb_url;
+            imgEl.alt = asset.title || asset.preview_text || 'Saved image';
+            imgEl.loading = 'lazy';
+            imgEl.decoding = 'async';
+            if (asset.thumb_width) imgEl.width = asset.thumb_width;
+            if (asset.thumb_height) imgEl.height = asset.thumb_height;
+            item.appendChild(imgEl);
+        } else {
+            item.classList.add('studio__image-item--placeholder');
+            item.appendChild(buildImagePreviewPlaceholder(asset));
+        }
 
         const overlay = document.createElement('div');
         overlay.className = 'studio__image-overlay';

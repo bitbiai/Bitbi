@@ -484,6 +484,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     unfoldered: [],
     folders: {},
   };
+  const imageRequests = options.imageRequests || [];
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -561,6 +562,15 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
       status: 200,
       contentType: 'text/plain; charset=utf-8',
       body: 'Saved AI Lab text asset.',
+    });
+  });
+
+  await page.route(/\/api\/ai\/images\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+    imageRequests.push(new URL(route.request().url()).pathname);
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
     });
   });
 
@@ -941,6 +951,111 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
     await expect(page.locator('.studio__text-open')).toHaveAttribute('href', '/api/ai/text-assets/txt-1/file');
+  });
+
+  test('account Image Studio grid requests thumbs only and uses medium/original for detail fallback', async ({
+    page,
+  }) => {
+    const imageRequests = [];
+    await mockAuthenticatedImageStudio(page, [], {
+      imageRequests,
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 2,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-ready',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Ready Preview',
+            preview_text: 'Ready Preview',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 123,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-ready/file',
+            original_url: '/api/ai/images/img-ready/file',
+            thumb_url: '/api/ai/images/img-ready/thumb',
+            medium_url: '/api/ai/images/img-ready/medium',
+            derivatives_status: 'ready',
+          },
+          {
+            id: 'img-pending',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Pending Preview',
+            preview_text: 'Pending Preview',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 456,
+            created_at: '2026-04-10T11:59:00.000Z',
+            file_url: '/api/ai/images/img-pending/file',
+            original_url: '/api/ai/images/img-pending/file',
+            thumb_url: null,
+            medium_url: null,
+            derivatives_status: 'pending',
+          },
+        ],
+        unfoldered: [
+          {
+            id: 'img-ready',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Ready Preview',
+            preview_text: 'Ready Preview',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 123,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-ready/file',
+            original_url: '/api/ai/images/img-ready/file',
+            thumb_url: '/api/ai/images/img-ready/thumb',
+            medium_url: '/api/ai/images/img-ready/medium',
+            derivatives_status: 'ready',
+          },
+          {
+            id: 'img-pending',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Pending Preview',
+            preview_text: 'Pending Preview',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 456,
+            created_at: '2026-04-10T11:59:00.000Z',
+            file_url: '/api/ai/images/img-pending/file',
+            original_url: '/api/ai/images/img-pending/file',
+            thumb_url: null,
+            medium_url: null,
+            derivatives_status: 'pending',
+          },
+        ],
+        folders: {},
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').nth(1).click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+    await expect(page.locator('#studioImageGrid .studio__image-item img')).toHaveCount(1);
+    await expect(page.locator('.studio__image-preview-badge')).toContainText('Preview pending');
+    await expect(page.locator('#studioImageGrid .studio__image-item img').first()).toHaveAttribute('src', /\/api\/ai\/images\/img-ready\/thumb$/);
+
+    await page.locator('#studioImageGrid .studio__image-item').first().click();
+    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
+    await expect(page.locator('#studioImageModal .studio-modal__image img')).toHaveAttribute('src', /\/api\/ai\/images\/img-ready\/medium$/);
+    await expect(page.locator('#studioImageModal .studio-modal__open')).toHaveAttribute('href', '/api/ai/images/img-ready/file');
+    await page.locator('#studioImageModal .modal-close').click();
+
+    expect(imageRequests).toContain('/api/ai/images/img-ready/thumb');
+    expect(imageRequests).toContain('/api/ai/images/img-ready/medium');
+    expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
+    expect(imageRequests).not.toContain('/api/ai/images/img-pending/file');
   });
 });
 

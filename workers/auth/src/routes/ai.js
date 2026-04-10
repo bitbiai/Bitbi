@@ -3,6 +3,13 @@ import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
 import { isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  AI_IMAGE_DERIVATIVE_VERSION,
+  buildAiImageCleanupQueueInsertSql,
+  enqueueAiImageDerivativeJob,
+  listAiImageObjectKeys,
+  toAiImageAssetRecord,
+} from "../lib/ai-image-derivatives.js";
 import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
 
 const {
@@ -19,6 +26,8 @@ const GENERATION_LIMIT = 20; // per user per hour (in-memory rate limit)
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user per UTC day
 const QUOTA_RESERVATION_TTL_MINUTES = 60;
+const AI_IMAGE_LIST_COLUMNS =
+  "id, folder_id, prompt, model, steps, seed, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -65,6 +74,10 @@ function isMissingTextAssetTableError(error) {
 
 function sortByCreatedAtDesc(a, b) {
   return String(b?.created_at || "").localeCompare(String(a?.created_at || ""));
+}
+
+function flattenAiImageKeys(rows) {
+  return (rows?.results || []).flatMap((row) => listAiImageObjectKeys(row));
 }
 
 function getQuotaDayStart(ts = nowIso()) {
@@ -475,24 +488,29 @@ async function handleGetImages(ctx) {
 
   let query, params;
   if (onlyUnfoldered) {
-    query = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
              FROM ai_images WHERE user_id = ? AND folder_id IS NULL
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   } else if (folderId) {
-    query = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
              FROM ai_images WHERE user_id = ? AND folder_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id, folderId];
   } else {
-    query = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
              FROM ai_images WHERE user_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   }
 
   const rows = await env.DB.prepare(query).bind(...params).all();
-  return json({ ok: true, data: { images: rows.results } });
+  return json({
+    ok: true,
+    data: {
+      images: (rows.results || []).map((row) => toAiImageAssetRecord(row)),
+    },
+  });
 }
 
 // ── GET /api/ai/assets ──
@@ -510,7 +528,7 @@ async function handleGetAssets(ctx) {
   let textParams;
 
   if (onlyUnfoldered) {
-    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    imageQuery = `SELECT ${AI_IMAGE_LIST_COLUMNS}
                   FROM ai_images WHERE user_id = ? AND folder_id IS NULL
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
@@ -519,7 +537,7 @@ async function handleGetAssets(ctx) {
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id];
   } else if (folderId) {
-    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    imageQuery = `SELECT ${AI_IMAGE_LIST_COLUMNS}
                   FROM ai_images WHERE user_id = ? AND folder_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id, folderId];
@@ -528,7 +546,7 @@ async function handleGetAssets(ctx) {
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id, folderId];
   } else {
-    imageQuery = `SELECT id, folder_id, prompt, model, steps, seed, created_at
+    imageQuery = `SELECT ${AI_IMAGE_LIST_COLUMNS}
                   FROM ai_images WHERE user_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
@@ -549,18 +567,7 @@ async function handleGetAssets(ctx) {
   }
 
   const assets = [
-    ...(imageRows.results || []).map((row) => ({
-      id: row.id,
-      asset_type: "image",
-      folder_id: row.folder_id,
-      title: row.prompt,
-      preview_text: row.prompt,
-      model: row.model,
-      steps: row.steps,
-      seed: row.seed,
-      created_at: row.created_at,
-      file_url: `/api/ai/images/${row.id}/file`,
-    })),
+    ...(imageRows.results || []).map((row) => toAiImageAssetRecord(row, { assetType: "image" })),
     ...((textRows.results || []).map((row) => ({
       id: row.id,
       asset_type: "text",
@@ -678,9 +685,52 @@ async function handleSaveImage(ctx) {
     return json({ ok: false, error: "Folder was deleted. Image not saved." }, { status: 404 });
   }
 
+  let derivativesEnqueued = true;
+  try {
+    const queued = await enqueueAiImageDerivativeJob(env, {
+      imageId,
+      userId: session.user.id,
+      originalKey: r2Key,
+      derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+      trigger: "save",
+    });
+    console.log(
+      `AI image derivative enqueue success image=${queued.image_id} version=${queued.derivatives_version} trigger=${queued.trigger}`
+    );
+  } catch (error) {
+    derivativesEnqueued = false;
+    console.error(
+      `AI image derivative enqueue failed image=${imageId} version=${AI_IMAGE_DERIVATIVE_VERSION}`,
+      error
+    );
+    try {
+      await env.DB.prepare(
+        "UPDATE ai_images SET derivatives_error = ?, derivatives_attempted_at = ? WHERE id = ? AND user_id = ?"
+      ).bind(
+        String(error?.message || error || "Queue enqueue failed.").slice(0, 500),
+        nowIso(),
+        imageId,
+        session.user.id
+      ).run();
+    } catch {
+      // Best effort observability only.
+    }
+  }
+
   return json({
     ok: true,
-    data: { id: imageId, folder_id: folderId, prompt, model, steps, seed, created_at: now },
+    data: {
+      id: imageId,
+      folder_id: folderId,
+      prompt,
+      model,
+      steps,
+      seed,
+      created_at: now,
+      derivatives_status: "pending",
+      derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
+      derivatives_enqueued: derivativesEnqueued,
+    },
   }, { status: 201 });
 }
 
@@ -705,6 +755,35 @@ async function handleGetImageFile(ctx, imageId) {
 
   const headers = new Headers();
   headers.set("Content-Type", object.httpMetadata?.contentType || "image/png");
+  headers.set("Cache-Control", "private, max-age=3600");
+  return new Response(object.body, { headers });
+}
+
+async function handleGetImageDerivative(ctx, imageId, variant) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const select =
+    variant === "thumb"
+      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?"
+      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?";
+
+  const row = await env.DB.prepare(select).bind(imageId, session.user.id).first();
+  if (!row) {
+    return json({ ok: false, error: "Image not found." }, { status: 404 });
+  }
+  if (!row.derivative_key) {
+    return json({ ok: false, error: "Image preview not ready." }, { status: 404 });
+  }
+
+  const object = await env.USER_IMAGES.get(row.derivative_key);
+  if (!object) {
+    return json({ ok: false, error: "Image preview file not found." }, { status: 404 });
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "image/webp");
   headers.set("Cache-Control", "private, max-age=3600");
   return new Response(object.body, { headers });
 }
@@ -769,9 +848,9 @@ async function handleDeleteFolder(ctx, folderId) {
   try {
     // Snapshot images for R2 cleanup (folder row still exists, folder_id intact)
     const images = await env.DB.prepare(
-      "SELECT r2_key FROM ai_images WHERE folder_id = ? AND user_id = ?"
+      "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE folder_id = ? AND user_id = ?"
     ).bind(folderId, session.user.id).all();
-    r2Keys = (images.results || []).map(r => r.r2_key);
+    r2Keys = flattenAiImageKeys(images);
 
     try {
       const textAssets = await env.DB.prepare(
@@ -789,11 +868,8 @@ async function handleDeleteFolder(ctx, folderId) {
     // Atomically queue blob cleanup, delete asset rows, then remove the folder.
     const statements = [
       env.DB.prepare(
-        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ?
-         FROM ai_images
-         WHERE folder_id = ? AND user_id = ?`
-      ).bind(ts, folderId, session.user.id),
+        buildAiImageCleanupQueueInsertSql("folder_id = ? AND user_id = ?")
+      ).bind(folderId, session.user.id, ts, ts, ts),
     ];
 
     if (textAssetsEnabled) {
@@ -865,7 +941,7 @@ async function handleDeleteImage(ctx, imageId) {
   if (session instanceof Response) return session;
 
   const row = await env.DB.prepare(
-    "SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?"
+    "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE id = ? AND user_id = ?"
   ).bind(imageId, session.user.id).first();
 
   if (!row) {
@@ -877,11 +953,8 @@ async function handleDeleteImage(ctx, imageId) {
   try {
     batchResults = await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ?
-         FROM ai_images
-         WHERE id = ? AND user_id = ?`
-      ).bind(ts, imageId, session.user.id),
+        buildAiImageCleanupQueueInsertSql("id = ? AND user_id = ?")
+      ).bind(imageId, session.user.id, ts, ts, ts),
       env.DB.prepare(
         "DELETE FROM ai_images WHERE id = ? AND user_id = ?"
       ).bind(imageId, session.user.id),
@@ -903,10 +976,14 @@ async function handleDeleteImage(ctx, imageId) {
   }
 
   try {
-    await env.USER_IMAGES.delete(row.r2_key);
+    const objectKeys = listAiImageObjectKeys(row);
+    for (const key of objectKeys) {
+      await env.USER_IMAGES.delete(key);
+    }
+    const ph = objectKeys.map(() => "?").join(",");
     await env.DB.prepare(
-      "DELETE FROM r2_cleanup_queue WHERE r2_key IN (?) AND status = 'pending'"
-    ).bind(row.r2_key).run();
+      `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
+    ).bind(...objectKeys).run();
   } catch { /* leave queue entry for scheduled retry */ }
 
   return json({ ok: true });
@@ -1086,7 +1163,7 @@ async function handleBulkDelete(ctx) {
   // Advisory pre-check — also captures r2_keys for inline R2 cleanup later
   const placeholders = imageIds.map(() => "?").join(",");
   const snapshot = await env.DB.prepare(
-    `SELECT id, r2_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+    `SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
   ).bind(...imageIds, session.user.id).all();
 
   if (!snapshot.results || snapshot.results.length !== imageIds.length) {
@@ -1114,14 +1191,21 @@ async function handleBulkDelete(ctx) {
     batchResults = await env.DB.batch([
       env.DB.prepare(
         `WITH requested(id) AS (VALUES ${valuesList})
+         , matches AS (
+           SELECT r2_key, thumb_key, medium_key
+           FROM ai_images
+           WHERE user_id = ?
+             AND id IN (SELECT id FROM requested)
+             AND (SELECT COUNT(*) FROM requested) =
+                 (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))
+         )
          INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ?
-         FROM ai_images
-         WHERE user_id = ?
-           AND id IN (SELECT id FROM requested)
-           AND (SELECT COUNT(*) FROM requested) =
-               (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
-      ).bind(...imageIds, ts, session.user.id, session.user.id),
+         SELECT r2_key, 'pending', ? FROM matches
+         UNION ALL
+         SELECT thumb_key, 'pending', ? FROM matches WHERE thumb_key IS NOT NULL
+         UNION ALL
+         SELECT medium_key, 'pending', ? FROM matches WHERE medium_key IS NOT NULL`
+      ).bind(...imageIds, session.user.id, session.user.id, ts, ts, ts),
 
       env.DB.prepare(
         `WITH requested(id) AS (VALUES ${valuesList})
@@ -1156,8 +1240,10 @@ async function handleBulkDelete(ctx) {
   const cleanedKeys = [];
   for (const row of snapshot.results) {
     try {
-      await env.USER_IMAGES.delete(row.r2_key);
-      cleanedKeys.push(row.r2_key);
+      for (const key of listAiImageObjectKeys(row)) {
+        await env.USER_IMAGES.delete(key);
+        cleanedKeys.push(key);
+      }
     } catch { /* leave queue entry for scheduled retry */ }
   }
 
@@ -1217,6 +1303,16 @@ export async function handleAI(ctx) {
   const fileMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/file$/);
   if (fileMatch && method === "GET") {
     return handleGetImageFile(ctx, fileMatch[1]);
+  }
+
+  const thumbMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/thumb$/);
+  if (thumbMatch && method === "GET") {
+    return handleGetImageDerivative(ctx, thumbMatch[1], "thumb");
+  }
+
+  const mediumMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/medium$/);
+  if (mediumMatch && method === "GET") {
+    return handleGetImageDerivative(ctx, mediumMatch[1], "medium");
   }
 
   const textFileMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/file$/);

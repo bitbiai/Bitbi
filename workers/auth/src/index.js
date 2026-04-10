@@ -10,6 +10,12 @@ import { handleAI } from "./routes/ai.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
+import {
+  AI_IMAGE_DERIVATIVE_VERSION,
+  enqueueAiImageDerivativeJob,
+  listAiImagesNeedingDerivativeWork,
+  processAiImageDerivativeMessage,
+} from "./lib/ai-image-derivatives.js";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";
@@ -180,6 +186,77 @@ export default {
     } catch (e) {
       // Table may not exist yet if migration 0010 hasn't been applied — skip cleanly
       if (!String(e).includes("no such table")) throw e;
+    }
+
+    // Re-enqueue a small derivative backlog so pending rows recover from
+    // transient publish/consumer failures without operator intervention.
+    try {
+      const page = await listAiImagesNeedingDerivativeWork(env, {
+        limit: 25,
+        includeFailed: false,
+        targetVersion: AI_IMAGE_DERIVATIVE_VERSION,
+      });
+      let enqueued = 0;
+      for (const row of page.rows) {
+        await enqueueAiImageDerivativeJob(env, {
+          imageId: row.id,
+          userId: row.user_id,
+          originalKey: row.r2_key,
+          derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+          trigger: "scheduled",
+        });
+        enqueued += 1;
+      }
+      if (enqueued > 0) {
+        console.log(
+          `AI image derivative scheduled recovery queued=${enqueued} version=${AI_IMAGE_DERIVATIVE_VERSION} has_more=${page.hasMore}`
+        );
+      }
+    } catch (e) {
+      if (
+        String(e).includes("no such table") ||
+        String(e).includes("no such column") ||
+        String(e).includes("queue binding is unavailable")
+      ) {
+        console.warn("AI image derivative scheduled recovery skipped", e);
+      } else {
+        console.error("AI image derivative scheduled recovery failed", e);
+      }
+    }
+  },
+
+  async queue(batch, env, ctx) {
+    for (const message of batch.messages) {
+      const rawBody = message?.body && typeof message.body === "object" ? message.body : {};
+      const imageId = rawBody.image_id || "unknown";
+      const version = rawBody.derivatives_version || "unknown";
+      console.log(
+        `AI image derivative consumer start image=${imageId} version=${version} attempts=${message.attempts ?? 0}`
+      );
+
+      try {
+        const result = await processAiImageDerivativeMessage(env, message.body);
+        if (result.status === "ready") {
+          console.log(
+            `AI image derivative consumer success image=${result.payload.imageId} version=${result.payload.derivativesVersion}`
+          );
+        } else if (result.status === "failed") {
+          console.error(
+            `AI image derivative consumer permanent-failure image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
+          );
+        } else {
+          console.log(
+            `AI image derivative consumer noop image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
+          );
+        }
+        message.ack();
+      } catch (error) {
+        console.error(
+          `AI image derivative consumer retry image=${imageId} version=${version}`,
+          error
+        );
+        message.retry({ delaySeconds: 30 });
+      }
     }
   },
 };

@@ -3,6 +3,10 @@ import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  buildAiImageCleanupQueueInsertSql,
+  listAiImageObjectKeys,
+} from "../lib/ai-image-derivatives.js";
 import { handleAdminAI } from "./admin-ai.js";
 
 function isMissingTextAssetTableError(error) {
@@ -510,9 +514,9 @@ export async function handleAdmin(ctx) {
     let textAssetsEnabled = true;
     try {
       const images = await env.DB.prepare(
-        "SELECT r2_key FROM ai_images WHERE user_id = ?"
+        "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE user_id = ?"
       ).bind(targetUserId).all();
-      r2Keys = (images.results || []).map((row) => row.r2_key);
+      r2Keys = (images.results || []).flatMap((row) => listAiImageObjectKeys(row));
 
       try {
         const textAssets = await env.DB.prepare(
@@ -529,11 +533,8 @@ export async function handleAdmin(ctx) {
 
       const statements = [
         env.DB.prepare(
-          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-           SELECT r2_key, 'pending', ?
-           FROM ai_images
-           WHERE user_id = ?`
-        ).bind(now, targetUserId),
+          buildAiImageCleanupQueueInsertSql("user_id = ?")
+        ).bind(targetUserId, now, now, now),
         env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(targetUserId),
       ];
 

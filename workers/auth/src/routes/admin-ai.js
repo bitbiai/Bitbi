@@ -3,6 +3,11 @@ import { json } from "../lib/response.js";
 import { isSharedRateLimited, getClientIp } from "../lib/rate-limit.js";
 import { requireAdmin } from "../lib/session.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import {
+  AI_IMAGE_DERIVATIVE_VERSION,
+  enqueueAiImageDerivativeJob,
+  listAiImagesNeedingDerivativeWork,
+} from "../lib/ai-image-derivatives.js";
 import { saveAdminAiTextAsset } from "../lib/ai-text-assets.js";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
@@ -756,6 +761,22 @@ function validateSaveTextAssetPayload(body) {
   };
 }
 
+function validateImageDerivativeBackfillPayload(body) {
+  const input = body == null ? {} : ensureObject(body);
+  if (
+    input.includeFailed !== undefined &&
+    input.includeFailed !== null &&
+    typeof input.includeFailed !== "boolean"
+  ) {
+    throw new InputError("includeFailed must be a boolean.", 400, "validation_error");
+  }
+  return {
+    limit: optionalInteger(input.limit, "limit", 1, 100, 50),
+    cursor: optionalString(input.cursor, "cursor", 200),
+    includeFailed: input.includeFailed !== false,
+  };
+}
+
 function storageErrorResponse(error) {
   const status = error?.status || 500;
   return json(
@@ -961,6 +982,68 @@ export async function handleAdminAI(ctx) {
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error);
       throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/image-derivatives/backfill" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-derivative-backfill-ip", 20, 600_000);
+    if (limited) return limited;
+
+    const contentType = request.headers.get("content-type") || "";
+    const body = contentType.includes("application/json") ? await readJsonBody(request) : {};
+    if (contentType.includes("application/json") && !body) {
+      return json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 });
+    }
+
+    try {
+      const input = validateImageDerivativeBackfillPayload(body);
+      const page = await listAiImagesNeedingDerivativeWork(env, {
+        limit: input.limit,
+        cursor: input.cursor,
+        includeFailed: input.includeFailed,
+        targetVersion: AI_IMAGE_DERIVATIVE_VERSION,
+      });
+
+      let enqueued = 0;
+      for (const row of page.rows) {
+        await enqueueAiImageDerivativeJob(env, {
+          imageId: row.id,
+          userId: row.user_id,
+          originalKey: row.r2_key,
+          derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+          trigger: "backfill",
+        });
+        enqueued += 1;
+      }
+
+      console.log(
+        `AI image derivative backfill queued=${enqueued} scanned=${page.rows.length} version=${AI_IMAGE_DERIVATIVE_VERSION} has_more=${page.hasMore}`
+      );
+
+      return json({
+        ok: true,
+        data: {
+          scanned: page.rows.length,
+          enqueued,
+          has_more: page.hasMore,
+          next_cursor: page.nextCursor,
+          derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
+        },
+      });
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error);
+      if (String(error?.message || error).includes("Invalid cursor.")) {
+        return json({ ok: false, error: "Invalid cursor.", code: "validation_error" }, { status: 400 });
+      }
+      console.error("Admin AI derivative backfill failed", error);
+      return json(
+        {
+          ok: false,
+          error: "Derivative backfill enqueue failed.",
+          code: "derivative_backfill_failed",
+        },
+        { status: 503 }
+      );
     }
   }
 

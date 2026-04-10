@@ -16,6 +16,85 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeAiImageRow(row = {}) {
+  return {
+    thumb_key: null,
+    medium_key: null,
+    thumb_mime_type: null,
+    medium_mime_type: null,
+    thumb_width: null,
+    thumb_height: null,
+    medium_width: null,
+    medium_height: null,
+    derivatives_status: 'pending',
+    derivatives_error: null,
+    derivatives_version: 1,
+    derivatives_started_at: null,
+    derivatives_ready_at: null,
+    derivatives_attempted_at: null,
+    derivatives_processing_token: null,
+    derivatives_lease_expires_at: null,
+    ...row,
+  };
+}
+
+function listAiImageKeys(row) {
+  return Array.from(new Set([row?.r2_key, row?.thumb_key, row?.medium_key].filter(Boolean)));
+}
+
+async function bodyToArrayBuffer(value) {
+  if (value == null) return null;
+  if (value instanceof ArrayBuffer) return value;
+  if (ArrayBuffer.isView(value)) {
+    return value.buffer.byteLength === value.byteLength
+      ? value.buffer
+      : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+  if (typeof value.arrayBuffer === 'function') {
+    try {
+      return await value.arrayBuffer();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value.getReader === 'function') {
+    try {
+      return await new Response(value).arrayBuffer();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'string') {
+    return new TextEncoder().encode(value).buffer;
+  }
+  return null;
+}
+
+function parseMockImageInfo(bytes, fallback) {
+  try {
+    const text = new TextDecoder().decode(bytes);
+    const match = text.match(/^mock-image:(\d+)x(\d+):(.+)$/);
+    if (!match) return fallback;
+    return {
+      width: Number(match[1]) || fallback.width,
+      height: Number(match[2]) || fallback.height,
+      format: match[3] || fallback.format,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function scaleDownDimensions(width, height, maxWidth, maxHeight) {
+  const safeWidth = Math.max(1, Number(width) || maxWidth || 1);
+  const safeHeight = Math.max(1, Number(height) || maxHeight || 1);
+  const ratio = Math.min(maxWidth / safeWidth, maxHeight / safeHeight, 1);
+  return {
+    width: Math.max(1, Math.round(safeWidth * ratio)),
+    height: Math.max(1, Math.round(safeHeight * ratio)),
+  };
+}
+
 async function sha256Hex(input) {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -26,6 +105,8 @@ class MockBucket {
   constructor(initial = {}) {
     this.objects = new Map();
     this.failDeleteKeys = new Set();
+    this.putCalls = [];
+    this.deleteCalls = [];
     for (const [key, value] of Object.entries(initial)) {
       this.objects.set(key, {
         body: value.body,
@@ -38,6 +119,7 @@ class MockBucket {
   }
 
   async put(key, body, options = {}) {
+    this.putCalls.push({ key, options });
     this.objects.set(key, {
       body,
       httpMetadata: options.httpMetadata || {},
@@ -51,6 +133,7 @@ class MockBucket {
   }
 
   async delete(key) {
+    this.deleteCalls.push(key);
     if (this.failDeleteKeys.has(key)) {
       throw new Error(`Mock delete failure for ${key}`);
     }
@@ -70,6 +153,88 @@ class MockBucket {
       if (objects.length >= limit) break;
     }
     return { objects };
+  }
+}
+
+class MockQueueProducer {
+  constructor() {
+    this.messages = [];
+    this.failWith = null;
+  }
+
+  async send(body) {
+    if (this.failWith) {
+      throw this.failWith instanceof Error ? this.failWith : new Error(String(this.failWith));
+    }
+    this.messages.push(deepClone(body));
+  }
+}
+
+class MockImagesBinding {
+  constructor(options = {}) {
+    this.originalInfo = options.originalInfo || { width: 1024, height: 1024, format: 'image/png' };
+    this.failInfoWith = options.failInfoWith || null;
+    this.failResponseWith = options.failResponseWith || null;
+    this.infoCalls = [];
+    this.transformCalls = [];
+  }
+
+  async info(input) {
+    if (this.failInfoWith) {
+      throw this.failInfoWith instanceof Error ? this.failInfoWith : new Error(String(this.failInfoWith));
+    }
+    const buffer = await bodyToArrayBuffer(input);
+    const bytes = buffer ? new Uint8Array(buffer) : new Uint8Array();
+    const info = parseMockImageInfo(bytes, this.originalInfo);
+    this.infoCalls.push(info);
+    return info;
+  }
+
+  input(input) {
+    const binding = this;
+    return {
+      transforms: [],
+      outputOptions: null,
+      transform(options) {
+        this.transforms.push(options || {});
+        return this;
+      },
+      output(options) {
+        this.outputOptions = options || {};
+        return this;
+      },
+      async response() {
+        if (binding.failResponseWith) {
+          throw binding.failResponseWith instanceof Error
+            ? binding.failResponseWith
+            : new Error(String(binding.failResponseWith));
+        }
+
+        const buffer = await bodyToArrayBuffer(input);
+        const bytes = buffer ? new Uint8Array(buffer) : new Uint8Array();
+        const inputInfo = parseMockImageInfo(bytes, binding.originalInfo);
+        const latest = this.transforms[this.transforms.length - 1] || {};
+        const dims = scaleDownDimensions(
+          inputInfo.width,
+          inputInfo.height,
+          latest.width || inputInfo.width,
+          latest.height || inputInfo.height
+        );
+        const format = this.outputOptions?.format || 'image/webp';
+        binding.transformCalls.push({
+          transforms: deepClone(this.transforms),
+          outputOptions: deepClone(this.outputOptions),
+          width: dims.width,
+          height: dims.height,
+        });
+        const body = new TextEncoder().encode(`mock-image:${dims.width}x${dims.height}:${format}`);
+        return new Response(body, {
+          headers: {
+            'content-type': format,
+          },
+        });
+      },
+    };
   }
 }
 
@@ -117,6 +282,7 @@ class MockD1 {
       r2CleanupQueue: [],
       ...deepClone(seed),
     };
+    this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
     this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
   }
 
@@ -466,7 +632,7 @@ class MockD1 {
       if (!folder) {
         return { success: true, meta: { changes: 0 } };
       }
-      this.state.aiImages.push({
+      this.state.aiImages.push(normalizeAiImageRow({
         id,
         user_id: userId,
         folder_id: folderId,
@@ -476,13 +642,13 @@ class MockD1 {
         steps,
         seed,
         created_at: createdAt,
-      });
+      }));
       return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) VALUES')) {
       const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt] = bindings;
-      this.state.aiImages.push({
+      this.state.aiImages.push(normalizeAiImageRow({
         id,
         user_id: userId,
         folder_id: folderId,
@@ -492,7 +658,7 @@ class MockD1 {
         steps,
         seed,
         created_at: createdAt,
-      });
+      }));
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -563,12 +729,37 @@ class MockD1 {
       return row ? { r2_key: row.r2_key } : null;
     }
 
+    if (query === 'SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row
+        ? {
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+          }
+        : null;
+    }
+
     if (query === 'SELECT r2_key FROM ai_images WHERE user_id = ?') {
       const [userId] = bindings;
       return {
         results: this.state.aiImages
           .filter((row) => row.user_id === userId)
           .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query === 'SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+          })),
       };
     }
 
@@ -590,6 +781,34 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.folder_id === folderId && row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+          })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiImages
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+          })),
+      };
+    }
+
     if (query === 'SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
       const [folderId, userId] = bindings;
       return {
@@ -599,7 +818,7 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at FROM ai_images WHERE user_id = ?')) {
+    if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at') && query.includes('FROM ai_images WHERE user_id = ?')) {
       const [userId, maybeFolderId] = bindings;
       let rows = this.state.aiImages.filter((row) => row.user_id === userId);
       if (query.includes('AND folder_id IS NULL')) {
@@ -617,6 +836,18 @@ class MockD1 {
           steps: row.steps,
           seed: row.seed,
           created_at: row.created_at,
+          ...(query.includes('thumb_key')
+            ? {
+                thumb_key: row.thumb_key,
+                medium_key: row.medium_key,
+                thumb_width: row.thumb_width,
+                thumb_height: row.thumb_height,
+                medium_width: row.medium_width,
+                medium_height: row.medium_height,
+                derivatives_status: row.derivatives_status,
+                derivatives_version: row.derivatives_version,
+              }
+            : {}),
         })),
       };
     }
@@ -643,6 +874,201 @@ class MockD1 {
           created_at: row.created_at,
         })),
       };
+    }
+
+    if (
+      query === 'SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?' ||
+      query === 'SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?'
+    ) {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      if (!row) return null;
+      if (query.startsWith('SELECT thumb_key')) {
+        return {
+          derivative_key: row.thumb_key,
+          mime_type: row.thumb_mime_type,
+          derivatives_status: row.derivatives_status,
+        };
+      }
+      return {
+        derivative_key: row.medium_key,
+        mime_type: row.medium_mime_type,
+        derivatives_status: row.derivatives_status,
+      };
+    }
+
+    if (query === 'UPDATE ai_images SET derivatives_error = ?, derivatives_attempted_at = ? WHERE id = ? AND user_id = ?') {
+      const [derivativesError, attemptedAt, imageId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId) {
+          row.derivatives_error = derivativesError;
+          row.derivatives_attempted_at = attemptedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('SELECT id, user_id, r2_key, created_at, thumb_key, medium_key, derivatives_status, derivatives_version, derivatives_lease_expires_at FROM ai_images WHERE (')
+      && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
+    ) {
+      let index = 0;
+      const targetVersion = bindings[index++];
+      const now = bindings[index++];
+      const includeFailed = !query.includes("derivatives_status != 'failed'");
+      let cursor = null;
+      if (query.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
+        const cursorCreatedAt = bindings[index++];
+        index += 1;
+        cursor = {
+          createdAt: cursorCreatedAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = bindings[index];
+      let rows = this.state.aiImages.filter((row) => {
+        const needsWork =
+          (row.derivatives_version || 0) < targetVersion ||
+          row.derivatives_status !== 'ready' ||
+          row.thumb_key == null ||
+          row.medium_key == null;
+        const processingExpired =
+          row.derivatives_status !== 'processing' ||
+          row.derivatives_lease_expires_at == null ||
+          row.derivatives_lease_expires_at < now;
+        const failedAllowed = includeFailed || row.derivatives_status !== 'failed';
+        return needsWork && processingExpired && failedAllowed;
+      });
+      if (cursor) {
+        rows = rows.filter(
+          (row) =>
+            row.created_at < cursor.createdAt ||
+            (row.created_at === cursor.createdAt && row.id < cursor.id)
+        );
+      }
+      rows = rows
+        .slice()
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, limit);
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          r2_key: row.r2_key,
+          created_at: row.created_at,
+          thumb_key: row.thumb_key,
+          medium_key: row.medium_key,
+          derivatives_status: row.derivatives_status,
+          derivatives_version: row.derivatives_version,
+          derivatives_lease_expires_at: row.derivatives_lease_expires_at,
+        })),
+      };
+    }
+
+    if (query === 'SELECT id, user_id, r2_key, thumb_key, medium_key, derivatives_status, derivatives_version, derivatives_processing_token, derivatives_lease_expires_at FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row
+        ? {
+            id: row.id,
+            user_id: row.user_id,
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            derivatives_status: row.derivatives_status,
+            derivatives_version: row.derivatives_version,
+            derivatives_processing_token: row.derivatives_processing_token,
+            derivatives_lease_expires_at: row.derivatives_lease_expires_at,
+          }
+        : null;
+    }
+
+    if (query.startsWith("UPDATE ai_images SET derivatives_status = 'processing', derivatives_error = NULL, derivatives_started_at = CASE")) {
+      const [leaseNow, startedAt, attemptedAt, processingToken, leaseExpiresAt, imageId, userId, leaseCheckNow, targetVersion] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        const readyCurrent =
+          row.derivatives_status === 'ready' &&
+          row.thumb_key &&
+          row.medium_key &&
+          (row.derivatives_version || 0) >= targetVersion;
+        const leaseActive =
+          row.derivatives_status === 'processing' &&
+          row.derivatives_lease_expires_at &&
+          row.derivatives_lease_expires_at > leaseCheckNow;
+        if (row.id === imageId && row.user_id === userId && !leaseActive && !readyCurrent) {
+          row.derivatives_status = 'processing';
+          row.derivatives_error = null;
+          row.derivatives_started_at =
+            row.derivatives_status === 'processing' && row.derivatives_lease_expires_at > leaseNow
+              ? row.derivatives_started_at
+              : startedAt;
+          row.derivatives_attempted_at = attemptedAt;
+          row.derivatives_processing_token = processingToken;
+          row.derivatives_lease_expires_at = leaseExpiresAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith("UPDATE ai_images SET derivatives_status = ?, derivatives_error = ?, derivatives_attempted_at = ?, derivatives_processing_token = NULL, derivatives_lease_expires_at = NULL WHERE id = ? AND user_id = ? AND derivatives_processing_token = ?")) {
+      const [status, derivativesError, attemptedAt, imageId, userId, processingToken] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId && row.derivatives_processing_token === processingToken) {
+          row.derivatives_status = status;
+          row.derivatives_error = derivativesError;
+          row.derivatives_attempted_at = attemptedAt;
+          row.derivatives_processing_token = null;
+          row.derivatives_lease_expires_at = null;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith("UPDATE ai_images SET thumb_key = ?, medium_key = ?, thumb_mime_type = ?, medium_mime_type = ?, thumb_width = ?, thumb_height = ?, medium_width = ?, medium_height = ?, derivatives_status = 'ready', derivatives_error = NULL, derivatives_version = ?, derivatives_ready_at = ?, derivatives_attempted_at = ?, derivatives_processing_token = NULL, derivatives_lease_expires_at = NULL WHERE id = ? AND user_id = ? AND derivatives_processing_token = ?")) {
+      const [
+        thumbKey,
+        mediumKey,
+        thumbMimeType,
+        mediumMimeType,
+        thumbWidth,
+        thumbHeight,
+        mediumWidth,
+        mediumHeight,
+        derivativesVersion,
+        derivativesReadyAt,
+        derivativesAttemptedAt,
+        imageId,
+        userId,
+        processingToken,
+      ] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId && row.derivatives_processing_token === processingToken) {
+          row.thumb_key = thumbKey;
+          row.medium_key = mediumKey;
+          row.thumb_mime_type = thumbMimeType;
+          row.medium_mime_type = mediumMimeType;
+          row.thumb_width = thumbWidth;
+          row.thumb_height = thumbHeight;
+          row.medium_width = mediumWidth;
+          row.medium_height = mediumHeight;
+          row.derivatives_status = 'ready';
+          row.derivatives_error = null;
+          row.derivatives_version = derivativesVersion;
+          row.derivatives_ready_at = derivativesReadyAt;
+          row.derivatives_attempted_at = derivativesAttemptedAt;
+          row.derivatives_processing_token = null;
+          row.derivatives_lease_expires_at = null;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
     }
 
     if (query === 'DELETE FROM ai_images WHERE id = ?') {
@@ -748,6 +1174,61 @@ class MockD1 {
       const before = this.state.aiFolders.length;
       this.state.aiFolders = this.state.aiFolders.filter((row) => row.user_id !== userId);
       return { success: true, meta: { changes: before - this.state.aiFolders.length } };
+    }
+
+    if (query.startsWith('WITH matches AS ( SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE ') && query.includes('INSERT INTO r2_cleanup_queue (r2_key, status, created_at)')) {
+      let rows = [];
+      let createdAtStart = 0;
+      if (query.includes('WHERE id = ? AND user_id = ?')) {
+        const [imageId, userId, createdAt] = bindings;
+        rows = this.state.aiImages.filter((row) => row.id === imageId && row.user_id === userId);
+        createdAtStart = 2;
+      } else if (query.includes('WHERE folder_id = ? AND user_id = ?')) {
+        const [folderId, userId, createdAt] = bindings;
+        rows = this.state.aiImages.filter((row) => row.folder_id === folderId && row.user_id === userId);
+        createdAtStart = 2;
+      } else if (query.includes('WHERE user_id = ?')) {
+        const [userId, createdAt] = bindings;
+        rows = this.state.aiImages.filter((row) => row.user_id === userId);
+        createdAtStart = 1;
+      }
+      const createdAt = bindings[createdAtStart];
+      const keys = rows.flatMap((row) => listAiImageKeys(row));
+      for (const key of keys) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: keys.length } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('SELECT r2_key, thumb_key, medium_key')
+      && query.includes('INSERT INTO r2_cleanup_queue')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const userId = bindings[requestedCount];
+      const createdAt = bindings[requestedCount + 2];
+      const rows = this.state.aiImages.filter((row) => requestedIds.includes(row.id) && row.user_id === userId);
+      const keys = rows.flatMap((row) => listAiImageKeys(row));
+      for (const key of keys) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: keys.length } };
     }
 
     if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_images WHERE id = ? AND user_id = ?")) {
@@ -934,6 +1415,8 @@ function createAuthTestEnv(seed = {}) {
   const DB = new MockD1(seed);
   const PRIVATE_MEDIA = new MockBucket(seed.privateMedia);
   const USER_IMAGES = new MockBucket(seed.userImages);
+  const AI_IMAGE_DERIVATIVES_QUEUE = seed.aiImageDerivativesQueue || new MockQueueProducer();
+  const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
   return {
     APP_BASE_URL: 'https://bitbi.ai',
     RESEND_FROM_EMAIL: 'BITBI <noreply@contact.bitbi.ai>',
@@ -942,6 +1425,8 @@ function createAuthTestEnv(seed = {}) {
     DB,
     PRIVATE_MEDIA,
     USER_IMAGES,
+    AI_IMAGE_DERIVATIVES_QUEUE,
+    IMAGES,
     AI: {
       async run(...args) {
         return aiRun(...args);
@@ -987,6 +1472,8 @@ async function loadWorker(relativePath) {
 module.exports = {
   MockBucket,
   MockD1,
+  MockImagesBinding,
+  MockQueueProducer,
   createAuthTestEnv,
   createExecutionContext,
   deepClone,
