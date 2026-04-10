@@ -6,6 +6,12 @@
 
 @layer pages {
 
+    /* Admin interactions should settle immediately; inherited smooth scrolling
+       makes sticky measurements and hash-driven admin navigation timing-dependent. */
+    html {
+        scroll-behavior: auto;
+    }
+
     /* ── Admin Navigation ── */
     .admin-nav {
         position: sticky;
