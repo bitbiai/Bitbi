@@ -334,6 +334,9 @@ test.describe('Worker routes', () => {
         label: expect.any(String),
         vendor: expect.any(String),
       }));
+      expect(body.models.text.map((model) => model.id)).toEqual(expect.arrayContaining([
+        '@cf/google/gemma-4-26b-a4b-it',
+      ]));
       expect(body.models.image.map((model) => model.id)).toEqual(expect.arrayContaining([
         '@cf/black-forest-labs/flux-1-schnell',
         '@cf/black-forest-labs/flux-2-klein-9b',

@@ -57,6 +57,13 @@ function createMockAiCatalog() {
           vendor: 'OpenAI',
           description: 'Balanced text model',
         },
+        {
+          id: '@cf/google/gemma-4-26b-a4b-it',
+          task: 'text',
+          label: 'Gemma 4 26B A4B',
+          vendor: 'Google',
+          description: 'Balanced conversational text model',
+        },
       ],
       image: [
         {
@@ -690,6 +697,26 @@ test.describe('Admin AI Lab', () => {
     await mockAdminAiLab(page);
   });
 
+  test('admin sub-navigation stays visible below the main header while scrolling', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#adminNav')).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await wait(150);
+
+    const headerBox = await page.locator('header .site-nav').boundingBox();
+    const navBox = await page.locator('#adminNav').boundingBox();
+
+    expect(headerBox).not.toBeNull();
+    expect(navBox).not.toBeNull();
+    const headerBottom = headerBox.y + headerBox.height;
+    expect(navBox.y).toBeGreaterThanOrEqual(headerBottom - 1);
+    expect(Math.abs(navBox.y - headerBottom)).toBeLessThanOrEqual(2);
+  });
+
   test('loads the admin AI Lab section and runs all task panels', async ({
     page,
   }) => {
@@ -697,11 +724,12 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260409-wave8"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260409-wave8"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260410-wave9"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260410-wave9"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
+    await expect(page.locator('#aiModelsText')).toContainText('Gemma 4 26B A4B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
@@ -752,6 +780,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiEmbeddingsMeta')).toContainText('Shape');
 
     await page.getByRole('button', { name: 'Compare' }).click();
+    await expect(page.locator('#aiCompareModelA')).toContainText('Gemma 4 26B A4B');
     await page.selectOption('#aiCompareSampleSelect', 'hero-intro');
     await page.locator('#aiCompareSample').click();
     await expect(page.locator('#aiComparePrompt')).toHaveValue(
@@ -1178,6 +1207,44 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiLiveAgentSend')).toBeEnabled();
     await expect(page.locator('#aiLiveAgentCancel')).toBeDisabled();
     await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
+  });
+
+  test('Live Agent system and input fields start single-line and autosize with content', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+
+    const system = page.locator('#aiLiveAgentSystem');
+    const input = page.locator('#aiLiveAgentInput');
+
+    await expect(system).toHaveAttribute('rows', '1');
+    await expect(input).toHaveAttribute('rows', '1');
+
+    const systemInitial = await system.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    const inputInitial = await input.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+    await system.fill('Line one\nLine two\nLine three');
+    await input.fill('First line\nSecond line\nThird line');
+
+    const systemExpanded = await system.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    const inputExpanded = await input.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+    expect(systemExpanded).toBeGreaterThan(systemInitial);
+    expect(inputExpanded).toBeGreaterThan(inputInitial);
+
+    await system.fill('Short');
+    await input.fill('Short');
+
+    const systemShrunk = await system.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    const inputShrunk = await input.evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+    expect(systemShrunk).toBeLessThan(systemExpanded);
+    expect(inputShrunk).toBeLessThan(inputExpanded);
+    expect(systemShrunk).toBeLessThanOrEqual(systemInitial + 2);
+    expect(inputShrunk).toBeLessThanOrEqual(inputInitial + 2);
   });
 
   test('Live Agent rejects empty user input', async ({ page }) => {

@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260322">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260409-wave8">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260410-wave9">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260321">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -703,14 +703,14 @@
                                 <span class="admin-ai__label">System Prompt</span>
                                 <span id="aiLiveAgentSystemCount" class="admin-ai__count"></span>
                             </span>
-                            <textarea id="aiLiveAgentSystem" class="admin-ai__textarea" rows="3" maxlength="1200">You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.</textarea>
+                            <textarea id="aiLiveAgentSystem" class="admin-ai__textarea admin-ai__textarea--autosize" rows="1" maxlength="1200">You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.</textarea>
                         </label>
 
                         <div id="aiLiveAgentTranscript" class="admin-ai__chat-transcript" aria-live="polite" aria-label="Chat transcript"></div>
 
                         <div class="admin-ai__chat-input-row">
                             <label class="sr-only" for="aiLiveAgentInput">Message</label>
-                            <textarea id="aiLiveAgentInput" class="admin-ai__textarea admin-ai__chat-input" rows="2" maxlength="4000" placeholder="Type a message..."></textarea>
+                            <textarea id="aiLiveAgentInput" class="admin-ai__textarea admin-ai__textarea--autosize admin-ai__chat-input" rows="1" maxlength="4000" placeholder="Type a message..."></textarea>
                             <button type="button" id="aiLiveAgentSend" class="admin-ai__run">Send</button>
                             <button type="button" id="aiLiveAgentCancel" class="btn-action" disabled>Cancel</button>
                         </div>
@@ -866,6 +866,6 @@
     </div>
 </div>
 
-<script type="module" src="../js/pages/admin/main.js?v=20260409-wave8"></script>
+<script type="module" src="../js/pages/admin/main.js?v=20260410-wave9"></script>
 </body>
 </html>

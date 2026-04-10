@@ -24,7 +24,7 @@ import {
     apiAdminUserActivity,
 } from '../../shared/auth-api.js?v=20260409-wave8';
 import { galleryItems } from '../../shared/gallery-data.js?v=20260409-wave8';
-import { createAdminAiLab } from './ai-lab.js?v=20260409-wave8';
+import { createAdminAiLab } from './ai-lab.js?v=20260410-wave9';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs
@@ -145,6 +145,7 @@ const ACTIVITY_VISIBLE = 10;
 let contentLoaded = false;
 let mediaLoaded = false;
 let accessLoaded = false;
+let adminNavOffsetObserver = null;
 
 const ADMIN_ACTION_LABELS = {
     change_role: 'Role Change',
@@ -178,6 +179,30 @@ const USER_ACTION_VARIANTS = {
     upload_avatar: 'user',
     delete_avatar: 'disabled',
 };
+
+function syncAdminNavOffset() {
+    const siteNav = document.querySelector('header .site-nav');
+    if (!siteNav) return;
+
+    const navHeight = Math.ceil(siteNav.getBoundingClientRect().height);
+    if (navHeight > 0) {
+        document.documentElement.style.setProperty('--admin-nav-top-offset', `${navHeight}px`);
+    }
+}
+
+function initAdminNavOffset() {
+    syncAdminNavOffset();
+
+    const siteNav = document.querySelector('header .site-nav');
+    if (siteNav && 'ResizeObserver' in window) {
+        adminNavOffsetObserver?.disconnect?.();
+        adminNavOffsetObserver = new ResizeObserver(() => syncAdminNavOffset());
+        adminNavOffsetObserver.observe(siteNav);
+    }
+
+    window.addEventListener('resize', syncAdminNavOffset);
+    window.visualViewport?.addEventListener?.('resize', syncAdminNavOffset);
+}
 
 function showSection(name) {
     if (!sections[name]) name = 'dashboard';
@@ -1089,6 +1114,7 @@ function initLightbox() {
 async function init() {
     // Shared modules
     try { initSiteHeader(); }               catch (e) { console.warn(e); }
+    initAdminNavOffset();
     try { initParticles('heroCanvas'); }     catch (e) { console.warn(e); }
     try { initBinaryRain('binaryRain'); }    catch (e) { console.warn(e); }
     try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn(e); }

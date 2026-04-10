@@ -19,6 +19,16 @@ const TEXT_MODELS = {
     maxTokens: 1000,
     description: "Higher-capability text model for richer comparisons.",
   },
+  "@cf/google/gemma-4-26b-a4b-it": {
+    id: "@cf/google/gemma-4-26b-a4b-it",
+    task: "text",
+    label: "Gemma 4 26B A4B",
+    vendor: "Google",
+    inputFormat: "messages",
+    defaultMaxTokens: 400,
+    maxTokens: 1000,
+    description: "Balanced conversational text model aligned with the live agent surface.",
+  },
   "@cf/openai/gpt-oss-20b": {
     id: "@cf/openai/gpt-oss-20b",
     task: "text",

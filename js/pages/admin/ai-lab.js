@@ -11,7 +11,7 @@ const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
 const HISTORY_LIMIT = 6;
 // Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
-const ADMIN_AI_UI_VERSION = '20260409-wave8';
+const ADMIN_AI_UI_VERSION = '20260410-wave9';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -2429,6 +2429,27 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.liveAgent.systemCount.textContent = `${val.length} / 1200`;
     }
 
+    function resizeLiveAgentTextarea(textarea) {
+        if (!textarea) return;
+
+        const baseHeight = Number(textarea.dataset.baseHeight || 0);
+        textarea.style.height = 'auto';
+        const nextHeight = Math.max(textarea.scrollHeight, baseHeight);
+        textarea.style.height = `${nextHeight}px`;
+    }
+
+    function initLiveAgentTextareaAutosize(textarea) {
+        if (!textarea || textarea.dataset.autosizeBound === 'true') return;
+
+        const initialHeight = Math.ceil(textarea.getBoundingClientRect().height);
+        if (initialHeight > 0) {
+            textarea.dataset.baseHeight = String(initialHeight);
+        }
+
+        textarea.addEventListener('input', () => resizeLiveAgentTextarea(textarea));
+        textarea.dataset.autosizeBound = 'true';
+    }
+
     async function liveAgentSend() {
         const userText = (refs.liveAgent.input.value || '').trim();
         if (!userText) {
@@ -2451,6 +2472,7 @@ export function createAdminAiLab({ showToast } = {}) {
         liveAgentState.messages.push({ role: 'user', content: userText });
         liveAgentAppendBubble('user', userText);
         refs.liveAgent.input.value = '';
+        resizeLiveAgentTextarea(refs.liveAgent.input);
         liveAgentSetBusy(true);
         liveAgentSetState('loading', 'Waiting for response...');
 
@@ -2689,6 +2711,8 @@ export function createAdminAiLab({ showToast } = {}) {
                 liveAgentSend();
             }
         });
+        initLiveAgentTextareaAutosize(refs.liveAgent.system);
+        initLiveAgentTextareaAutosize(refs.liveAgent.input);
     }
 
     return {

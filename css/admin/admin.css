@@ -9,12 +9,18 @@
     /* ── Admin Navigation ── */
     .admin-nav {
         position: sticky;
-        top: 56px;
-        z-index: 40;
+        top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 4rem));
+        z-index: 45;
         background: rgba(10, 10, 10, 0.85);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border-block-end: var(--border-subtle);
+    }
+
+    @media (min-width: 1024px) {
+        .admin-nav {
+            top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 5rem));
+        }
     }
 
     .admin-nav__inner {
@@ -619,6 +625,14 @@
         min-block-size: 7rem;
         resize: vertical;
         line-height: 1.6;
+    }
+
+    .admin-ai__textarea--autosize {
+        min-block-size: calc(1.6em + (var(--space-3) * 2));
+        height: calc(1.6em + (var(--space-3) * 2));
+        resize: none;
+        overflow-y: hidden;
+        transition: height 0.18s var(--ease-default), border-color 0.2s var(--ease-default), background 0.2s var(--ease-default);
     }
 
     .admin-ai__input:focus-visible,
