@@ -10,6 +10,9 @@
 	"triggers": {
 		"crons": ["0 3 * * *"]
 	},
+	"observability": {
+		"enabled": true
+	},
 	"routes": [
 		{
 			"pattern": "bitbi.ai/api/*",
