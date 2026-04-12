@@ -2300,6 +2300,64 @@ test.describe('Admin AI Lab', () => {
     ).toBeVisible();
   });
 
+  test('reference-image slots stay empty until selection and reset cleanly after removal', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Image' }).click();
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
+    await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 4');
+
+    for (let i = 0; i < 4; i++) {
+      await expect(
+        page.locator(`.admin-ai__ref-slot[data-ref-index="${i}"] .admin-ai__ref-preview`),
+      ).toBeHidden();
+      await expect(
+        page.locator(`.admin-ai__ref-slot[data-ref-index="${i}"] .admin-ai__ref-remove`),
+      ).toBeHidden();
+      await expect(
+        page.locator(`.admin-ai__ref-slot[data-ref-index="${i}"] .admin-ai__ref-add`),
+      ).toBeVisible();
+    }
+
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-add').click();
+    const fileChooser = await chooser;
+    const chooserInput = await fileChooser.element();
+    expect(await chooserInput.getAttribute('id')).toBe('aiImageRef0');
+
+    await fileChooser.setFiles(createSvgUpload(64, 64));
+
+    await expect(page.locator('#aiImageRefCount')).toHaveText('1 / 4');
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-preview'),
+    ).toBeVisible();
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-remove'),
+    ).toBeVisible();
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-add'),
+    ).toBeHidden();
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-thumb'),
+    ).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/);
+
+    await page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-remove').click();
+
+    await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 4');
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-preview'),
+    ).toBeHidden();
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-remove'),
+    ).toBeHidden();
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-add'),
+    ).toBeVisible();
+  });
+
   test('saves text, embeddings, compare, and live-agent outputs into shared folders', async ({
     page,
   }) => {

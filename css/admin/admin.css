@@ -753,6 +753,10 @@
         justify-content: center;
     }
 
+    .admin-ai__ref-preview[hidden] {
+        display: none;
+    }
+
     .admin-ai__ref-thumb {
         width: 100%;
         height: 100%;
