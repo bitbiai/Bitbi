@@ -18,7 +18,7 @@ const HISTORY_LIMIT = 6;
 const ADMIN_AI_UI_VERSION = '20260412-wave15';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
-    image: 45_000,
+    image: 180_000,
     embeddings: 15_000,
     compare: 30_000,
 };
