@@ -192,47 +192,48 @@ class MockImagesBinding {
 
   input(input) {
     const binding = this;
+    const transforms = [];
+    let outputOptions = null;
     return {
-      transforms: [],
-      outputOptions: null,
       transform(options) {
-        this.transforms.push(options || {});
+        transforms.push(options || {});
         return this;
       },
+      // Matches actual Cloudflare Images runtime: .output() returns a
+      // Promise<Response> directly — there is no .response() method.
       output(options) {
-        this.outputOptions = options || {};
-        return this;
-      },
-      async response() {
-        if (binding.failResponseWith) {
-          throw binding.failResponseWith instanceof Error
-            ? binding.failResponseWith
-            : new Error(String(binding.failResponseWith));
-        }
+        outputOptions = options || {};
+        return (async () => {
+          if (binding.failResponseWith) {
+            throw binding.failResponseWith instanceof Error
+              ? binding.failResponseWith
+              : new Error(String(binding.failResponseWith));
+          }
 
-        const buffer = await bodyToArrayBuffer(input);
-        const bytes = buffer ? new Uint8Array(buffer) : new Uint8Array();
-        const inputInfo = parseMockImageInfo(bytes, binding.originalInfo);
-        const latest = this.transforms[this.transforms.length - 1] || {};
-        const dims = scaleDownDimensions(
-          inputInfo.width,
-          inputInfo.height,
-          latest.width || inputInfo.width,
-          latest.height || inputInfo.height
-        );
-        const format = this.outputOptions?.format || 'image/webp';
-        binding.transformCalls.push({
-          transforms: deepClone(this.transforms),
-          outputOptions: deepClone(this.outputOptions),
-          width: dims.width,
-          height: dims.height,
-        });
-        const body = new TextEncoder().encode(`mock-image:${dims.width}x${dims.height}:${format}`);
-        return new Response(body, {
-          headers: {
-            'content-type': format,
-          },
-        });
+          const buffer = await bodyToArrayBuffer(input);
+          const bytes = buffer ? new Uint8Array(buffer) : new Uint8Array();
+          const inputInfo = parseMockImageInfo(bytes, binding.originalInfo);
+          const latest = transforms[transforms.length - 1] || {};
+          const dims = scaleDownDimensions(
+            inputInfo.width,
+            inputInfo.height,
+            latest.width || inputInfo.width,
+            latest.height || inputInfo.height
+          );
+          const format = outputOptions?.format || 'image/webp';
+          binding.transformCalls.push({
+            transforms: deepClone(transforms),
+            outputOptions: deepClone(outputOptions),
+            width: dims.width,
+            height: dims.height,
+          });
+          const body = new TextEncoder().encode(`mock-image:${dims.width}x${dims.height}:${format}`);
+          return new Response(body, {
+            headers: {
+              'content-type': format,
+            },
+          });
+        })();
       },
     };
   }

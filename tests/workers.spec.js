@@ -2468,6 +2468,36 @@ test.describe('Worker routes', () => {
     expect(mediumRes.headers.get('content-type')).toContain('image/webp');
   });
 
+  test('IMAGES binding mock matches Cloudflare runtime: output() returns Promise not builder', async () => {
+    // Validates the exact runtime shape that caused:
+    // TypeError: env.IMAGES.input(...).transform(...).output(...).response is not a function
+    const { MockImagesBinding } = require('./helpers/auth-worker-harness.js');
+    const images = new MockImagesBinding();
+
+    const inputBytes = new TextEncoder().encode('mock-image:512x512:image/png');
+    const outputResult = images.input(inputBytes)
+      .transform({ width: 320, height: 320, fit: 'scale-down' })
+      .output({ format: 'image/webp', quality: 82 });
+
+    // .output() must NOT expose .response() — matches actual Cloudflare runtime
+    expect(typeof outputResult.response).not.toBe('function');
+
+    // .output() must be awaitable (Promise<Response>)
+    expect(typeof outputResult.then).toBe('function');
+
+    const response = await outputResult;
+    expect(response).toBeInstanceOf(Response);
+    expect(response.headers.get('content-type')).toBe('image/webp');
+
+    const body = await response.text();
+    expect(body).toContain('mock-image:');
+    expect(body).toContain('image/webp');
+
+    // Transform call was tracked
+    expect(images.transformCalls.length).toBe(1);
+    expect(images.transformCalls[0].transforms[0].width).toBe(320);
+  });
+
   test('admin AI derivative backfill only enqueues assets that still need current work', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

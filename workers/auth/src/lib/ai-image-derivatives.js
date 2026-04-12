@@ -416,7 +416,7 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
     throw permanentAiImageDerivativeError("Images binding is unavailable.", "images_binding_missing");
   }
 
-  const response = await env.IMAGES.input(originalBytes)
+  const outputResult = env.IMAGES.input(originalBytes)
     .transform({
       width: preset.maxWidth,
       height: preset.maxHeight,
@@ -425,8 +425,18 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
     .output({
       format: preset.format,
       quality: preset.quality,
-    })
-    .response();
+    });
+
+  // Handle both Cloudflare Images API shapes:
+  // - Current runtime: .output() returns a Promise<Response> directly
+  // - Legacy/alternate: .output() returns a builder with .response() method
+  const response = typeof outputResult.response === "function"
+    ? await outputResult.response()
+    : await outputResult;
+
+  if (!response || typeof response.arrayBuffer !== "function") {
+    throw new Error(`Derivative transform returned an invalid result for ${preset.variant}.`);
+  }
 
   const buffer = await toArrayBuffer(response);
   if (!buffer || !buffer.byteLength) {
@@ -449,7 +459,9 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
 
   return {
     bytes,
-    mimeType: response.headers.get("content-type") || preset.format,
+    mimeType: (response.headers && typeof response.headers.get === "function"
+      ? response.headers.get("content-type")
+      : null) || preset.format,
     width: info?.width || fallback.width,
     height: info?.height || fallback.height,
   };
