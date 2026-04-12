@@ -33,6 +33,7 @@ const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
+const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
 const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
 const $aiLabToast     = document.getElementById('profileAiLabToast');
 
@@ -130,6 +131,13 @@ function setActiveView(view) {
             $adminAiLabCard.setAttribute('aria-current', 'page');
         } else {
             $adminAiLabCard.removeAttribute('aria-current');
+        }
+    }
+    if ($mobileAiLabLink) {
+        if (resolvedView === AI_LAB_HASH) {
+            $mobileAiLabLink.setAttribute('aria-current', 'page');
+        } else {
+            $mobileAiLabLink.removeAttribute('aria-current');
         }
     }
 
@@ -236,6 +244,9 @@ function renderProfile(profile, account) {
     }
     if ($adminAiLabCard) {
         $adminAiLabCard.hidden = !isAdmin;
+    }
+    if ($mobileAiLabLink) {
+        $mobileAiLabLink.hidden = !isAdmin;
     }
     syncAiLabView();
 

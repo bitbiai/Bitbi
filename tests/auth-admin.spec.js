@@ -1076,6 +1076,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'false');
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
 
     await page.goto('/account/profile.html#ai-lab');
@@ -1099,6 +1100,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'true');
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileAdminAiLabCard')).toBeVisible();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toContainText('AI Lab');
 
     const studioBox = await page.locator('#profileStudioCard').boundingBox();
@@ -1137,6 +1139,78 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
     await expect(page.locator('#profileAiLabView')).toBeHidden();
     await expect(page.locator('#profileHomeView')).toBeVisible();
+  });
+});
+
+test.describe('Profile page (authenticated mobile)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('admin mobile profile shows AI Lab beside Studio and hides the lower AI cards', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'admin' });
+    await mockAdminAiLab(page);
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#profileTabBar')).toBeVisible();
+    await expect(page.locator('#profileStudioStack')).toBeHidden();
+    await expect(page.locator('#profileStudioCard')).toBeHidden();
+    await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Studio', 'AI Lab']);
+
+    const studioLinkBox = await page.locator('#profileTabBar .profile-tab-link:visible').first().boundingBox();
+    const labLinkBox = await page.locator('#profileMobileAiLabLink').boundingBox();
+    expect(studioLinkBox).not.toBeNull();
+    expect(labLinkBox).not.toBeNull();
+    expect(labLinkBox.x).toBeGreaterThan(studioLinkBox.x);
+    expect(Math.abs(labLinkBox.y - studioLinkBox.y)).toBeLessThanOrEqual(2);
+
+    await page.locator('#profileMobileAiLabLink').click();
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
+    await expect(page.locator('#profileHeroTitle')).toHaveText('AI Lab');
+    await expect(page.locator('#profileHomeView')).toBeHidden();
+    await expect(page.locator('#profileAiLabView')).toBeVisible();
+    await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
+
+    const hasOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(hasOverflow).toBe(false);
+
+    await page.locator('#profileAiLabBack').click();
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#profileHomeView')).toBeVisible();
+    await expect(page.locator('#profileAiLabView')).toBeHidden();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
+  });
+
+  test('non-admin mobile profile keeps only Studio in the top row and rejects AI Lab state', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('#profileTabBar')).toBeVisible();
+    await expect(page.locator('#profileStudioStack')).toBeHidden();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Studio']);
+
+    await page.goto('/account/profile.html#ai-lab');
+    await expect(page.locator('#profileHomeView')).toBeVisible();
+    await expect(page.locator('#profileAiLabView')).toBeHidden();
+    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
   });
 });
 

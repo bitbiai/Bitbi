@@ -312,10 +312,20 @@
         display: none;
     }
 
+    .profile-tab-link[hidden] {
+        display: none !important;
+    }
+
     @media (max-width: 1023px) {
+        .profile__studio-stack {
+            display: none;
+            margin-block-start: 0;
+        }
+
         .profile-tab-link {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             padding: var(--space-2) var(--space-5);
             border-radius: var(--radius-full);
             font-family: var(--font-mono);
@@ -327,6 +337,7 @@
             text-decoration: none;
             transition: all 0.3s var(--ease-default);
             -webkit-tap-highlight-color: transparent;
+            white-space: nowrap;
         }
 
         .profile-tab-link:hover {
@@ -788,7 +799,9 @@
         .profile-tab-bar {
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
             gap: 0.625rem;
+            row-gap: 0.625rem;
             margin-block-end: var(--space-6);
         }
 
@@ -804,6 +817,7 @@
             cursor: pointer;
             transition: all 0.3s var(--ease-default);
             -webkit-tap-highlight-color: transparent;
+            white-space: nowrap;
         }
 
         .profile-tab-btn.active {
