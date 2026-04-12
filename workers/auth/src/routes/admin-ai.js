@@ -25,12 +25,17 @@ const LIMITS = {
   },
   image: {
     promptMax: 2048,
+    structuredPromptMax: 8192,
     minSteps: 1,
-    maxSteps: 8,
+    maxSteps: 50,
     defaultSteps: 4,
+    minGuidance: 1,
+    maxGuidance: 20,
     allowedDimensions: [256, 512, 768, 1024],
     maxPixels: 1024 * 1024,
     maxSeed: 2147483647,
+    maxReferenceImages: 4,
+    maxReferenceImageBytes: 10 * 1024 * 1024,
   },
   embeddings: {
     maxBatchSize: 8,
@@ -215,6 +220,69 @@ function validateTextPayload(body) {
   };
 }
 
+function optionalStructuredPrompt(value, field, maxLength) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new InputError(`${field} must be a string.`, 400, "validation_error");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > maxLength) {
+    throw new InputError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new InputError(`${field} must be a JSON object.`, 400, "validation_error");
+    }
+  } catch (error) {
+    if (error instanceof InputError) throw error;
+    throw new InputError(`${field} contains invalid JSON.`, 400, "validation_error");
+  }
+  return trimmed;
+}
+
+function validateReferenceImages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new InputError("referenceImages must be an array.", 400, "validation_error");
+  }
+  if (value.length > LIMITS.image.maxReferenceImages) {
+    throw new InputError(
+      `referenceImages must contain at most ${LIMITS.image.maxReferenceImages} items.`,
+      400,
+      "validation_error"
+    );
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string" || !item.startsWith("data:")) {
+      throw new InputError(
+        `referenceImages[${index}] must be a data URI string.`,
+        400,
+        "validation_error"
+      );
+    }
+    const commaIndex = item.indexOf(",");
+    if (commaIndex === -1) {
+      throw new InputError(
+        `referenceImages[${index}] is not a valid data URI.`,
+        400,
+        "validation_error"
+      );
+    }
+    const base64 = item.slice(commaIndex + 1);
+    const estimatedBytes = Math.ceil(base64.length * 0.75);
+    if (estimatedBytes > LIMITS.image.maxReferenceImageBytes) {
+      throw new InputError(
+        `referenceImages[${index}] exceeds the ${LIMITS.image.maxReferenceImageBytes} byte size limit.`,
+        400,
+        "validation_error"
+      );
+    }
+    return item;
+  });
+}
+
 function validateImagePayload(body) {
   const input = ensureObject(body);
   const width = optionalDimension(input.width, "width");
@@ -232,10 +300,22 @@ function validateImagePayload(body) {
     );
   }
 
+  const structuredPrompt = optionalStructuredPrompt(
+    input.structuredPrompt,
+    "structuredPrompt",
+    LIMITS.image.structuredPromptMax
+  );
+
+  const referenceImages = validateReferenceImages(input.referenceImages);
+
   return {
     preset: optionalString(input.preset, "preset", 64),
     model: optionalString(input.model, "model", 120),
-    prompt: requiredString(input.prompt, "prompt", LIMITS.image.promptMax),
+    prompt: structuredPrompt
+      ? optionalString(input.prompt, "prompt", LIMITS.image.promptMax)
+      : requiredString(input.prompt, "prompt", LIMITS.image.promptMax),
+    structuredPrompt,
+    promptMode: structuredPrompt ? "structured" : "standard",
     width,
     height,
     steps: optionalInteger(
@@ -243,9 +323,17 @@ function validateImagePayload(body) {
       "steps",
       LIMITS.image.minSteps,
       LIMITS.image.maxSteps,
-      LIMITS.image.defaultSteps
+      null
     ),
     seed: optionalInteger(input.seed, "seed", 0, LIMITS.image.maxSeed, null),
+    guidance: optionalNumber(
+      input.guidance,
+      "guidance",
+      LIMITS.image.minGuidance,
+      LIMITS.image.maxGuidance,
+      null
+    ),
+    referenceImages,
   };
 }
 

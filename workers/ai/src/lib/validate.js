@@ -145,6 +145,73 @@ export function validateTextBody(body) {
   };
 }
 
+function optionalStructuredPrompt(value, field, maxLength) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new ValidationError(`${field} must be a string.`, 400, "validation_error");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > maxLength) {
+    throw new ValidationError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new ValidationError(`${field} must be a JSON object.`, 400, "validation_error");
+    }
+  } catch (error) {
+    if (error instanceof ValidationError) throw error;
+    throw new ValidationError(`${field} contains invalid JSON.`, 400, "validation_error");
+  }
+
+  return trimmed;
+}
+
+function validateReferenceImages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ValidationError("referenceImages must be an array.", 400, "validation_error");
+  }
+  if (value.length > LIMITS.image.maxReferenceImages) {
+    throw new ValidationError(
+      `referenceImages must contain at most ${LIMITS.image.maxReferenceImages} items.`,
+      400,
+      "validation_error"
+    );
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== "string" || !item.startsWith("data:")) {
+      throw new ValidationError(
+        `referenceImages[${index}] must be a data URI string.`,
+        400,
+        "validation_error"
+      );
+    }
+    const commaIndex = item.indexOf(",");
+    if (commaIndex === -1) {
+      throw new ValidationError(
+        `referenceImages[${index}] is not a valid data URI.`,
+        400,
+        "validation_error"
+      );
+    }
+    const base64 = item.slice(commaIndex + 1);
+    const estimatedBytes = Math.ceil(base64.length * 0.75);
+    if (estimatedBytes > LIMITS.image.maxReferenceImageBytes) {
+      throw new ValidationError(
+        `referenceImages[${index}] exceeds the ${LIMITS.image.maxReferenceImageBytes} byte size limit.`,
+        400,
+        "validation_error"
+      );
+    }
+    return item;
+  });
+}
+
 export function validateImageBody(body) {
   const input = ensureObject(body);
   const width = optionalDimension(input.width, "width");
@@ -162,10 +229,22 @@ export function validateImageBody(body) {
     );
   }
 
+  const structuredPrompt = optionalStructuredPrompt(
+    input.structuredPrompt,
+    "structuredPrompt",
+    LIMITS.image.maxStructuredPromptLength
+  );
+
+  const referenceImages = validateReferenceImages(input.referenceImages);
+
   return {
     preset: optionalString(input.preset, "preset", 64),
     model: optionalString(input.model, "model", 120),
-    prompt: requiredString(input.prompt, "prompt", LIMITS.image.maxPromptLength),
+    prompt: structuredPrompt
+      ? optionalString(input.prompt, "prompt", LIMITS.image.maxPromptLength)
+      : requiredString(input.prompt, "prompt", LIMITS.image.maxPromptLength),
+    structuredPrompt,
+    promptMode: structuredPrompt ? "structured" : "standard",
     width,
     height,
     steps: optionalInteger(
@@ -173,9 +252,17 @@ export function validateImageBody(body) {
       "steps",
       LIMITS.image.minSteps,
       LIMITS.image.maxSteps,
-      LIMITS.image.defaultSteps
+      null
     ),
     seed: optionalInteger(input.seed, "seed", 0, LIMITS.image.maxSeed, null),
+    guidance: optionalNumber(
+      input.guidance,
+      "guidance",
+      LIMITS.image.minGuidance,
+      LIMITS.image.maxGuidance,
+      null
+    ),
+    referenceImages,
   };
 }
 

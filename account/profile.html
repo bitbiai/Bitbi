@@ -21,8 +21,8 @@
     <link rel="stylesheet" href="../css/base/base.css?v=20260322">
     <link rel="stylesheet" href="../css/components/components.css?v=20260405">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
-    <link rel="stylesheet" href="../css/admin/admin.css?v=20260412-wave14">
-    <link rel="stylesheet" href="../css/account/image-studio.css?v=20260412-wave14">
+    <link rel="stylesheet" href="../css/admin/admin.css?v=20260412-wave15">
+    <link rel="stylesheet" href="../css/account/image-studio.css?v=20260412-wave15">
     <link rel="stylesheet" href="../css/account/profile.css?v=20260412-wave15">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260317">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
@@ -393,12 +393,30 @@
                                     <select id="aiImageModel" class="admin-ai__input"></select>
                                 </label>
                             </div>
-                            <label class="admin-ai__field">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field" id="aiImagePromptModeField">
+                                    <span class="admin-ai__label">Prompt Mode</span>
+                                    <select id="aiImagePromptMode" class="admin-ai__input">
+                                        <option value="standard">Standard Prompt</option>
+                                        <option value="structured">Structured Prompt (JSON)</option>
+                                    </select>
+                                    <span id="aiImagePromptModeHint" class="admin-ai__hint" hidden>Current model does not support structured prompts.</span>
+                                </label>
+                            </div>
+                            <label class="admin-ai__field" id="aiImageStandardPromptField">
                                 <span class="admin-ai__label-row">
                                     <span class="admin-ai__label">Prompt</span>
                                     <span id="aiImagePromptCount" class="admin-ai__count"></span>
                                 </span>
                                 <textarea id="aiImagePrompt" class="admin-ai__textarea" rows="6" maxlength="2048"></textarea>
+                            </label>
+                            <label class="admin-ai__field" id="aiImageStructuredPromptField" hidden>
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Structured Prompt (JSON)</span>
+                                    <span id="aiImageStructuredPromptCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiImageStructuredPrompt" class="admin-ai__textarea admin-ai__textarea--code" rows="8" maxlength="8192" placeholder='{"key": "value"}'></textarea>
+                                <span id="aiImageStructuredPromptError" class="admin-ai__inline-error" hidden></span>
                             </label>
                             <div class="admin-ai__history">
                                 <div class="admin-ai__history-head">
@@ -407,7 +425,7 @@
                                 </div>
                                 <div id="aiImagePromptHistory" class="admin-ai__history-list"></div>
                             </div>
-                            <div class="admin-ai__form-grid admin-ai__form-grid--4">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--5" id="aiImageAdvancedGrid">
                                 <label class="admin-ai__field">
                                     <span class="admin-ai__label">Width</span>
                                     <input id="aiImageWidth" class="admin-ai__input" type="number" min="256" max="1024" step="256">
@@ -416,14 +434,62 @@
                                     <span class="admin-ai__label">Height</span>
                                     <input id="aiImageHeight" class="admin-ai__input" type="number" min="256" max="1024" step="256">
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageStepsField">
                                     <span class="admin-ai__label">Steps</span>
-                                    <input id="aiImageSteps" class="admin-ai__input" type="number" min="1" max="8" step="1">
+                                    <input id="aiImageSteps" class="admin-ai__input" type="number" min="1" max="50" step="1">
+                                    <span id="aiImageStepsHint" class="admin-ai__hint" hidden></span>
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageSeedField">
                                     <span class="admin-ai__label">Seed</span>
                                     <input id="aiImageSeed" class="admin-ai__input" type="number" min="0" step="1" placeholder="Optional">
+                                    <span id="aiImageSeedHint" class="admin-ai__hint" hidden></span>
                                 </label>
+                                <label class="admin-ai__field" id="aiImageGuidanceField">
+                                    <span class="admin-ai__label">Guidance</span>
+                                    <input id="aiImageGuidance" class="admin-ai__input" type="number" min="1" max="20" step="0.5" placeholder="Optional">
+                                    <span id="aiImageGuidanceHint" class="admin-ai__hint" hidden></span>
+                                </label>
+                            </div>
+                            <div class="admin-ai__ref-images" id="aiImageRefSection">
+                                <div class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Reference Images</span>
+                                    <span id="aiImageRefCount" class="admin-ai__count">0 / 4</span>
+                                </div>
+                                <span id="aiImageRefHint" class="admin-ai__hint" hidden>Current model does not support reference images.</span>
+                                <div class="admin-ai__ref-grid" id="aiImageRefGrid">
+                                    <div class="admin-ai__ref-slot" data-ref-index="0">
+                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef0" hidden>
+                                        <button type="button" class="admin-ai__ref-add" data-ref-index="0" title="Add reference image">+</button>
+                                        <div class="admin-ai__ref-preview" data-ref-index="0" hidden>
+                                            <img class="admin-ai__ref-thumb" alt="Reference 1">
+                                            <button type="button" class="admin-ai__ref-remove" data-ref-index="0" title="Remove">&times;</button>
+                                        </div>
+                                    </div>
+                                    <div class="admin-ai__ref-slot" data-ref-index="1">
+                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef1" hidden>
+                                        <button type="button" class="admin-ai__ref-add" data-ref-index="1" title="Add reference image">+</button>
+                                        <div class="admin-ai__ref-preview" data-ref-index="1" hidden>
+                                            <img class="admin-ai__ref-thumb" alt="Reference 2">
+                                            <button type="button" class="admin-ai__ref-remove" data-ref-index="1" title="Remove">&times;</button>
+                                        </div>
+                                    </div>
+                                    <div class="admin-ai__ref-slot" data-ref-index="2">
+                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef2" hidden>
+                                        <button type="button" class="admin-ai__ref-add" data-ref-index="2" title="Add reference image">+</button>
+                                        <div class="admin-ai__ref-preview" data-ref-index="2" hidden>
+                                            <img class="admin-ai__ref-thumb" alt="Reference 3">
+                                            <button type="button" class="admin-ai__ref-remove" data-ref-index="2" title="Remove">&times;</button>
+                                        </div>
+                                    </div>
+                                    <div class="admin-ai__ref-slot" data-ref-index="3">
+                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef3" hidden>
+                                        <button type="button" class="admin-ai__ref-add" data-ref-index="3" title="Add reference image">+</button>
+                                        <div class="admin-ai__ref-preview" data-ref-index="3" hidden>
+                                            <img class="admin-ai__ref-thumb" alt="Reference 4">
+                                            <button type="button" class="admin-ai__ref-remove" data-ref-index="3" title="Remove">&times;</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="admin-ai__actions">
                                 <button type="button" id="aiImageRun" class="admin-ai__run">Run Image Test</button>

@@ -147,6 +147,20 @@ function createMockAiCatalog() {
           label: 'FLUX.1 Schnell',
           vendor: 'Black Forest Labs',
           description: 'Fast image model',
+          capabilities: {
+            supportsSeed: true,
+            supportsSteps: true,
+            supportsDimensions: false,
+            supportsGuidance: false,
+            supportsStructuredPrompt: false,
+            supportsReferenceImages: false,
+            maxReferenceImages: 0,
+            maxSteps: 8,
+            defaultSteps: 4,
+            minGuidance: null,
+            maxGuidance: null,
+            defaultGuidance: null,
+          },
         },
         {
           id: '@cf/black-forest-labs/flux-2-klein-9b',
@@ -154,6 +168,20 @@ function createMockAiCatalog() {
           label: 'FLUX.2 Klein 9B',
           vendor: 'Black Forest Labs',
           description: 'Multipart image model for admin experiments',
+          capabilities: {
+            supportsSeed: false,
+            supportsSteps: false,
+            supportsDimensions: true,
+            supportsGuidance: false,
+            supportsStructuredPrompt: false,
+            supportsReferenceImages: false,
+            maxReferenceImages: 0,
+            maxSteps: null,
+            defaultSteps: null,
+            minGuidance: null,
+            maxGuidance: null,
+            defaultGuidance: null,
+          },
         },
         {
           id: '@cf/black-forest-labs/flux-2-dev',
@@ -161,6 +189,20 @@ function createMockAiCatalog() {
           label: 'FLUX.2 Dev',
           vendor: 'Black Forest Labs',
           description: 'Higher-capability multipart image model for admin experiments',
+          capabilities: {
+            supportsSeed: true,
+            supportsSteps: true,
+            supportsDimensions: true,
+            supportsGuidance: true,
+            supportsStructuredPrompt: true,
+            supportsReferenceImages: true,
+            maxReferenceImages: 4,
+            maxSteps: 50,
+            defaultSteps: 20,
+            minGuidance: 1,
+            maxGuidance: 20,
+            defaultGuidance: 7.5,
+          },
         },
       ],
       embeddings: [
@@ -2126,9 +2168,9 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260412-wave14"]')).toHaveCount(1);
-    await expect(page.locator('link[href*="css/account/image-studio.css?v=20260412-wave14"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260412-wave14"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260412-wave15"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/account/image-studio.css?v=20260412-wave15"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260412-wave15"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -2931,6 +2973,99 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiLiveAgentClear').click();
     await expect(page.locator('.admin-ai__chat-msg')).toHaveCount(0);
     await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AI Lab Image panel: capability-driven controls
+// ---------------------------------------------------------------------------
+
+test.describe('AI Lab Image capability controls', () => {
+  test('disables advanced controls for non-supporting models and enables them for flux-2-dev', async ({
+    page,
+  }) => {
+    await seedCookieConsent(page);
+    await page.route('**/api/admin/me', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
+    await page.route('**/api/admin/ai/models', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(createMockAiCatalog()),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await page.getByRole('button', { name: 'Image' }).click();
+    await expect(page.locator('#aiImageModel')).toBeVisible();
+
+    // Default model (preset) — guidance, prompt mode, ref images should be disabled
+    await page.selectOption('#aiImageModel', '');
+    await expect(page.locator('#aiImageGuidanceField')).toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImagePromptModeField')).toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageRefSection')).toHaveClass(/admin-ai__ref-images--disabled/);
+
+    // Select flux-2-dev — all controls should become enabled
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
+    await expect(page.locator('#aiImageGuidanceField')).not.toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImagePromptModeField')).not.toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageRefSection')).not.toHaveClass(/admin-ai__ref-images--disabled/);
+    await expect(page.locator('#aiImageStepsField')).not.toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageSeedField')).not.toHaveClass(/admin-ai__field--disabled/);
+
+    // Steps max should be 50 for flux-2-dev
+    const stepsMax = await page.locator('#aiImageSteps').getAttribute('max');
+    expect(stepsMax).toBe('50');
+
+    // Select klein — guidance still disabled, steps/seed disabled
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await expect(page.locator('#aiImageGuidanceField')).toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageStepsField')).toHaveClass(/admin-ai__field--disabled/);
+    await expect(page.locator('#aiImageSeedField')).toHaveClass(/admin-ai__field--disabled/);
+  });
+
+  test('prompt mode selector toggles between standard and structured prompt fields', async ({
+    page,
+  }) => {
+    await seedCookieConsent(page);
+    await page.route('**/api/admin/me', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
+    await page.route('**/api/admin/ai/models', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(createMockAiCatalog()),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await page.getByRole('button', { name: 'Image' }).click();
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
+
+    // Standard mode is default
+    await expect(page.locator('#aiImageStandardPromptField')).toBeVisible();
+    await expect(page.locator('#aiImageStructuredPromptField')).toBeHidden();
+
+    // Switch to structured
+    await page.selectOption('#aiImagePromptMode', 'structured');
+    await expect(page.locator('#aiImageStandardPromptField')).toBeHidden();
+    await expect(page.locator('#aiImageStructuredPromptField')).toBeVisible();
+
+    // Enter invalid JSON and check validation
+    await page.locator('#aiImageStructuredPrompt').fill('not json {{{');
+    await page.locator('#aiImageStructuredPrompt').dispatchEvent('input');
+    await expect(page.locator('#aiImageStructuredPromptError')).toBeVisible();
+
+    // Enter valid JSON and check validation clears
+    await page.locator('#aiImageStructuredPrompt').fill('{"key": "value"}');
+    await page.locator('#aiImageStructuredPrompt').dispatchEvent('input');
+    await expect(page.locator('#aiImageStructuredPromptError')).toBeHidden();
   });
 });
 

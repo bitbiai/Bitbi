@@ -180,9 +180,29 @@ function extractEmbeddingsResponse(result) {
   return null;
 }
 
+function dataUriToBlob(dataUri) {
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex === -1) return null;
+  const meta = dataUri.slice(0, commaIndex);
+  const base64 = dataUri.slice(commaIndex + 1);
+  const mimeMatch = meta.match(/^data:([^;]+)/);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
 function buildMultipartImageRequest(model, input) {
   const form = new FormData();
-  form.append("prompt", input.prompt);
+
+  if (input.structuredPrompt) {
+    form.append("prompt", input.structuredPrompt);
+  } else {
+    form.append("prompt", input.prompt);
+  }
 
   const width = input.width || model.defaultSize?.width || null;
   const height = input.height || model.defaultSize?.height || null;
@@ -198,6 +218,19 @@ function buildMultipartImageRequest(model, input) {
 
   if (model.supportsSeed && input.seed !== null && input.seed !== undefined) {
     form.append("seed", String(input.seed));
+  }
+
+  if (model.supportsGuidance && input.guidance !== null && input.guidance !== undefined) {
+    form.append("guidance", String(input.guidance));
+  }
+
+  if (model.supportsReferenceImages && Array.isArray(input.referenceImages)) {
+    for (const refImg of input.referenceImages) {
+      const blob = dataUriToBlob(refImg);
+      if (blob) {
+        form.append("image", blob);
+      }
+    }
   }
 
   const response = new Response(form);
@@ -217,6 +250,7 @@ function buildMultipartImageRequest(model, input) {
     },
     appliedSteps: model.supportsSteps ? input.steps : null,
     appliedSeed: model.supportsSeed ? input.seed : null,
+    appliedGuidance: model.supportsGuidance ? input.guidance : null,
     appliedSize: width && height ? { width, height } : null,
   };
 }
@@ -252,6 +286,7 @@ export async function invokeImage(env, model, input) {
   let payload;
   let appliedSteps = null;
   let appliedSeed = null;
+  let appliedGuidance = null;
   let appliedSize = null;
 
   if (model.inputFormat === "multipart") {
@@ -259,14 +294,15 @@ export async function invokeImage(env, model, input) {
     payload = multipartRequest.payload;
     appliedSteps = multipartRequest.appliedSteps;
     appliedSeed = multipartRequest.appliedSeed;
+    appliedGuidance = multipartRequest.appliedGuidance;
     appliedSize = multipartRequest.appliedSize;
   } else {
     payload = {
       prompt: input.prompt,
-      steps: Math.min(input.steps, model.maxSteps || input.steps),
+      steps: Math.min(input.steps ?? model.defaultSteps ?? 4, model.maxSteps || input.steps || 8),
     };
 
-    if (input.seed !== null) {
+    if (input.seed !== null && input.seed !== undefined) {
       payload.seed = input.seed;
     }
 
@@ -284,6 +320,16 @@ export async function invokeImage(env, model, input) {
     }
   }
 
+  if (!model.supportsGuidance && input.guidance !== null && input.guidance !== undefined) {
+    warnings.push(`Model "${model.id}" does not support guidance.`);
+  }
+  if (!model.supportsStructuredPrompt && input.structuredPrompt) {
+    warnings.push(`Model "${model.id}" does not support structured prompts. Using standard prompt.`);
+  }
+  if (!model.supportsReferenceImages && input.referenceImages?.length > 0) {
+    warnings.push(`Model "${model.id}" does not support reference images. They were ignored.`);
+  }
+
   const raw = await env.AI.run(model.id, payload);
   const image = await extractImageResponse(raw, model);
 
@@ -295,6 +341,7 @@ export async function invokeImage(env, model, input) {
     ...image,
     appliedSteps,
     appliedSeed,
+    appliedGuidance,
     appliedSize,
     warnings,
     elapsedMs: Date.now() - startedAt,

@@ -667,6 +667,133 @@
         transition: height 0.18s var(--ease-default), border-color 0.2s var(--ease-default), background 0.2s var(--ease-default);
     }
 
+    .admin-ai__textarea--code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre;
+        tab-size: 2;
+    }
+
+    .admin-ai__hint {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.32);
+        margin-block-start: var(--space-1);
+    }
+
+    .admin-ai__inline-error {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(255, 140, 140, 0.9);
+        margin-block-start: var(--space-1);
+    }
+
+    .admin-ai__field--disabled .admin-ai__input,
+    .admin-ai__field--disabled .admin-ai__textarea,
+    .admin-ai__field--disabled select {
+        opacity: 0.38;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+    .admin-ai__field--disabled .admin-ai__label {
+        opacity: 0.38;
+    }
+
+    .admin-ai__ref-images {
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__ref-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--space-3);
+        margin-block-start: var(--space-3);
+    }
+
+    .admin-ai__ref-slot {
+        position: relative;
+        aspect-ratio: 1;
+        border: 1px dashed rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-ai__ref-add {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.25);
+        font-size: 24px;
+        cursor: pointer;
+        transition: color 0.2s var(--ease-default), background 0.2s var(--ease-default);
+    }
+
+    .admin-ai__ref-add:hover {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.04);
+    }
+
+    .admin-ai__ref-add:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .admin-ai__ref-preview {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .admin-ai__ref-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: var(--radius-sm);
+    }
+
+    .admin-ai__ref-remove {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.7);
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s var(--ease-default);
+    }
+
+    .admin-ai__ref-remove:hover {
+        background: rgba(239, 68, 68, 0.8);
+    }
+
+    .admin-ai__ref-images--disabled .admin-ai__ref-add {
+        opacity: 0.3;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+    .admin-ai__ref-images--disabled .admin-ai__ref-slot {
+        opacity: 0.38;
+    }
+
     .admin-ai__input:focus-visible,
     .admin-ai__textarea:focus-visible {
         border-color: rgba(0, 240, 255, 0.25);
@@ -1311,12 +1438,16 @@
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .admin-ai__form-grid--4 {
+        .admin-ai__form-grid--4,
+        .admin-ai__form-grid--5 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
 
     @media (max-width: 719px) {
+        .admin-ai__ref-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
         .admin-ai__save-head {
             flex-direction: column;
         }
@@ -1341,6 +1472,10 @@
 
         .admin-ai__form-grid--4 {
             grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .admin-ai__form-grid--5 {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
         }
     }
 

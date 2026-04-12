@@ -24,6 +24,8 @@ export async function handleImage({ request, env }) {
         mimeType: output.mimeType,
         steps: output.appliedSteps,
         seed: output.appliedSeed,
+        guidance: output.appliedGuidance,
+        promptMode: input.promptMode || "standard",
         requestedSize:
           input.width && input.height
             ? {
@@ -32,6 +34,7 @@ export async function handleImage({ request, env }) {
               }
             : null,
         appliedSize: output.appliedSize,
+        referenceImageCount: input.referenceImages?.length || 0,
       },
       elapsedMs: output.elapsedMs,
       ...(warnings.length > 0 ? { warnings } : {}),

@@ -10,12 +10,17 @@ export const LIMITS = {
   },
   image: {
     maxPromptLength: 2048,
+    maxStructuredPromptLength: 8192,
     defaultSteps: 4,
     minSteps: 1,
-    maxSteps: 8,
+    maxSteps: 50,
+    minGuidance: 1,
+    maxGuidance: 20,
     allowedDimensions: [256, 512, 768, 1024],
     maxPixels: 1024 * 1024,
     maxSeed: 2147483647,
+    maxReferenceImages: 4,
+    maxReferenceImageBytes: 10 * 1024 * 1024,
   },
   embeddings: {
     maxBatchSize: 8,

@@ -27,7 +27,7 @@ import {
 } from '../../shared/auth-api.js?v=20260412-wave15';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
-import { createAdminAiLab } from '../admin/ai-lab.js?v=20260412-wave14';
+import { createAdminAiLab } from '../admin/ai-lab.js?v=20260412-wave15';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');

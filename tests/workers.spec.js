@@ -827,6 +827,8 @@ test.describe('Worker routes', () => {
           mimeType: expect.any(String),
           steps: 4,
           seed: 12345,
+          promptMode: 'standard',
+          referenceImageCount: 0,
         }),
         elapsedMs: expect.any(Number),
       }));
@@ -911,8 +913,9 @@ test.describe('Worker routes', () => {
           prompt: 'Admin Dev image experiment.',
           width: 768,
           height: 768,
-          steps: 5,
+          steps: 20,
           seed: 9876,
+          guidance: 7.5,
         }, authHeaders),
         env,
         createExecutionContext().execCtx
@@ -931,10 +934,13 @@ test.describe('Worker routes', () => {
         }),
         result: expect.objectContaining({
           imageBase64: expect.any(String),
-          steps: null,
-          seed: null,
+          steps: 20,
+          seed: 9876,
+          guidance: 7.5,
+          promptMode: 'standard',
           requestedSize: { width: 768, height: 768 },
           appliedSize: { width: 768, height: 768 },
+          referenceImageCount: 0,
         }),
       }));
       expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-dev');
@@ -949,7 +955,170 @@ test.describe('Worker routes', () => {
         prompt: 'Admin Dev image experiment.',
         width: '768',
         height: '768',
+        steps: '20',
+        seed: '9876',
+        guidance: '7.5',
       });
+    });
+
+    test('POST /api/admin/ai/test-image accepts structuredPrompt for FLUX.2 Dev', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+
+      const structuredPrompt = JSON.stringify({ subject: 'cat', style: 'oil painting' });
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'fallback prompt',
+          structuredPrompt,
+          width: 1024,
+          height: 1024,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result.promptMode).toBe('structured');
+      const fields = await readMultipartFields(capturedPayload.multipart);
+      expect(fields.prompt).toBe(structuredPrompt);
+    });
+
+    test('POST /api/admin/ai/test-image rejects invalid structuredPrompt JSON', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'test',
+          structuredPrompt: 'not valid json {{{',
+          width: 1024,
+          height: 1024,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
+      expect(body.error).toContain('invalid JSON');
+    });
+
+    test('POST /api/admin/ai/test-image rejects referenceImages exceeding max count', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const fakeRef = 'data:image/png;base64,iVBOR';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'test',
+          width: 1024,
+          height: 1024,
+          referenceImages: [fakeRef, fakeRef, fakeRef, fakeRef, fakeRef],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
+      expect(body.error).toContain('at most 4');
+    });
+
+    test('POST /api/admin/ai/test-image validates guidance range', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'test',
+          width: 1024,
+          height: 1024,
+          guidance: 999,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
+      expect(body.error).toContain('guidance');
+    });
+
+    test('POST /api/admin/ai/test-image accepts steps up to 50 for FLUX.2 Dev', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'High step test.',
+          width: 1024,
+          height: 1024,
+          steps: 50,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result.steps).toBe(50);
+      const fields = await readMultipartFields(capturedPayload.multipart);
+      expect(fields.steps).toBe('50');
+    });
+
+    test('POST /api/admin/ai/test-image model catalog exposes capabilities for image models', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/admin/ai/models', {
+          method: 'GET',
+          headers: authHeaders,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const imageModels = body.models?.image || [];
+      const devModel = imageModels.find((m) => m.id === '@cf/black-forest-labs/flux-2-dev');
+      expect(devModel).toBeDefined();
+      expect(devModel.capabilities).toEqual(expect.objectContaining({
+        supportsGuidance: true,
+        supportsStructuredPrompt: true,
+        supportsReferenceImages: true,
+        maxReferenceImages: 4,
+        supportsSteps: true,
+        supportsSeed: true,
+      }));
+
+      const schnellModel = imageModels.find((m) => m.id === '@cf/black-forest-labs/flux-1-schnell');
+      expect(schnellModel).toBeDefined();
+      expect(schnellModel.capabilities).toEqual(expect.objectContaining({
+        supportsGuidance: false,
+        supportsStructuredPrompt: false,
+        supportsReferenceImages: false,
+        maxReferenceImages: 0,
+      }));
     });
 
     test('POST /api/admin/ai/test-embeddings returns the embeddings response contract used by the UI', async () => {

@@ -87,9 +87,18 @@ const IMAGE_MODELS = {
     label: "FLUX.2 Dev",
     vendor: "Black Forest Labs",
     inputFormat: "multipart",
-    supportsSeed: false,
-    supportsSteps: false,
+    supportsSeed: true,
+    supportsSteps: true,
     supportsDimensions: true,
+    supportsGuidance: true,
+    supportsStructuredPrompt: true,
+    supportsReferenceImages: true,
+    maxReferenceImages: 4,
+    defaultSteps: 20,
+    maxSteps: 50,
+    defaultGuidance: 7.5,
+    minGuidance: 1,
+    maxGuidance: 20,
     defaultSize: { width: 1024, height: 1024 },
     defaultMimeType: "image/jpeg",
     description: "Higher-capability multipart image generation for admin experiments.",
@@ -173,13 +182,32 @@ function invalidSelection(message, code = "validation_error") {
 }
 
 function toPublicModel(model) {
-  return {
+  const pub = {
     id: model.id,
     task: model.task,
     label: model.label,
     vendor: model.vendor,
     description: model.description,
   };
+
+  if (model.task === "image") {
+    pub.capabilities = {
+      supportsSeed: !!model.supportsSeed,
+      supportsSteps: !!model.supportsSteps,
+      supportsDimensions: !!model.supportsDimensions,
+      supportsGuidance: !!model.supportsGuidance,
+      supportsStructuredPrompt: !!model.supportsStructuredPrompt,
+      supportsReferenceImages: !!model.supportsReferenceImages,
+      maxReferenceImages: model.maxReferenceImages || 0,
+      maxSteps: model.maxSteps || null,
+      defaultSteps: model.defaultSteps || null,
+      minGuidance: model.minGuidance || null,
+      maxGuidance: model.maxGuidance || null,
+      defaultGuidance: model.defaultGuidance || null,
+    };
+  }
+
+  return pub;
 }
 
 function toPublicPreset(preset) {
