@@ -230,19 +230,22 @@ export default {
       const rawBody = message?.body && typeof message.body === "object" ? message.body : {};
       const imageId = rawBody.image_id || "unknown";
       const version = rawBody.derivatives_version || "unknown";
+      const attempts = message.attempts ?? 0;
+      // Must stay in sync with queues.consumers[0].max_retries in wrangler.jsonc (currently 8).
+      const isLastAttempt = attempts >= 7;
       console.log(
-        `AI image derivative consumer start image=${imageId} version=${version} attempts=${message.attempts ?? 0}`
+        `AI image derivative consumer start image=${imageId} version=${version} attempts=${attempts}`
       );
 
       try {
-        const result = await processAiImageDerivativeMessage(env, message.body);
+        const result = await processAiImageDerivativeMessage(env, message.body, { isLastAttempt });
         if (result.status === "ready") {
           console.log(
             `AI image derivative consumer success image=${result.payload.imageId} version=${result.payload.derivativesVersion}`
           );
         } else if (result.status === "failed") {
           console.error(
-            `AI image derivative consumer permanent-failure image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
+            `AI image derivative consumer ${result.reason === "retries_exhausted" ? "retries-exhausted" : "permanent-failure"} image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
           );
         } else {
           console.log(
@@ -252,7 +255,7 @@ export default {
         message.ack();
       } catch (error) {
         console.error(
-          `AI image derivative consumer retry image=${imageId} version=${version}`,
+          `AI image derivative consumer retry image=${imageId} version=${version} attempts=${attempts}`,
           error
         );
         message.retry({ delaySeconds: 30 });

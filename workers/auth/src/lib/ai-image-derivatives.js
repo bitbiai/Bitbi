@@ -455,7 +455,7 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
   };
 }
 
-export async function processAiImageDerivativeMessage(env, messageBody) {
+export async function processAiImageDerivativeMessage(env, messageBody, { isLastAttempt = false } = {}) {
   const payload = normalizeAiImageDerivativeMessage(messageBody);
   const now = nowIso();
   const existing = await fetchAiImageDerivativeRow(env, payload.imageId, payload.userId);
@@ -592,6 +592,14 @@ export async function processAiImageDerivativeMessage(env, messageBody) {
     if (isPermanentAiImageDerivativeError(error)) {
       await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));
       return { status: "failed", reason: "permanent_failure", error, payload };
+    }
+
+    if (isLastAttempt) {
+      await finalizeAiImageDerivativeFailure(
+        env, payload, processingToken, "failed",
+        sanitizeDerivativeError(error) + " [retries exhausted]"
+      );
+      return { status: "failed", reason: "retries_exhausted", error, payload };
     }
 
     await finalizeAiImageDerivativeFailure(env, payload, processingToken, "pending", sanitizeDerivativeError(error));

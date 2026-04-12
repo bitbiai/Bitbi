@@ -200,7 +200,7 @@ function createAiImageDerivativeMessage({
   };
 }
 
-function createQueueBatch(messages) {
+function createQueueBatch(messages, { attempts = 1 } = {}) {
   const states = messages.map(() => ({
     acked: false,
     retried: false,
@@ -210,7 +210,7 @@ function createQueueBatch(messages) {
     batch: {
       messages: messages.map((body, index) => ({
         body,
-        attempts: 1,
+        attempts,
         ack() {
           states[index].acked = true;
         },
@@ -1740,6 +1740,58 @@ test.describe('Worker routes', () => {
       derivatives_status: 'ready',
       derivatives_version: 2,
     });
+  });
+
+  test('AI image derivative consumer marks status as failed when retries are exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const originalKey = 'users/exhaust-user/folders/unsorted/original.png';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'exhaust-user', role: 'user' })],
+      aiImages: [
+        {
+          id: 'exh00001',
+          user_id: 'exhaust-user',
+          folder_id: null,
+          r2_key: originalKey,
+          prompt: 'Retry exhaustion test',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 99,
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        [originalKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+      imagesBinding: {
+        failResponseWith: new Error('Simulated transform failure'),
+      },
+    });
+
+    const body = createAiImageDerivativeMessage({
+      imageId: 'exh00001',
+      userId: 'exhaust-user',
+      originalKey,
+      derivativesVersion: 1,
+    });
+
+    // Early attempt (attempts < 7): should retry, status stays pending
+    const earlyBatch = createQueueBatch([body], { attempts: 3 });
+    await authWorker.queue(earlyBatch.batch, env, createExecutionContext().execCtx);
+    expect(earlyBatch.states[0]).toMatchObject({ acked: false, retried: true });
+    const rowAfterRetry = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
+    expect(rowAfterRetry.derivatives_status).toBe('pending');
+
+    // Last attempt (attempts >= 7): should ack and mark failed
+    const lastBatch = createQueueBatch([body], { attempts: 8 });
+    await authWorker.queue(lastBatch.batch, env, createExecutionContext().execCtx);
+    expect(lastBatch.states[0]).toMatchObject({ acked: true, retried: false });
+    const rowAfterExhaustion = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
+    expect(rowAfterExhaustion.derivatives_status).toBe('failed');
+    expect(rowAfterExhaustion.derivatives_error).toContain('retries exhausted');
   });
 
   [
