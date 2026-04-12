@@ -1077,9 +1077,13 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'false');
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+
+    await page.goto('/account/profile.html#ai-lab');
+    await expect(page.locator('#sectionAiLab')).toBeHidden();
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
   });
 
-  test('admin profile shows the stacked AI Studio and Admin AI Lab cards and removes the old admin-area AI Lab entry', async ({
+  test('admin profile keeps AI Lab inside the Profile shell without exposing admin hero or nav chrome', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin' });
@@ -1092,7 +1096,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'true');
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileAdminAiLabCard')).toBeVisible();
-    await expect(page.locator('#profileAdminAiLabCard')).toContainText('Admin AI Lab');
+    await expect(page.locator('#profileAdminAiLabCard')).toContainText('AI Lab');
 
     const studioBox = await page.locator('#profileStudioCard').boundingBox();
     const labBox = await page.locator('#profileAdminAiLabCard').boundingBox();
@@ -1102,10 +1106,24 @@ test.describe('Profile page (authenticated)', () => {
     expect(labBox.y).toBeGreaterThan(studioBox.y + studioBox.height - 1);
 
     await page.locator('#profileAdminAiLabCard').click();
-    await expect(page).toHaveURL(/\/admin\/?#ai-lab$/);
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
+    await expect(page.locator('h1.legal-hero__title')).toHaveText('My Profile');
     await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileAiLabTitle')).toHaveText('AI Lab');
+    await expect(page.locator('#adminHeroTitle')).toHaveCount(0);
+    await expect(page.locator('#adminNav')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="ai-lab"]')).toHaveCount(0);
     await expect(page.locator('.admin-quick-link[data-nav="ai-lab"]')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Text' }).click();
+    await expect(page.locator('#aiTextPreset option')).toHaveCount(2);
+    await page.locator('#aiTextPrompt').fill('profile ai lab smoke');
+    await page.locator('#aiTextRun').click();
+    await expect(page.locator('#aiTextOutput')).toContainText('Mocked text output from admin AI Lab.');
+
+    await page.locator('#profileAiLabBack').click();
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#sectionAiLab')).toBeHidden();
   });
 });
 

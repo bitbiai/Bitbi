@@ -13,6 +13,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites, apiRemoveFavorite } from '../../shared/auth-api.js';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
+import { createAdminAiLab } from '../admin/ai-lab.js?v=20260410-wave10';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -26,6 +27,9 @@ const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
+const $aiLabSection   = document.getElementById('sectionAiLab');
+const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
+const $aiLabToast     = document.getElementById('profileAiLabToast');
 
 const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
@@ -44,21 +48,93 @@ const $avatarUploadText  = document.getElementById('avatarUploadText');
 const $avatarUploadLabel = document.getElementById('avatarUploadLabel');
 const $avatarMsg         = document.getElementById('avatarMsg');
 
+const AI_LAB_HASH = 'ai-lab';
+let canAccessAdminAiLab = false;
+
+function setActiveTab(tab) {
+    if (!$content) return;
+    $content.dataset.activeTab = tab;
+
+    if (!$tabBar) return;
+    $tabBar.querySelectorAll('.profile-tab-btn').forEach(btn => {
+        const isActive = btn.dataset.tab === tab;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', String(isActive));
+    });
+}
+
+function showAiLabToast(message, type = 'success') {
+    if (!$aiLabToast || !message) return;
+
+    const item = document.createElement('div');
+    item.className = `admin-toast__item admin-toast__item--${type === 'error' ? 'error' : 'success'}`;
+    item.textContent = message;
+    $aiLabToast.appendChild(item);
+    setTimeout(() => item.remove(), 3000);
+}
+
+const aiLab = createAdminAiLab({ showToast: showAiLabToast });
+
+function getProfileHashView() {
+    return location.hash.replace(/^#/, '').trim().toLowerCase();
+}
+
+function clearAiLabHash() {
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+}
+
+function syncAiLabView() {
+    const wantsAiLab = getProfileHashView() === AI_LAB_HASH;
+
+    if (!canAccessAdminAiLab) {
+        if ($adminAiLabCard) {
+            $adminAiLabCard.removeAttribute('aria-current');
+        }
+        if ($aiLabSection) {
+            $aiLabSection.hidden = true;
+        }
+        if ($content) {
+            $content.dataset.activeView = 'profile';
+        }
+        if (wantsAiLab) {
+            clearAiLabHash();
+        }
+        return;
+    }
+
+    const isAiLabActive = wantsAiLab;
+
+    if ($content) {
+        $content.dataset.activeView = isAiLabActive ? 'ai-lab' : 'profile';
+    }
+    if ($adminAiLabCard) {
+        if (isAiLabActive) {
+            $adminAiLabCard.setAttribute('aria-current', 'page');
+        } else {
+            $adminAiLabCard.removeAttribute('aria-current');
+        }
+    }
+    if ($aiLabSection) {
+        $aiLabSection.hidden = !isAiLabActive;
+    }
+
+    if (isAiLabActive) {
+        setActiveTab('profile');
+        aiLab.show();
+    }
+}
+
 /* ── Mobile tab switcher ── */
 const $tabBar = document.getElementById('profileTabBar');
 if ($tabBar) {
     $tabBar.addEventListener('click', (e) => {
         const btn = e.target.closest('.profile-tab-btn');
         if (!btn || btn.classList.contains('active')) return;
-        $tabBar.querySelectorAll('.profile-tab-btn').forEach(b => {
-            b.classList.remove('active');
-            b.setAttribute('aria-selected', 'false');
-        });
-        btn.classList.add('active');
-        btn.setAttribute('aria-selected', 'true');
-        $content.dataset.activeTab = btn.dataset.tab;
+        setActiveTab(btn.dataset.tab);
     });
 }
+
+window.addEventListener('hashchange', syncAiLabView);
 
 /* ── Date formatter ── */
 const dtf = new Intl.DateTimeFormat('de-DE', {
@@ -124,6 +200,7 @@ function showState(el) {
 /* ── Render profile data ── */
 function renderProfile(profile, account) {
     const isAdmin = account?.role === 'admin';
+    canAccessAdminAiLab = isAdmin;
 
     if ($studioStack) {
         $studioStack.dataset.hasAdminLab = isAdmin ? 'true' : 'false';
@@ -131,6 +208,10 @@ function renderProfile(profile, account) {
     if ($adminAiLabCard) {
         $adminAiLabCard.hidden = !isAdmin;
     }
+    if ($aiLabSection) {
+        $aiLabSection.hidden = true;
+    }
+    syncAiLabView();
 
     // Summary card
     $summaryName.textContent = profile.display_name || '\u2014';
@@ -611,6 +692,14 @@ async function init() {
             renderFavorites(favRes.data.favorites);
         }
     }).catch(e => console.warn('favorites:', e));
+
+    if ($aiLabBackBtn) {
+        $aiLabBackBtn.addEventListener('click', () => {
+            clearAiLabHash();
+            syncAiLabView();
+            $adminAiLabCard?.focus();
+        });
+    }
 
     // Avatar upload
     $avatarInput.addEventListener('change', async () => {
