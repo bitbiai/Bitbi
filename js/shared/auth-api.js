@@ -77,6 +77,10 @@ export async function apiUploadAvatar(file) {
     }
 }
 
+export function apiSetAvatarFromSavedAsset(imageId) {
+    return request('POST', '/profile/avatar', { source_image_id: imageId });
+}
+
 export function apiDeleteAvatar() {
     return request('DELETE', '/profile/avatar');
 }

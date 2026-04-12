@@ -62,6 +62,10 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
       const onlyUnfoldered = url.searchParams.get('only_unfoldered') === '1';
       return listAssets({ folderId, onlyUnfoldered });
     },
+    getAsset(id) {
+      const asset = assetMap.get(id);
+      return asset ? cloneJson(asset) : null;
+    },
     addAsset(asset) {
       assetMap.set(asset.id, cloneJson(asset));
     },
@@ -891,7 +895,20 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   });
 }
 
-async function mockAuthenticatedProfile(page, { role = 'user' } = {}) {
+async function mockAuthenticatedProfile(page, {
+  role = 'user',
+  folderPayload = { folders: [], counts: {}, unfolderedCount: 0 },
+  assetsPayload = { all: [], unfoldered: [], folders: {} },
+  imageRequests = [],
+  avatarRequests = [],
+  initialAvatar = false,
+} = {}) {
+  const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
+  const avatarState = {
+    hasAvatar: initialAvatar,
+    sourceImageId: null,
+  };
+
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
       status: 200,
@@ -939,6 +956,60 @@ async function mockAuthenticatedProfile(page, { role = 'user' } = {}) {
     });
   });
 
+  await page.route('**/api/profile/avatar**', async (route) => {
+    const method = route.request().method();
+    if (method === 'GET') {
+      if (!avatarState.hasAvatar) {
+        await route.fulfill({ status: 404, body: '' });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+      return;
+    }
+
+    if (method === 'DELETE') {
+      avatarState.hasAvatar = false;
+      avatarState.sourceImageId = null;
+      avatarRequests.push({ type: 'delete' });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, message: 'Avatar removed.' }),
+      });
+      return;
+    }
+
+    const contentType = route.request().headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = route.request().postDataJSON();
+      avatarState.hasAvatar = true;
+      avatarState.sourceImageId = body?.source_image_id || null;
+      avatarRequests.push({ type: 'saved_asset', body });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, message: 'Avatar updated.', source: 'saved_assets' }),
+      });
+      return;
+    }
+
+    avatarState.hasAvatar = true;
+    avatarState.sourceImageId = null;
+    avatarRequests.push({
+      type: 'upload',
+      contentType,
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, message: 'Avatar uploaded.' }),
+    });
+  });
+
   await page.route('**/api/favorites', async (route) => {
     await route.fulfill({
       status: 200,
@@ -949,6 +1020,72 @@ async function mockAuthenticatedProfile(page, { role = 'user' } = {}) {
       }),
     });
   });
+
+  await page.route('**/api/ai/folders', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: assetStore.getFolderPayload(),
+      }),
+    });
+  });
+
+  await page.route(/\/api\/ai\/images\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+    const url = new URL(route.request().url());
+    const [, imageId, variant] = url.pathname.match(/^\/api\/ai\/images\/([^/]+)\/(thumb|medium|file)$/) || [];
+    imageRequests.push(url.pathname);
+
+    const asset = assetStore.getAsset(imageId);
+    if (!asset || asset.asset_type !== 'image') {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'Image not found.' }),
+      });
+      return;
+    }
+
+    if (variant === 'thumb' && !asset.thumb_url) {
+      assetStore.addAsset({
+        ...asset,
+        thumb_url: `/api/ai/images/${imageId}/thumb`,
+        medium_url: asset.medium_url || `/api/ai/images/${imageId}/medium`,
+        derivatives_status: 'ready',
+      });
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+  });
+
+  await page.route('**/api/ai/images**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/ai/images' || route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          images: assetStore.list(url).filter((asset) => asset.asset_type === 'image'),
+        },
+      }),
+    });
+  });
+
+  return { assetStore, avatarRequests, imageRequests };
 }
 
 // ---------------------------------------------------------------------------
@@ -1457,6 +1594,177 @@ test.describe('Image Studio (authenticated)', () => {
 test.describe('Profile page (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
+  });
+
+  test('change photo opens the chooser before any local file picker', async ({ page }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    let fileChooserOpened = false;
+    page.on('filechooser', () => {
+      fileChooserOpened = true;
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#avatarChangeBtn').click();
+
+    await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
+    await expect(page.locator('#avatarChooseSavedAssets')).toBeVisible();
+    await expect(page.locator('#avatarChooseUploadDevice')).toBeVisible();
+
+    await page.waitForTimeout(150);
+    expect(fileChooserOpened).toBe(false);
+  });
+
+  test('upload from device keeps the existing avatar upload flow', async ({ page }) => {
+    const avatarRequests = [];
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      avatarRequests,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#avatarChangeBtn').click();
+
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#avatarChooseUploadDevice').click();
+    const fileChooser = await chooser;
+
+    await fileChooser.setFiles({
+      name: 'avatar.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+
+    await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+    await expect(page.locator('#avatarImg')).toBeVisible();
+    expect(avatarRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'upload',
+          contentType: expect.stringContaining('multipart/form-data'),
+        }),
+      ])
+    );
+  });
+
+  test('saved assets picker stays image-only and uses thumb derivatives for avatar selection', async ({
+    page,
+  }) => {
+    const imageRequests = [];
+    const avatarRequests = [];
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      imageRequests,
+      avatarRequests,
+      folderPayload: {
+        folders: [
+          {
+            id: 'folder-portraits',
+            name: 'Portraits',
+            slug: 'portraits',
+            created_at: '2026-04-10T09:00:00.000Z',
+          },
+        ],
+        counts: { 'folder-portraits': 1 },
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-ready',
+            asset_type: 'image',
+            folder_id: 'folder-portraits',
+            title: 'Ready Portrait',
+            preview_text: 'Ready Portrait',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 111,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-ready/file',
+            original_url: '/api/ai/images/img-ready/file',
+            thumb_url: '/api/ai/images/img-ready/thumb',
+            medium_url: '/api/ai/images/img-ready/medium',
+            derivatives_status: 'ready',
+          },
+          {
+            id: 'img-pending',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Pending Portrait',
+            preview_text: 'Pending Portrait',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 222,
+            created_at: '2026-04-10T11:30:00.000Z',
+            file_url: '/api/ai/images/img-pending/file',
+            original_url: '/api/ai/images/img-pending/file',
+            thumb_url: null,
+            medium_url: null,
+            derivatives_status: 'pending',
+          },
+          {
+            id: 'txt-hidden',
+            asset_type: 'text',
+            folder_id: 'folder-portraits',
+            title: 'Hidden Text Asset',
+            file_name: 'hidden.txt',
+            source_module: 'text',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 128,
+            preview_text: 'This should not appear.',
+            created_at: '2026-04-10T11:00:00.000Z',
+            file_url: '/api/ai/text-assets/txt-hidden/file',
+          },
+          {
+            id: 'snd-hidden',
+            asset_type: 'sound',
+            folder_id: null,
+            title: 'Hidden Audio Asset',
+            file_name: 'hidden.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 256,
+            preview_text: 'This should not appear either.',
+            created_at: '2026-04-10T10:30:00.000Z',
+            file_url: '/api/ai/text-assets/snd-hidden/file',
+          },
+        ],
+      },
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#avatarChangeBtn').click();
+    await page.locator('#avatarChooseSavedAssets').click();
+
+    await expect(page.locator('#avatarAssetsModal')).toHaveClass(/active/);
+    await expect(page.locator('#avatarAssetsGrid .profile-avatar-picker__asset')).toHaveCount(2);
+    await expect(page.locator('#avatarAssetsGrid')).toContainText('Ready Portrait');
+    await expect(page.locator('#avatarAssetsGrid')).toContainText('Pending Portrait');
+    await expect(page.locator('#avatarAssetsGrid')).not.toContainText('Hidden Text Asset');
+    await expect(page.locator('#avatarAssetsGrid')).not.toContainText('Hidden Audio Asset');
+    await expect(page.locator('#avatarAssetsGrid img')).toHaveCount(1);
+
+    await page.locator('#avatarAssetsGrid .profile-avatar-picker__asset[data-asset-id="img-ready"]').click();
+
+    await expect(page.locator('#avatarAssetsModal')).toBeHidden();
+    await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+    await expect(page.locator('#avatarImg')).toBeVisible();
+
+    expect(avatarRequests).toContainEqual({
+      type: 'saved_asset',
+      body: { source_image_id: 'img-ready' },
+    });
+    expect(imageRequests).toContain('/api/ai/images/img-ready/thumb');
+    expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
   });
 
   test('non-admin profile shows only the AI Studio card in the profile action stack', async ({

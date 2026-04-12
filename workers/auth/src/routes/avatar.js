@@ -3,15 +3,53 @@
    ============================================================ */
 
 import { json } from "../lib/response.js";
+import { readJsonBody } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { logUserActivity } from "../lib/activity.js";
+import {
+  AI_IMAGE_DERIVATIVE_VERSION,
+  buildAiImageDerivativeMessage,
+  processAiImageDerivativeMessage,
+} from "../lib/ai-image-derivatives.js";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
+const THUMB_UNAVAILABLE_ERROR = "Preview pending. This image thumbnail is not ready yet.";
+const OWNED_IMAGE_THUMB_SELECT =
+  "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
 
 function avatarKey(userId) {
   return `avatars/${userId}`;
+}
+
+function isHexAssetId(value) {
+  return typeof value === "string" && /^[a-f0-9]+$/.test(value);
+}
+
+async function toArrayBuffer(value) {
+  if (value == null) return null;
+  if (value instanceof ArrayBuffer) return value;
+  if (typeof value.arrayBuffer === "function") {
+    try {
+      return await value.arrayBuffer();
+    } catch {
+      // Fall through to the remaining duck-typed branches.
+    }
+  }
+  if (value.buffer instanceof ArrayBuffer && typeof value.byteLength === "number") {
+    return value.buffer.byteLength === value.byteLength
+      ? value.buffer
+      : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+  if (typeof value.getReader === "function") {
+    try {
+      return await new Response(value).arrayBuffer();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // Validate file content matches declared MIME type via magic bytes
@@ -53,6 +91,116 @@ async function validateImageBytes(file) {
   return { valid, buffer };
 }
 
+async function resolveOwnedAvatarSourceThumb(env, userId, imageId) {
+  const row = await env.DB.prepare(OWNED_IMAGE_THUMB_SELECT).bind(imageId, userId).first();
+
+  if (!row) {
+    return {
+      ok: false,
+      status: 404,
+      error: "Saved image not found.",
+      code: "avatar_source_not_found",
+    };
+  }
+
+  if (row.derivative_key) {
+    const object = await env.USER_IMAGES.get(row.derivative_key);
+    if (object) {
+      const body = await toArrayBuffer(object.body ?? object);
+      if (body && body.byteLength) {
+        return {
+          ok: true,
+          body,
+          mimeType: row.mime_type || object.httpMetadata?.contentType || "image/webp",
+        };
+      }
+    }
+  }
+
+  if (!row.r2_key) {
+    return {
+      ok: false,
+      status: 409,
+      error: THUMB_UNAVAILABLE_ERROR,
+      code: "avatar_thumb_unavailable",
+    };
+  }
+
+  try {
+    const result = await processAiImageDerivativeMessage(
+      env,
+      buildAiImageDerivativeMessage({
+        imageId,
+        userId,
+        originalKey: row.r2_key,
+        derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+        trigger: "on_demand",
+      }),
+      { isLastAttempt: true }
+    );
+
+    if (result.status === "ready") {
+      const generated = await env.USER_IMAGES.get(result.keys.thumb);
+      if (generated) {
+        const body = await toArrayBuffer(generated.body ?? generated);
+        if (body && body.byteLength) {
+          return {
+            ok: true,
+            body,
+            mimeType: generated.httpMetadata?.contentType || "image/webp",
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("avatar thumb generation failed:", {
+      imageId,
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return {
+    ok: false,
+    status: 409,
+    error: row.derivatives_status === "failed"
+      ? "Thumbnail unavailable. Please retry when the preview is available."
+      : THUMB_UNAVAILABLE_ERROR,
+    code: "avatar_thumb_unavailable",
+  };
+}
+
+async function handleSavedAssetAvatarSelection(ctx, session, imageId, ip) {
+  const { env } = ctx;
+  const resolved = await resolveOwnedAvatarSourceThumb(env, session.user.id, imageId);
+  if (!resolved.ok) {
+    return json(
+      { ok: false, error: resolved.error, code: resolved.code || null },
+      { status: resolved.status }
+    );
+  }
+
+  await env.PRIVATE_MEDIA.put(avatarKey(session.user.id), resolved.body, {
+    httpMetadata: { contentType: resolved.mimeType || "image/webp" },
+  });
+
+  ctx.execCtx.waitUntil(
+    logUserActivity(
+      env,
+      session.user.id,
+      "select_avatar_saved_asset",
+      { image_id: imageId },
+      ip
+    ).catch((error) => console.error("activity log failed:", error))
+  );
+
+  return json({
+    ok: true,
+    message: "Avatar updated.",
+    source: "saved_assets",
+  });
+}
+
 /* ── GET /api/profile/avatar ── */
 export async function handleGetAvatar(ctx) {
   const { request, env } = ctx;
@@ -87,6 +235,22 @@ export async function handleUploadAvatar(ctx) {
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  const contentType = request.headers.get("Content-Type") || "";
+  if (contentType.includes("application/json")) {
+    const body = await readJsonBody(request);
+    if (!body || typeof body !== "object") {
+      return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    }
+    const imageId = String(body.source_image_id || "").trim();
+    if (!imageId) {
+      return json({ ok: false, error: "source_image_id is required." }, { status: 400 });
+    }
+    if (!isHexAssetId(imageId)) {
+      return json({ ok: false, error: "Invalid image ID." }, { status: 400 });
+    }
+    return handleSavedAssetAvatarSelection(ctx, session, imageId, ip);
+  }
 
   let formData;
   try {

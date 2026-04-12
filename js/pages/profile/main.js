@@ -9,8 +9,21 @@ import { initBinaryRain }    from '../../shared/binary-rain.js';
 import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
+import { setupFocusTrap }    from '../../shared/focus-trap.js';
 
-import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites, apiRemoveFavorite } from '../../shared/auth-api.js';
+import {
+    apiAiGetFolders,
+    apiAiGetImages,
+    apiDeleteAvatar,
+    apiGetFavorites,
+    apiGetProfile,
+    apiLogout,
+    apiRemoveFavorite,
+    apiRequestReverification,
+    apiSetAvatarFromSavedAsset,
+    apiUpdateProfile,
+    apiUploadAvatar,
+} from '../../shared/auth-api.js?v=20260412-wave15';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
 import { createAdminAiLab } from '../admin/ai-lab.js?v=20260412-wave14';
@@ -48,11 +61,20 @@ const $logoutBtn      = document.getElementById('logoutBtn');
 
 const $avatarImg         = document.getElementById('avatarImg');
 const $avatarPlaceholder = document.getElementById('avatarPlaceholder');
+const $avatarChangeBtn   = document.getElementById('avatarChangeBtn');
 const $avatarInput       = document.getElementById('avatarInput');
 const $avatarRemoveBtn   = document.getElementById('avatarRemoveBtn');
 const $avatarUploadText  = document.getElementById('avatarUploadText');
-const $avatarUploadLabel = document.getElementById('avatarUploadLabel');
 const $avatarMsg         = document.getElementById('avatarMsg');
+const $avatarSourceModal = document.getElementById('avatarSourceModal');
+const $avatarSourceClose = document.getElementById('avatarSourceClose');
+const $avatarChooseSavedAssets = document.getElementById('avatarChooseSavedAssets');
+const $avatarChooseUploadDevice = document.getElementById('avatarChooseUploadDevice');
+const $avatarAssetsModal = document.getElementById('avatarAssetsModal');
+const $avatarAssetsClose = document.getElementById('avatarAssetsClose');
+const $avatarAssetsFilter = document.getElementById('avatarAssetsFilter');
+const $avatarAssetsStatus = document.getElementById('avatarAssetsStatus');
+const $avatarAssetsGrid = document.getElementById('avatarAssetsGrid');
 
 const PROFILE_VIEW = 'profile';
 const AI_LAB_HASH = 'ai-lab';
@@ -198,6 +220,19 @@ function hideMsg() {
 const AVATAR_URL = '/api/profile/avatar';
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const AVATAR_UNFOLDERED_FILTER = '__unfoldered__';
+const AVATAR_DEFAULT_STATUS = 'Choose an image for your profile photo.';
+
+const avatarModalCleanups = new Map();
+const avatarPickerState = {
+    folders: [],
+    folderNames: new Map(),
+    filter: '',
+    assets: [],
+    loading: false,
+    actionId: null,
+};
+let avatarActionBusy = false;
 
 function showAvatarMsg(text, type) {
     $avatarMsg.textContent = text;
@@ -224,6 +259,366 @@ function loadAvatar(bustCache) {
         $avatarRemoveBtn.style.display = 'none';
     };
     img.src = src;
+}
+
+function setAvatarActionState(isBusy, text = 'Change Photo') {
+    avatarActionBusy = isBusy;
+    if ($avatarChangeBtn) $avatarChangeBtn.disabled = isBusy;
+    if ($avatarInput) $avatarInput.disabled = isBusy;
+    if ($avatarChooseSavedAssets) $avatarChooseSavedAssets.disabled = isBusy;
+    if ($avatarChooseUploadDevice) $avatarChooseUploadDevice.disabled = isBusy;
+    if ($avatarUploadText) $avatarUploadText.textContent = isBusy ? text : 'Change Photo';
+}
+
+function setAvatarAssetsStatus(text, type = 'neutral') {
+    if (!$avatarAssetsStatus) return;
+    $avatarAssetsStatus.textContent = text;
+    $avatarAssetsStatus.className = `profile-avatar-picker__status profile-avatar-picker__status--${type}`;
+}
+
+function hasOpenAvatarModal() {
+    return Boolean(
+        ($avatarSourceModal && !$avatarSourceModal.hidden) ||
+        ($avatarAssetsModal && !$avatarAssetsModal.hidden)
+    );
+}
+
+function syncAvatarModalBodyLock() {
+    if (hasOpenAvatarModal()) {
+        document.body.style.overflow = 'hidden';
+        return;
+    }
+    if (!$viewer?.classList.contains('active')) {
+        document.body.style.overflow = '';
+    }
+}
+
+function openAvatarModal(overlay, focusTarget = null) {
+    if (!overlay || avatarActionBusy) return;
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    overlay.classList.add('active');
+
+    const cleanup = avatarModalCleanups.get(overlay);
+    if (cleanup) cleanup();
+
+    const focusTrapTarget = overlay.querySelector('[role="dialog"]') || overlay;
+    avatarModalCleanups.set(overlay, setupFocusTrap(focusTrapTarget));
+    syncAvatarModalBodyLock();
+    if (focusTarget) focusTarget.focus();
+}
+
+function closeAvatarModal(overlay, { focusEl = null } = {}) {
+    if (!overlay || overlay.hidden) return;
+    overlay.classList.remove('active');
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+
+    const cleanup = avatarModalCleanups.get(overlay);
+    if (cleanup) {
+        cleanup();
+        avatarModalCleanups.delete(overlay);
+    }
+
+    if (focusEl && typeof focusEl.focus === 'function') {
+        focusEl.focus();
+    }
+
+    syncAvatarModalBodyLock();
+}
+
+function closeAvatarSourceModal(options) {
+    closeAvatarModal($avatarSourceModal, options);
+}
+
+function closeAvatarAssetsModal(options) {
+    closeAvatarModal($avatarAssetsModal, options);
+}
+
+function openAvatarSourceModal() {
+    hideAvatarMsg();
+    openAvatarModal($avatarSourceModal, $avatarChooseSavedAssets || $avatarSourceClose);
+}
+
+function getAvatarAssetPreviewState(asset) {
+    const status = asset?.derivatives_status || 'pending';
+    if (status === 'failed') {
+        return {
+            variant: 'failed',
+            label: 'Thumbnail unavailable',
+            hint: 'This image still needs a generated thumbnail before it can be used as your profile photo.',
+        };
+    }
+    if (status === 'processing') {
+        return {
+            variant: 'pending',
+            label: 'Preparing preview',
+            hint: 'The thumbnail is still being generated.',
+        };
+    }
+    return {
+        variant: 'pending',
+        label: 'Preview pending',
+        hint: 'This image needs a thumbnail before it can be used as your profile photo.',
+    };
+}
+
+function buildAvatarAssetPlaceholder(asset) {
+    const state = getAvatarAssetPreviewState(asset);
+    const placeholder = document.createElement('div');
+    placeholder.className = 'studio__image-preview-state';
+
+    const badge = document.createElement('span');
+    badge.className = `studio__image-preview-badge studio__image-preview-badge--${state.variant}`;
+    badge.textContent = state.label;
+    placeholder.appendChild(badge);
+
+    const title = document.createElement('span');
+    title.className = 'studio__image-preview-title';
+    title.textContent = asset.title || asset.preview_text || 'Saved image';
+    placeholder.appendChild(title);
+
+    const hint = document.createElement('span');
+    hint.className = 'studio__image-preview-hint';
+    hint.textContent = state.hint;
+    placeholder.appendChild(hint);
+
+    return placeholder;
+}
+
+function getAvatarAssetMeta(asset) {
+    const folderLabel = asset.folder_id
+        ? avatarPickerState.folderNames.get(asset.folder_id) || 'Saved Assets'
+        : 'Unfoldered';
+    const dateLabel = asset.created_at ? formatDate(asset.created_at) : null;
+    return [folderLabel, dateLabel].filter(Boolean).join(' / ');
+}
+
+function getAvatarAssetActionLabel(asset) {
+    if (avatarPickerState.actionId === asset.id) {
+        return 'Working\u2026';
+    }
+    if (asset.thumb_url) {
+        return 'Use Photo';
+    }
+    return asset.derivatives_status === 'failed' ? 'Retry Preview' : 'Prepare Preview';
+}
+
+function renderAvatarAssetsGrid() {
+    if (!$avatarAssetsGrid) return;
+
+    $avatarAssetsGrid.innerHTML = '';
+
+    if (avatarPickerState.loading) {
+        const empty = document.createElement('div');
+        empty.className = 'studio__gallery-empty';
+        empty.textContent = 'Loading saved images...';
+        $avatarAssetsGrid.appendChild(empty);
+        return;
+    }
+
+    if (!avatarPickerState.assets.length) {
+        const empty = document.createElement('div');
+        empty.className = 'studio__gallery-empty';
+        empty.textContent = 'No saved images available in this view.';
+        $avatarAssetsGrid.appendChild(empty);
+        return;
+    }
+
+    const disableActions = Boolean(avatarPickerState.actionId);
+
+    avatarPickerState.assets.forEach((asset) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'profile-avatar-picker__asset';
+        item.disabled = disableActions;
+        item.dataset.assetId = asset.id;
+
+        const preview = document.createElement('div');
+        preview.className = `studio__image-item profile-avatar-picker__asset-preview${asset.thumb_url ? '' : ' studio__image-item--placeholder'}`;
+
+        if (asset.thumb_url) {
+            const img = document.createElement('img');
+            img.src = asset.thumb_url;
+            img.alt = asset.title || asset.preview_text || 'Saved image';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.crossOrigin = 'use-credentials';
+            preview.appendChild(img);
+        } else {
+            preview.appendChild(buildAvatarAssetPlaceholder(asset));
+        }
+
+        const body = document.createElement('span');
+        body.className = 'profile-avatar-picker__asset-body';
+
+        const title = document.createElement('span');
+        title.className = 'profile-avatar-picker__asset-title';
+        title.textContent = asset.title || asset.preview_text || 'Saved image';
+        body.appendChild(title);
+
+        const meta = document.createElement('span');
+        meta.className = 'profile-avatar-picker__asset-meta';
+        meta.textContent = getAvatarAssetMeta(asset);
+        body.appendChild(meta);
+
+        const cta = document.createElement('span');
+        cta.className = 'profile-avatar-picker__asset-cta';
+        cta.textContent = getAvatarAssetActionLabel(asset);
+        body.appendChild(cta);
+
+        item.append(preview, body);
+        item.addEventListener('click', () => {
+            if (asset.thumb_url) {
+                assignAvatarFromSavedAsset(asset);
+            } else {
+                prepareAvatarAssetPreview(asset);
+            }
+        });
+
+        $avatarAssetsGrid.appendChild(item);
+    });
+}
+
+function renderAvatarAssetsFilter({ unfolderedCount = 0 } = {}) {
+    if (!$avatarAssetsFilter) return;
+
+    const previousValue = avatarPickerState.filter || $avatarAssetsFilter.value || '';
+    $avatarAssetsFilter.innerHTML = '';
+
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'All Saved Images';
+    $avatarAssetsFilter.appendChild(allOption);
+
+    if (unfolderedCount > 0) {
+        const unfolderedOption = document.createElement('option');
+        unfolderedOption.value = AVATAR_UNFOLDERED_FILTER;
+        unfolderedOption.textContent = 'Unfoldered';
+        $avatarAssetsFilter.appendChild(unfolderedOption);
+    }
+
+    avatarPickerState.folders.forEach((folder) => {
+        const option = document.createElement('option');
+        option.value = folder.id;
+        option.textContent = folder.name;
+        $avatarAssetsFilter.appendChild(option);
+    });
+
+    const hasPrevious = Array.from($avatarAssetsFilter.options).some((option) => option.value === previousValue);
+    avatarPickerState.filter = hasPrevious ? previousValue : '';
+    $avatarAssetsFilter.value = avatarPickerState.filter;
+}
+
+async function loadAvatarPickerFolders() {
+    const folderResult = await apiAiGetFolders();
+    avatarPickerState.folders = Array.isArray(folderResult?.folders) ? folderResult.folders : [];
+    avatarPickerState.folderNames = new Map(
+        avatarPickerState.folders.map((folder) => [folder.id, folder.name])
+    );
+    renderAvatarAssetsFilter({ unfolderedCount: folderResult?.unfolderedCount || 0 });
+}
+
+async function loadAvatarPickerAssets() {
+    avatarPickerState.loading = true;
+    setAvatarAssetsStatus('Loading saved images...', 'neutral');
+    renderAvatarAssetsGrid();
+
+    const filterValue = $avatarAssetsFilter?.value || '';
+    avatarPickerState.filter = filterValue;
+
+    const images = filterValue === AVATAR_UNFOLDERED_FILTER
+        ? await apiAiGetImages(undefined, { onlyUnfoldered: true })
+        : await apiAiGetImages(filterValue || undefined);
+
+    avatarPickerState.assets = Array.isArray(images) ? images : [];
+    avatarPickerState.loading = false;
+    renderAvatarAssetsGrid();
+    setAvatarAssetsStatus(
+        avatarPickerState.assets.length ? AVATAR_DEFAULT_STATUS : 'No saved images available in this view.',
+        'neutral'
+    );
+}
+
+async function openAvatarAssetsModal() {
+    hideAvatarMsg();
+    openAvatarModal($avatarAssetsModal, $avatarAssetsFilter || $avatarAssetsClose);
+    await loadAvatarPickerFolders();
+    await loadAvatarPickerAssets();
+}
+
+async function prepareAvatarAssetPreview(asset) {
+    if (!asset?.id || avatarPickerState.actionId) return;
+
+    avatarPickerState.actionId = asset.id;
+    setAvatarAssetsStatus(
+        asset.derivatives_status === 'failed'
+            ? 'Retrying thumbnail generation...'
+            : 'Preparing thumbnail...',
+        'neutral'
+    );
+    renderAvatarAssetsGrid();
+
+    try {
+        const res = await fetch(`/api/ai/images/${encodeURIComponent(asset.id)}/thumb`, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+        });
+
+        if (!res.ok) {
+            let data = null;
+            try { data = await res.json(); } catch { data = null; }
+            setAvatarAssetsStatus(
+                data?.error || getAvatarAssetPreviewState(asset).label,
+                asset.derivatives_status === 'failed' ? 'error' : 'neutral'
+            );
+            return;
+        }
+
+        await res.arrayBuffer();
+        const target = avatarPickerState.assets.find((entry) => entry.id === asset.id);
+        if (target) {
+            target.thumb_url = `/api/ai/images/${asset.id}/thumb`;
+            target.medium_url = target.medium_url || `/api/ai/images/${asset.id}/medium`;
+            target.derivatives_status = 'ready';
+        }
+        setAvatarAssetsStatus('Thumbnail ready. Select Use Photo to update your avatar.', 'success');
+    } catch {
+        setAvatarAssetsStatus('Network error. Please try again.', 'error');
+    } finally {
+        avatarPickerState.actionId = null;
+        renderAvatarAssetsGrid();
+    }
+}
+
+async function assignAvatarFromSavedAsset(asset) {
+    if (!asset?.id || avatarPickerState.actionId || avatarActionBusy) return;
+
+    avatarPickerState.actionId = asset.id;
+    setAvatarActionState(true, 'Updating\u2026');
+    setAvatarAssetsStatus('Updating profile photo...', 'neutral');
+    renderAvatarAssetsGrid();
+
+    try {
+        const result = await apiSetAvatarFromSavedAsset(asset.id);
+        if (result.ok) {
+            closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
+            setAvatarAssetsStatus(AVATAR_DEFAULT_STATUS, 'neutral');
+            showAvatarMsg('Photo updated.', 'success');
+            loadAvatar(true);
+            return;
+        }
+
+        setAvatarAssetsStatus(
+            result.error || 'Could not update your profile photo.',
+            result.code === 'avatar_thumb_unavailable' ? 'neutral' : 'error'
+        );
+    } finally {
+        avatarPickerState.actionId = null;
+        setAvatarActionState(false);
+        renderAvatarAssetsGrid();
+    }
 }
 
 /* ── State switching ── */
@@ -343,7 +738,7 @@ function openViewer(mode) {
 function closeViewer() {
     if (!$viewer) return;
     $viewer.classList.remove('active');
-    document.body.style.overflow = '';
+    syncAvatarModalBodyLock();
     /* Cleanup audio */
     if (viewerAudio) {
         viewerAudio.pause();
@@ -739,9 +1134,62 @@ async function init() {
         });
     }
 
+    // Avatar source chooser + picker
+    $avatarChangeBtn?.addEventListener('click', () => {
+        if (avatarActionBusy) return;
+        openAvatarSourceModal();
+    });
+
+    $avatarSourceClose?.addEventListener('click', () => {
+        closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
+    });
+
+    $avatarAssetsClose?.addEventListener('click', () => {
+        closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
+    });
+
+    $avatarSourceModal?.addEventListener('click', (event) => {
+        if (event.target === $avatarSourceModal) {
+            closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
+        }
+    });
+
+    $avatarAssetsModal?.addEventListener('click', (event) => {
+        if (event.target === $avatarAssetsModal) {
+            closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        if ($avatarAssetsModal && !$avatarAssetsModal.hidden) {
+            event.preventDefault();
+            closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
+            return;
+        }
+        if ($avatarSourceModal && !$avatarSourceModal.hidden) {
+            event.preventDefault();
+            closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
+        }
+    });
+
+    $avatarChooseUploadDevice?.addEventListener('click', () => {
+        closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
+        window.setTimeout(() => $avatarInput?.click(), 0);
+    });
+
+    $avatarChooseSavedAssets?.addEventListener('click', async () => {
+        closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
+        await openAvatarAssetsModal();
+    });
+
+    $avatarAssetsFilter?.addEventListener('change', () => {
+        void loadAvatarPickerAssets();
+    });
+
     // Avatar upload
     $avatarInput.addEventListener('change', async () => {
-        const file = $avatarInput.files[0];
+        const file = $avatarInput.files?.[0];
         if (!file) return;
 
         hideAvatarMsg();
@@ -757,15 +1205,14 @@ async function init() {
             return;
         }
 
-        $avatarUploadLabel.style.pointerEvents = 'none';
-        $avatarUploadLabel.style.opacity = '0.5';
-        $avatarUploadText.textContent = 'Uploading\u2026';
+        const wasRemoveDisabled = $avatarRemoveBtn.disabled;
+        setAvatarActionState(true, 'Uploading\u2026');
+        $avatarRemoveBtn.disabled = true;
 
         const result = await apiUploadAvatar(file);
 
-        $avatarUploadLabel.style.pointerEvents = '';
-        $avatarUploadLabel.style.opacity = '';
-        $avatarUploadText.textContent = 'Change Photo';
+        setAvatarActionState(false);
+        $avatarRemoveBtn.disabled = wasRemoveDisabled;
         $avatarInput.value = '';
 
         if (result.ok) {
@@ -779,11 +1226,13 @@ async function init() {
     // Avatar remove
     $avatarRemoveBtn.addEventListener('click', async () => {
         hideAvatarMsg();
+        setAvatarActionState(true);
         $avatarRemoveBtn.disabled = true;
         $avatarRemoveBtn.textContent = 'Removing\u2026';
 
         const result = await apiDeleteAvatar();
 
+        setAvatarActionState(false);
         $avatarRemoveBtn.disabled = false;
         $avatarRemoveBtn.textContent = 'Remove';
 

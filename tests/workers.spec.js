@@ -140,6 +140,10 @@ function parseSessionCookie(setCookie) {
 }
 
 const ONE_PIXEL_PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=';
+const ONE_PIXEL_PNG_BYTES = Buffer.from(
+  ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''),
+  'base64'
+);
 
 async function readMultipartFields(multipart) {
   const response = new Response(multipart.body, {
@@ -361,6 +365,355 @@ test.describe('Worker routes', () => {
       error: 'website must be a valid https:// URL.',
     });
     expect(env.DB.state.profiles).toHaveLength(0);
+  });
+
+  test.describe('avatar routes', () => {
+    test('POST /api/profile/avatar still accepts multipart uploads from device', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const foreignThumbBytes = Buffer.from([9, 9, 9]);
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-upload-user',
+            email: 'avatar-upload@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+      });
+
+      const token = await seedSession(env, 'avatar-upload-user');
+      const formData = new FormData();
+      formData.append(
+        'avatar',
+        new Blob([ONE_PIXEL_PNG_BYTES], { type: 'image/png' }),
+        'avatar.png'
+      );
+
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/profile/avatar', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+            'CF-Connecting-IP': '203.0.113.41',
+          },
+          body: formData,
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        message: 'Avatar uploaded.',
+      });
+
+      const stored = env.PRIVATE_MEDIA.objects.get('avatars/avatar-upload-user');
+      expect(stored).toBeTruthy();
+      expect(stored.httpMetadata).toMatchObject({ contentType: 'image/png' });
+      expect(Buffer.from(stored.body)).toEqual(ONE_PIXEL_PNG_BYTES);
+    });
+
+    test('saved asset avatar assignment copies the owned thumb instead of the original image', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const thumbBytes = Buffer.from([7, 8, 9, 10]);
+      const originalBytes = Buffer.from([1, 2, 3, 4]);
+      const originalKey = 'users/avatar-thumb-user/originals/ab11cd22.png';
+      const thumbKey = 'users/avatar-thumb-user/derivatives/ab11cd22/v1/thumb.webp';
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-thumb-user',
+            email: 'avatar-thumb@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        aiImages: [
+          {
+            id: 'ab11cd22',
+            user_id: 'avatar-thumb-user',
+            folder_id: null,
+            r2_key: originalKey,
+            thumb_key: thumbKey,
+            thumb_mime_type: 'image/webp',
+            derivatives_status: 'ready',
+            prompt: 'portrait',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: null,
+            created_at: nowIso(),
+          },
+        ],
+        userImages: {
+          [originalKey]: {
+            body: originalBytes.buffer.slice(
+              originalBytes.byteOffset,
+              originalBytes.byteOffset + originalBytes.byteLength
+            ),
+            httpMetadata: { contentType: 'image/png' },
+          },
+          [thumbKey]: {
+            body: thumbBytes.buffer.slice(
+              thumbBytes.byteOffset,
+              thumbBytes.byteOffset + thumbBytes.byteLength
+            ),
+            httpMetadata: { contentType: 'image/webp' },
+          },
+        },
+      });
+
+      const token = await seedSession(env, 'avatar-thumb-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'POST', {
+          source_image_id: 'ab11cd22',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.42',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        message: 'Avatar updated.',
+        source: 'saved_assets',
+      });
+
+      const stored = env.PRIVATE_MEDIA.objects.get('avatars/avatar-thumb-user');
+      expect(stored).toBeTruthy();
+      expect(stored.httpMetadata).toMatchObject({ contentType: 'image/webp' });
+      expect(Buffer.from(stored.body)).toEqual(thumbBytes);
+      expect(Buffer.from(stored.body)).not.toEqual(originalBytes);
+    });
+
+    test('saved asset avatar assignment generates the thumb first when it is missing', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const originalKey = 'users/avatar-derivative-user/originals/deadbeef.png';
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-derivative-user',
+            email: 'avatar-derivative@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        aiImages: [
+          {
+            id: 'deadbeef',
+            user_id: 'avatar-derivative-user',
+            folder_id: null,
+            r2_key: originalKey,
+            thumb_key: null,
+            medium_key: null,
+            derivatives_status: 'pending',
+            prompt: 'portrait',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: null,
+            created_at: nowIso(),
+          },
+        ],
+        userImages: {
+          [originalKey]: {
+            body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+              ONE_PIXEL_PNG_BYTES.byteOffset,
+              ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+            ),
+            httpMetadata: { contentType: 'image/png' },
+          },
+        },
+      });
+
+      const token = await seedSession(env, 'avatar-derivative-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'POST', {
+          source_image_id: 'deadbeef',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.43',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        message: 'Avatar updated.',
+      });
+
+      const imageRow = env.DB.state.aiImages.find((row) => row.id === 'deadbeef');
+      expect(imageRow?.thumb_key).toBeTruthy();
+      expect(imageRow?.derivatives_status).toBe('ready');
+      expect(env.IMAGES.transformCalls.length).toBeGreaterThan(0);
+
+      const generatedThumb = env.USER_IMAGES.objects.get(imageRow.thumb_key);
+      const stored = env.PRIVATE_MEDIA.objects.get('avatars/avatar-derivative-user');
+      expect(generatedThumb).toBeTruthy();
+      expect(stored).toBeTruthy();
+      expect(Buffer.from(stored.body)).toEqual(Buffer.from(generatedThumb.body));
+      expect(stored.httpMetadata).toMatchObject({
+        contentType: generatedThumb.httpMetadata.contentType,
+      });
+    });
+
+    test('saved asset avatar assignment never falls back to the original image when no thumb can be produced', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-no-thumb-user',
+            email: 'avatar-no-thumb@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        aiImages: [
+          {
+            id: 'facefeed',
+            user_id: 'avatar-no-thumb-user',
+            folder_id: null,
+            r2_key: 'users/avatar-no-thumb-user/originals/facefeed.png',
+            thumb_key: null,
+            medium_key: null,
+            derivatives_status: 'pending',
+            prompt: 'portrait',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: null,
+            created_at: nowIso(),
+          },
+        ],
+      });
+
+      const token = await seedSession(env, 'avatar-no-thumb-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'POST', {
+          source_image_id: 'facefeed',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.44',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'avatar_thumb_unavailable',
+      });
+      expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-no-thumb-user')).toBe(false);
+    });
+
+    test('saved asset avatar assignment enforces image ownership', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const foreignThumbBytes = Buffer.from([9, 9, 9]);
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-owner-user',
+            email: 'avatar-owner@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+          {
+            id: 'avatar-other-user',
+            email: 'avatar-other@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        aiImages: [
+          {
+            id: 'c0ffee42',
+            user_id: 'avatar-other-user',
+            folder_id: null,
+            r2_key: 'users/avatar-other-user/originals/c0ffee42.png',
+            thumb_key: 'users/avatar-other-user/derivatives/c0ffee42/v1/thumb.webp',
+            thumb_mime_type: 'image/webp',
+            derivatives_status: 'ready',
+            prompt: 'portrait',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: null,
+            created_at: nowIso(),
+          },
+        ],
+        userImages: {
+          'users/avatar-other-user/derivatives/c0ffee42/v1/thumb.webp': {
+            body: foreignThumbBytes.buffer.slice(
+              foreignThumbBytes.byteOffset,
+              foreignThumbBytes.byteOffset + foreignThumbBytes.byteLength
+            ),
+            httpMetadata: { contentType: 'image/webp' },
+          },
+        },
+      });
+
+      const token = await seedSession(env, 'avatar-owner-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'POST', {
+          source_image_id: 'c0ffee42',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.45',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Saved image not found.',
+      });
+      expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-owner-user')).toBe(false);
+    });
   });
 
   test.describe('Admin AI contract routes', () => {
