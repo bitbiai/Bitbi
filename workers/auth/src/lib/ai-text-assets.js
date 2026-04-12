@@ -1,8 +1,14 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
+import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
 
 export const AI_TEXT_ASSET_MIME_TYPE = "text/plain; charset=utf-8";
 export const AI_TEXT_ASSET_MAX_BYTES = 220_000;
 const PREVIEW_MAX_CHARS = 220;
+const METADATA_JSON_LIMITS = {
+  maxEntries: 16,
+  maxKeyLength: 80,
+  maxStringLength: 8_000,
+};
 
 function cleanInlineText(value) {
   return String(value || "")
@@ -339,7 +345,13 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   const assetId = randomTokenHex(16);
   const timestamp = Date.now();
   const r2Key = `users/${userId}/folders/${folderSlug}/text/${timestamp}-${randomTokenHex(4)}-${fileName}`;
-  const metadataJson = JSON.stringify(serialization.metadata);
+  const metadataJson = JSON.stringify(
+    sanitizeAssetMetadata(serialization.metadata, {
+      field: "metadata",
+      ...METADATA_JSON_LIMITS,
+      stringifyNested: true,
+    })
+  );
 
   await env.USER_IMAGES.put(r2Key, bytes, {
     httpMetadata: {

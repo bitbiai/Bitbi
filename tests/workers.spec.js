@@ -2343,6 +2343,140 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('admin AI save-text-asset accepts nested usage details and flattens stored metadata safely', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-nested-text')],
+    });
+
+    const token = await seedSession(env, 'admin-nested-text');
+    const usage = {
+      prompt_tokens: 14,
+      completion_tokens: 28,
+      total_tokens: 42,
+      prompt_tokens_details: {
+        cached_tokens: 6,
+        audio_tokens: 0,
+      },
+      completion_tokens_details: {
+        reasoning_tokens: 9,
+      },
+    };
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+        title: 'Nested Usage Text Save',
+        sourceModule: 'text',
+        data: {
+          prompt: 'Summarize the nested usage response.',
+          output: 'Nested usage output saved successfully.',
+          usage,
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.32',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        source_module: 'text',
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    const metadata = JSON.parse(row.metadata_json);
+    expect(JSON.parse(metadata.usage)).toEqual(usage);
+
+    const object = env.USER_IMAGES.objects.get(row.r2_key);
+    const text = decodeStoredTextBody(object.body);
+    expect(text).toContain('"prompt_tokens_details"');
+    expect(text).toContain('"cached_tokens": 6');
+    expect(text).toContain('"completion_tokens_details"');
+    expect(text).toContain('"reasoning_tokens": 9');
+  });
+
+  test('admin AI save-text-asset accepts nested compare usage details', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-nested-compare')],
+    });
+
+    const token = await seedSession(env, 'admin-nested-compare');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+        title: 'Nested Compare Save',
+        sourceModule: 'compare',
+        data: {
+          prompt: 'Compare both outputs.',
+          results: [
+            {
+              ok: true,
+              model: {
+                id: '@cf/meta/llama-3.1-8b-instruct-fast',
+                label: 'Llama 3.1 8B Instruct Fast',
+                vendor: 'Meta',
+              },
+              text: 'Model A output.',
+              usage: {
+                total_tokens: 11,
+                completion_tokens_details: {
+                  reasoning_tokens: 4,
+                },
+              },
+              elapsedMs: 111,
+            },
+            {
+              ok: true,
+              model: {
+                id: '@cf/openai/gpt-oss-20b',
+                label: 'GPT OSS 20B',
+                vendor: 'OpenAI',
+              },
+              text: 'Model B output.',
+              usage: {
+                total_tokens: 13,
+                prompt_tokens_details: {
+                  cached_tokens: 2,
+                },
+              },
+              elapsedMs: 123,
+            },
+          ],
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.33',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        source_module: 'compare',
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    const object = env.USER_IMAGES.objects.get(row.r2_key);
+    const text = decodeStoredTextBody(object.body);
+    expect(text).toContain('"completion_tokens_details"');
+    expect(text).toContain('"reasoning_tokens": 4');
+    expect(text).toContain('"prompt_tokens_details"');
+    expect(text).toContain('"cached_tokens": 2');
+  });
+
   test('admin AI save-text-asset rejects saving into a foreign folder', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

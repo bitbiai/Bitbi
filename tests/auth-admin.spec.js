@@ -2225,6 +2225,7 @@ test.describe('Admin AI Lab', () => {
   test('saves text, embeddings, compare, and live-agent outputs into shared folders', async ({
     page,
   }) => {
+    const catalog = createMockAiCatalog();
     const saveTextAssetRequests = [];
     await page.unroute('**/api/admin/ai/save-text-asset');
     await page.route('**/api/admin/ai/save-text-asset', async (route) => {
@@ -2246,6 +2247,78 @@ test.describe('Admin AI Lab', () => {
             preview_text: 'Saved from admin AI Lab.',
             created_at: '2026-04-10T12:00:00.000Z',
           },
+        }),
+      });
+    });
+    await page.unroute('**/api/admin/ai/test-text');
+    await page.route('**/api/admin/ai/test-text', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'text',
+          model: catalog.models.text[1],
+          preset: body.preset || 'balanced',
+          result: {
+            text: 'Mocked text output from admin AI Lab.',
+            usage: {
+              total_tokens: 42,
+              prompt_tokens_details: {
+                cached_tokens: 6,
+                audio_tokens: 0,
+              },
+            },
+            maxTokens: body.maxTokens,
+            temperature: body.temperature,
+          },
+          elapsedMs: 123,
+          warnings: ['Mock text warning'],
+        }),
+      });
+    });
+    await page.unroute('**/api/admin/ai/compare');
+    await page.route('**/api/admin/ai/compare', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'compare',
+          models: catalog.models.text,
+          result: {
+            results: [
+              {
+                ok: true,
+                model: catalog.models.text[0],
+                text: 'BITBI blends AI imagery with a premium admin control surface. It feels precise and cinematic.',
+                usage: {
+                  total_tokens: 11,
+                  completion_tokens_details: {
+                    reasoning_tokens: 4,
+                  },
+                },
+                elapsedMs: 111,
+              },
+              {
+                ok: true,
+                model: catalog.models.text[1],
+                text: 'BITBI blends AI imagery with a premium admin control surface. It feels agile and technical.',
+                usage: {
+                  total_tokens: 17,
+                  prompt_tokens_details: {
+                    cached_tokens: 2,
+                  },
+                },
+                elapsedMs: 123,
+              },
+            ],
+            maxTokens: 250,
+            temperature: 0.7,
+          },
+          elapsedMs: 222,
+          warnings: ['Mock compare warning'],
         }),
       });
     });
@@ -2302,6 +2375,10 @@ test.describe('Admin AI Lab', () => {
       prompt: 'Save this text output',
       output: 'Mocked text output from admin AI Lab.',
     }));
+    expect(saveTextAssetRequests[0].data.usage.prompt_tokens_details).toEqual({
+      cached_tokens: 6,
+      audio_tokens: 0,
+    });
     expect(saveTextAssetRequests[1]).toEqual(expect.objectContaining({
       title: 'Embedding Snapshot',
       sourceModule: 'embeddings',
@@ -2316,6 +2393,12 @@ test.describe('Admin AI Lab', () => {
       folderId: 'folder-launches',
     }));
     expect(saveTextAssetRequests[2].data.results).toHaveLength(2);
+    expect(saveTextAssetRequests[2].data.results[0].usage.completion_tokens_details).toEqual({
+      reasoning_tokens: 4,
+    });
+    expect(saveTextAssetRequests[2].data.results[1].usage.prompt_tokens_details).toEqual({
+      cached_tokens: 2,
+    });
     expect(saveTextAssetRequests[3]).toEqual(expect.objectContaining({
       title: 'Live Agent Transcript',
       sourceModule: 'live_agent',

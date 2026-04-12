@@ -8,6 +8,7 @@ import {
   enqueueAiImageDerivativeJob,
   listAiImagesNeedingDerivativeWork,
 } from "../lib/ai-image-derivatives.js";
+import { sanitizeAssetMetadata } from "../lib/ai-asset-metadata.js";
 import { saveAdminAiTextAsset } from "../lib/ai-text-assets.js";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
@@ -439,43 +440,21 @@ function optionalModelSummary(value, field = "model") {
 
 function optionalUsageSummary(value, field = "usage") {
   if (value === undefined || value === null) return null;
-  const usage = ensurePlainObject(value, field);
-  const entries = Object.entries(usage);
-
-  if (entries.length > SAVE_TEXT_ASSET_LIMITS.maxUsageKeys) {
+  try {
+    return sanitizeAssetMetadata(value, {
+      field,
+      maxEntries: SAVE_TEXT_ASSET_LIMITS.maxUsageKeys,
+      maxKeyLength: SAVE_TEXT_ASSET_LIMITS.maxUsageKeyLength,
+      maxStringLength: SAVE_TEXT_ASSET_LIMITS.maxUsageStringLength,
+      stringifyNested: false,
+    });
+  } catch (error) {
     throw new InputError(
-      `${field} must contain at most ${SAVE_TEXT_ASSET_LIMITS.maxUsageKeys} keys.`,
-      400,
-      "validation_error"
+      error?.message || `${field} is invalid.`,
+      error?.status || 400,
+      error?.code || "validation_error"
     );
   }
-
-  const normalized = {};
-  for (const [key, entryValue] of entries) {
-    const safeKey = requiredString(key, `${field}.key`, SAVE_TEXT_ASSET_LIMITS.maxUsageKeyLength);
-    if (
-      typeof entryValue !== "string" &&
-      typeof entryValue !== "number" &&
-      typeof entryValue !== "boolean" &&
-      entryValue !== null
-    ) {
-      throw new InputError(
-        `${field}.${safeKey} must be a string, number, boolean, or null.`,
-        400,
-        "validation_error"
-      );
-    }
-    if (typeof entryValue === "string" && entryValue.length > SAVE_TEXT_ASSET_LIMITS.maxUsageStringLength) {
-      throw new InputError(
-        `${field}.${safeKey} must be at most ${SAVE_TEXT_ASSET_LIMITS.maxUsageStringLength} characters.`,
-        400,
-        "validation_error"
-      );
-    }
-    normalized[safeKey] = entryValue;
-  }
-
-  return normalized;
 }
 
 function optionalHexId(value, field) {
