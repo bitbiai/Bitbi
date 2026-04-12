@@ -1334,6 +1334,26 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
+      profiles: [
+        {
+          user_id: 'user-auth',
+          display_name: 'Member Name',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          created_at: '2026-04-01T00:00:00.000Z',
+          updated_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+      privateMedia: {
+        'avatars/user-auth': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+            ONE_PIXEL_PNG_BYTES.byteOffset,
+            ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+          ),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
     });
 
     const loginCtx = createExecutionContext();
@@ -1365,7 +1385,13 @@ test.describe('Worker routes', () => {
     expect(meRes.status).toBe(200);
     await expect(meRes.json()).resolves.toMatchObject({
       loggedIn: true,
-      user: { email: 'member@example.com', role: 'user' },
+      user: {
+        email: 'member@example.com',
+        role: 'user',
+        display_name: 'Member Name',
+        has_avatar: true,
+        avatar_url: '/api/profile/avatar',
+      },
     });
 
     const logoutCtx = createExecutionContext();

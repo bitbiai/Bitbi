@@ -27,8 +27,7 @@ export async function initAuth() {
 export async function authLogin(email, password) {
     const res = await apiLogin(email, password);
     if (res.ok) {
-        state = { loggedIn: true, user: res.data?.user || { email } };
-        dispatch();
+        await initAuth();
     }
     return res;
 }
@@ -40,5 +39,17 @@ export async function authRegister(email, password) {
 export async function authLogout() {
     await apiLogout();
     state = { loggedIn: false, user: null };
+    dispatch();
+}
+
+export function patchAuthUser(patch) {
+    if (!state.loggedIn || !state.user || !patch || typeof patch !== 'object') return;
+    state = {
+        ...state,
+        user: {
+            ...state.user,
+            ...patch,
+        },
+    };
     dispatch();
 }

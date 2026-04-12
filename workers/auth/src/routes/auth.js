@@ -8,6 +8,10 @@ import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 
+function avatarKey(userId) {
+  return `avatars/${userId}`;
+}
+
 export async function handleMe(ctx) {
   const { request, env } = ctx;
   const session = await getSessionUser(request, env);
@@ -19,9 +23,26 @@ export async function handleMe(ctx) {
     });
   }
 
+  const [profileRow, avatarListing] = await Promise.all([
+    env.DB.prepare(
+      "SELECT display_name FROM profiles WHERE user_id = ? LIMIT 1"
+    )
+      .bind(session.user.id)
+      .first(),
+    env.PRIVATE_MEDIA.list({ prefix: avatarKey(session.user.id), limit: 1 }).catch(() => null),
+  ]);
+
+  const hasAvatar = Array.isArray(avatarListing?.objects)
+    && avatarListing.objects.some((object) => object.key === avatarKey(session.user.id));
+
   return json({
     loggedIn: true,
-    user: session.user,
+    user: {
+      ...session.user,
+      display_name: profileRow?.display_name || "",
+      has_avatar: hasAvatar,
+      avatar_url: hasAvatar ? "/api/profile/avatar" : null,
+    },
   });
 }
 

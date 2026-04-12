@@ -483,6 +483,13 @@ class MockD1 {
       return this.state.profiles.find((row) => row.user_id === userId) || null;
     }
 
+    if (query === 'SELECT display_name FROM profiles WHERE user_id = ? LIMIT 1') {
+      const [userId] = bindings;
+      const row = this.state.profiles.find((entry) => entry.user_id === userId);
+      if (!row) return null;
+      return { display_name: row.display_name };
+    }
+
     if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at) VALUES')) {
       const [userId, displayName, bio, website, youtubeUrl, createdAt, updatedAt] = bindings;
       const existing = this.state.profiles.find((row) => row.user_id === userId);

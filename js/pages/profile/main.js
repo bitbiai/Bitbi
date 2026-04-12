@@ -10,6 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { setupFocusTrap }    from '../../shared/focus-trap.js';
+import { patchAuthUser }     from '../../shared/auth-state.js';
 
 import {
     apiAiGetFolders,
@@ -603,6 +604,10 @@ async function assignAvatarFromSavedAsset(asset) {
     try {
         const result = await apiSetAvatarFromSavedAsset(asset.id);
         if (result.ok) {
+            patchAuthUser({
+                has_avatar: true,
+                avatar_url: `${AVATAR_URL}?t=${Date.now()}`,
+            });
             closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
             setAvatarAssetsStatus(AVATAR_DEFAULT_STATUS, 'neutral');
             showAvatarMsg('Photo updated.', 'success');
@@ -1216,6 +1221,10 @@ async function init() {
         $avatarInput.value = '';
 
         if (result.ok) {
+            patchAuthUser({
+                has_avatar: true,
+                avatar_url: `${AVATAR_URL}?t=${Date.now()}`,
+            });
             showAvatarMsg('Photo updated.', 'success');
             loadAvatar(true);
         } else {
@@ -1237,6 +1246,10 @@ async function init() {
         $avatarRemoveBtn.textContent = 'Remove';
 
         if (result.ok) {
+            patchAuthUser({
+                has_avatar: false,
+                avatar_url: null,
+            });
             showAvatarMsg('Photo removed.', 'success');
             loadAvatar(true);
         } else {
@@ -1263,6 +1276,9 @@ async function init() {
         $submitBtn.textContent = 'Save Changes';
 
         if (result.ok) {
+            patchAuthUser({
+                display_name: $displayName.value.trim(),
+            });
             showMsg('Profile updated.', 'success');
             $summaryName.textContent = $displayName.value.trim() || '\u2014';
         } else {

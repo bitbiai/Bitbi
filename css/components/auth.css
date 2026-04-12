@@ -4,6 +4,9 @@
    ============================================================ */
 
 @layer components {
+    .site-nav__bar {
+        position: relative;
+    }
 
     /* ── Auth Nav Button (Desktop) ── */
     .auth-nav__wrap {
@@ -12,11 +15,59 @@
         gap: var(--space-2);
     }
 
+    .auth-nav__wrap--avatar {
+        gap: var(--space-3);
+    }
+
     .auth-nav__email {
         font-size: 10px;
         font-family: var(--font-mono);
         color: rgba(0, 240, 255, 0.6);
         max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .auth-nav__identity {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        min-width: 0;
+    }
+
+    .auth-nav__avatar-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        inline-size: 1.875rem;
+        block-size: 1.875rem;
+        flex-shrink: 0;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.06);
+        transition: transform 0.2s var(--ease-default), box-shadow 0.2s var(--ease-default);
+    }
+
+    .auth-nav__avatar-link:hover,
+    .auth-nav__avatar-link:focus-visible {
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.18);
+        outline: none;
+    }
+
+    .auth-nav__avatar-img {
+        inline-size: 100%;
+        block-size: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .auth-nav__identity-label {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.72);
+        max-width: 108px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -37,12 +88,79 @@
     }
 
     /* ── Auth Nav (Mobile) ── */
+    .auth-nav__mobile-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        position: absolute;
+        inset-inline-end: calc(2.5rem + var(--space-4));
+        inset-block-start: 50%;
+        transform: translateY(-50%);
+        min-width: 0;
+        max-width: min(44vw, 11rem);
+        color: rgba(255, 255, 255, 0.86);
+        z-index: 40;
+    }
+
+    .auth-nav__mobile-inline-img {
+        inline-size: 1.75rem;
+        block-size: 1.75rem;
+        border-radius: 999px;
+        object-fit: cover;
+        flex-shrink: 0;
+        display: block;
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .auth-nav__mobile-inline-label {
+        font-size: 0.6875rem;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.72);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    @media (min-width: 1024px) {
+        .auth-nav__mobile-inline {
+            display: none;
+        }
+    }
+
     .auth-nav__mobile-email {
         display: block;
         font-size: 0.8125rem;
         font-family: var(--font-mono);
         color: rgba(0, 240, 255, 0.5);
         margin-block-end: var(--space-3);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .auth-nav__mobile-identity {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        max-width: 100%;
+        margin-block-end: var(--space-3);
+    }
+
+    .auth-nav__mobile-identity-img {
+        inline-size: 2rem;
+        block-size: 2rem;
+        border-radius: 999px;
+        object-fit: cover;
+        flex-shrink: 0;
+        display: block;
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .auth-nav__mobile-identity-label {
+        display: block;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+        color: rgba(0, 240, 255, 0.5);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

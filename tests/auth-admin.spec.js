@@ -897,11 +897,14 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
 
 async function mockAuthenticatedProfile(page, {
   role = 'user',
+  email = `${role}@bitbi.ai`,
+  displayName = role === 'admin' ? 'Admin User' : 'Member User',
+  hasAvatar = false,
   folderPayload = { folders: [], counts: {}, unfolderedCount: 0 },
   assetsPayload = { all: [], unfoldered: [], folders: {} },
   imageRequests = [],
   avatarRequests = [],
-  initialAvatar = false,
+  initialAvatar = hasAvatar,
 } = {}) {
   const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
   const avatarState = {
@@ -917,8 +920,11 @@ async function mockAuthenticatedProfile(page, {
         loggedIn: true,
         user: {
           id: `${role}-profile-user`,
-          email: `${role}@bitbi.ai`,
+          email,
           role,
+          display_name: hasAvatar ? displayName : '',
+          has_avatar: hasAvatar,
+          avatar_url: hasAvatar ? '/api/profile/avatar' : null,
         },
       }),
     });
@@ -939,14 +945,14 @@ async function mockAuthenticatedProfile(page, {
       contentType: 'application/json',
       body: JSON.stringify({
         profile: {
-          display_name: role === 'admin' ? 'Admin User' : 'Member User',
+          display_name: displayName,
           bio: '',
           website: '',
           youtube_url: '',
         },
         account: {
           id: `${role}-profile-user`,
-          email: `${role}@bitbi.ai`,
+          email,
           role,
           email_verified: true,
           verification_method: 'email',
@@ -1088,6 +1094,55 @@ async function mockAuthenticatedProfile(page, {
   return { assetStore, avatarRequests, imageRequests };
 }
 
+async function mockAuthenticatedHeader(page, {
+  role = 'user',
+  email = 'member@bitbi.ai',
+  displayName = '',
+  hasAvatar = false,
+} = {}) {
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        loggedIn: true,
+        user: {
+          id: `${role}-header-user`,
+          email,
+          role,
+          display_name: hasAvatar ? displayName : '',
+          has_avatar: hasAvatar,
+          avatar_url: hasAvatar ? '/api/profile/avatar' : null,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/favorites', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        favorites: [],
+      }),
+    });
+  });
+
+  await page.route('**/api/profile/avatar**', async (route) => {
+    if (!hasAvatar) {
+      await route.fulfill({ status: 404, body: '' });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Auth modal
 // ---------------------------------------------------------------------------
@@ -1220,6 +1275,50 @@ test.describe('Account pages (unauthenticated)', () => {
       timeout: 10_000,
     });
     await expect(page.locator('#adminPanel')).not.toBeVisible();
+  });
+});
+
+test.describe('Global header auth identity', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('desktop homepage shows avatar and display name in place of mood/profile link when an avatar exists', async ({
+    page,
+  }) => {
+    await mockAuthenticatedHeader(page, {
+      email: 'header@example.com',
+      displayName: 'Header Name',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('.auth-nav__avatar-link')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.auth-nav__identity-label')).toHaveText('Header Name');
+    await expect(page.locator('.site-nav__mood')).toBeHidden();
+    await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toHaveCount(0);
+  });
+
+  test('desktop shared header keeps the legacy mood/email/profile layout when no avatar exists', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'fallback@example.com',
+      displayName: 'Display Only',
+      hasAvatar: false,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('.site-nav__mood')).toBeVisible();
+    await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toBeVisible();
+    await expect(page.locator('.auth-nav__avatar-link')).toHaveCount(0);
+    await expect(page.locator('.auth-nav__email')).toHaveText('fallback@example.com');
   });
 });
 
@@ -1643,6 +1742,9 @@ test.describe('Profile page (authenticated)', () => {
 
     await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
     await expect(page.locator('#avatarImg')).toBeVisible();
+    await expect(page.locator('.auth-nav__avatar-link')).toBeVisible();
+    await expect(page.locator('.site-nav__mood')).toBeHidden();
+    await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toHaveCount(0);
     expect(avatarRequests).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1767,6 +1869,29 @@ test.describe('Profile page (authenticated)', () => {
     expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
   });
 
+  test('profile save updates the header label from email to display name when an avatar is present', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'header-update@example.com',
+      displayName: '',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('.auth-nav__identity-label')).toHaveText('header-update@example.com');
+
+    await page.locator('#displayName').fill('Updated Header Name');
+    await page.locator('#profileForm').getByRole('button', { name: 'Save Changes' }).click();
+
+    await expect(page.locator('#formMsg')).toContainText('Profile updated.');
+    await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
+  });
+
   test('non-admin profile shows only the AI Studio card in the profile action stack', async ({
     page,
   }) => {
@@ -1850,6 +1975,52 @@ test.describe('Profile page (authenticated mobile)', () => {
 
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
+  });
+
+  test('mobile header shows avatar with email fallback and removes the mobile profile link when an avatar exists', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'mobile-header@example.com',
+      displayName: '',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('.auth-nav__mobile-inline')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-inline-label')).toHaveText('mobile-header@example.com');
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('.auth-nav__mobile-identity')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-identity-label')).toHaveText('mobile-header@example.com');
+    await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
+  });
+
+  test('mobile header keeps the legacy menu/profile layout when no avatar exists', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'mobile-fallback@example.com',
+      displayName: 'Mobile Fallback',
+      hasAvatar: false,
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('.auth-nav__mobile-inline')).toHaveCount(0);
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('.auth-nav__mobile-email')).toHaveText('mobile-fallback@example.com');
+    await expect(page.locator('.auth-nav__mobile-profile')).toBeVisible();
   });
 
   test('admin mobile profile shows AI Lab beside Studio and hides the lower AI cards', async ({
