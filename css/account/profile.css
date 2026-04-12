@@ -273,50 +273,24 @@
         }
     }
 
+    .profile-view[hidden] {
+        display: none !important;
+    }
+
+    .profile-ai-lab-view {
+        max-inline-size: var(--container-wide);
+        margin-inline: auto;
+    }
+
+    .profile__view-actions {
+        display: flex;
+        justify-content: flex-start;
+        margin-block-end: var(--space-5);
+    }
+
     .profile__admin-lab-shell {
         display: grid;
         gap: var(--space-5);
-        margin-block-start: var(--space-6);
-    }
-
-    .profile__admin-lab-shell[hidden] {
-        display: none;
-    }
-
-    .profile__admin-lab-anchor {
-        display: block;
-        position: relative;
-        inset-block-start: calc(var(--space-6) * -1);
-        visibility: hidden;
-    }
-
-    .profile__admin-lab-context {
-        max-inline-size: none;
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-4);
-    }
-
-    .profile__admin-lab-kicker {
-        display: inline-block;
-        margin-block-end: var(--space-2);
-        font-family: var(--font-mono);
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: rgba(255, 255, 255, 0.42);
-    }
-
-    .profile__admin-lab-title {
-        margin-block-end: var(--space-3);
-    }
-
-    .profile__admin-lab-desc {
-        max-inline-size: 48rem;
-        font-size: 13px;
-        line-height: 1.7;
-        color: rgba(255, 255, 255, 0.56);
     }
 
     .profile__admin-lab-shell .glass-card {
@@ -331,20 +305,6 @@
 
     .profile__admin-lab-shell .admin-ai__save-dialog {
         max-inline-size: min(32rem, calc(100vw - 2rem));
-    }
-
-    @media (min-width: 640px) {
-        .profile__admin-lab-context {
-            flex-direction: row;
-            align-items: flex-start;
-            justify-content: space-between;
-        }
-    }
-
-    @media (min-width: 1024px) {
-        .profile__admin-lab-shell {
-            grid-column: 1 / -1;
-        }
     }
 
     /* ── Mobile Tab Link ── */
@@ -664,17 +624,17 @@
 
     /* ── Profile Two-Column Layout ── */
     @media (min-width: 1024px) {
-        .profile-layout {
+        .profile-shell {
             max-inline-size: var(--container-wide); /* 1024px */
         }
 
-        .profile-layout > #loadingState,
-        .profile-layout > #deniedState {
+        .profile-shell > #loadingState,
+        .profile-shell > #deniedState {
             max-inline-size: var(--container-narrow); /* 672px — stay centered */
             margin-inline: auto;
         }
 
-        #profileContent {
+        #profileHomeView .profile-layout {
             display: grid;
             grid-template-columns: 480px 280px;
             gap: var(--space-8);
@@ -869,6 +829,32 @@
 
         #profileContent[data-active-tab="favorites"] .profile__admin-lab-shell {
             display: none;
+        }
+    }
+
+    @media (max-width: 719px) {
+        .profile-ai-lab-view .admin-ai__header-actions,
+        .profile-ai-lab-view .admin-ai__panel-actions {
+            inline-size: 100%;
+        }
+
+        .profile-ai-lab-view .admin-ai__input--compact {
+            min-inline-size: 0;
+            inline-size: 100%;
+        }
+
+        .profile-ai-lab-view .admin-ai__catalog-row {
+            flex-direction: column;
+        }
+
+        .profile-ai-lab-view .admin-ai__catalog-meta {
+            min-inline-size: 0;
+            inline-size: 100%;
+            align-items: flex-start;
+        }
+
+        .profile-ai-lab-view .admin-ai__catalog-code {
+            text-align: start;
         }
     }
 

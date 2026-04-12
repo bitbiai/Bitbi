@@ -1079,7 +1079,10 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
 
     await page.goto('/account/profile.html#ai-lab');
-    await expect(page.locator('#sectionAiLab')).toBeHidden();
+    await expect(page.locator('#profileHomeView')).toBeVisible();
+    await expect(page.locator('#profileAiLabView')).toBeHidden();
+    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
+    await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
   });
 
@@ -1107,13 +1110,19 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('#profileAdminAiLabCard').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
-    await expect(page.locator('h1.legal-hero__title')).toHaveText('My Profile');
+    await expect(page.locator('#profileHeroLabel')).toHaveText('Profile / AI Lab');
+    await expect(page.locator('#profileHeroTitle')).toHaveText('AI Lab');
+    await expect(page.locator('#profileHeroDesc')).toHaveText(
+      'Admin-only testing surface, kept inside your Profile workspace.',
+    );
+    await expect(page.locator('#profileHomeView')).toBeHidden();
+    await expect(page.locator('#profileAiLabView')).toBeVisible();
     await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#profileAiLabTitle')).toHaveText('AI Lab');
     await expect(page.locator('#adminHeroTitle')).toHaveCount(0);
     await expect(page.locator('#adminNav')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="ai-lab"]')).toHaveCount(0);
     await expect(page.locator('.admin-quick-link[data-nav="ai-lab"]')).toHaveCount(0);
+    await expect(page.locator('#summaryName')).toBeHidden();
 
     await page.getByRole('button', { name: 'Text' }).click();
     await expect(page.locator('#aiTextPreset option')).toHaveCount(2);
@@ -1123,7 +1132,11 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('#profileAiLabBack').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
-    await expect(page.locator('#sectionAiLab')).toBeHidden();
+    await expect(page.locator('#profileHeroLabel')).toHaveText('Member');
+    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
+    await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
+    await expect(page.locator('#profileAiLabView')).toBeHidden();
+    await expect(page.locator('#profileHomeView')).toBeVisible();
   });
 });
 

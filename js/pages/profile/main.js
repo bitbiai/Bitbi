@@ -19,6 +19,12 @@ import { createAdminAiLab } from '../admin/ai-lab.js?v=20260410-wave10';
 const $loading        = document.getElementById('loadingState');
 const $denied         = document.getElementById('deniedState');
 const $content        = document.getElementById('profileContent');
+const $hero           = document.getElementById('profileHero');
+const $heroLabel      = document.getElementById('profileHeroLabel');
+const $heroTitle      = document.getElementById('profileHeroTitle');
+const $heroDesc       = document.getElementById('profileHeroDesc');
+const $homeView       = document.getElementById('profileHomeView');
+const $aiLabView      = document.getElementById('profileAiLabView');
 
 const $summaryName    = document.getElementById('summaryName');
 const $summaryEmail   = document.getElementById('summaryEmail');
@@ -27,7 +33,6 @@ const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
-const $aiLabSection   = document.getElementById('sectionAiLab');
 const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
 const $aiLabToast     = document.getElementById('profileAiLabToast');
 
@@ -48,8 +53,24 @@ const $avatarUploadText  = document.getElementById('avatarUploadText');
 const $avatarUploadLabel = document.getElementById('avatarUploadLabel');
 const $avatarMsg         = document.getElementById('avatarMsg');
 
+const PROFILE_VIEW = 'profile';
 const AI_LAB_HASH = 'ai-lab';
 let canAccessAdminAiLab = false;
+
+const HERO_CONTENT = {
+    [PROFILE_VIEW]: {
+        ariaLabel: 'My Profile',
+        label: 'Member',
+        title: 'My Profile',
+        desc: 'View and manage your account',
+    },
+    [AI_LAB_HASH]: {
+        ariaLabel: 'Profile / AI Lab',
+        label: 'Profile / AI Lab',
+        title: 'AI Lab',
+        desc: 'Admin-only testing surface, kept inside your Profile workspace.',
+    },
+};
 
 function setActiveTab(tab) {
     if (!$content) return;
@@ -79,49 +100,57 @@ function getProfileHashView() {
     return location.hash.replace(/^#/, '').trim().toLowerCase();
 }
 
+function applyHeroContent(view) {
+    const heroContent = HERO_CONTENT[view] || HERO_CONTENT[PROFILE_VIEW];
+
+    $hero?.setAttribute('aria-label', heroContent.ariaLabel);
+    if ($heroLabel) $heroLabel.textContent = heroContent.label;
+    if ($heroTitle) $heroTitle.textContent = heroContent.title;
+    if ($heroDesc) $heroDesc.textContent = heroContent.desc;
+}
+
 function clearAiLabHash() {
     history.replaceState(null, '', `${location.pathname}${location.search}`);
 }
 
-function syncAiLabView() {
-    const wantsAiLab = getProfileHashView() === AI_LAB_HASH;
-
-    if (!canAccessAdminAiLab) {
-        if ($adminAiLabCard) {
-            $adminAiLabCard.removeAttribute('aria-current');
-        }
-        if ($aiLabSection) {
-            $aiLabSection.hidden = true;
-        }
-        if ($content) {
-            $content.dataset.activeView = 'profile';
-        }
-        if (wantsAiLab) {
-            clearAiLabHash();
-        }
-        return;
-    }
-
-    const isAiLabActive = wantsAiLab;
+function setActiveView(view) {
+    const resolvedView = view === AI_LAB_HASH && canAccessAdminAiLab ? AI_LAB_HASH : PROFILE_VIEW;
 
     if ($content) {
-        $content.dataset.activeView = isAiLabActive ? 'ai-lab' : 'profile';
+        $content.dataset.activeView = resolvedView;
+    }
+    if ($homeView) {
+        $homeView.hidden = resolvedView !== PROFILE_VIEW;
+    }
+    if ($aiLabView) {
+        $aiLabView.hidden = resolvedView !== AI_LAB_HASH;
     }
     if ($adminAiLabCard) {
-        if (isAiLabActive) {
+        if (resolvedView === AI_LAB_HASH) {
             $adminAiLabCard.setAttribute('aria-current', 'page');
         } else {
             $adminAiLabCard.removeAttribute('aria-current');
         }
     }
-    if ($aiLabSection) {
-        $aiLabSection.hidden = !isAiLabActive;
-    }
 
-    if (isAiLabActive) {
+    applyHeroContent(resolvedView);
+
+    if (resolvedView === AI_LAB_HASH) {
         setActiveTab('profile');
         aiLab.show();
     }
+
+    return resolvedView;
+}
+
+function syncAiLabView() {
+    const wantsAiLab = getProfileHashView() === AI_LAB_HASH;
+
+    if (wantsAiLab && !canAccessAdminAiLab) {
+        clearAiLabHash();
+    }
+
+    setActiveView(wantsAiLab && canAccessAdminAiLab ? AI_LAB_HASH : PROFILE_VIEW);
 }
 
 /* ── Mobile tab switcher ── */
@@ -207,9 +236,6 @@ function renderProfile(profile, account) {
     }
     if ($adminAiLabCard) {
         $adminAiLabCard.hidden = !isAdmin;
-    }
-    if ($aiLabSection) {
-        $aiLabSection.hidden = true;
     }
     syncAiLabView();
 
@@ -695,6 +721,7 @@ async function init() {
 
     if ($aiLabBackBtn) {
         $aiLabBackBtn.addEventListener('click', () => {
+            setActiveTab('profile');
             clearAiLabHash();
             syncAiLabView();
             $adminAiLabCard?.focus();

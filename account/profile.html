@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="../css/components/components.css?v=20260405">
     <link rel="stylesheet" href="../css/components/auth.css?v=20260317">
     <link rel="stylesheet" href="../css/admin/admin.css?v=20260410-wave10">
-    <link rel="stylesheet" href="../css/account/profile.css?v=20260412-wave12">
+    <link rel="stylesheet" href="../css/account/profile.css?v=20260412-wave13">
     <link rel="stylesheet" href="../css/base/utilities.css?v=20260317">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
@@ -47,7 +47,7 @@
 <main id="main-content">
 
 <!-- HERO AREA -->
-<section class="hero hero--compact" aria-label="My Profile">
+<section id="profileHero" class="hero hero--compact" aria-label="My Profile">
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
     <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.4) 50%,#0A0A0A 100%)" aria-hidden="true"></div>
     <div class="hero__glow hero__glow--cyan-sm" style="top:30%;left:20%;width:300px;height:300px" aria-hidden="true"></div>
@@ -55,16 +55,16 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
 
     <div class="hero__content hero__content--narrow">
-        <span class="legal-hero__label">Member</span>
-        <h1 class="legal-hero__title gt-gold-cyan">My Profile</h1>
-        <p class="legal-hero__desc">View and manage your account</p>
+        <span id="profileHeroLabel" class="legal-hero__label">Member</span>
+        <h1 id="profileHeroTitle" class="legal-hero__title gt-gold-cyan">My Profile</h1>
+        <p id="profileHeroDesc" class="legal-hero__desc">View and manage your account</p>
     </div>
 </section>
 
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
 <section class="section" aria-label="Profile content">
-    <div class="section__inner--narrow profile-layout" style="margin-inline:auto">
+    <div class="section__inner--narrow profile-shell" style="margin-inline:auto">
 
         <!-- Loading State -->
         <div id="loadingState" class="profile-loading reveal">Loading profile...</div>
@@ -82,15 +82,17 @@
         </div>
 
         <!-- Profile Content -->
-        <div id="profileContent" data-active-tab="profile" style="display:none">
+        <div id="profileContent" data-active-tab="profile" data-active-view="profile" style="display:none">
+            <div id="profileHomeView" class="profile-view">
 
-            <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
-                <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
-                <a href="/account/image-studio.html" class="profile-tab-link">Studio</a>
-                <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
-            </div>
+                <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
+                    <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
+                    <a href="/account/image-studio.html" class="profile-tab-link">Studio</a>
+                    <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
+                </div>
 
-            <div class="profile-layout__main">
+                <div class="profile-layout">
+                    <div class="profile-layout__main">
 
                 <!-- Avatar + Studio pair -->
                 <div class="profile__top-pair reveal">
@@ -192,36 +194,34 @@
                     <a href="/" class="profile__link">&larr; Back to Homepage</a>
                 </div>
 
+                    </div>
+
+                    <aside class="profile-layout__sidebar" aria-label="Favorites">
+                        <div class="profile__card profile__favorites reveal">
+                            <h2 class="profile__title">Favorites</h2>
+                            <div class="favorites__group" id="favoritesExperiments" data-favorites-type="experiments">
+                                <h3 class="favorites__group-label favorites__group-label--cyan">Experiments</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                            <div class="favorites__group" id="favoritesGallery" data-favorites-type="gallery">
+                                <h3 class="favorites__group-label favorites__group-label--magenta">AI Creations</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                            <div class="favorites__group" id="favoritesSoundlab" data-favorites-type="soundlab">
+                                <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
             </div>
 
-            <aside class="profile-layout__sidebar" aria-label="Favorites">
-                <div class="profile__card profile__favorites reveal">
-                    <h2 class="profile__title">Favorites</h2>
-                    <div class="favorites__group" id="favoritesExperiments" data-favorites-type="experiments">
-                        <h3 class="favorites__group-label favorites__group-label--cyan">Experiments</h3>
-                        <p class="favorites__empty">No favorites yet</p>
-                    </div>
-                    <div class="favorites__group" id="favoritesGallery" data-favorites-type="gallery">
-                        <h3 class="favorites__group-label favorites__group-label--magenta">AI Creations</h3>
-                        <p class="favorites__empty">No favorites yet</p>
-                    </div>
-                    <div class="favorites__group" id="favoritesSoundlab" data-favorites-type="soundlab">
-                        <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
-                        <p class="favorites__empty">No favorites yet</p>
-                    </div>
-                </div>
-            </aside>
-
-            <section id="sectionAiLab" class="profile__admin-lab-shell reveal visible" hidden aria-labelledby="profileAiLabTitle">
-                <span id="ai-lab" class="profile__admin-lab-anchor" aria-hidden="true"></span>
-                <div class="profile__admin-lab-context profile__card">
-                    <div>
-                        <span class="profile__admin-lab-kicker">Profile / AI Lab</span>
-                        <h2 id="profileAiLabTitle" class="profile__title profile__admin-lab-title">AI Lab</h2>
-                        <p class="profile__admin-lab-desc">Admin-only testing surface, kept inside your Profile workspace.</p>
-                    </div>
+            <div id="profileAiLabView" class="profile-view profile-ai-lab-view" hidden>
+                <div class="profile__view-actions">
                     <button type="button" id="profileAiLabBack" class="btn-action">Back to Profile</button>
                 </div>
+
+                <section id="sectionAiLab" class="profile__admin-lab-shell reveal visible" aria-label="AI Lab tools">
 
                 <div class="glass glass-card reveal visible admin-ai">
                     <div class="admin-ai__header">
@@ -695,6 +695,8 @@
         </div>
 
     </div>
+
+    </div>
 </section>
 
 </main>
@@ -737,6 +739,6 @@
     </div>
 </footer>
 
-<script type="module" src="../js/pages/profile/main.js?v=20260412-wave12"></script>
+<script type="module" src="../js/pages/profile/main.js?v=20260412-wave13"></script>
 </body>
 </html>
