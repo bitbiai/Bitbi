@@ -22,6 +22,8 @@ const DEFAULT_REQUEST_TIMEOUTS = {
     embeddings: 15_000,
     compare: 30_000,
 };
+const FLUX_2_DEV_MODEL_ID = '@cf/black-forest-labs/flux-2-dev';
+const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 const TASK_UI = {
     text: {
         label: 'Text',
@@ -1690,6 +1692,65 @@ export function createAdminAiLab({ showToast } = {}) {
         });
     }
 
+    function loadImageDimensions(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                resolve({
+                    width: Number(img.naturalWidth || img.width || 0),
+                    height: Number(img.naturalHeight || img.height || 0),
+                });
+            };
+            img.onerror = () => reject(new Error('Failed to inspect image dimensions.'));
+            img.src = src;
+        });
+    }
+
+    async function loadFileImageDimensions(file) {
+        const objectUrl = URL.createObjectURL(file);
+        try {
+            return await loadImageDimensions(objectUrl);
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
+    }
+
+    function getFlux2DevReferenceImageError(dimensions, index) {
+        const width = Number(dimensions?.width);
+        const height = Number(dimensions?.height);
+        const label = typeof index === 'number' ? `Reference image ${index + 1}` : 'Reference image';
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+            return `${label} dimensions could not be read.`;
+        }
+        if (
+            width >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE ||
+            height >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE
+        ) {
+            return `${label} must be smaller than 512x512 for FLUX.2 Dev. Received ${width}x${height}.`;
+        }
+        return '';
+    }
+
+    async function validateFlux2DevReferenceImagesClient(referenceImages) {
+        if (state.forms.image.model !== FLUX_2_DEV_MODEL_ID || !Array.isArray(referenceImages) || referenceImages.length === 0) {
+            return '';
+        }
+
+        for (let i = 0; i < referenceImages.length; i++) {
+            const dataUri = referenceImages[i];
+            if (!dataUri) continue;
+            try {
+                const dimensions = await loadImageDimensions(dataUri);
+                const error = getFlux2DevReferenceImageError(dimensions, i);
+                if (error) return error;
+            } catch {
+                return `Reference image ${i + 1} dimensions could not be read.`;
+            }
+        }
+
+        return '';
+    }
+
     function updateRefSlots() {
         const caps = getSelectedImageModelCapabilities();
         const maxRef = caps.maxReferenceImages || 4;
@@ -1718,21 +1779,33 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function handleRefFileSelect(index, file) {
+    async function handleRefFileSelect(index, file) {
         if (!file || !file.type.startsWith('image/')) return;
         const caps = getSelectedImageModelCapabilities();
         const maxRef = caps.maxReferenceImages || 4;
         if (state.forms.image.referenceImages.length >= maxRef) return;
 
-        fileToDataUri(file).then((dataUri) => {
+        try {
+            if (state.forms.image.model === FLUX_2_DEV_MODEL_ID) {
+                const dimensions = await loadFileImageDimensions(file);
+                const error = getFlux2DevReferenceImageError(dimensions, index);
+                if (error) {
+                    setStatus(error, 'error');
+                    if (showToast) showToast(error, 'error');
+                    return;
+                }
+            }
+
+            const dataUri = await fileToDataUri(file);
             if (state.forms.image.referenceImages.length < maxRef) {
                 state.forms.image.referenceImages[index] = dataUri;
                 updateRefSlots();
                 persistState();
             }
-        }).catch(() => {
+        } catch {
+            setStatus('Failed to read the image file.', 'error');
             if (showToast) showToast('Failed to read the image file.', 'error');
-        });
+        }
     }
 
     function removeRefImage(index) {
@@ -2839,6 +2912,31 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         if (caps.supportsReferenceImages && state.forms.image.referenceImages.length > 0) {
             payload.referenceImages = state.forms.image.referenceImages.filter(Boolean);
+        }
+
+        const referenceImageError = await validateFlux2DevReferenceImagesClient(payload.referenceImages || []);
+        if (referenceImageError) {
+            setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
+            clearTaskTimer('image', controller);
+            state.controllers.image = null;
+            state.results.image = previous.raw ? {
+                status: 'error',
+                error: referenceImageError,
+                errorCode: 'validation_error',
+                raw: previous.raw,
+                debugRaw: previous.raw,
+                receivedAt: previous.receivedAt,
+            } : {
+                status: 'error',
+                error: referenceImageError,
+                errorCode: 'validation_error',
+                raw: null,
+                debugRaw: null,
+                receivedAt: null,
+            };
+            setStatus(referenceImageError, 'error');
+            renderImageResult();
+            return;
         }
 
         const res = await apiAdminAiTestImage(payload, {

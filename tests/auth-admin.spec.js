@@ -3,6 +3,17 @@ const { test, expect } = require('@playwright/test');
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
 
+function createSvgUpload(width, height) {
+  return {
+    name: `ref-${width}x${height}.svg`,
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#111827"/></svg>`,
+      'utf8',
+    ),
+  };
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -2262,6 +2273,31 @@ test.describe('Admin AI Lab', () => {
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
     await expect(page.locator('#statTotal')).toHaveText('12');
+  });
+
+  test('accepts sub-512 FLUX.2 Dev reference images and rejects 512x512 images before submit', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Image' }).click();
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
+
+    await page.locator('#aiImageRef0').setInputFiles(createSvgUpload(511, 511));
+    await expect(page.locator('#aiImageRefCount')).toHaveText('1 / 4');
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="0"] .admin-ai__ref-preview'),
+    ).toBeVisible();
+
+    await page.locator('#aiImageRef1').setInputFiles(createSvgUpload(512, 512));
+    await expect(page.locator('#aiImageRefCount')).toHaveText('1 / 4');
+    await expect(page.locator('#aiLabStatus')).toContainText(
+      'Reference image 2 must be smaller than 512x512 for FLUX.2 Dev. Received 512x512.',
+    );
+    await expect(
+      page.locator('.admin-ai__ref-slot[data-ref-index="1"] .admin-ai__ref-add'),
+    ).toBeVisible();
   });
 
   test('saves text, embeddings, compare, and live-agent outputs into shared folders', async ({

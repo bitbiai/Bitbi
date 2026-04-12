@@ -12,6 +12,8 @@ import { sanitizeAssetMetadata } from "../lib/ai-asset-metadata.js";
 import { saveAdminAiTextAsset } from "../lib/ai-text-assets.js";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
+const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
+const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 
 const LIMITS = {
   text: {
@@ -281,6 +283,73 @@ function validateReferenceImages(value) {
     }
     return item;
   });
+}
+
+function dataUriToBytes(dataUri, field) {
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex === -1) {
+    throw new InputError(`${field} is not a valid data URI.`, 400, "validation_error");
+  }
+
+  let binary;
+  try {
+    binary = atob(dataUri.slice(commaIndex + 1));
+  } catch {
+    throw new InputError(`${field} is not a valid base64 image.`, 400, "validation_error");
+  }
+
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function validateFlux2DevReferenceImageDimensions(env, input) {
+  if (input?.model !== FLUX_2_DEV_MODEL_ID || !Array.isArray(input.referenceImages) || input.referenceImages.length === 0) {
+    return;
+  }
+
+  if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
+    throw new Error("Images binding is unavailable for FLUX.2 Dev reference image validation.");
+  }
+
+  for (const [index, dataUri] of input.referenceImages.entries()) {
+    const field = `referenceImages[${index}]`;
+    const bytes = dataUriToBytes(dataUri, field);
+
+    let info;
+    try {
+      info = await env.IMAGES.info(bytes);
+    } catch {
+      throw new InputError(
+        `${field} could not be inspected for dimensions.`,
+        400,
+        "validation_error"
+      );
+    }
+
+    const width = Number(info?.width);
+    const height = Number(info?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+      throw new InputError(
+        `${field} could not be inspected for dimensions.`,
+        400,
+        "validation_error"
+      );
+    }
+
+    if (
+      width >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE ||
+      height >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE
+    ) {
+      throw new InputError(
+        `${field} must be smaller than 512x512 for ${FLUX_2_DEV_MODEL_ID}. Received ${width}x${height}.`,
+        400,
+        "validation_error"
+      );
+    }
+  }
 }
 
 function validateImagePayload(body) {
@@ -979,10 +1048,12 @@ export async function handleAdminAI(ctx) {
     }
 
     try {
+      const payload = validateImagePayload(body);
+      await validateFlux2DevReferenceImageDimensions(env, payload);
       return proxyToAiLab(
         env,
         "/internal/ai/test-image",
-        { method: "POST", body: validateImagePayload(body) },
+        { method: "POST", body: payload },
         result.user
       );
     } catch (error) {

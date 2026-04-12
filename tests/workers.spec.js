@@ -109,6 +109,7 @@ async function createAdminAiContractHarness(options = {}) {
   const aiRun = options.aiRun || createAiLabRunStub();
   const env = createAuthTestEnv({
     users: [user],
+    imagesBinding: options.imagesBinding,
   });
   env.AI_LAB = createAiLabServiceBinding(aiWorker, {
     AI: {
@@ -1033,6 +1034,77 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(false);
       expect(body.code).toBe('validation_error');
       expect(body.error).toContain('at most 4');
+    });
+
+    test('POST /api/admin/ai/test-image accepts FLUX.2 Dev reference images smaller than 512x512', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        imagesBinding: {
+          originalInfo: { width: 511, height: 511, format: 'image/png' },
+        },
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const validRef = 'data:image/png;base64,AAAA';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'test',
+          width: 1024,
+          height: 1024,
+          referenceImages: [validRef],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.result.referenceImageCount).toBe(1);
+      expect(env.IMAGES.infoCalls).toHaveLength(1);
+      expect(env.IMAGES.infoCalls[0]).toEqual(expect.objectContaining({
+        width: 511,
+        height: 511,
+      }));
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        multipart: expect.objectContaining({
+          contentType: expect.stringContaining('multipart/form-data'),
+          body: expect.anything(),
+        }),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-image rejects FLUX.2 Dev reference images at 512x512', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        imagesBinding: {
+          originalInfo: { width: 512, height: 512, format: 'image/png' },
+        },
+      });
+      const invalidRef = 'data:image/png;base64,AAAA';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-2-dev',
+          prompt: 'test',
+          width: 1024,
+          height: 1024,
+          referenceImages: [invalidRef],
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.code).toBe('validation_error');
+      expect(body.error).toContain('smaller than 512x512');
+      expect(body.error).toContain('Received 512x512');
+      expect(env.IMAGES.infoCalls).toHaveLength(1);
     });
 
     test('POST /api/admin/ai/test-image validates guidance range', async () => {
