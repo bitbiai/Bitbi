@@ -919,8 +919,8 @@ class MockD1 {
     }
 
     if (
-      query === 'SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?' ||
-      query === 'SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?'
+      query === 'SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?' ||
+      query === 'SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?'
     ) {
       const [imageId, userId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
@@ -930,12 +930,14 @@ class MockD1 {
           derivative_key: row.thumb_key,
           mime_type: row.thumb_mime_type,
           derivatives_status: row.derivatives_status,
+          r2_key: row.r2_key,
         };
       }
       return {
         derivative_key: row.medium_key,
         mime_type: row.medium_mime_type,
         derivatives_status: row.derivatives_status,
+        r2_key: row.r2_key,
       };
     }
 

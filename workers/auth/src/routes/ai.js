@@ -6,8 +6,10 @@ import { isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
 import {
   AI_IMAGE_DERIVATIVE_VERSION,
   buildAiImageCleanupQueueInsertSql,
+  buildAiImageDerivativeMessage,
   enqueueAiImageDerivativeJob,
   listAiImageObjectKeys,
+  processAiImageDerivativeMessage,
   toAiImageAssetRecord,
 } from "../lib/ai-image-derivatives.js";
 import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
@@ -817,26 +819,58 @@ async function handleGetImageDerivative(ctx, imageId, variant) {
 
   const select =
     variant === "thumb"
-      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?"
-      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status FROM ai_images WHERE id = ? AND user_id = ?";
+      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?"
+      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
 
   const row = await env.DB.prepare(select).bind(imageId, session.user.id).first();
   if (!row) {
     return json({ ok: false, error: "Image not found." }, { status: 404 });
   }
-  if (!row.derivative_key) {
-    return json({ ok: false, error: "Image preview not ready." }, { status: 404 });
+
+  // Fast path: derivative already generated and stored in R2
+  if (row.derivative_key) {
+    const object = await env.USER_IMAGES.get(row.derivative_key);
+    if (object) {
+      const headers = new Headers();
+      headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "image/webp");
+      headers.set("Cache-Control", "private, max-age=3600");
+      return new Response(object.body, { headers });
+    }
   }
 
-  const object = await env.USER_IMAGES.get(row.derivative_key);
-  if (!object) {
-    return json({ ok: false, error: "Image preview file not found." }, { status: 404 });
+  // On-demand fallback: generate derivatives inline when the queue pipeline
+  // has not delivered them (covers queue-consumer downtime, binding failures,
+  // retry exhaustion, and any other asynchronous pipeline breakage).
+  if (row.r2_key) {
+    try {
+      const result = await processAiImageDerivativeMessage(
+        env,
+        buildAiImageDerivativeMessage({
+          imageId,
+          userId: session.user.id,
+          originalKey: row.r2_key,
+          derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+          trigger: "on_demand",
+        }),
+        { isLastAttempt: true }
+      );
+
+      if (result.status === "ready") {
+        const derivativeKey = variant === "thumb" ? result.keys.thumb : result.keys.medium;
+        const generated = await env.USER_IMAGES.get(derivativeKey);
+        if (generated) {
+          const headers = new Headers();
+          headers.set("Content-Type", generated.httpMetadata?.contentType || "image/webp");
+          headers.set("Cache-Control", "private, max-age=3600");
+          return new Response(generated.body, { headers });
+        }
+      }
+    } catch {
+      // On-demand generation failed — fall through to 404
+    }
   }
 
-  const headers = new Headers();
-  headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "image/webp");
-  headers.set("Cache-Control", "private, max-age=3600");
-  return new Response(object.body, { headers });
+  return json({ ok: false, error: "Image preview not ready." }, { status: 404 });
 }
 
 // ── GET /api/ai/text-assets/:id/file ──

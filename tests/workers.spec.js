@@ -2407,6 +2407,67 @@ test.describe('Worker routes', () => {
     expect(anonRes.status).toBe(401);
   });
 
+  test('AI image thumb on-demand generates derivatives when queue pipeline has not delivered them', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const originalKey = 'users/0de0aabb/folders/unsorted/original.png';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: '0de0aabb', role: 'user' })],
+      aiImages: [
+        {
+          id: '0de00001',
+          user_id: '0de0aabb',
+          folder_id: null,
+          r2_key: originalKey,
+          prompt: 'On-demand derivative test',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 77,
+          created_at: nowIso(),
+          // No thumb_key, no medium_key — derivatives not generated yet
+        },
+      ],
+      userImages: {
+        [originalKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, '0de0aabb');
+
+    // Request thumb — should trigger on-demand generation and serve the derivative
+    const thumbRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/0de00001/thumb', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(thumbRes.status).toBe(200);
+    expect(thumbRes.headers.get('content-type')).toContain('image/webp');
+
+    // Verify both derivatives were generated and persisted
+    const row = env.DB.state.aiImages.find((r) => r.id === '0de00001');
+    expect(row.derivatives_status).toBe('ready');
+    expect(row.thumb_key).toBeTruthy();
+    expect(row.medium_key).toBeTruthy();
+
+    // Subsequent medium request should hit the fast path (already in R2)
+    const mediumRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/0de00001/medium', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mediumRes.status).toBe(200);
+    expect(mediumRes.headers.get('content-type')).toContain('image/webp');
+  });
+
   test('admin AI derivative backfill only enqueues assets that still need current work', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
