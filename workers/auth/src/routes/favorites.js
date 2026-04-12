@@ -5,6 +5,37 @@ import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit
 
 const VALID_TYPES = ["gallery", "soundlab", "experiments"];
 const MAX_FAVORITES = 100;
+const PUBLIC_FAVORITE_THUMB_ORIGIN = "https://pub.bitbi.ai";
+
+function hasControlChars(value) {
+  return /[\x00-\x1f\x7f]/.test(value);
+}
+
+function isValidFavoriteThumbUrl(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (hasControlChars(trimmed)) return false;
+  if (trimmed.startsWith("//")) return false;
+
+  if (trimmed.startsWith("/")) {
+    return !trimmed.includes("?") && !trimmed.includes("#");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+
+  return (
+    parsed.protocol === "https:" &&
+    parsed.origin === PUBLIC_FAVORITE_THUMB_ORIGIN &&
+    !parsed.search &&
+    !parsed.hash
+  );
+}
 
 export async function handleFavorites(ctx) {
   const { pathname, method } = ctx;
@@ -50,7 +81,7 @@ async function handleAdd(ctx) {
   if (typeof title !== "string" || title.length > 200) {
     return json({ ok: false, error: "Invalid title." }, { status: 400 });
   }
-  if (typeof thumb_url !== "string" || thumb_url.length > 500) {
+  if (typeof thumb_url !== "string" || thumb_url.length > 500 || !isValidFavoriteThumbUrl(thumb_url)) {
     return json({ ok: false, error: "Invalid thumb_url." }, { status: 400 });
   }
 

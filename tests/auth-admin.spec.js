@@ -953,6 +953,7 @@ async function mockAuthenticatedProfile(page, {
   email = `${role}@bitbi.ai`,
   displayName = role === 'admin' ? 'Admin User' : 'Member User',
   hasAvatar = false,
+  favoritesPayload = [],
   folderPayload = { folders: [], counts: {}, unfolderedCount: 0 },
   assetsPayload = { all: [], unfoldered: [], folders: {} },
   imageRequests = [],
@@ -1070,12 +1071,21 @@ async function mockAuthenticatedProfile(page, {
   });
 
   await page.route('**/api/favorites', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        favorites: [],
+        favorites: favoritesPayload,
       }),
     });
   });
@@ -1920,6 +1930,52 @@ test.describe('Profile page (authenticated)', () => {
     });
     expect(imageRequests).toContain('/api/ai/images/img-ready/thumb');
     expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
+  });
+
+  test('favorites render malicious metadata inertly and keep valid viewer/remove behavior', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      favoritesPayload: [
+        {
+          item_type: 'gallery',
+          item_id: 'bad-gallery',
+          title: 'Bad <b class="xss-favorite">Title</b>',
+          thumb_url: 'javascript:alert(1)',
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          item_type: 'gallery',
+          item_id: 'good-gallery',
+          title: 'Safe Preview',
+          thumb_url: '/assets/images/1.jpg',
+          created_at: '2026-04-10T11:59:00.000Z',
+        },
+      ],
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('[data-favorites-type="gallery"] [data-fav-key="gallery:bad-gallery"] img')).toHaveCount(0);
+    await expect(page.locator('[data-favorites-type="gallery"] [data-fav-key="gallery:good-gallery"] img')).toHaveAttribute('src', /\/assets\/images\/1\.jpg$/);
+
+    await page.locator('[data-fav-key="gallery:bad-gallery"]').click();
+    await expect(page.locator('#favViewer')).toHaveClass(/active/);
+    await expect(page.locator('#favViewer .xss-favorite')).toHaveCount(0);
+    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Bad <b class="xss-favorite">Title</b>');
+    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveCount(0);
+    await page.locator('#favViewerClose').click();
+
+    await page.locator('[data-fav-key="gallery:good-gallery"]').click();
+    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Safe Preview');
+    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', /\/assets\/images\/1\.jpg$/);
+
+    await page.locator('#favViewer .fav-viewer__fav-star').click();
+    await expect(page.locator('[data-fav-key="gallery:good-gallery"]')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="gallery:bad-gallery"]')).toHaveCount(1);
   });
 
   test('profile save updates the header label from email to display name when an avatar is present', async ({

@@ -30,6 +30,10 @@ const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user p
 const QUOTA_RESERVATION_TTL_MINUTES = 60;
 const AI_IMAGE_LIST_COLUMNS =
   "id, folder_id, prompt, model, steps, seed, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
+const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
+const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
+const MAX_SAVED_AI_IMAGE_PIXELS = 1024 * 1024;
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -474,8 +478,7 @@ async function handleGenerateImage(ctx) {
     if (quotaReservationId) {
       try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
     }
-    const msg = e && e.message ? e.message : String(e);
-    return json({ ok: false, error: `Image generation failed: ${msg}` }, { status: 502 });
+    return json({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
 
   if (!base64) {
@@ -762,12 +765,50 @@ async function handleSaveImage(ctx) {
     return json({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
   }
 
+  if (imageBytes.byteLength > MAX_SAVED_AI_IMAGE_BYTES) {
+    return json({ ok: false, error: "Image data must be 10 MB or smaller." }, { status: 400 });
+  }
+
   // Validate image magic bytes (PNG, JPEG, or WebP)
   const isPng  = imageBytes.length >= 4 && imageBytes[0] === 0x89 && imageBytes[1] === 0x50 && imageBytes[2] === 0x4E && imageBytes[3] === 0x47;
   const isJpeg = imageBytes.length >= 3 && imageBytes[0] === 0xFF && imageBytes[1] === 0xD8 && imageBytes[2] === 0xFF;
   const isWebp = imageBytes.length >= 12 && imageBytes[0] === 0x52 && imageBytes[1] === 0x49 && imageBytes[2] === 0x46 && imageBytes[3] === 0x46 && imageBytes[8] === 0x57 && imageBytes[9] === 0x45 && imageBytes[10] === 0x42 && imageBytes[11] === 0x50;
   if (!isPng && !isJpeg && !isWebp) {
     return json({ ok: false, error: "Invalid image format." }, { status: 400 });
+  }
+
+  if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
+    return json(
+      { ok: false, error: "Image save is temporarily unavailable. Please try again later." },
+      { status: 503 }
+    );
+  }
+
+  let imageInfo;
+  try {
+    imageInfo = await env.IMAGES.info(imageBytes);
+  } catch {
+    return json({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
+  }
+
+  const width = Number(imageInfo?.width);
+  const height = Number(imageInfo?.height);
+  const pixels = width * height;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    return json({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
+  }
+  if (
+    width > MAX_SAVED_AI_IMAGE_WIDTH ||
+    height > MAX_SAVED_AI_IMAGE_HEIGHT ||
+    pixels > MAX_SAVED_AI_IMAGE_PIXELS
+  ) {
+    return json(
+      {
+        ok: false,
+        error: `Saved image must be ${MAX_SAVED_AI_IMAGE_WIDTH}x${MAX_SAVED_AI_IMAGE_HEIGHT} pixels or smaller. Received ${width}x${height}.`,
+      },
+      { status: 400 }
+    );
   }
 
   const imageId = randomTokenHex(16);

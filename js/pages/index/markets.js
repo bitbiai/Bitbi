@@ -8,6 +8,11 @@ export function initMarkets() {
 
     const hist = {};
 
+    function setStyles(el, cssText) {
+        el.style.cssText = cssText;
+        return el;
+    }
+
     function spark(data, up) {
         if (data.length < 2) return '';
         const mn = Math.min(...data);
@@ -23,7 +28,8 @@ export function initMarkets() {
     function render(coins) {
         ctn.innerHTML = '';
         coins.forEach(coin => {
-            const sym = coin.symbol.toUpperCase();
+            const sym = String(coin?.symbol || '').toUpperCase();
+            const name = String(coin?.name || '');
             const price = coin.current_price;
             const chg = coin.price_change_percentage_24h || 0;
             const up = chg >= 0;
@@ -38,7 +44,37 @@ export function initMarkets() {
             card.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:14px;transition:border-color 0.3s';
             card.onmouseenter = () => card.style.borderColor = 'rgba(0,240,255,0.15)';
             card.onmouseleave = () => card.style.borderColor = 'rgba(255,255,255,0.06)';
-            card.innerHTML = `<div style="display:flex;align-items:start;justify-content:space-between;margin-bottom:10px"><div><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.35)">${sym}</span><h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:13px;color:rgba(255,255,255,0.85)">${coin.name}</h4></div><span style="font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:10px;background:${up ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'};color:${up ? '#22c55e' : '#ef4444'}">${up ? '\u25B2' : '\u25BC'} ${Math.abs(chg).toFixed(2)}%</span></div><div style="font-size:18px;font-family:'JetBrains Mono',monospace;font-weight:700;color:${up ? '#22c55e' : '#ef4444'};margin-bottom:10px">$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>${spark(sparkData, up)}`;
+
+            const topRow = setStyles(document.createElement('div'), 'display:flex;align-items:start;justify-content:space-between;margin-bottom:10px');
+            const titleWrap = document.createElement('div');
+            const symEl = setStyles(document.createElement('span'), "font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.35)");
+            symEl.textContent = sym;
+            const nameEl = setStyles(document.createElement('h4'), "font-family:'Playfair Display',serif;font-weight:700;font-size:13px;color:rgba(255,255,255,0.85)");
+            nameEl.textContent = name;
+            titleWrap.appendChild(symEl);
+            titleWrap.appendChild(nameEl);
+
+            const badge = setStyles(
+                document.createElement('span'),
+                `font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:10px;background:${up ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'};color:${up ? '#22c55e' : '#ef4444'}`
+            );
+            badge.textContent = `${up ? '\u25B2' : '\u25BC'} ${Math.abs(chg).toFixed(2)}%`;
+
+            topRow.appendChild(titleWrap);
+            topRow.appendChild(badge);
+
+            const priceEl = setStyles(
+                document.createElement('div'),
+                `font-size:18px;font-family:'JetBrains Mono',monospace;font-weight:700;color:${up ? '#22c55e' : '#ef4444'};margin-bottom:10px`
+            );
+            priceEl.textContent = `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+            const sparkEl = document.createElement('div');
+            sparkEl.innerHTML = spark(sparkData, up);
+
+            card.appendChild(topRow);
+            card.appendChild(priceEl);
+            card.appendChild(sparkEl);
             ctn.appendChild(card);
         });
     }

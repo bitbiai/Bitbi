@@ -55,9 +55,8 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
-  const message = error?.message ? `${fallbackMessage}: ${error.message}` : fallbackMessage;
   const status = error?.status || 502;
-  return errorResponse(message, {
+  return errorResponse(fallbackMessage, {
     status,
     code: status >= 500 ? "upstream_error" : "internal_error",
   });

@@ -704,6 +704,59 @@ const PLACEHOLDER_SVG = `<svg width="24" height="24" fill="rgba(255,255,255,0.08
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
 
+function hasFavoriteControlChars(value) {
+    return /[\x00-\x1f\x7f]/.test(value);
+}
+
+function normalizeFavoriteThumbUrl(value) {
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim();
+    if (!trimmed || hasFavoriteControlChars(trimmed)) return '';
+    if (trimmed.startsWith('//')) return '';
+
+    if (trimmed.startsWith('/')) {
+        if (trimmed.includes('?') || trimmed.includes('#')) return '';
+        return trimmed;
+    }
+
+    let parsed;
+    try {
+        parsed = new URL(trimmed);
+    } catch {
+        return '';
+    }
+
+    if (parsed.protocol !== 'https:') return '';
+    if (parsed.origin !== R2_PUBLIC_BASE) return '';
+    if (parsed.search || parsed.hash) return '';
+    return parsed.toString();
+}
+
+function createFavoriteViewerCard() {
+    const card = document.createElement('div');
+    card.className = 'fav-viewer__card';
+
+    const image = document.createElement('div');
+    image.className = 'fav-viewer__image';
+
+    const info = document.createElement('div');
+    info.className = 'fav-viewer__info';
+
+    card.appendChild(image);
+    card.appendChild(info);
+    return { card, image, info };
+}
+
+function createFavoriteViewerImage(url, alt) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = alt;
+    if (url.startsWith('/api/')) {
+        img.crossOrigin = 'use-credentials';
+    }
+    return img;
+}
+
 /* Map experiment item_ids to URLs */
 const EXPERIMENT_URLS = {
     'cosmic-vr': '/experiments/cosmic.html',
@@ -842,85 +895,152 @@ function removeFavTile(type, id) {
 /* ── Open gallery image in viewer ── */
 function openGalleryInViewer(fav) {
     const item = galleryItems.find(g => g.id === fav.item_id);
-    const previewUrl = item ? item.preview.url : fav.thumb_url;
+    const title = String(fav.title || '');
+    const previewUrl = item ? item.preview.url : normalizeFavoriteThumbUrl(fav.thumb_url);
     const caption = item ? item.caption : '';
     const fullUrl = item && item.full ? item.full.url : '';
 
-    let fullLinkHtml = '';
-    if (fullUrl) {
-        fullLinkHtml = `<a class="fav-viewer__full-link" href="${fullUrl}" target="_blank" rel="noopener noreferrer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Open full size
-        </a>`;
+    const { card, image, info } = createFavoriteViewerCard();
+    if (previewUrl) {
+        const img = createFavoriteViewerImage(previewUrl, title);
+        img.style.background = '#0D1B2A';
+        image.appendChild(img);
     }
 
-    $viewerBody.innerHTML = `
-        <div class="fav-viewer__card">
-            <div class="fav-viewer__image">
-                <img src="${previewUrl}" alt="${fav.title}" style="background:#0D1B2A">
-            </div>
-            <div class="fav-viewer__info">
-                <h3 class="fav-viewer__title">${fav.title}</h3>
-                ${caption ? `<p class="fav-viewer__caption">${caption}</p>` : ''}
-                ${fullLinkHtml}
-            </div>
-        </div>`;
+    const heading = document.createElement('h3');
+    heading.className = 'fav-viewer__title';
+    heading.textContent = title;
+    info.appendChild(heading);
+
+    if (caption) {
+        const captionEl = document.createElement('p');
+        captionEl.className = 'fav-viewer__caption';
+        captionEl.textContent = caption;
+        info.appendChild(captionEl);
+    }
+
+    if (fullUrl) {
+        const fullLink = document.createElement('a');
+        fullLink.className = 'fav-viewer__full-link';
+        fullLink.href = fullUrl;
+        fullLink.target = '_blank';
+        fullLink.rel = 'noopener noreferrer';
+        fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+        fullLink.appendChild(document.createTextNode(' Open full size'));
+        info.appendChild(fullLink);
+    }
+
+    $viewerBody.innerHTML = '';
+    $viewerBody.appendChild(card);
     openViewer('');
 }
 
 /* ── Open experiment in viewer ── */
 function openExperimentInViewer(fav) {
     const url = EXPERIMENT_URLS[fav.item_id];
+    const title = String(fav.title || '');
     if (!url) {
         /* Experiments without iframeable content (sound-color, youtube-exclusives) — show info card */
-        $viewerBody.innerHTML = `
-            <div class="fav-viewer__card">
-                <div class="fav-viewer__image" style="display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#0d1b3e,#050a15)">
-                    <svg width="48" height="48" fill="rgba(0,240,255,0.2)" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                </div>
-                <div class="fav-viewer__info">
-                    <h3 class="fav-viewer__title">${fav.title}</h3>
-                    <p class="fav-viewer__caption">This experiment is available on the main page.</p>
-                    <a class="fav-viewer__full-link" href="/#experiments">View on main page \u2192</a>
-                </div>
-            </div>`;
+        const { card, image, info } = createFavoriteViewerCard();
+        image.style.display = 'flex';
+        image.style.alignItems = 'center';
+        image.style.justifyContent = 'center';
+        image.style.background = 'radial-gradient(ellipse at center,#0d1b3e,#050a15)';
+        image.innerHTML = '<svg width="48" height="48" fill="rgba(0,240,255,0.2)" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+
+        const heading = document.createElement('h3');
+        heading.className = 'fav-viewer__title';
+        heading.textContent = title;
+        info.appendChild(heading);
+
+        const captionEl = document.createElement('p');
+        captionEl.className = 'fav-viewer__caption';
+        captionEl.textContent = 'This experiment is available on the main page.';
+        info.appendChild(captionEl);
+
+        const link = document.createElement('a');
+        link.className = 'fav-viewer__full-link';
+        link.href = '/#experiments';
+        link.textContent = 'View on main page →';
+        info.appendChild(link);
+
+        $viewerBody.innerHTML = '';
+        $viewerBody.appendChild(card);
         openViewer('');
         return;
     }
-    $viewerBody.innerHTML = `<iframe class="fav-viewer__frame" src="${url}" allow="accelerometer;gyroscope" title="${fav.title}"></iframe>`;
+    const iframe = document.createElement('iframe');
+    iframe.className = 'fav-viewer__frame';
+    iframe.src = url;
+    iframe.allow = 'accelerometer;gyroscope';
+    iframe.title = title;
+    $viewerBody.innerHTML = '';
+    $viewerBody.appendChild(iframe);
     openViewer('fav-viewer--experiment');
 }
 
 /* ── Open soundlab track in viewer ── */
 function openSoundlabInViewer(fav) {
     const audioUrl = getTrackUrl(fav.item_id);
-    const thumbUrl = fav.thumb_url || '';
+    const title = String(fav.title || '');
+    const thumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
     const isExclusive = !FREE_TRACK_URLS[fav.item_id];
 
-    let heroHtml;
+    const player = document.createElement('div');
+    player.className = 'fav-viewer__player';
+
+    const hero = document.createElement('div');
+    hero.className = 'fav-viewer__player-hero';
     if (thumbUrl) {
-        heroHtml = `<img src="${thumbUrl}" alt="${fav.title}"${thumbUrl.startsWith('/api/') ? ' crossorigin="use-credentials"' : ''}>`;
+        hero.appendChild(createFavoriteViewerImage(thumbUrl, title));
     } else {
-        heroHtml = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),#060e18"><svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>`;
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 40%,rgba(255,179,0,0.08),transparent 60%),#060e18';
+        placeholder.innerHTML = '<svg width="48" height="48" fill="rgba(255,179,0,0.2)" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
+        hero.appendChild(placeholder);
     }
 
-    $viewerBody.innerHTML = `
-        <div class="fav-viewer__player">
-            <div class="fav-viewer__player-hero">${heroHtml}</div>
-            <div class="fav-viewer__player-controls">
-                <button type="button" class="fav-viewer__play-btn" id="fvPlay" aria-label="Play ${fav.title}">
-                    <svg id="fvPlayIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                    <svg id="fvPauseIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                </button>
-                <div class="fav-viewer__track-info">
-                    <div class="fav-viewer__track-title">${fav.title}</div>
-                    <div class="fav-viewer__track-time" id="fvTime">0:00</div>
-                    <div class="fav-viewer__progress" id="fvBar">
-                        <div class="fav-viewer__progress-fill" id="fvProg"></div>
-                    </div>
-                </div>
-            </div>
-        </div>`;
+    const controls = document.createElement('div');
+    controls.className = 'fav-viewer__player-controls';
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'fav-viewer__play-btn';
+    playBtn.id = 'fvPlay';
+    playBtn.setAttribute('aria-label', `Play ${title}`);
+    playBtn.innerHTML = '<svg id="fvPlayIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg id="fvPauseIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+
+    const trackInfo = document.createElement('div');
+    trackInfo.className = 'fav-viewer__track-info';
+
+    const trackTitle = document.createElement('div');
+    trackTitle.className = 'fav-viewer__track-title';
+    trackTitle.textContent = title;
+
+    const timeEl = document.createElement('div');
+    timeEl.className = 'fav-viewer__track-time';
+    timeEl.id = 'fvTime';
+    timeEl.textContent = '0:00';
+
+    const barEl = document.createElement('div');
+    barEl.className = 'fav-viewer__progress';
+    barEl.id = 'fvBar';
+
+    const progEl = document.createElement('div');
+    progEl.className = 'fav-viewer__progress-fill';
+    progEl.id = 'fvProg';
+    barEl.appendChild(progEl);
+
+    trackInfo.appendChild(trackTitle);
+    trackInfo.appendChild(timeEl);
+    trackInfo.appendChild(barEl);
+    controls.appendChild(playBtn);
+    controls.appendChild(trackInfo);
+    player.appendChild(hero);
+    player.appendChild(controls);
+
+    $viewerBody.innerHTML = '';
+    $viewerBody.appendChild(player);
 
     openViewer('');
 
@@ -932,12 +1052,8 @@ function openSoundlabInViewer(fav) {
     viewerAudio.src = audioUrl;
     viewerAudio.volume = 0.8;
 
-    const playBtn = document.getElementById('fvPlay');
     const playIcon = document.getElementById('fvPlayIcon');
     const pauseIcon = document.getElementById('fvPauseIcon');
-    const timeEl = document.getElementById('fvTime');
-    const progEl = document.getElementById('fvProg');
-    const barEl = document.getElementById('fvBar');
 
     function tick() {
         if (!viewerAudio) return;
@@ -1016,14 +1132,16 @@ function renderFavorites(favorites) {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTileClick(fav); }
             });
 
-            if (fav.thumb_url) {
+            const safeThumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
+
+            if (safeThumbUrl) {
                 const img = document.createElement('img');
                 img.className = 'fav-tile__img';
-                img.src = fav.thumb_url;
+                img.src = safeThumbUrl;
                 img.alt = fav.title;
                 img.loading = 'lazy';
                 img.decoding = 'async';
-                if (fav.thumb_url.startsWith('/api/')) {
+                if (safeThumbUrl.startsWith('/api/')) {
                     img.crossOrigin = 'use-credentials';
                 }
                 img.onerror = function () {

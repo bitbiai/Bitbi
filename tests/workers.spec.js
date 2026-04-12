@@ -1404,6 +1404,31 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('POST /api/admin/ai/test-image sanitizes top-level upstream failures', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('sensitive provider detail');
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'Trigger an upstream failure.',
+          steps: 4,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'upstream_error',
+        error: 'Image generation failed',
+      }));
+    });
+
     test('POST /api/admin/ai/compare returns the validation error shape used by the UI for duplicate model selections', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 
@@ -1851,6 +1876,89 @@ test.describe('Worker routes', () => {
     ).toBe(false);
   });
 
+  test('favorites: accepts the current valid thumb_url forms', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-valid-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-valid-user');
+    const validThumbUrls = [
+      '',
+      '/assets/images/1.jpg',
+      '/api/soundlab-thumbs/thumb-bitbi',
+      'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
+    ];
+
+    for (const [index, thumbUrl] of validThumbUrls.entries()) {
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/favorites', 'POST', {
+          item_type: 'gallery',
+          item_id: `valid-thumb-${index}`,
+          title: `Valid Favorite ${index}`,
+          thumb_url: thumbUrl,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({ ok: true });
+    }
+
+    expect(
+      env.DB.state.favorites
+        .filter((row) => row.user_id === 'fav-valid-user')
+        .map((row) => row.thumb_url)
+    ).toEqual(validThumbUrls);
+  });
+
+  test('favorites: rejects unsafe thumb_url forms', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-invalid-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-invalid-user');
+    const invalidThumbUrls = [
+      'javascript:alert(1)',
+      'data:image/png;base64,AAAA',
+      'blob:https://bitbi.ai/1234',
+      '//evil.example/thumb.png',
+      'https://evil.example/thumb.png',
+      '/assets/images/1.jpg?size=large',
+      '/assets/images/1.jpg#hero',
+      '/assets/images/\u0000thumb.png',
+    ];
+
+    for (const [index, thumbUrl] of invalidThumbUrls.entries()) {
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/favorites', 'POST', {
+          item_type: 'gallery',
+          item_id: `invalid-thumb-${index}`,
+          title: `Invalid Favorite ${index}`,
+          thumb_url: thumbUrl,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Invalid thumb_url.',
+      });
+    }
+
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-invalid-user')).toHaveLength(0);
+  });
+
   test('shared limiter: login is blocked when the durable IP limit is already exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { hashPassword } = await loadAuthModules();
@@ -2257,6 +2365,126 @@ test.describe('Worker routes', () => {
       derivatives_version: 1,
       derivatives_enqueued: true,
     });
+  });
+
+  test('AI save image accepts a 1024x1024 image, inspects dimensions, and preserves the success shape', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-sized-user', role: 'user' })],
+      imagesBinding: {
+        originalInfo: { width: 1024, height: 1024, format: 'image/png' },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-sized-user');
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'sized save image',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 77,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(201);
+    const body = await saveRes.json();
+    expect(body).toEqual(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        id: expect.any(String),
+        prompt: 'sized save image',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 77,
+        derivatives_status: 'pending',
+        derivatives_version: 1,
+      }),
+    }));
+    expect(env.IMAGES.infoCalls).toHaveLength(1);
+    expect(env.IMAGES.infoCalls[0]).toEqual(expect.objectContaining({
+      width: 1024,
+      height: 1024,
+    }));
+    expect(env.USER_IMAGES.putCalls).toHaveLength(1);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+  });
+
+  test('AI save image rejects payloads larger than 10 MB before storage or queueing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-large-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'artist-large-user');
+    const bytes = Buffer.alloc((10 * 1024 * 1024) + 1, 0);
+    bytes[0] = 0x89;
+    bytes[1] = 0x50;
+    bytes[2] = 0x4E;
+    bytes[3] = 0x47;
+    const imageData = `data:image/png;base64,${bytes.toString('base64')}`;
+
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData,
+        prompt: 'too large image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(400);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image data must be 10 MB or smaller.',
+    });
+    expect(env.IMAGES.infoCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('AI save image rejects oversized dimensions before storage or queueing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-oversize-user', role: 'user' })],
+      imagesBinding: {
+        originalInfo: { width: 1025, height: 1024, format: 'image/png' },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-oversize-user');
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'oversized dimensions',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(400);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Saved image must be 1024x1024 pixels or smaller. Received 1025x1024.',
+    });
+    expect(env.IMAGES.infoCalls).toHaveLength(1);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
   });
 
   test('AI image derivative consumer is idempotent for duplicate jobs', async () => {
@@ -3548,7 +3776,7 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(1);
   });
 
-  test('AI generate: failed model runs do not permanently consume quota', async () => {
+  test('AI generate: failed model runs return a sanitized top-level error and do not permanently consume quota', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -3585,7 +3813,7 @@ test.describe('Worker routes', () => {
     expect(res.status).toBe(502);
     await expect(res.json()).resolves.toMatchObject({
       ok: false,
-      error: 'Image generation failed: model failure',
+      error: 'Image generation failed.',
     });
     expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(9);
     expect(
