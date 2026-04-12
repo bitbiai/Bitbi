@@ -12,6 +12,12 @@ function normalizeSql(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }
 
+function countInlinePlaceholders(query, pattern) {
+  const match = query.match(pattern);
+  if (!match || !match[1]) return 0;
+  return (match[1].match(/\?/g) || []).length;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -1336,10 +1342,84 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === 'SELECT CASE WHEN changes() = ? THEN 1 ELSE bitbi_fail_changes() END') {
-      const [expected] = bindings;
-      if (this._lastChanges !== expected) {
-        throw new Error('bitbi_fail_changes');
+    if (query.startsWith('SELECT CASE WHEN') && query.includes("json_extract('[]', '$[')") && query.includes('folder_id')) {
+      let bindingIndex = 0;
+      let passed = true;
+
+      if (query.includes('FROM ai_images WHERE user_id = ?')) {
+        const imageIdCount = countInlinePlaceholders(
+          query,
+          /FROM ai_images WHERE user_id = \?(?: AND folder_id = \?| AND folder_id IS NULL) AND id IN \(([^)]+)\)/
+        );
+        const userId = bindings[bindingIndex++];
+        let folderId = null;
+        const imageUsesFolderId = query.includes('FROM ai_images WHERE user_id = ? AND folder_id = ?');
+        if (imageUsesFolderId) folderId = bindings[bindingIndex++];
+        const imageIds = bindings.slice(bindingIndex, bindingIndex + imageIdCount);
+        bindingIndex += imageIdCount;
+        const expectedCount = bindings[bindingIndex++];
+        const matches = this.state.aiImages.filter((row) => {
+          if (row.user_id !== userId || !imageIds.includes(row.id)) return false;
+          return imageUsesFolderId ? row.folder_id === folderId : row.folder_id == null;
+        });
+        passed = passed && matches.length === expectedCount;
+      }
+
+      if (query.includes('FROM ai_text_assets WHERE user_id = ?')) {
+        const fileIdCount = countInlinePlaceholders(
+          query,
+          /FROM ai_text_assets WHERE user_id = \?(?: AND folder_id = \?| AND folder_id IS NULL) AND id IN \(([^)]+)\)/
+        );
+        const userId = bindings[bindingIndex++];
+        let folderId = null;
+        const fileUsesFolderId = query.includes('FROM ai_text_assets WHERE user_id = ? AND folder_id = ?');
+        if (fileUsesFolderId) folderId = bindings[bindingIndex++];
+        const fileIds = bindings.slice(bindingIndex, bindingIndex + fileIdCount);
+        bindingIndex += fileIdCount;
+        const expectedCount = bindings[bindingIndex++];
+        const matches = this.state.aiTextAssets.filter((row) => {
+          if (row.user_id !== userId || !fileIds.includes(row.id)) return false;
+          return fileUsesFolderId ? row.folder_id === folderId : row.folder_id == null;
+        });
+        passed = passed && matches.length === expectedCount;
+      }
+
+      if (!passed) {
+        throw new Error("bad JSON path: '$['");
+      }
+      return { success: true, meta: { changes: 0 } };
+    }
+
+    if (query.startsWith('SELECT CASE WHEN') && query.includes("json_extract('[]', '$[')") && !query.includes('folder_id')) {
+      let bindingIndex = 0;
+      let passed = true;
+
+      if (query.includes('FROM ai_images WHERE user_id = ?')) {
+        const imageIdCount = countInlinePlaceholders(
+          query,
+          /FROM ai_images WHERE user_id = \? AND id IN \(([^)]+)\)/
+        );
+        const userId = bindings[bindingIndex++];
+        const imageIds = bindings.slice(bindingIndex, bindingIndex + imageIdCount);
+        bindingIndex += imageIdCount;
+        const matches = this.state.aiImages.filter((row) => row.user_id === userId && imageIds.includes(row.id));
+        passed = passed && matches.length === 0;
+      }
+
+      if (query.includes('FROM ai_text_assets WHERE user_id = ?')) {
+        const fileIdCount = countInlinePlaceholders(
+          query,
+          /FROM ai_text_assets WHERE user_id = \? AND id IN \(([^)]+)\)/
+        );
+        const userId = bindings[bindingIndex++];
+        const fileIds = bindings.slice(bindingIndex, bindingIndex + fileIdCount);
+        bindingIndex += fileIdCount;
+        const matches = this.state.aiTextAssets.filter((row) => row.user_id === userId && fileIds.includes(row.id));
+        passed = passed && matches.length === 0;
+      }
+
+      if (!passed) {
+        throw new Error("bad JSON path: '$['");
       }
       return { success: true, meta: { changes: 0 } };
     }

@@ -131,8 +131,88 @@ function buildRequestedValuesList(ids) {
   return ids.map(() => "(?)").join(",");
 }
 
-function buildVerifyChangesGuardSql() {
-  return "SELECT CASE WHEN changes() = ? THEN 1 ELSE bitbi_fail_changes() END";
+// D1 validates function names at prepare time, so use a built-in runtime
+// error to abort the transaction only when the final-state guard fails.
+function buildBatchAbortGuardSql(conditionSql) {
+  return `SELECT CASE WHEN ${conditionSql} THEN 1 ELSE json_extract('[]', '$[') END`;
+}
+
+function isBulkStateGuardError(error) {
+  return String(error).includes("bad JSON path");
+}
+
+function logBulkActionDiagnostic(action, details) {
+  try {
+    console.log(`[ai bulk ${action}] ${JSON.stringify(details)}`);
+  } catch {
+    console.log(`[ai bulk ${action}]`, details);
+  }
+}
+
+function buildBulkMoveFinalStateGuardSql(userId, imageIds, fileIds, folderId) {
+  const clauses = [];
+  const bindings = [];
+
+  if (imageIds.length > 0) {
+    const placeholders = imageIds.map(() => "?").join(",");
+    if (folderId) {
+      clauses.push(
+        `(SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND folder_id = ? AND id IN (${placeholders})) = ?`
+      );
+      bindings.push(userId, folderId, ...imageIds, imageIds.length);
+    } else {
+      clauses.push(
+        `(SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND folder_id IS NULL AND id IN (${placeholders})) = ?`
+      );
+      bindings.push(userId, ...imageIds, imageIds.length);
+    }
+  }
+
+  if (fileIds.length > 0) {
+    const placeholders = fileIds.map(() => "?").join(",");
+    if (folderId) {
+      clauses.push(
+        `(SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND folder_id = ? AND id IN (${placeholders})) = ?`
+      );
+      bindings.push(userId, folderId, ...fileIds, fileIds.length);
+    } else {
+      clauses.push(
+        `(SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL AND id IN (${placeholders})) = ?`
+      );
+      bindings.push(userId, ...fileIds, fileIds.length);
+    }
+  }
+
+  return {
+    sql: buildBatchAbortGuardSql(clauses.join(" AND ")),
+    bindings,
+  };
+}
+
+function buildBulkDeleteFinalStateGuardSql(userId, imageIds, fileIds) {
+  const clauses = [];
+  const bindings = [];
+
+  if (imageIds.length > 0) {
+    const placeholders = imageIds.map(() => "?").join(",");
+    clauses.push(
+      `(SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (${placeholders})) = 0`
+    );
+    bindings.push(userId, ...imageIds);
+  }
+
+  if (fileIds.length > 0) {
+    const placeholders = fileIds.map(() => "?").join(",");
+    clauses.push(
+      `(SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND id IN (${placeholders})) = 0`
+    );
+    bindings.push(userId, ...fileIds);
+  }
+
+  return {
+    sql: buildBatchAbortGuardSql(clauses.join(" AND ")),
+    bindings,
+  };
 }
 
 function buildCleanupQueueInsertValuesSql(keys) {
@@ -1155,6 +1235,15 @@ async function handleBulkMoveAssets(ctx) {
 
   const assetIds = normalized.ids;
   const folderId = body.folder_id || null;
+  const diagnostic = {
+    asset_ids: assetIds,
+    folder_id: folderId,
+    matched_owned_ai_images_count: 0,
+    matched_owned_ai_text_assets_count: 0,
+    updated_ai_images_count: 0,
+    updated_ai_text_assets_count: 0,
+    folder_exists_owned: folderId ? false : null,
+  };
   if (folderId) {
     if (!isHexAssetId(folderId)) {
       return json({ ok: false, error: "Invalid folder ID." }, { status: 400 });
@@ -1163,8 +1252,13 @@ async function handleBulkMoveAssets(ctx) {
       "SELECT id FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
     ).bind(folderId, session.user.id).first();
     if (!folder) {
+      logBulkActionDiagnostic("move", {
+        ...diagnostic,
+        branch: "folder_not_found",
+      });
       return json({ ok: false, error: "Folder not found." }, { status: 404 });
     }
+    diagnostic.folder_exists_owned = true;
   }
 
   const placeholders = assetIds.map(() => "?").join(",");
@@ -1185,15 +1279,24 @@ async function handleBulkMoveAssets(ctx) {
 
   const imageIds = (imageRows.results || []).map((row) => row.id);
   const fileIds = (fileRows.results || []).map((row) => row.id);
+  diagnostic.matched_owned_ai_images_count = imageIds.length;
+  diagnostic.matched_owned_ai_text_assets_count = fileIds.length;
   if (imageIds.length + fileIds.length !== assetIds.length) {
+    logBulkActionDiagnostic("move", {
+      ...diagnostic,
+      branch: "asset_match_count_mismatch",
+    });
     return json({ ok: false, error: "One or more assets not found." }, { status: 404 });
   }
 
   const statements = [];
+  let imageUpdateIndex = -1;
+  let fileUpdateIndex = -1;
 
   if (imageIds.length > 0) {
     const valuesList = buildRequestedValuesList(imageIds);
     if (folderId) {
+      imageUpdateIndex = statements.length;
       statements.push(
         env.DB.prepare(
           `WITH requested(id) AS (VALUES ${valuesList})
@@ -1206,6 +1309,7 @@ async function handleBulkMoveAssets(ctx) {
         ).bind(...imageIds, folderId, session.user.id, session.user.id, folderId, session.user.id)
       );
     } else {
+      imageUpdateIndex = statements.length;
       statements.push(
         env.DB.prepare(
           `WITH requested(id) AS (VALUES ${valuesList})
@@ -1217,14 +1321,12 @@ async function handleBulkMoveAssets(ctx) {
         ).bind(...imageIds, session.user.id, session.user.id)
       );
     }
-    statements.push(
-      env.DB.prepare(buildVerifyChangesGuardSql()).bind(imageIds.length)
-    );
   }
 
   if (fileIds.length > 0) {
     const valuesList = buildRequestedValuesList(fileIds);
     if (folderId) {
+      fileUpdateIndex = statements.length;
       statements.push(
         env.DB.prepare(
           `WITH requested(id) AS (VALUES ${valuesList})
@@ -1237,6 +1339,7 @@ async function handleBulkMoveAssets(ctx) {
         ).bind(...fileIds, folderId, session.user.id, session.user.id, folderId, session.user.id)
       );
     } else {
+      fileUpdateIndex = statements.length;
       statements.push(
         env.DB.prepare(
           `WITH requested(id) AS (VALUES ${valuesList})
@@ -1248,26 +1351,52 @@ async function handleBulkMoveAssets(ctx) {
         ).bind(...fileIds, session.user.id, session.user.id)
       );
     }
-    statements.push(
-      env.DB.prepare(buildVerifyChangesGuardSql()).bind(fileIds.length)
-    );
   }
 
+  const finalStateGuard = buildBulkMoveFinalStateGuardSql(
+    session.user.id,
+    imageIds,
+    fileIds,
+    folderId
+  );
+  statements.push(
+    env.DB.prepare(finalStateGuard.sql).bind(...finalStateGuard.bindings)
+  );
+
+  let batchResults;
   try {
-    await env.DB.batch(statements);
+    batchResults = await env.DB.batch(statements);
   } catch (error) {
     const unavailable = String(error).includes("no such table");
+    const stateGuardError = isBulkStateGuardError(error);
+    logBulkActionDiagnostic("move", {
+      ...diagnostic,
+      branch: stateGuardError ? "final_state_guard_failed" : unavailable ? "service_unavailable" : "batch_error",
+      error: String(error).slice(0, 500),
+    });
     return json(
       {
         ok: false,
         error: unavailable
           ? "Service temporarily unavailable. Please try again later."
-          : "Move failed. Some assets may have been deleted or the folder removed.",
+          : stateGuardError
+            ? "Move failed. Some assets may have been deleted or the folder removed."
+            : "Move failed. Please try again.",
       },
-      { status: unavailable ? 503 : 409 }
+      { status: unavailable ? 503 : stateGuardError ? 409 : 500 }
     );
   }
 
+  diagnostic.updated_ai_images_count = imageUpdateIndex >= 0
+    ? (batchResults[imageUpdateIndex]?.meta?.changes || 0)
+    : 0;
+  diagnostic.updated_ai_text_assets_count = fileUpdateIndex >= 0
+    ? (batchResults[fileUpdateIndex]?.meta?.changes || 0)
+    : 0;
+  logBulkActionDiagnostic("move", {
+    ...diagnostic,
+    branch: "success",
+  });
   return json({ ok: true, data: { moved: assetIds.length } });
 }
 
@@ -1284,6 +1413,13 @@ async function handleBulkDeleteAssets(ctx) {
   }
 
   const assetIds = normalized.ids;
+  const diagnostic = {
+    asset_ids: assetIds,
+    matched_owned_ai_images_count: 0,
+    matched_owned_ai_text_assets_count: 0,
+    deleted_ai_images_count: 0,
+    deleted_ai_text_assets_count: 0,
+  };
   const placeholders = assetIds.map(() => "?").join(",");
 
   const imageSnapshot = await env.DB.prepare(
@@ -1303,7 +1439,13 @@ async function handleBulkDeleteAssets(ctx) {
 
   const imageRows = imageSnapshot.results || [];
   const fileRows = fileSnapshot.results || [];
+  diagnostic.matched_owned_ai_images_count = imageRows.length;
+  diagnostic.matched_owned_ai_text_assets_count = fileRows.length;
   if (imageRows.length + fileRows.length !== assetIds.length) {
+    logBulkActionDiagnostic("delete", {
+      ...diagnostic,
+      branch: "asset_match_count_mismatch",
+    });
     return json({ ok: false, error: "One or more assets not found." }, { status: 404 });
   }
 
@@ -1315,6 +1457,8 @@ async function handleBulkDeleteAssets(ctx) {
   ]));
   const ts = nowIso();
   const statements = [];
+  let imageDeleteIndex = -1;
+  let fileDeleteIndex = -1;
 
   if (cleanupKeys.length > 0) {
     statements.push(
@@ -1326,6 +1470,7 @@ async function handleBulkDeleteAssets(ctx) {
 
   if (imageIds.length > 0) {
     const valuesList = buildRequestedValuesList(imageIds);
+    imageDeleteIndex = statements.length;
     statements.push(
       env.DB.prepare(
         `WITH requested(id) AS (VALUES ${valuesList})
@@ -1336,13 +1481,11 @@ async function handleBulkDeleteAssets(ctx) {
                (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
       ).bind(...imageIds, session.user.id, session.user.id)
     );
-    statements.push(
-      env.DB.prepare(buildVerifyChangesGuardSql()).bind(imageIds.length)
-    );
   }
 
   if (fileIds.length > 0) {
     const valuesList = buildRequestedValuesList(fileIds);
+    fileDeleteIndex = statements.length;
     statements.push(
       env.DB.prepare(
         `WITH requested(id) AS (VALUES ${valuesList})
@@ -1353,26 +1496,51 @@ async function handleBulkDeleteAssets(ctx) {
                (SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND id IN (SELECT id FROM requested))`
       ).bind(...fileIds, session.user.id, session.user.id)
     );
-    statements.push(
-      env.DB.prepare(buildVerifyChangesGuardSql()).bind(fileIds.length)
-    );
   }
 
+  const finalStateGuard = buildBulkDeleteFinalStateGuardSql(
+    session.user.id,
+    imageIds,
+    fileIds
+  );
+  statements.push(
+    env.DB.prepare(finalStateGuard.sql).bind(...finalStateGuard.bindings)
+  );
+
+  let batchResults;
   try {
-    await env.DB.batch(statements);
+    batchResults = await env.DB.batch(statements);
   } catch (error) {
     const unavailable = String(error).includes("no such table");
+    const stateGuardError = isBulkStateGuardError(error);
+    logBulkActionDiagnostic("delete", {
+      ...diagnostic,
+      branch: stateGuardError ? "final_state_guard_failed" : unavailable ? "service_unavailable" : "batch_error",
+      error: String(error).slice(0, 500),
+    });
     return json(
       {
         ok: false,
         error: unavailable
           ? "Service temporarily unavailable. Please try again later."
-          : "Delete failed. Some assets may have already been removed.",
+          : stateGuardError
+            ? "Delete failed. Some assets may have already been removed."
+            : "Delete failed. Please try again.",
       },
-      { status: unavailable ? 503 : 409 }
+      { status: unavailable ? 503 : stateGuardError ? 409 : 500 }
     );
   }
 
+  diagnostic.deleted_ai_images_count = imageDeleteIndex >= 0
+    ? (batchResults[imageDeleteIndex]?.meta?.changes || 0)
+    : 0;
+  diagnostic.deleted_ai_text_assets_count = fileDeleteIndex >= 0
+    ? (batchResults[fileDeleteIndex]?.meta?.changes || 0)
+    : 0;
+  logBulkActionDiagnostic("delete", {
+    ...diagnostic,
+    branch: "success",
+  });
   const cleanedKeys = [];
   for (const row of imageRows) {
     for (const key of listAiImageObjectKeys(row)) {

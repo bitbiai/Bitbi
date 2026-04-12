@@ -2143,9 +2143,8 @@ test.describe('Worker routes', () => {
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
   });
 
-  test('AI assets bulk move updates mixed image and file assets in one shared folder flow', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
+  function createSharedBulkMoveEnv() {
+    return createAuthTestEnv({
       users: [createContractUser({ id: 'bulk-move-user', role: 'user' })],
       aiFolders: [
         {
@@ -2201,33 +2200,10 @@ test.describe('Worker routes', () => {
         },
       ],
     });
+  }
 
-    const token = await seedSession(env, 'bulk-move-user');
-    const moveRes = await authWorker.fetch(
-      authJsonRequest('/api/ai/assets/bulk-move', 'PATCH', {
-        asset_ids: ['1ab100cd', 'abc100ef', 'abd100aa'],
-        folder_id: 'f01daaab',
-      }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-
-    expect(moveRes.status).toBe(200);
-    await expect(moveRes.json()).resolves.toMatchObject({
-      ok: true,
-      data: { moved: 3 },
-    });
-    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBe('f01daaab');
-    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBe('f01daaab');
-    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa').folder_id).toBe('f01daaab');
-  });
-
-  test('AI assets bulk delete removes mixed image and file assets with shared cleanup', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
+  function createSharedBulkDeleteEnv() {
+    return createAuthTestEnv({
       users: [createContractUser({ id: 'bulk-delete-user', role: 'user' })],
       aiImages: [
         {
@@ -2299,11 +2275,16 @@ test.describe('Worker routes', () => {
         },
       },
     });
+  }
 
-    const token = await seedSession(env, 'bulk-delete-user');
-    const deleteRes = await authWorker.fetch(
-      authJsonRequest('/api/ai/assets/bulk-delete', 'POST', {
-        asset_ids: ['1ab100cd', 'abc100ef', 'abd100aa'],
+  async function runSharedBulkMoveRequest(assetIds, folderId = 'f01daaab') {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createSharedBulkMoveEnv();
+    const token = await seedSession(env, 'bulk-move-user');
+    const response = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets/bulk-move', 'PATCH', {
+        asset_ids: assetIds,
+        folder_id: folderId,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -2311,9 +2292,105 @@ test.describe('Worker routes', () => {
       env,
       createExecutionContext().execCtx
     );
+    return { env, response };
+  }
 
-    expect(deleteRes.status).toBe(200);
-    await expect(deleteRes.json()).resolves.toMatchObject({
+  async function runSharedBulkDeleteRequest(assetIds) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createSharedBulkDeleteEnv();
+    const token = await seedSession(env, 'bulk-delete-user');
+    const response = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets/bulk-delete', 'POST', {
+        asset_ids: assetIds,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    return { env, response };
+  }
+
+  test('AI assets bulk move updates one image through the shared route', async () => {
+    const { env, response } = await runSharedBulkMoveRequest(['1ab100cd']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { moved: 1 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBeNull();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa').folder_id).toBeNull();
+  });
+
+  test('AI assets bulk move updates one text asset through the shared route', async () => {
+    const { env, response } = await runSharedBulkMoveRequest(['abc100ef']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { moved: 1 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBeNull();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa').folder_id).toBeNull();
+  });
+
+  test('AI assets bulk move updates mixed image and file assets in one shared folder flow', async () => {
+    const { env, response } = await runSharedBulkMoveRequest(['1ab100cd', 'abc100ef', 'abd100aa']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { moved: 3 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa').folder_id).toBe('f01daaab');
+  });
+
+  test('AI assets bulk move rejects missing asset IDs in the shared route', async () => {
+    const { env, response } = await runSharedBulkMoveRequest(['1ab100cd', 'ffff0000']);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'One or more assets not found.',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBeNull();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBeNull();
+  });
+
+  test('AI assets bulk delete removes one image through the shared route', async () => {
+    const { env, response } = await runSharedBulkDeleteRequest(['1ab100cd']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { deleted: 1 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeUndefined();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toBeTruthy();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa')).toBeTruthy();
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(2);
+  });
+
+  test('AI assets bulk delete removes one text asset through the shared route', async () => {
+    const { env, response } = await runSharedBulkDeleteRequest(['abc100ef']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { deleted: 1 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeTruthy();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toBeUndefined();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa')).toBeTruthy();
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(4);
+  });
+
+  test('AI assets bulk delete removes mixed image and file assets with shared cleanup', async () => {
+    const { env, response } = await runSharedBulkDeleteRequest(['1ab100cd', 'abc100ef', 'abd100aa']);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
       ok: true,
       data: { deleted: 3 },
     });
@@ -2321,6 +2398,19 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiTextAssets).toHaveLength(0);
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
     expect(env.USER_IMAGES.objects.size).toBe(0);
+  });
+
+  test('AI assets bulk delete rejects missing asset IDs in the shared route', async () => {
+    const { env, response } = await runSharedBulkDeleteRequest(['abc100ef', 'ffff0000']);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'One or more assets not found.',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeTruthy();
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toBeTruthy();
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(5);
   });
 
   test('AI image thumb and medium routes preserve auth and ownership checks', async () => {
