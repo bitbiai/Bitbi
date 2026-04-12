@@ -199,8 +199,9 @@ class MockImagesBinding {
         transforms.push(options || {});
         return this;
       },
-      // Matches actual Cloudflare Images runtime: .output() returns a
-      // Promise<Response> directly — there is no .response() method.
+      // Matches Cloudflare Images runtime: .output() returns a
+      // Promise<ImageTransformationResult> with .response(), .image(),
+      // and .contentType() methods.
       output(options) {
         outputOptions = options || {};
         return (async () => {
@@ -228,11 +229,19 @@ class MockImagesBinding {
             height: dims.height,
           });
           const body = new TextEncoder().encode(`mock-image:${dims.width}x${dims.height}:${format}`);
-          return new Response(body, {
-            headers: {
-              'content-type': format,
-            },
+          const res = new Response(body, {
+            headers: { 'content-type': format },
           });
+          // ImageTransformationResult shape
+          return {
+            response() { return res; },
+            image() {
+              return new ReadableStream({
+                start(controller) { controller.enqueue(body); controller.close(); },
+              });
+            },
+            contentType() { return format; },
+          };
         })();
       },
     };

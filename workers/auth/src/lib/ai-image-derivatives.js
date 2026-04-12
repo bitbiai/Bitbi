@@ -416,7 +416,9 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
     throw permanentAiImageDerivativeError("Images binding is unavailable.", "images_binding_missing");
   }
 
-  const outputResult = env.IMAGES.input(originalBytes)
+  // .output() returns a Promise<ImageTransformationResult>.
+  // ImageTransformationResult exposes .response(), .image(), .contentType().
+  const transformResult = await env.IMAGES.input(originalBytes)
     .transform({
       width: preset.maxWidth,
       height: preset.maxHeight,
@@ -427,14 +429,30 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
       quality: preset.quality,
     });
 
-  // Handle both Cloudflare Images API shapes:
-  // - Current runtime: .output() returns a Promise<Response> directly
-  // - Legacy/alternate: .output() returns a builder with .response() method
-  const response = typeof outputResult.response === "function"
-    ? await outputResult.response()
-    : await outputResult;
-
-  if (!response || typeof response.arrayBuffer !== "function") {
+  // Normalize to a standard Response. The Cloudflare Images binding resolves
+  // .output() to an ImageTransformationResult (has .response(), .image(),
+  // .contentType()). If the runtime ever changes to return a bare Response,
+  // the fallback handles that too.
+  let response;
+  if (typeof transformResult.response === "function") {
+    response = transformResult.response();
+  } else if (typeof transformResult.arrayBuffer === "function") {
+    response = transformResult;
+  } else if (typeof transformResult.image === "function") {
+    // ImageTransformationResult without .response() — read the stream
+    const stream = transformResult.image();
+    const contentType = typeof transformResult.contentType === "function"
+      ? transformResult.contentType()
+      : preset.format;
+    response = new Response(stream, {
+      headers: { "content-type": contentType },
+    });
+  } else {
+    console.error(
+      `AI derivative transform unexpected shape: type=${typeof transformResult} ` +
+      `ctor=${transformResult?.constructor?.name} ` +
+      `keys=${Object.keys(transformResult || {}).join(",")}`
+    );
     throw new Error(`Derivative transform returned an invalid result for ${preset.variant}.`);
   }
 

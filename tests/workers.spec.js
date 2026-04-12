@@ -2468,30 +2468,46 @@ test.describe('Worker routes', () => {
     expect(mediumRes.headers.get('content-type')).toContain('image/webp');
   });
 
-  test('IMAGES binding mock matches Cloudflare runtime: output() returns Promise not builder', async () => {
-    // Validates the exact runtime shape that caused:
-    // TypeError: env.IMAGES.input(...).transform(...).output(...).response is not a function
+  test('IMAGES binding mock matches Cloudflare ImageTransformationResult contract', async () => {
+    // Validates the shape that caused two successive live errors:
+    // 1. .response() called on Promise → TypeError: .response is not a function
+    // 2. Awaited Promise gave ImageTransformationResult (not Response) → "invalid result"
+    // Correct: await .output() → ImageTransformationResult → .response() → Response
     const { MockImagesBinding } = require('./helpers/auth-worker-harness.js');
     const images = new MockImagesBinding();
 
     const inputBytes = new TextEncoder().encode('mock-image:512x512:image/png');
-    const outputResult = images.input(inputBytes)
+    const outputPromise = images.input(inputBytes)
       .transform({ width: 320, height: 320, fit: 'scale-down' })
       .output({ format: 'image/webp', quality: 82 });
 
-    // .output() must NOT expose .response() — matches actual Cloudflare runtime
-    expect(typeof outputResult.response).not.toBe('function');
+    // .output() returns a Promise (not a synchronous builder)
+    expect(typeof outputPromise.then).toBe('function');
 
-    // .output() must be awaitable (Promise<Response>)
-    expect(typeof outputResult.then).toBe('function');
+    // Awaiting gives an ImageTransformationResult, NOT a bare Response
+    const transformResult = await outputPromise;
+    expect(transformResult).not.toBeInstanceOf(Response);
 
-    const response = await outputResult;
+    // ImageTransformationResult exposes .response(), .image(), .contentType()
+    expect(typeof transformResult.response).toBe('function');
+    expect(typeof transformResult.image).toBe('function');
+    expect(typeof transformResult.contentType).toBe('function');
+
+    // .response() returns a standard Response
+    const response = transformResult.response();
     expect(response).toBeInstanceOf(Response);
     expect(response.headers.get('content-type')).toBe('image/webp');
 
     const body = await response.text();
     expect(body).toContain('mock-image:');
     expect(body).toContain('image/webp');
+
+    // .contentType() returns the format string
+    expect(transformResult.contentType()).toBe('image/webp');
+
+    // .image() returns a ReadableStream
+    const stream = transformResult.image();
+    expect(typeof stream.getReader).toBe('function');
 
     // Transform call was tracked
     expect(images.transformCalls.length).toBe(1);
