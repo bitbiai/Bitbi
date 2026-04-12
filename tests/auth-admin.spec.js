@@ -7,6 +7,77 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
+  const folders = cloneJson(folderPayload.folders || []);
+  const assetMap = new Map();
+  const seedAssets = []
+    .concat(assetsPayload.all || [])
+    .concat(assetsPayload.unfoldered || [])
+    .concat(...Object.values(assetsPayload.folders || {}));
+
+  seedAssets.forEach((asset) => {
+    assetMap.set(asset.id, cloneJson(asset));
+  });
+
+  function listAssets({ folderId = null, onlyUnfoldered = false } = {}) {
+    let assets = Array.from(assetMap.values());
+    if (onlyUnfoldered) {
+      assets = assets.filter((asset) => !asset.folder_id);
+    } else if (folderId) {
+      assets = assets.filter((asset) => asset.folder_id === folderId);
+    }
+    return assets
+      .slice()
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+
+  function counts() {
+    const folderCounts = {};
+    let unfolderedCount = 0;
+    for (const asset of assetMap.values()) {
+      if (asset.folder_id) {
+        folderCounts[asset.folder_id] = (folderCounts[asset.folder_id] || 0) + 1;
+      } else {
+        unfolderedCount += 1;
+      }
+    }
+    return { folderCounts, unfolderedCount };
+  }
+
+  return {
+    getFolderPayload() {
+      const { folderCounts, unfolderedCount } = counts();
+      return {
+        folders: cloneJson(folders),
+        counts: folderCounts,
+        unfolderedCount,
+      };
+    },
+    list(url) {
+      const folderId = url.searchParams.get('folder_id') || null;
+      const onlyUnfoldered = url.searchParams.get('only_unfoldered') === '1';
+      return listAssets({ folderId, onlyUnfoldered });
+    },
+    addAsset(asset) {
+      assetMap.set(asset.id, cloneJson(asset));
+    },
+    moveAssets(ids, folderId) {
+      ids.forEach((id) => {
+        const asset = assetMap.get(id);
+        if (!asset) return;
+        asset.folder_id = folderId || null;
+      });
+    },
+    deleteAssets(ids) {
+      ids.forEach((id) => assetMap.delete(id));
+    },
+  };
+}
+
 function createMockAiCatalog() {
   return {
     ok: true,
@@ -150,6 +221,59 @@ async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
+  const assetStore = captures.assetStore || createSavedAssetsStore(
+    captures.folderPayload || {
+      folders: [
+        { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+        { id: 'folder-research', name: 'Research', slug: 'research', created_at: '2026-04-09T09:00:00.000Z' },
+      ],
+    },
+    captures.assetsPayload || {
+      all: [
+        {
+          id: 'img-asset-1',
+          asset_type: 'image',
+          folder_id: 'folder-launches',
+          title: 'Launch Key Visual',
+          preview_text: 'Launch Key Visual',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 123,
+          created_at: '2026-04-10T12:00:00.000Z',
+          file_url: '/api/ai/images/img-asset-1/file',
+          original_url: '/api/ai/images/img-asset-1/file',
+          thumb_url: '/api/ai/images/img-asset-1/thumb',
+          medium_url: '/api/ai/images/img-asset-1/medium',
+        },
+        {
+          id: 'txt-asset-1',
+          asset_type: 'text',
+          folder_id: 'folder-research',
+          title: 'Embeddings Summary',
+          file_name: 'embeddings-summary.txt',
+          source_module: 'embeddings',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 512,
+          preview_text: 'Dimensionality check and clustering notes.',
+          created_at: '2026-04-10T11:30:00.000Z',
+          file_url: '/api/ai/text-assets/txt-asset-1/file',
+        },
+        {
+          id: 'snd-asset-1',
+          asset_type: 'sound',
+          folder_id: null,
+          title: 'Sound Concept Loop',
+          file_name: 'sound-concept-loop.mp3',
+          source_module: 'text',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'Short atmospheric loop saved into the shared asset browser.',
+          created_at: '2026-04-10T11:00:00.000Z',
+          file_url: '/api/ai/text-assets/snd-asset-1/file',
+        },
+      ],
+    },
+  );
 
   await page.route('**/api/admin/me', async (route) => {
     await route.fulfill({
@@ -408,39 +532,136 @@ async function mockAdminAiLab(page, captures = {}) {
   });
 
   await page.route('**/api/ai/folders', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        data: {
-          folders: [
-            { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
-            { id: 'folder-research', name: 'Research', slug: 'research', created_at: '2026-04-09T09:00:00.000Z' },
-          ],
-          counts: {
-            'folder-launches': 2,
-            'folder-research': 1,
-          },
-          unfolderedCount: 3,
-        },
+        data: assetStore.getFolderPayload(),
       }),
+    });
+  });
+
+  await page.route('**/api/ai/assets**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/ai/assets' || route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { assets: assetStore.list(url) },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/assets/bulk-move', async (route) => {
+    const body = route.request().postDataJSON();
+    assetStore.moveAssets(body.asset_ids || [], body.folder_id || null);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { moved: Array.isArray(body.asset_ids) ? body.asset_ids.length : 0 },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/assets/bulk-delete', async (route) => {
+    const body = route.request().postDataJSON();
+    assetStore.deleteAssets(body.asset_ids || []);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { deleted: Array.isArray(body.asset_ids) ? body.asset_ids.length : 0 },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/text-assets/*/file', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const contentType = path.includes('snd-asset-1') ? 'audio/mpeg' : 'text/plain; charset=utf-8';
+    await route.fulfill({
+      status: 200,
+      contentType,
+      body: path.includes('snd-asset-1') ? 'mock-audio' : 'Saved AI Lab text asset.',
+    });
+  });
+
+  await page.route(/\/api\/ai\/images\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+  });
+
+  await page.route('**/api/ai/images/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    const imageId = route.request().url().split('/').pop();
+    assetStore.deleteAssets([imageId]);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
+  await page.route('**/api/ai/text-assets/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    const assetId = route.request().url().split('/').pop();
+    assetStore.deleteAssets([assetId]);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
     });
   });
 
   await page.route('**/api/admin/ai/save-text-asset', async (route) => {
     const body = route.request().postDataJSON();
     saveTextAssetRequests.push(body);
+    const id = `txt-${saveTextAssetRequests.length}`;
+    const title = body.title;
+    assetStore.addAsset({
+      id,
+      asset_type: 'text',
+      folder_id: body.folderId || null,
+      title,
+      file_name: `${String(title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
+      source_module: body.sourceModule,
+      mime_type: 'text/plain; charset=utf-8',
+      size_bytes: 420,
+      preview_text: 'Saved from admin AI Lab.',
+      created_at: '2026-04-10T12:00:00.000Z',
+      file_url: `/api/ai/text-assets/${id}/file`,
+    });
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
         data: {
-          id: `txt-${saveTextAssetRequests.length}`,
+          id,
           folder_id: body.folderId || null,
-          title: body.title,
-          file_name: `${String(body.title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
+          title,
+          file_name: `${String(title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
           source_module: body.sourceModule,
           mime_type: 'text/plain; charset=utf-8',
           size_bytes: 420,
@@ -454,13 +675,27 @@ async function mockAdminAiLab(page, captures = {}) {
   await page.route('**/api/ai/images/save', async (route) => {
     const body = route.request().postDataJSON();
     saveImageRequests.push(body);
+    const id = `img-${saveImageRequests.length}`;
+    assetStore.addAsset({
+      id,
+      asset_type: 'image',
+      folder_id: body.folder_id || null,
+      title: body.prompt,
+      preview_text: body.prompt,
+      model: body.model,
+      steps: body.steps ?? null,
+      seed: body.seed ?? null,
+      created_at: '2026-04-10T12:00:00.000Z',
+      file_url: `/api/ai/images/${id}/file`,
+      original_url: `/api/ai/images/${id}/file`,
+    });
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
         data: {
-          id: `img-${saveImageRequests.length}`,
+          id,
           folder_id: body.folder_id || null,
           prompt: body.prompt,
           model: body.model,
@@ -485,6 +720,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     folders: {},
   };
   const imageRequests = options.imageRequests || [];
+  const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -529,30 +765,58 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   });
 
   await page.route('**/api/ai/folders', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ok: true,
-        data: folderPayload,
-      }),
-    });
-  });
-
-  await page.route('**/api/ai/assets**', async (route) => {
-    const url = new URL(route.request().url());
-    let assets = assetsPayload.all || [];
-    if (url.searchParams.get('only_unfoldered') === '1') {
-      assets = assetsPayload.unfoldered || [];
-    } else if (url.searchParams.get('folder_id')) {
-      assets = assetsPayload.folders?.[url.searchParams.get('folder_id')] || [];
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
     }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        data: { assets },
+        data: assetStore.getFolderPayload(),
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/assets**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/ai/assets' || route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { assets: assetStore.list(url) },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/assets/bulk-move', async (route) => {
+    const body = route.request().postDataJSON();
+    assetStore.moveAssets(body.asset_ids || [], body.folder_id || null);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { moved: Array.isArray(body.asset_ids) ? body.asset_ids.length : 0 },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/assets/bulk-delete', async (route) => {
+    const body = route.request().postDataJSON();
+    assetStore.deleteAssets(body.asset_ids || []);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: { deleted: Array.isArray(body.asset_ids) ? body.asset_ids.length : 0 },
       }),
     });
   });
@@ -574,11 +838,27 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     });
   });
 
+  await page.route('**/api/ai/images/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    const imageId = route.request().url().split('/').pop();
+    assetStore.deleteAssets([imageId]);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
   await page.route('**/api/ai/text-assets/*', async (route) => {
     if (route.request().method() !== 'DELETE') {
       await route.fallback();
       return;
     }
+    const assetId = route.request().url().split('/').pop();
+    assetStore.deleteAssets([assetId]);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -907,6 +1187,19 @@ test.describe('Image Studio (authenticated)', () => {
             created_at: '2026-04-10T12:05:00.000Z',
             file_url: '/api/ai/text-assets/txt-1/file',
           },
+          {
+            id: 'snd-1',
+            asset_type: 'sound',
+            folder_id: 'folder-launches',
+            title: 'Launch Atmosphere',
+            file_name: 'launch-atmosphere.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 102400,
+            preview_text: 'A short ambient loop saved into the shared folder browser.',
+            created_at: '2026-04-10T12:06:00.000Z',
+            file_url: '/api/ai/text-assets/snd-1/file',
+          },
         ],
         unfoldered: [],
         folders: {
@@ -936,6 +1229,19 @@ test.describe('Image Studio (authenticated)', () => {
               created_at: '2026-04-10T12:05:00.000Z',
               file_url: '/api/ai/text-assets/txt-1/file',
             },
+            {
+              id: 'snd-1',
+              asset_type: 'sound',
+              folder_id: 'folder-launches',
+              title: 'Launch Atmosphere',
+              file_name: 'launch-atmosphere.mp3',
+              source_module: 'text',
+              mime_type: 'audio/mpeg',
+              size_bytes: 102400,
+              preview_text: 'A short ambient loop saved into the shared folder browser.',
+              created_at: '2026-04-10T12:06:00.000Z',
+              file_url: '/api/ai/text-assets/snd-1/file',
+            },
           ],
         },
       },
@@ -946,11 +1252,100 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
-    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
     await expect(page.locator('.studio__image-item--text')).toContainText('COMPARE');
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
-    await expect(page.locator('.studio__text-open')).toHaveAttribute('href', '/api/ai/text-assets/txt-1/file');
+    await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
+    await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
+    await expect(page.locator('.studio__asset-open').first()).toHaveAttribute('href', /\/api\/ai\/text-assets\//);
+  });
+
+  test('account Image Studio moves and deletes mixed saved assets with one shared selection flow', async ({
+    page,
+  }) => {
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+          { id: 'folder-research', name: 'Research', slug: 'research', created_at: '2026-04-09T09:00:00.000Z' },
+        ],
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-move-1',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Shared Poster',
+            preview_text: 'Shared Poster',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 9,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/images/img-move-1/file',
+            original_url: '/api/ai/images/img-move-1/file',
+          },
+          {
+            id: 'txt-move-1',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Prompt Notes',
+            file_name: 'prompt-notes.txt',
+            source_module: 'text',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 320,
+            preview_text: 'Text notes that should move with the image and sound cards.',
+            created_at: '2026-04-10T11:59:00.000Z',
+            file_url: '/api/ai/text-assets/txt-move-1/file',
+          },
+          {
+            id: 'snd-move-1',
+            asset_type: 'sound',
+            folder_id: null,
+            title: 'Concept Loop',
+            file_name: 'concept-loop.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 204800,
+            preview_text: 'Audio loop that should move and delete inside the same selection flow.',
+            created_at: '2026-04-10T11:58:00.000Z',
+            file_url: '/api/ai/text-assets/snd-move-1/file',
+          },
+        ],
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
+
+    await page.locator('#studioSelectBtn').click();
+    await page.locator('#studioImageGrid .studio__image-item').nth(0).click();
+    await page.locator('#studioImageGrid .studio__image-item').nth(1).click();
+    await page.locator('#studioImageGrid .studio__image-item').nth(2).click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('3 selected');
+
+    await page.locator('#studioBulkMove').click();
+    await page.selectOption('#studioBulkMoveSelect', 'folder-research');
+    await page.locator('#studioBulkMoveConfirm').click();
+    await expect(page.locator('#studioGalleryMsg')).toContainText('3 assets moved.');
+
+    await page.locator('#studioFolderBackBtn').click();
+    await page.locator('#studioFolderGrid .studio__folder-card').nth(3).click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
+
+    await page.locator('#studioSelectBtn').click();
+    await page.locator('.studio__image-item--text').click();
+    await page.locator('.studio__image-item--sound').click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('2 selected');
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#studioBulkDelete').click();
+    await expect(page.locator('#studioGalleryMsg')).toContainText('2 assets deleted.');
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
+    await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
   });
 
   test('account Image Studio grid requests thumbs only and uses medium/original for detail fallback', async ({
@@ -1252,8 +1647,9 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260410-wave10"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260410-wave10"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v=20260412-wave14"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/account/image-studio.css?v=20260412-wave14"]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260412-wave14"]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
@@ -1290,6 +1686,13 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImageMeta')).toContainText('FLUX.2 Dev');
     await expect(page.locator('#aiImageMeta')).toContainText('@cf/black-forest-labs/flux-2-dev');
     await expect(page.locator('#aiImageDownload')).toBeVisible();
+    await expect(page.locator('#aiLabSavedAssets')).toBeVisible();
+    await expect(page.locator('#aiLabSavedAssets .studio__folder-card')).toHaveCount(4);
+    await page.locator('#aiLabSavedAssets .studio__folder-card').first().click();
+    await expect(page.locator('#aiLabAssetsGrid .studio__image-item')).toHaveCount(3);
+    await expect(page.locator('#aiLabAssetsGrid')).toContainText('Embeddings Summary');
+    await expect(page.locator('#aiLabAssetsGrid')).toContainText('Sound Concept Loop');
+    await expect(page.locator('#aiLabAssetsGrid .studio__asset-audio')).toHaveCount(1);
     const imageDownload = page.waitForEvent('download');
     await page.locator('#aiImageDownload').click();
     await expect((await imageDownload).suggestedFilename()).toContain('ai-lab-image');

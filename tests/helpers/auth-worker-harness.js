@@ -284,6 +284,7 @@ class MockD1 {
     };
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
     this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
+    this._lastChanges = 0;
   }
 
   prepare(query) {
@@ -293,6 +294,7 @@ class MockD1 {
   async batch(statements) {
     const snapshot = deepClone(this.state);
     const seq = this._cleanupSeq;
+    const lastChanges = this._lastChanges;
     const results = [];
     try {
       for (const stmt of statements) {
@@ -302,6 +304,7 @@ class MockD1 {
     } catch (error) {
       this.state = snapshot;
       this._cleanupSeq = seq;
+      this._lastChanges = lastChanges;
       throw error;
     }
   }
@@ -624,6 +627,12 @@ class MockD1 {
       return this.state.aiFolders.find((row) => row.id === folderId && row.user_id === userId && row.status === 'active') || null;
     }
 
+    if (query === "SELECT id FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
+      const [folderId, userId] = bindings;
+      const row = this.state.aiFolders.find((item) => item.id === folderId && item.user_id === userId && item.status === 'active');
+      return row ? { id: row.id } : null;
+    }
+
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) SELECT')) {
       const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt, existsFolderId, existsUserId] = bindings;
       const folder = this.state.aiFolders.find(
@@ -809,12 +818,45 @@ class MockD1 {
       };
     }
 
+    if (query.startsWith('SELECT id FROM ai_images WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiImages
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({ id: row.id })),
+      };
+    }
+
     if (query === 'SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
       const [folderId, userId] = bindings;
       return {
         results: this.state.aiTextAssets
           .filter((row) => row.folder_id === folderId && row.user_id === userId)
           .map((row) => ({ r2_key: row.r2_key })),
+      };
+    }
+
+    if (query.startsWith('SELECT id FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({ id: row.id })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, r2_key FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+          })),
       };
     }
 
@@ -1176,6 +1218,120 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.aiFolders.length } };
     }
 
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('UPDATE ai_images SET folder_id = ?')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const folderId = bindings[requestedCount];
+      const userId = bindings[requestedCount + 1];
+      const ownershipUserId = bindings[requestedCount + 2];
+      const folderUserId = bindings[requestedCount + 4];
+      const folderActive = this.state.aiFolders.some(
+        (row) => row.id === folderId && row.user_id === folderUserId && row.status === 'active'
+      );
+      const matches = this.state.aiImages.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (!folderActive || matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (requestedIds.includes(row.id) && row.user_id === userId) {
+          row.folder_id = folderId;
+          changes += 1;
+        }
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('UPDATE ai_images SET folder_id = NULL')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const userId = bindings[requestedCount];
+      const ownershipUserId = bindings[requestedCount + 1];
+      const matches = this.state.aiImages.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (requestedIds.includes(row.id) && row.user_id === userId) {
+          row.folder_id = null;
+          changes += 1;
+        }
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('UPDATE ai_text_assets SET folder_id = ?')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const folderId = bindings[requestedCount];
+      const userId = bindings[requestedCount + 1];
+      const ownershipUserId = bindings[requestedCount + 2];
+      const folderUserId = bindings[requestedCount + 4];
+      const folderActive = this.state.aiFolders.some(
+        (row) => row.id === folderId && row.user_id === folderUserId && row.status === 'active'
+      );
+      const matches = this.state.aiTextAssets.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (!folderActive || matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (requestedIds.includes(row.id) && row.user_id === userId) {
+          row.folder_id = folderId;
+          changes += 1;
+        }
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('UPDATE ai_text_assets SET folder_id = NULL')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const userId = bindings[requestedCount];
+      const ownershipUserId = bindings[requestedCount + 1];
+      const matches = this.state.aiTextAssets.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (requestedIds.includes(row.id) && row.user_id === userId) {
+          row.folder_id = null;
+          changes += 1;
+        }
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'SELECT CASE WHEN changes() = ? THEN 1 ELSE bitbi_fail_changes() END') {
+      const [expected] = bindings;
+      if (this._lastChanges !== expected) {
+        throw new Error('bitbi_fail_changes');
+      }
+      return { success: true, meta: { changes: 0 } };
+    }
+
     if (query.startsWith('WITH matches AS ( SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE ') && query.includes('INSERT INTO r2_cleanup_queue (r2_key, status, created_at)')) {
       let rows = [];
       let createdAtStart = 0;
@@ -1325,6 +1481,65 @@ class MockD1 {
         });
       }
       return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) VALUES ")) {
+      let changes = 0;
+      for (let index = 0; index < bindings.length; index += 2) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: bindings[index],
+          status: 'pending',
+          created_at: bindings[index + 1],
+          attempts: 0,
+          last_attempt_at: null,
+        });
+        changes += 1;
+      }
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('DELETE FROM ai_images')
+      && query.includes('SELECT COUNT(*) FROM ai_images WHERE user_id = ?')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const userId = bindings[requestedCount];
+      const ownershipUserId = bindings[requestedCount + 1];
+      const matches = this.state.aiImages.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      const before = this.state.aiImages.length;
+      this.state.aiImages = this.state.aiImages.filter((row) => !(requestedIds.includes(row.id) && row.user_id === userId));
+      const changes = before - this.state.aiImages.length;
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith('WITH requested(id) AS (VALUES')
+      && query.includes('DELETE FROM ai_text_assets')
+      && query.includes('SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ?')
+    ) {
+      const requestedCount = (query.match(/\(\?\)/g) || []).length;
+      const requestedIds = bindings.slice(0, requestedCount);
+      const userId = bindings[requestedCount];
+      const ownershipUserId = bindings[requestedCount + 1];
+      const matches = this.state.aiTextAssets.filter((row) => requestedIds.includes(row.id) && row.user_id === ownershipUserId);
+      if (matches.length !== requestedIds.length) {
+        this._lastChanges = 0;
+        return { success: true, meta: { changes: 0 } };
+      }
+      const before = this.state.aiTextAssets.length;
+      this.state.aiTextAssets = this.state.aiTextAssets.filter((row) => !(requestedIds.includes(row.id) && row.user_id === userId));
+      const changes = before - this.state.aiTextAssets.length;
+      this._lastChanges = changes;
+      return { success: true, meta: { changes } };
     }
 
     if (query.startsWith('DELETE FROM r2_cleanup_queue WHERE r2_key IN (') && query.endsWith(") AND status = 'pending'")) {

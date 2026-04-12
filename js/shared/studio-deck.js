@@ -328,6 +328,7 @@ export function initStudioDeck(grid) {
             if (!item) return;
             if (e.target.closest('a')) return;
             if (e.target.closest('button') && !e.target.closest('.studio__image-delete')) return;
+            if (e.target.closest('audio')) return;
             /* Don't open modal when clicking delete or in selection mode */
             if (e.target.closest('.studio__image-delete')) return;
             if (e.target.closest('.studio__image-check')) return;

@@ -8,13 +8,14 @@ import {
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js?v=20260410-wave10';
+} from '../../shared/auth-api.js?v=20260412-wave14';
+import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=20260412-wave14';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
 const HISTORY_LIMIT = 6;
 // Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
-const ADMIN_AI_UI_VERSION = '20260410-wave10';
+const ADMIN_AI_UI_VERSION = '20260412-wave14';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 45_000,
@@ -690,6 +691,37 @@ export function createAdminAiLab({ showToast } = {}) {
             raw: document.getElementById('aiImageRaw'),
             copyRaw: document.getElementById('aiImageCopyRaw'),
         },
+        savedAssets: {
+            root: document.getElementById('aiLabSavedAssets'),
+            galleryFilter: document.getElementById('aiLabAssetsGalleryFilter'),
+            folderGrid: document.getElementById('aiLabAssetsFolderGrid'),
+            folderBack: document.getElementById('aiLabAssetsFolderBack'),
+            folderBackBtn: document.getElementById('aiLabAssetsFolderBackBtn'),
+            assetGrid: document.getElementById('aiLabAssetsGrid'),
+            galleryMsg: document.getElementById('aiLabAssetsMsg'),
+            newFolderBtn: document.getElementById('aiLabAssetsNewFolderBtn'),
+            deleteFolderBtn: document.getElementById('aiLabAssetsDeleteFolderBtn'),
+            newFolderForm: document.getElementById('aiLabAssetsNewFolderForm'),
+            newFolderInput: document.getElementById('aiLabAssetsNewFolderInput'),
+            newFolderSave: document.getElementById('aiLabAssetsNewFolderSave'),
+            newFolderCancel: document.getElementById('aiLabAssetsNewFolderCancel'),
+            deleteFolderForm: document.getElementById('aiLabAssetsDeleteFolderForm'),
+            deleteFolderSelect: document.getElementById('aiLabAssetsDeleteFolderSelect'),
+            deleteFolderConfirm: document.getElementById('aiLabAssetsDeleteFolderConfirm'),
+            deleteFolderCancel: document.getElementById('aiLabAssetsDeleteFolderCancel'),
+            selectBtn: document.getElementById('aiLabAssetsSelectBtn'),
+            mobileActionsToggle: document.getElementById('aiLabAssetsMobileActionsToggle'),
+            mobileActionsMenu: document.getElementById('aiLabAssetsMobileActionsMenu'),
+            bulkBar: document.getElementById('aiLabAssetsBulkBar'),
+            bulkCount: document.getElementById('aiLabAssetsBulkCount'),
+            bulkMove: document.getElementById('aiLabAssetsBulkMove'),
+            bulkDelete: document.getElementById('aiLabAssetsBulkDelete'),
+            bulkCancel: document.getElementById('aiLabAssetsBulkCancel'),
+            bulkMoveForm: document.getElementById('aiLabAssetsBulkMoveForm'),
+            bulkMoveSelect: document.getElementById('aiLabAssetsBulkMoveSelect'),
+            bulkMoveConfirm: document.getElementById('aiLabAssetsBulkMoveConfirm'),
+            bulkMoveCancel: document.getElementById('aiLabAssetsBulkMoveCancel'),
+        },
         embeddings: {
             preset: document.getElementById('aiEmbeddingsPreset'),
             model: document.getElementById('aiEmbeddingsModel'),
@@ -778,6 +810,26 @@ export function createAdminAiLab({ showToast } = {}) {
             cancel: document.getElementById('aiLabSaveCancel'),
         },
     };
+
+    const savedAssetsBrowser = createSavedAssetsBrowser({
+        refs: refs.savedAssets,
+        emptyStateMessage: 'No saved assets yet. Save an image or AI Lab result to populate your folders.',
+        foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
+    });
+
+    async function refreshSavedAssetsBrowser() {
+        try {
+            await savedAssetsBrowser.refresh();
+        } catch (error) {
+            console.warn('AI Lab saved assets refresh failed:', error);
+        }
+    }
+
+    function showSavedAssetsBrowser() {
+        savedAssetsBrowser.show().catch((error) => {
+            console.warn('AI Lab saved assets load failed:', error);
+        });
+    }
 
     function persistState() {
         try {
@@ -1353,6 +1405,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
                 state.save.saving = false;
                 closeSaveModal();
+                await refreshSavedAssetsBrowser();
                 setStatus('Image saved to the shared folder structure.', 'success');
                 if (showToast) showToast('Image saved.');
                 return;
@@ -1374,6 +1427,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
             state.save.saving = false;
             closeSaveModal();
+            await refreshSavedAssetsBrowser();
             setStatus('Text asset saved to the shared folder structure.', 'success');
             if (showToast) showToast('Text asset saved.');
         } catch {
@@ -1647,6 +1701,10 @@ export function createAdminAiLab({ showToast } = {}) {
 
         persistState();
         renderResetLabel();
+
+        if (mode === 'image') {
+            showSavedAssetsBrowser();
+        }
     }
 
     function renderResetLabel() {

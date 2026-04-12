@@ -13,7 +13,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { apiGetProfile, apiUpdateProfile, apiLogout, apiUploadAvatar, apiDeleteAvatar, apiRequestReverification, apiGetFavorites, apiRemoveFavorite } from '../../shared/auth-api.js';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
-import { createAdminAiLab } from '../admin/ai-lab.js?v=20260410-wave10';
+import { createAdminAiLab } from '../admin/ai-lab.js?v=20260412-wave14';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');

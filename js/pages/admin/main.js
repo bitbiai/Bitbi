@@ -22,9 +22,9 @@ import {
     apiAdminStats,
     apiAdminActivity,
     apiAdminUserActivity,
-} from '../../shared/auth-api.js?v=20260410-wave10';
+} from '../../shared/auth-api.js?v=20260412-wave14';
 import { galleryItems } from '../../shared/gallery-data.js?v=20260410-wave10';
-import { createAdminAiLab } from './ai-lab.js?v=20260410-wave10';
+import { createAdminAiLab } from './ai-lab.js?v=20260412-wave14';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs

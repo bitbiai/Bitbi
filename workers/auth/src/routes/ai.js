@@ -80,6 +80,69 @@ function flattenAiImageKeys(rows) {
   return (rows?.results || []).flatMap((row) => listAiImageObjectKeys(row));
 }
 
+function inferAiFileAssetType(mimeType) {
+  return String(mimeType || "").toLowerCase().startsWith("audio/")
+    ? "sound"
+    : "text";
+}
+
+function toAiFileAssetRecord(row) {
+  return {
+    id: row.id,
+    asset_type: inferAiFileAssetType(row.mime_type),
+    folder_id: row.folder_id,
+    title: row.title,
+    file_name: row.file_name,
+    source_module: row.source_module,
+    mime_type: row.mime_type,
+    size_bytes: row.size_bytes,
+    preview_text: row.preview_text,
+    created_at: row.created_at,
+    file_url: `/api/ai/text-assets/${row.id}/file`,
+  };
+}
+
+function isHexAssetId(value) {
+  return typeof value === "string" && /^[a-f0-9]+$/.test(value);
+}
+
+function normalizeRequestedIds(body, fieldName, noun) {
+  const ids = Array.isArray(body?.[fieldName]) ? body[fieldName] : null;
+  if (!ids || ids.length === 0) {
+    return { error: `${fieldName} array is required.` };
+  }
+  if (ids.length > 50) {
+    return { error: `Cannot ${noun} more than 50 assets at once.` };
+  }
+  if (new Set(ids).size !== ids.length) {
+    return { error: "Duplicate asset IDs are not allowed." };
+  }
+  for (const id of ids) {
+    if (!isHexAssetId(id)) {
+      return { error: "Invalid asset ID." };
+    }
+  }
+  return { ids };
+}
+
+function buildRequestedValuesList(ids) {
+  return ids.map(() => "(?)").join(",");
+}
+
+function buildVerifyChangesGuardSql() {
+  return "SELECT CASE WHEN changes() = ? THEN 1 ELSE bitbi_fail_changes() END";
+}
+
+function buildCleanupQueueInsertValuesSql(keys) {
+  return `INSERT INTO r2_cleanup_queue (r2_key, status, created_at) VALUES ${keys
+    .map(() => "(?, 'pending', ?)")
+    .join(", ")}`;
+}
+
+function buildCleanupQueueBindings(keys, createdAt) {
+  return keys.flatMap((key) => [key, createdAt]);
+}
+
 function getQuotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + "T00:00:00.000Z";
 }
@@ -568,19 +631,7 @@ async function handleGetAssets(ctx) {
 
   const assets = [
     ...(imageRows.results || []).map((row) => toAiImageAssetRecord(row, { assetType: "image" })),
-    ...((textRows.results || []).map((row) => ({
-      id: row.id,
-      asset_type: "text",
-      folder_id: row.folder_id,
-      title: row.title,
-      file_name: row.file_name,
-      source_module: row.source_module,
-      mime_type: row.mime_type,
-      size_bytes: row.size_bytes,
-      preview_text: row.preview_text,
-      created_at: row.created_at,
-      file_url: `/api/ai/text-assets/${row.id}/file`,
-    }))),
+    ...((textRows.results || []).map((row) => toAiFileAssetRecord(row))),
   ]
     .sort(sortByCreatedAtDesc)
     .slice(0, 200);
@@ -1056,6 +1107,275 @@ async function handleDeleteTextAsset(ctx, assetId) {
   return json({ ok: true });
 }
 
+// ── PATCH /api/ai/assets/bulk-move ──
+async function handleBulkMoveAssets(ctx) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const normalized = normalizeRequestedIds(body, "asset_ids", "move");
+  if (normalized.error) {
+    return json({ ok: false, error: normalized.error }, { status: 400 });
+  }
+
+  const assetIds = normalized.ids;
+  const folderId = body.folder_id || null;
+  if (folderId) {
+    if (!isHexAssetId(folderId)) {
+      return json({ ok: false, error: "Invalid folder ID." }, { status: 400 });
+    }
+    const folder = await env.DB.prepare(
+      "SELECT id FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
+    ).bind(folderId, session.user.id).first();
+    if (!folder) {
+      return json({ ok: false, error: "Folder not found." }, { status: 404 });
+    }
+  }
+
+  const placeholders = assetIds.map(() => "?").join(",");
+  const imageRows = await env.DB.prepare(
+    `SELECT id FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+  ).bind(...assetIds, session.user.id).all();
+
+  let fileRows = { results: [] };
+  try {
+    fileRows = await env.DB.prepare(
+      `SELECT id FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
+    ).bind(...assetIds, session.user.id).all();
+  } catch (error) {
+    if (!isMissingTextAssetTableError(error)) {
+      throw error;
+    }
+  }
+
+  const imageIds = (imageRows.results || []).map((row) => row.id);
+  const fileIds = (fileRows.results || []).map((row) => row.id);
+  if (imageIds.length + fileIds.length !== assetIds.length) {
+    return json({ ok: false, error: "One or more assets not found." }, { status: 404 });
+  }
+
+  const statements = [];
+
+  if (imageIds.length > 0) {
+    const valuesList = buildRequestedValuesList(imageIds);
+    if (folderId) {
+      statements.push(
+        env.DB.prepare(
+          `WITH requested(id) AS (VALUES ${valuesList})
+           UPDATE ai_images SET folder_id = ?
+           WHERE user_id = ?
+             AND id IN (SELECT id FROM requested)
+             AND (SELECT COUNT(*) FROM requested) =
+                 (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))
+             AND EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
+        ).bind(...imageIds, folderId, session.user.id, session.user.id, folderId, session.user.id)
+      );
+    } else {
+      statements.push(
+        env.DB.prepare(
+          `WITH requested(id) AS (VALUES ${valuesList})
+           UPDATE ai_images SET folder_id = NULL
+           WHERE user_id = ?
+             AND id IN (SELECT id FROM requested)
+             AND (SELECT COUNT(*) FROM requested) =
+                 (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+        ).bind(...imageIds, session.user.id, session.user.id)
+      );
+    }
+    statements.push(
+      env.DB.prepare(buildVerifyChangesGuardSql()).bind(imageIds.length)
+    );
+  }
+
+  if (fileIds.length > 0) {
+    const valuesList = buildRequestedValuesList(fileIds);
+    if (folderId) {
+      statements.push(
+        env.DB.prepare(
+          `WITH requested(id) AS (VALUES ${valuesList})
+           UPDATE ai_text_assets SET folder_id = ?
+           WHERE user_id = ?
+             AND id IN (SELECT id FROM requested)
+             AND (SELECT COUNT(*) FROM requested) =
+                 (SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND id IN (SELECT id FROM requested))
+             AND EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
+        ).bind(...fileIds, folderId, session.user.id, session.user.id, folderId, session.user.id)
+      );
+    } else {
+      statements.push(
+        env.DB.prepare(
+          `WITH requested(id) AS (VALUES ${valuesList})
+           UPDATE ai_text_assets SET folder_id = NULL
+           WHERE user_id = ?
+             AND id IN (SELECT id FROM requested)
+             AND (SELECT COUNT(*) FROM requested) =
+                 (SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+        ).bind(...fileIds, session.user.id, session.user.id)
+      );
+    }
+    statements.push(
+      env.DB.prepare(buildVerifyChangesGuardSql()).bind(fileIds.length)
+    );
+  }
+
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    const unavailable = String(error).includes("no such table");
+    return json(
+      {
+        ok: false,
+        error: unavailable
+          ? "Service temporarily unavailable. Please try again later."
+          : "Move failed. Some assets may have been deleted or the folder removed.",
+      },
+      { status: unavailable ? 503 : 409 }
+    );
+  }
+
+  return json({ ok: true, data: { moved: assetIds.length } });
+}
+
+// ── POST /api/ai/assets/bulk-delete ──
+async function handleBulkDeleteAssets(ctx) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const normalized = normalizeRequestedIds(body, "asset_ids", "delete");
+  if (normalized.error) {
+    return json({ ok: false, error: normalized.error }, { status: 400 });
+  }
+
+  const assetIds = normalized.ids;
+  const placeholders = assetIds.map(() => "?").join(",");
+
+  const imageSnapshot = await env.DB.prepare(
+    `SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+  ).bind(...assetIds, session.user.id).all();
+
+  let fileSnapshot = { results: [] };
+  try {
+    fileSnapshot = await env.DB.prepare(
+      `SELECT id, r2_key FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
+    ).bind(...assetIds, session.user.id).all();
+  } catch (error) {
+    if (!isMissingTextAssetTableError(error)) {
+      throw error;
+    }
+  }
+
+  const imageRows = imageSnapshot.results || [];
+  const fileRows = fileSnapshot.results || [];
+  if (imageRows.length + fileRows.length !== assetIds.length) {
+    return json({ ok: false, error: "One or more assets not found." }, { status: 404 });
+  }
+
+  const imageIds = imageRows.map((row) => row.id);
+  const fileIds = fileRows.map((row) => row.id);
+  const cleanupKeys = Array.from(new Set([
+    ...imageRows.flatMap((row) => listAiImageObjectKeys(row)),
+    ...fileRows.map((row) => row.r2_key).filter(Boolean),
+  ]));
+  const ts = nowIso();
+  const statements = [];
+
+  if (cleanupKeys.length > 0) {
+    statements.push(
+      env.DB.prepare(
+        buildCleanupQueueInsertValuesSql(cleanupKeys)
+      ).bind(...buildCleanupQueueBindings(cleanupKeys, ts))
+    );
+  }
+
+  if (imageIds.length > 0) {
+    const valuesList = buildRequestedValuesList(imageIds);
+    statements.push(
+      env.DB.prepare(
+        `WITH requested(id) AS (VALUES ${valuesList})
+         DELETE FROM ai_images
+         WHERE user_id = ?
+           AND id IN (SELECT id FROM requested)
+           AND (SELECT COUNT(*) FROM requested) =
+               (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+      ).bind(...imageIds, session.user.id, session.user.id)
+    );
+    statements.push(
+      env.DB.prepare(buildVerifyChangesGuardSql()).bind(imageIds.length)
+    );
+  }
+
+  if (fileIds.length > 0) {
+    const valuesList = buildRequestedValuesList(fileIds);
+    statements.push(
+      env.DB.prepare(
+        `WITH requested(id) AS (VALUES ${valuesList})
+         DELETE FROM ai_text_assets
+         WHERE user_id = ?
+           AND id IN (SELECT id FROM requested)
+           AND (SELECT COUNT(*) FROM requested) =
+               (SELECT COUNT(*) FROM ai_text_assets WHERE user_id = ? AND id IN (SELECT id FROM requested))`
+      ).bind(...fileIds, session.user.id, session.user.id)
+    );
+    statements.push(
+      env.DB.prepare(buildVerifyChangesGuardSql()).bind(fileIds.length)
+    );
+  }
+
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    const unavailable = String(error).includes("no such table");
+    return json(
+      {
+        ok: false,
+        error: unavailable
+          ? "Service temporarily unavailable. Please try again later."
+          : "Delete failed. Some assets may have already been removed.",
+      },
+      { status: unavailable ? 503 : 409 }
+    );
+  }
+
+  const cleanedKeys = [];
+  for (const row of imageRows) {
+    for (const key of listAiImageObjectKeys(row)) {
+      try {
+        await env.USER_IMAGES.delete(key);
+        cleanedKeys.push(key);
+      } catch {
+        // Leave queue entry for scheduled retry.
+      }
+    }
+  }
+
+  for (const row of fileRows) {
+    if (!row.r2_key) continue;
+    try {
+      await env.USER_IMAGES.delete(row.r2_key);
+      cleanedKeys.push(row.r2_key);
+    } catch {
+      // Leave queue entry for scheduled retry.
+    }
+  }
+
+  const uniqueCleanedKeys = Array.from(new Set(cleanedKeys));
+  if (uniqueCleanedKeys.length > 0) {
+    try {
+      const placeholdersForKeys = uniqueCleanedKeys.map(() => "?").join(",");
+      await env.DB.prepare(
+        `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${placeholdersForKeys}) AND status = 'pending'`
+      ).bind(...uniqueCleanedKeys).run();
+    } catch {
+      // Non-critical — queued retry stays safe and idempotent.
+    }
+  }
+
+  return json({ ok: true, data: { deleted: assetIds.length } });
+}
+
 // ── PATCH /api/ai/images/bulk-move ──
 async function handleBulkMove(ctx) {
   const { request, env } = ctx;
@@ -1282,6 +1602,12 @@ export async function handleAI(ctx) {
   }
   if (pathname === "/api/ai/assets" && method === "GET") {
     return handleGetAssets(ctx);
+  }
+  if (pathname === "/api/ai/assets/bulk-move" && method === "PATCH") {
+    return handleBulkMoveAssets(ctx);
+  }
+  if (pathname === "/api/ai/assets/bulk-delete" && method === "POST") {
+    return handleBulkDeleteAssets(ctx);
   }
   if (pathname === "/api/ai/images/save" && method === "POST") {
     return handleSaveImage(ctx);

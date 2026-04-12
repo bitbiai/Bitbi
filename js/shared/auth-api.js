@@ -272,6 +272,14 @@ export function apiAiDeleteTextAsset(assetId) {
     return request('DELETE', `/ai/text-assets/${assetId}`);
 }
 
+export function apiAiBulkMoveAssets(assetIds, folderId) {
+    return request('PATCH', '/ai/assets/bulk-move', { asset_ids: assetIds, folder_id: folderId });
+}
+
+export function apiAiBulkDeleteAssets(assetIds) {
+    return request('POST', '/ai/assets/bulk-delete', { asset_ids: assetIds });
+}
+
 export function apiAiBulkMoveImages(imageIds, folderId) {
     return request('PATCH', '/ai/images/bulk-move', { image_ids: imageIds, folder_id: folderId });
 }

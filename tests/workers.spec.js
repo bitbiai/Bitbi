@@ -1956,7 +1956,7 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.size).toBe(0);
   });
 
-  test('AI assets route returns mixed image and text assets from the shared folder world', async () => {
+  test('AI assets route returns mixed image, text, and sound assets from the shared folder world', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'mixed-assets-user', role: 'user' })],
@@ -2008,11 +2008,29 @@ test.describe('Worker routes', () => {
           metadata_json: '{}',
           created_at: '2026-04-10T12:05:00.000Z',
         },
+        {
+          id: 'abd100aa',
+          user_id: 'mixed-assets-user',
+          folder_id: 'f01da123',
+          r2_key: 'users/mixed-assets-user/folders/launches/text/snd100.mp3',
+          title: 'Launch Loop',
+          file_name: 'launch-loop.mp3',
+          source_module: 'text',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'A short launch loop stored beside the shared assets.',
+          metadata_json: '{}',
+          created_at: '2026-04-10T12:06:00.000Z',
+        },
       ],
       userImages: {
         'users/mixed-assets-user/folders/launches/text/txt100.txt': {
           body: new TextEncoder().encode('Compare Notes').buffer,
           httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        },
+        'users/mixed-assets-user/folders/launches/text/snd100.mp3': {
+          body: new TextEncoder().encode('mock-audio').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
         },
         'users/mixed-assets-user/derivatives/v1/1ab100cd/thumb.webp': {
           body: new TextEncoder().encode('thumb').buffer,
@@ -2040,6 +2058,11 @@ test.describe('Worker routes', () => {
     expect(listBody.ok).toBe(true);
     expect(listBody.data.assets).toEqual([
       expect.objectContaining({
+        id: 'abd100aa',
+        asset_type: 'sound',
+        file_url: '/api/ai/text-assets/abd100aa/file',
+      }),
+      expect.objectContaining({
         id: 'abc100ef',
         asset_type: 'text',
         file_url: '/api/ai/text-assets/abc100ef/file',
@@ -2066,6 +2089,186 @@ test.describe('Worker routes', () => {
     expect(fileRes.status).toBe(200);
     expect(await fileRes.text()).toBe('Compare Notes');
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
+  });
+
+  test('AI assets bulk move updates mixed image and file assets in one shared folder flow', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'bulk-move-user', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'f01daaab',
+          user_id: 'bulk-move-user',
+          name: 'Research',
+          slug: 'research',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+      aiImages: [
+        {
+          id: '1ab100cd',
+          user_id: 'bulk-move-user',
+          folder_id: null,
+          r2_key: 'users/bulk-move-user/folders/unsorted/original.png',
+          prompt: 'Shared poster',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          created_at: nowIso(),
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'abc100ef',
+          user_id: 'bulk-move-user',
+          folder_id: null,
+          r2_key: 'users/bulk-move-user/folders/unsorted/text.txt',
+          title: 'Prompt Notes',
+          file_name: 'prompt-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 120,
+          preview_text: 'Prompt notes',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+        {
+          id: 'abd100aa',
+          user_id: 'bulk-move-user',
+          folder_id: null,
+          r2_key: 'users/bulk-move-user/folders/unsorted/loop.mp3',
+          title: 'Concept Loop',
+          file_name: 'concept-loop.mp3',
+          source_module: 'text',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'Concept loop',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'bulk-move-user');
+    const moveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets/bulk-move', 'PATCH', {
+        asset_ids: ['1ab100cd', 'abc100ef', 'abd100aa'],
+        folder_id: 'f01daaab',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(moveRes.status).toBe(200);
+    await expect(moveRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: { moved: 3 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abd100aa').folder_id).toBe('f01daaab');
+  });
+
+  test('AI assets bulk delete removes mixed image and file assets with shared cleanup', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'bulk-delete-user', role: 'user' })],
+      aiImages: [
+        {
+          id: '1ab100cd',
+          user_id: 'bulk-delete-user',
+          folder_id: null,
+          r2_key: 'users/bulk-delete-user/folders/unsorted/original.png',
+          prompt: 'Shared poster',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          created_at: nowIso(),
+          thumb_key: 'users/bulk-delete-user/derivatives/v1/1ab100cd/thumb.webp',
+          medium_key: 'users/bulk-delete-user/derivatives/v1/1ab100cd/medium.webp',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'abc100ef',
+          user_id: 'bulk-delete-user',
+          folder_id: null,
+          r2_key: 'users/bulk-delete-user/folders/unsorted/text.txt',
+          title: 'Prompt Notes',
+          file_name: 'prompt-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 120,
+          preview_text: 'Prompt notes',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+        {
+          id: 'abd100aa',
+          user_id: 'bulk-delete-user',
+          folder_id: null,
+          r2_key: 'users/bulk-delete-user/folders/unsorted/loop.mp3',
+          title: 'Concept Loop',
+          file_name: 'concept-loop.mp3',
+          source_module: 'text',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'Concept loop',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        'users/bulk-delete-user/folders/unsorted/original.png': {
+          body: new TextEncoder().encode('original').buffer,
+          httpMetadata: { contentType: 'image/png' },
+        },
+        'users/bulk-delete-user/derivatives/v1/1ab100cd/thumb.webp': {
+          body: new TextEncoder().encode('thumb').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/bulk-delete-user/derivatives/v1/1ab100cd/medium.webp': {
+          body: new TextEncoder().encode('medium').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/bulk-delete-user/folders/unsorted/text.txt': {
+          body: new TextEncoder().encode('notes').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        },
+        'users/bulk-delete-user/folders/unsorted/loop.mp3': {
+          body: new TextEncoder().encode('audio').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'bulk-delete-user');
+    const deleteRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets/bulk-delete', 'POST', {
+        asset_ids: ['1ab100cd', 'abc100ef', 'abd100aa'],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(deleteRes.status).toBe(200);
+    await expect(deleteRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: { deleted: 3 },
+    });
+    expect(env.DB.state.aiImages).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.size).toBe(0);
   });
 
   test('AI image thumb and medium routes preserve auth and ownership checks', async () => {

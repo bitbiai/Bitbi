@@ -570,6 +570,28 @@
         margin-block-start: var(--space-5);
     }
 
+    .admin-ai__saved-assets {
+        margin-block-start: var(--space-5);
+        padding: var(--space-5);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .admin-ai__saved-assets .studio__card-title {
+        margin-block-end: 0;
+        font-size: 1rem;
+    }
+
+    .admin-ai__saved-assets .studio__gallery-header {
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__saved-assets .studio__folder-grid,
+    .admin-ai__saved-assets .studio__image-grid {
+        margin-block-start: var(--space-2);
+    }
+
     .admin-ai__form-grid {
         display: grid;
         grid-template-columns: 1fr;
