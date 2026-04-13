@@ -1978,6 +1978,58 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('[data-fav-key="gallery:bad-gallery"]')).toHaveCount(1);
   });
 
+  test('soundlab favorites keep the tightened thumb_url guard and render viewer metadata inertly', async ({
+    page,
+  }) => {
+    await page.route('**/api/soundlab-thumbs/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+    });
+
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      favoritesPayload: [
+        {
+          item_type: 'soundlab',
+          item_id: 'cosmic-sea',
+          title: 'Bad <b class="xss-soundlab">Track</b>',
+          thumb_url: 'https://user:pass@pub.bitbi.ai/sound-lab/thumbs/thumb-cosmic.webp',
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          item_type: 'soundlab',
+          item_id: 'grok',
+          title: "Grok's Groove Remix",
+          thumb_url: '/api/soundlab-thumbs/thumb-bitbi',
+          created_at: '2026-04-10T11:59:00.000Z',
+        },
+      ],
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:cosmic-sea"] img')).toHaveCount(0);
+    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:grok"] img')).toHaveAttribute('src', /\/api\/soundlab-thumbs\/thumb-bitbi$/);
+
+    await page.locator('[data-fav-key="soundlab:cosmic-sea"]').click();
+    await expect(page.locator('#favViewer')).toHaveClass(/active/);
+    await expect(page.locator('#favViewer .xss-soundlab')).toHaveCount(0);
+    await expect(page.locator('#favViewer #fvPlay')).toBeVisible();
+    await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText('Bad <b class="xss-soundlab">Track</b>');
+    await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveCount(0);
+    await page.locator('#favViewerClose').click();
+
+    await page.locator('[data-fav-key="soundlab:grok"]').click();
+    await expect(page.locator('#favViewer #fvPlay')).toBeVisible();
+    await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText("Grok's Groove Remix");
+    await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveAttribute('src', /\/api\/soundlab-thumbs\/thumb-bitbi$/);
+  });
+
   test('profile save updates the header label from email to display name when an avatar is present', async ({
     page,
   }) => {
@@ -2235,9 +2287,9 @@ test.describe('Admin AI Lab', () => {
     expect(response.status()).toBe(200);
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('link[href*="css/admin/admin.css?v=20260412-wave15"]')).toHaveCount(1);
-    await expect(page.locator('link[href*="css/account/image-studio.css?v=20260412-wave15"]')).toHaveCount(1);
-    await expect(page.locator('script[src*="js/pages/admin/main.js?v=20260412-wave15"]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/admin/admin.css?v="]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/account/image-studio.css?v="]')).toHaveCount(1);
+    await expect(page.locator('script[src*="js/pages/admin/main.js?v="]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');

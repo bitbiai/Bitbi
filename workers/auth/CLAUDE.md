@@ -22,7 +22,13 @@ npx wrangler d1 migrations apply bitbi-auth-db --local
 npx wrangler d1 migrations apply bitbi-auth-db --remote
 ```
 
-No test framework is configured.
+Repository tests are run from the repo root:
+
+```bash
+npm run test:workers
+npm run test:release-compat
+npm run validate:release
+```
 
 Apply remote D1 migrations before deploying auth-worker code that depends on new tables. The contact worker also depends on `0015_add_rate_limit_counters.sql` because it shares the same D1 database for durable abuse counters.
 
@@ -142,13 +148,15 @@ src/
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0015_add_rate_limit_counters`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0017_add_ai_image_derivatives`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
 - `0012_add_user_activity_log` — required before auth deploy if admin user-activity views and durable user activity logging must work immediately
 - `0014_add_ai_daily_quota_usage` — required before auth deploy if `/api/ai/quota` and non-admin daily quota enforcement must work immediately
 - `0015_add_rate_limit_counters` — required before auth/contact deploy if shared durable rate limiting must work immediately
+- `0016_add_ai_text_assets` — required before auth/AI deploy if admin AI text asset persistence must work immediately
+- `0017_add_ai_image_derivatives` — required before auth deploy if saved-image derivative tracking must work immediately
 
 ## Conventions
 
@@ -156,8 +164,7 @@ Key migration-dependent behavior:
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 5 minutes per session
-- Shared durable fixed-window rate limiting via `rate_limit_counters` covers register/login/forgot-password/resend-verification/request-reverification/admin actions/AI generation, with in-memory fallback if `DB` or the table is unavailable
-- In-memory-only limits remain on verify-email, reset-password validate/reset, avatar-upload, and favorites add
+- Shared durable fixed-window rate limiting via `rate_limit_counters` covers register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset/avatar-upload/favorites add/admin actions/AI generation, with in-memory fallback only if `DB` or the table is unavailable
 - Password reset invalidates ALL unused reset tokens for the user (not just the used one)
 - Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type
 - Profile URL fields (website, youtube_url) require valid `https://` URLs

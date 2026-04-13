@@ -6,7 +6,12 @@
     "test": "playwright test -c playwright.config.js && playwright test -c playwright.workers.config.js",
     "test:static": "playwright test -c playwright.config.js",
     "test:workers": "playwright test -c playwright.workers.config.js",
-    "test:headed": "playwright test -c playwright.config.js --headed"
+    "test:headed": "playwright test -c playwright.config.js --headed",
+    "test:release-compat": "node scripts/test-release-compat.mjs",
+    "test:asset-version": "node scripts/test-asset-version.mjs",
+    "validate:release": "node scripts/validate-release-compat.mjs",
+    "validate:asset-version": "node scripts/validate-asset-version.mjs",
+    "build:static": "node scripts/build-static-site.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

@@ -24,10 +24,10 @@ import {
     apiSetAvatarFromSavedAsset,
     apiUpdateProfile,
     apiUploadAvatar,
-} from '../../shared/auth-api.js?v=20260412-wave15';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
-import { createAdminAiLab } from '../admin/ai-lab.js?v=20260412-wave15';
+import { createAdminAiLab } from '../admin/ai-lab.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -728,8 +728,10 @@ function normalizeFavoriteThumbUrl(value) {
 
     if (parsed.protocol !== 'https:') return '';
     if (parsed.origin !== R2_PUBLIC_BASE) return '';
+    if (parsed.username || parsed.password) return '';
     if (parsed.search || parsed.hash) return '';
-    return parsed.toString();
+    if (!parsed.pathname || parsed.pathname === '/') return '';
+    return `${R2_PUBLIC_BASE}${parsed.pathname}`;
 }
 
 function createFavoriteViewerCard() {

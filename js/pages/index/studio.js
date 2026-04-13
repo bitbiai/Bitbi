@@ -9,11 +9,11 @@ import {
     apiAiGetQuota,
     apiAiGetFolders,
     apiAiSaveImage,
-} from '../../shared/auth-api.js?v=20260409-wave7';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
-} from '../../shared/ai-image-models.mjs?v=20260409-wave7-fix';
+} from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 
 let initialized = false;
 let currentImageData = null;

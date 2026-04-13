@@ -1,7 +1,7 @@
 import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 
 const VALID_TYPES = ["gallery", "soundlab", "experiments"];
 const MAX_FAVORITES = 100;
@@ -11,30 +11,31 @@ function hasControlChars(value) {
   return /[\x00-\x1f\x7f]/.test(value);
 }
 
-function isValidFavoriteThumbUrl(value) {
-  if (typeof value !== "string") return false;
+function normalizeFavoriteThumbUrl(value) {
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (!trimmed) return true;
-  if (hasControlChars(trimmed)) return false;
-  if (trimmed.startsWith("//")) return false;
+  if (!trimmed) return "";
+  if (hasControlChars(trimmed)) return null;
+  if (trimmed.startsWith("//")) return null;
 
   if (trimmed.startsWith("/")) {
-    return !trimmed.includes("?") && !trimmed.includes("#");
+    if (trimmed.includes("?") || trimmed.includes("#")) return null;
+    return trimmed;
   }
 
   let parsed;
   try {
     parsed = new URL(trimmed);
   } catch {
-    return false;
+    return null;
   }
 
-  return (
-    parsed.protocol === "https:" &&
-    parsed.origin === PUBLIC_FAVORITE_THUMB_ORIGIN &&
-    !parsed.search &&
-    !parsed.hash
-  );
+  if (parsed.protocol !== "https:") return null;
+  if (parsed.origin !== PUBLIC_FAVORITE_THUMB_ORIGIN) return null;
+  if (parsed.username || parsed.password) return null;
+  if (parsed.search || parsed.hash) return null;
+  if (!parsed.pathname || parsed.pathname === "/") return null;
+  return `${PUBLIC_FAVORITE_THUMB_ORIGIN}${parsed.pathname}`;
 }
 
 export async function handleFavorites(ctx) {
@@ -65,12 +66,13 @@ async function handleAdd(ctx) {
   if (session instanceof Response) return session;
 
   const ip = getClientIp(ctx.request);
-  if (isRateLimited(`fav:add:${ip}`, 30, 60_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(ctx.env, "favorites-add-ip", ip, 30, 60_000)) return rateLimitResponse();
 
   const body = await readJsonBody(ctx.request);
   if (!body) return json({ ok: false, error: "Invalid request body." }, { status: 400 });
 
   const { item_type, item_id, title, thumb_url } = body;
+  const normalizedThumbUrl = normalizeFavoriteThumbUrl(thumb_url);
 
   if (!item_type || !VALID_TYPES.includes(item_type)) {
     return json({ ok: false, error: "Invalid item_type." }, { status: 400 });
@@ -81,7 +83,7 @@ async function handleAdd(ctx) {
   if (typeof title !== "string" || title.length > 200) {
     return json({ ok: false, error: "Invalid title." }, { status: 400 });
   }
-  if (typeof thumb_url !== "string" || thumb_url.length > 500 || !isValidFavoriteThumbUrl(thumb_url)) {
+  if (typeof thumb_url !== "string" || thumb_url.length > 500 || normalizedThumbUrl === null) {
     return json({ ok: false, error: "Invalid thumb_url." }, { status: 400 });
   }
 
@@ -109,7 +111,7 @@ async function handleAdd(ctx) {
   await ctx.env.DB.prepare(
     "INSERT OR IGNORE INTO favorites (user_id, item_type, item_id, title, thumb_url) VALUES (?, ?, ?, ?, ?)"
   )
-    .bind(session.user.id, item_type, item_id, title.slice(0, 200), thumb_url.slice(0, 500))
+    .bind(session.user.id, item_type, item_id, title.slice(0, 200), normalizedThumbUrl.slice(0, 500))
     .run();
 
   return json({ ok: true });

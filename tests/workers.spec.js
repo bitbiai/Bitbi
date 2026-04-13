@@ -146,14 +146,23 @@ const ONE_PIXEL_PNG_BYTES = Buffer.from(
   'base64'
 );
 
-async function readMultipartFields(multipart) {
+async function readMultipartEntries(multipart) {
   const response = new Response(multipart.body, {
     headers: {
       'content-type': multipart.contentType,
     },
   });
   const formData = await response.formData();
-  return Object.fromEntries(Array.from(formData.entries(), ([key, value]) => [key, String(value)]));
+  return Array.from(formData.entries());
+}
+
+async function readMultipartFields(multipart) {
+  const entries = await readMultipartEntries(multipart);
+  return Object.fromEntries(
+    entries
+      .filter(([, value]) => typeof value === 'string')
+      .map(([key, value]) => [key, String(value)])
+  );
 }
 
 function decodeStoredTextBody(body) {
@@ -888,7 +897,11 @@ test.describe('Worker routes', () => {
           body: expect.anything(),
         }),
       }));
-      const fields = await readMultipartFields(capturedPayload.multipart);
+      const entries = await readMultipartEntries(capturedPayload.multipart);
+      expect(entries.map(([key]) => key)).toEqual(['prompt', 'width', 'height']);
+      const fields = Object.fromEntries(
+        entries.filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, String(value)])
+      );
       expect(fields).toEqual({
         prompt: 'Admin Klein image experiment.',
         width: '1024',
@@ -951,7 +964,11 @@ test.describe('Worker routes', () => {
           body: expect.anything(),
         }),
       }));
-      const fields = await readMultipartFields(capturedPayload.multipart);
+      const entries = await readMultipartEntries(capturedPayload.multipart);
+      expect(entries.map(([key]) => key)).toEqual(['prompt', 'width', 'height', 'steps', 'seed', 'guidance']);
+      const fields = Object.fromEntries(
+        entries.filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, String(value)])
+      );
       expect(fields).toEqual({
         prompt: 'Admin Dev image experiment.',
         width: '768',
@@ -1055,7 +1072,7 @@ test.describe('Worker routes', () => {
           prompt: 'test',
           width: 1024,
           height: 1024,
-          referenceImages: [validRef],
+          referenceImages: [validRef, validRef],
         }, authHeaders),
         env,
         createExecutionContext().execCtx
@@ -1064,9 +1081,13 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.ok).toBe(true);
-      expect(body.result.referenceImageCount).toBe(1);
-      expect(env.IMAGES.infoCalls).toHaveLength(1);
+      expect(body.result.referenceImageCount).toBe(2);
+      expect(env.IMAGES.infoCalls).toHaveLength(2);
       expect(env.IMAGES.infoCalls[0]).toEqual(expect.objectContaining({
+        width: 511,
+        height: 511,
+      }));
+      expect(env.IMAGES.infoCalls[1]).toEqual(expect.objectContaining({
         width: 511,
         height: 511,
       }));
@@ -1076,6 +1097,12 @@ test.describe('Worker routes', () => {
           body: expect.anything(),
         }),
       }));
+      const entries = await readMultipartEntries(capturedPayload.multipart);
+      const fieldNames = entries.map(([key]) => key);
+      expect(fieldNames).toEqual(['prompt', 'width', 'height', 'input_image_0', 'input_image_1']);
+      expect(fieldNames).not.toContain('image');
+      const imageEntries = entries.filter(([key]) => key.startsWith('input_image_'));
+      expect(imageEntries).toHaveLength(2);
     });
 
     test('POST /api/admin/ai/test-image rejects FLUX.2 Dev reference images at 512x512', async () => {
@@ -1876,7 +1903,7 @@ test.describe('Worker routes', () => {
     ).toBe(false);
   });
 
-  test('favorites: accepts the current valid thumb_url forms', async () => {
+  test('favorites: accepts and canonicalizes the current valid thumb_url forms', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'fav-valid-user', role: 'user' })],
@@ -1884,19 +1911,22 @@ test.describe('Worker routes', () => {
 
     const token = await seedSession(env, 'fav-valid-user');
     const validThumbUrls = [
-      '',
-      '/assets/images/1.jpg',
-      '/api/soundlab-thumbs/thumb-bitbi',
-      'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
+      { input: '', stored: '' },
+      { input: ' /assets/images/1.jpg ', stored: '/assets/images/1.jpg' },
+      { input: ' /api/soundlab-thumbs/thumb-bitbi ', stored: '/api/soundlab-thumbs/thumb-bitbi' },
+      {
+        input: ' https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp ',
+        stored: 'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
+      },
     ];
 
-    for (const [index, thumbUrl] of validThumbUrls.entries()) {
+    for (const [index, { input }] of validThumbUrls.entries()) {
       const res = await authWorker.fetch(
         authJsonRequest('/api/favorites', 'POST', {
           item_type: 'gallery',
           item_id: `valid-thumb-${index}`,
           title: `Valid Favorite ${index}`,
-          thumb_url: thumbUrl,
+          thumb_url: input,
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
@@ -1913,7 +1943,7 @@ test.describe('Worker routes', () => {
       env.DB.state.favorites
         .filter((row) => row.user_id === 'fav-valid-user')
         .map((row) => row.thumb_url)
-    ).toEqual(validThumbUrls);
+    ).toEqual(validThumbUrls.map(({ stored }) => stored));
   });
 
   test('favorites: rejects unsafe thumb_url forms', async () => {
@@ -1924,11 +1954,15 @@ test.describe('Worker routes', () => {
 
     const token = await seedSession(env, 'fav-invalid-user');
     const invalidThumbUrls = [
+      'http://pub.bitbi.ai/gallery/thumbs/test.webp',
       'javascript:alert(1)',
       'data:image/png;base64,AAAA',
       'blob:https://bitbi.ai/1234',
       '//evil.example/thumb.png',
       'https://evil.example/thumb.png',
+      'https://user:pass@pub.bitbi.ai/gallery/thumbs/test.webp',
+      'https://pub.bitbi.ai',
+      'https://pub.bitbi.ai/',
       '/assets/images/1.jpg?size=large',
       '/assets/images/1.jpg#hero',
       '/assets/images/\u0000thumb.png',
@@ -2075,6 +2109,248 @@ test.describe('Worker routes', () => {
     await expect(res.json()).resolves.toMatchObject({
       ok: false,
       error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: reset-password validate is blocked when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('auth-reset-validate-ip', '203.0.113.57', 10, 900_000),
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/reset-password/validate?token=fake-reset-token', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.57',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: reset-password is blocked when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('auth-reset-ip', '203.0.113.58', 5, 3_600_000),
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/reset-password', 'POST', {
+        token: 'fake-reset-token',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.58',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: verify-email is blocked when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('auth-verify-ip', '203.0.113.59', 10, 900_000),
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/verify-email?token=fake-verify-token', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.59',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: avatar upload is blocked when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'avatar-rate-user', role: 'user' })],
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('avatar-upload-ip', '203.0.113.60', 10, 3_600_000),
+      ],
+    });
+
+    const token = await seedSession(env, 'avatar-rate-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/profile/avatar', 'POST', {
+        source_image_id: 'deadbeef',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.60',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  });
+
+  test('shared limiter: favorites add is blocked when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-rate-user', role: 'user' })],
+      rateLimitCounters: [
+        makeActiveRateLimitCounter('favorites-add-ip', '203.0.113.61', 30, 60_000),
+      ],
+    });
+
+    const token = await seedSession(env, 'fav-rate-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'rate-limited-favorite',
+        title: 'Rate Limited Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.61',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-rate-user')).toHaveLength(0);
+  });
+
+  test('request trust boundary: same-origin Referer is accepted for state-changing favorites add when Origin is absent', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-referer-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-referer-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'referer-favorite',
+        title: 'Referer Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Referer: 'https://bitbi.ai/account/profile.html',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.62',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true });
+    expect(
+      env.DB.state.favorites.some((row) => row.user_id === 'fav-referer-user' && row.item_id === 'referer-favorite')
+    ).toBe(true);
+  });
+
+  test('request trust boundary: foreign Origin is rejected for state-changing favorites add', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-foreign-origin-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-foreign-origin-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'foreign-origin-favorite',
+        title: 'Foreign Origin Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.63',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Forbidden',
+    });
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-foreign-origin-user')).toHaveLength(0);
+  });
+
+  test('request trust boundary: originless state-changing favorites add is rejected without same-origin Referer', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-originless-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-originless-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'originless-favorite',
+        title: 'Originless Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.64',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Forbidden',
+    });
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-originless-user')).toHaveLength(0);
+  });
+
+  test('request trust boundary: verify-email remains allowed without Origin or Referer', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv();
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/verify-email', 'GET'),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Token is missing.',
     });
   });
 

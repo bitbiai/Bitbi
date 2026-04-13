@@ -26,6 +26,23 @@ function getAllowedOrigins(env) {
   }
 }
 
+function requiresTrustedRequestContext(pathname, method) {
+  if (pathname === "/api/verify-email" && method === "GET") {
+    return false;
+  }
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+function hasAllowedReferer(request, allowedOrigins) {
+  const referer = request.headers.get("Referer");
+  if (!referer) return false;
+  try {
+    return allowedOrigins.includes(new URL(referer).origin);
+  } catch {
+    return false;
+  }
+}
+
 export default {
   async fetch(request, env, execCtx) {
     const url = new URL(request.url);
@@ -34,10 +51,16 @@ export default {
     const isSecure = url.protocol === "https:";
     const ctx = { request, env, url, pathname, method, isSecure, execCtx };
 
-    // Origin validation for state-changing requests (CSRF defense-in-depth)
-    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    // Require a same-origin browser context for state-changing requests.
+    // Email verification is exempt because it is intentionally opened from inbox links.
+    if (requiresTrustedRequestContext(pathname, method)) {
+      const allowedOrigins = getAllowedOrigins(env);
       const origin = request.headers.get("Origin");
-      if (origin && !getAllowedOrigins(env).includes(origin)) {
+      if (origin) {
+        if (!allowedOrigins.includes(origin)) {
+          return json({ ok: false, error: "Forbidden" }, { status: 403 });
+        }
+      } else if (!hasAllowedReferer(request, allowedOrigins)) {
         return json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
     }

@@ -1,0 +1,35 @@
+{
+  "authWorker": {
+    "currentSchemaMigration": "0017_add_ai_image_derivatives.sql",
+    "requiredBindings": {
+      "d1": ["DB"],
+      "images": "IMAGES",
+      "r2": ["PRIVATE_MEDIA", "USER_IMAGES"],
+      "services": {
+        "AI_LAB": "bitbi-ai"
+      }
+    }
+  },
+  "assetVersion": {
+    "placeholder": "__ASSET_VERSION__"
+  },
+  "adminAi": {
+    "staticAuthApiPaths": [
+      "/admin/ai/models",
+      "/admin/ai/test-text",
+      "/admin/ai/test-image",
+      "/admin/ai/test-embeddings",
+      "/admin/ai/compare",
+      "/admin/ai/live-agent",
+      "/admin/ai/save-text-asset"
+    ],
+    "authToAiRoutes": {
+      "/api/admin/ai/models": "/internal/ai/models",
+      "/api/admin/ai/test-text": "/internal/ai/test-text",
+      "/api/admin/ai/test-image": "/internal/ai/test-image",
+      "/api/admin/ai/test-embeddings": "/internal/ai/test-embeddings",
+      "/api/admin/ai/compare": "/internal/ai/compare",
+      "/api/admin/ai/live-agent": "/internal/ai/live-agent"
+    }
+  }
+}

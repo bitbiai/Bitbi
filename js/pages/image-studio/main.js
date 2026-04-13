@@ -15,12 +15,12 @@ import {
     apiAiGenerateImage,
     apiAiGetQuota,
     apiAiSaveImage,
-} from '../../shared/auth-api.js?v=20260412-wave14';
-import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=20260412-wave14';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     DEFAULT_AI_IMAGE_MODEL,
     getAiImageModelOptions,
-} from '../../shared/ai-image-models.mjs?v=20260409-wave7-fix';
+} from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $loading = document.getElementById('loadingState');

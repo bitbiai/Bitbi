@@ -1,7 +1,7 @@
 import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
-import { isRateLimited, isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { requireUser } from "../lib/session.js";
 import { logUserActivity } from "../lib/activity.js";
@@ -9,7 +9,7 @@ import { logUserActivity } from "../lib/activity.js";
 export async function handleVerifyEmail(ctx) {
   const { request, url, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`verify:${ip}`, 10, 900_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-verify-ip", ip, 10, 900_000)) return rateLimitResponse();
 
   const rawToken = url.searchParams.get("token");
 

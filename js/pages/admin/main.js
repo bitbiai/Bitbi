@@ -4,12 +4,12 @@
    ============================================================ */
 
 // Keep these versioned admin imports aligned with admin/index.html and the admin release-token checklist in CLAUDE.md.
-import { initSiteHeader }    from '../../shared/site-header.js?v=20260410-wave10';
-import { initParticles }     from '../../shared/particles.js?v=20260410-wave10';
-import { initBinaryRain }    from '../../shared/binary-rain.js?v=20260410-wave10';
-import { initBinaryFooter }  from '../../shared/binary-footer.js?v=20260410-wave10';
-import { initScrollReveal }  from '../../shared/scroll-reveal.js?v=20260410-wave10';
-import { initCookieConsent } from '../../shared/cookie-consent.js?v=20260410-wave10';
+import { initSiteHeader }    from '../../shared/site-header.js?v=__ASSET_VERSION__';
+import { initParticles }     from '../../shared/particles.js?v=__ASSET_VERSION__';
+import { initBinaryRain }    from '../../shared/binary-rain.js?v=__ASSET_VERSION__';
+import { initBinaryFooter }  from '../../shared/binary-footer.js?v=__ASSET_VERSION__';
+import { initScrollReveal }  from '../../shared/scroll-reveal.js?v=__ASSET_VERSION__';
+import { initCookieConsent } from '../../shared/cookie-consent.js?v=__ASSET_VERSION__';
 
 import {
     apiAdminMe,
@@ -22,9 +22,9 @@ import {
     apiAdminStats,
     apiAdminActivity,
     apiAdminUserActivity,
-} from '../../shared/auth-api.js?v=20260412-wave15';
-import { galleryItems } from '../../shared/gallery-data.js?v=20260410-wave10';
-import { createAdminAiLab } from './ai-lab.js?v=20260412-wave15';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { galleryItems } from '../../shared/gallery-data.js?v=__ASSET_VERSION__';
+import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs

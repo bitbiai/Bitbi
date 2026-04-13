@@ -1,3 +1,5 @@
+import { buildAdminAiMultipartImageRequest } from "../../../../js/shared/admin-ai-contract.mjs";
+
 function ensureAI(env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
     const error = new Error("Workers AI binding is not configured.");
@@ -180,81 +182,6 @@ function extractEmbeddingsResponse(result) {
   return null;
 }
 
-function dataUriToBlob(dataUri) {
-  const commaIndex = dataUri.indexOf(",");
-  if (commaIndex === -1) return null;
-  const meta = dataUri.slice(0, commaIndex);
-  const base64 = dataUri.slice(commaIndex + 1);
-  const mimeMatch = meta.match(/^data:([^;]+)/);
-  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mime });
-}
-
-function buildMultipartImageRequest(model, input) {
-  const form = new FormData();
-
-  if (input.structuredPrompt) {
-    form.append("prompt", input.structuredPrompt);
-  } else {
-    form.append("prompt", input.prompt);
-  }
-
-  const width = input.width || model.defaultSize?.width || null;
-  const height = input.height || model.defaultSize?.height || null;
-
-  if (width && height) {
-    form.append("width", String(width));
-    form.append("height", String(height));
-  }
-
-  if (model.supportsSteps && input.steps !== null && input.steps !== undefined) {
-    form.append("steps", String(input.steps));
-  }
-
-  if (model.supportsSeed && input.seed !== null && input.seed !== undefined) {
-    form.append("seed", String(input.seed));
-  }
-
-  if (model.supportsGuidance && input.guidance !== null && input.guidance !== undefined) {
-    form.append("guidance", String(input.guidance));
-  }
-
-  if (model.supportsReferenceImages && Array.isArray(input.referenceImages)) {
-    for (const refImg of input.referenceImages) {
-      const blob = dataUriToBlob(refImg);
-      if (blob) {
-        form.append("image", blob);
-      }
-    }
-  }
-
-  const response = new Response(form);
-  const contentType = response.headers.get("content-type");
-  const body = response.body;
-
-  if (!contentType || !body) {
-    throw new Error("Failed to encode multipart image request.");
-  }
-
-  return {
-    payload: {
-      multipart: {
-        body,
-        contentType,
-      },
-    },
-    appliedSteps: model.supportsSteps ? input.steps : null,
-    appliedSeed: model.supportsSeed ? input.seed : null,
-    appliedGuidance: model.supportsGuidance ? input.guidance : null,
-    appliedSize: width && height ? { width, height } : null,
-  };
-}
-
 export async function invokeText(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
@@ -290,7 +217,7 @@ export async function invokeImage(env, model, input) {
   let appliedSize = null;
 
   if (model.inputFormat === "multipart") {
-    const multipartRequest = buildMultipartImageRequest(model, input);
+    const multipartRequest = buildAdminAiMultipartImageRequest(model, input);
     payload = multipartRequest.payload;
     appliedSteps = multipartRequest.appliedSteps;
     appliedSeed = multipartRequest.appliedSeed;

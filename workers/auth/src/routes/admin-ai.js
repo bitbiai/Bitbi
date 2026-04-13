@@ -10,61 +10,19 @@ import {
 } from "../lib/ai-image-derivatives.js";
 import { sanitizeAssetMetadata } from "../lib/ai-asset-metadata.js";
 import { saveAdminAiTextAsset } from "../lib/ai-text-assets.js";
+import {
+  ADMIN_AI_LIMITS as LIMITS,
+  ADMIN_AI_LIVE_AGENT_LIMITS as LIVE_AGENT_LIMITS,
+  AdminAiValidationError as InputError,
+  validateAdminAiCompareBody as validateComparePayload,
+  validateAdminAiEmbeddingsBody as validateEmbeddingsPayload,
+  validateAdminAiImageBody as validateImagePayload,
+  validateAdminAiLiveAgentBody as validateLiveAgentPayload,
+  validateAdminAiTextBody as validateTextPayload,
+  validateFlux2DevReferenceImageDimensions,
+} from "../../../../js/shared/admin-ai-contract.mjs";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
-const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
-const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
-
-const LIMITS = {
-  text: {
-    promptMax: 4000,
-    systemMax: 1200,
-    maxTokens: 1200,
-    defaultMaxTokens: 300,
-    minTemperature: 0,
-    maxTemperature: 2,
-    defaultTemperature: 0.7,
-  },
-  image: {
-    promptMax: 2048,
-    structuredPromptMax: 8192,
-    minSteps: 1,
-    maxSteps: 50,
-    defaultSteps: 4,
-    minGuidance: 1,
-    maxGuidance: 20,
-    allowedDimensions: [256, 512, 768, 1024],
-    maxPixels: 1024 * 1024,
-    maxSeed: 2147483647,
-    maxReferenceImages: 4,
-    maxReferenceImageBytes: 10 * 1024 * 1024,
-  },
-  embeddings: {
-    maxBatchSize: 8,
-    maxItemLength: 2000,
-    maxTotalChars: 8000,
-  },
-  compare: {
-    minModels: 2,
-    maxModels: 3,
-    promptMax: 4000,
-    systemMax: 1200,
-    maxTokens: 600,
-    defaultMaxTokens: 250,
-    minTemperature: 0,
-    maxTemperature: 2,
-    defaultTemperature: 0.7,
-  },
-};
-
-class InputError extends Error {
-  constructor(message, status = 400, code = "validation_error") {
-    super(message);
-    this.name = "InputError";
-    this.status = status;
-    this.code = code;
-  }
-}
 
 function inputErrorResponse(error) {
   return json(
@@ -197,282 +155,6 @@ function normalizeStringArray(value, field, minItems, maxItems, maxItemLength) {
   return values.map((entry, index) => requiredString(entry, `${field}[${index}]`, maxItemLength));
 }
 
-function validateTextPayload(body) {
-  const input = ensureObject(body);
-
-  return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
-    prompt: requiredString(input.prompt, "prompt", LIMITS.text.promptMax),
-    system: optionalString(input.system, "system", LIMITS.text.systemMax),
-    maxTokens: optionalInteger(
-      input.maxTokens,
-      "maxTokens",
-      1,
-      LIMITS.text.maxTokens,
-      LIMITS.text.defaultMaxTokens
-    ),
-    temperature: optionalNumber(
-      input.temperature,
-      "temperature",
-      LIMITS.text.minTemperature,
-      LIMITS.text.maxTemperature,
-      LIMITS.text.defaultTemperature
-    ),
-  };
-}
-
-function optionalStructuredPrompt(value, field, maxLength) {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") {
-    throw new InputError(`${field} must be a string.`, 400, "validation_error");
-  }
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.length > maxLength) {
-    throw new InputError(`${field} must be at most ${maxLength} characters.`, 400, "validation_error");
-  }
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new InputError(`${field} must be a JSON object.`, 400, "validation_error");
-    }
-  } catch (error) {
-    if (error instanceof InputError) throw error;
-    throw new InputError(`${field} contains invalid JSON.`, 400, "validation_error");
-  }
-  return trimmed;
-}
-
-function validateReferenceImages(value) {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) {
-    throw new InputError("referenceImages must be an array.", 400, "validation_error");
-  }
-  if (value.length > LIMITS.image.maxReferenceImages) {
-    throw new InputError(
-      `referenceImages must contain at most ${LIMITS.image.maxReferenceImages} items.`,
-      400,
-      "validation_error"
-    );
-  }
-  return value.map((item, index) => {
-    if (typeof item !== "string" || !item.startsWith("data:")) {
-      throw new InputError(
-        `referenceImages[${index}] must be a data URI string.`,
-        400,
-        "validation_error"
-      );
-    }
-    const commaIndex = item.indexOf(",");
-    if (commaIndex === -1) {
-      throw new InputError(
-        `referenceImages[${index}] is not a valid data URI.`,
-        400,
-        "validation_error"
-      );
-    }
-    const base64 = item.slice(commaIndex + 1);
-    const estimatedBytes = Math.ceil(base64.length * 0.75);
-    if (estimatedBytes > LIMITS.image.maxReferenceImageBytes) {
-      throw new InputError(
-        `referenceImages[${index}] exceeds the ${LIMITS.image.maxReferenceImageBytes} byte size limit.`,
-        400,
-        "validation_error"
-      );
-    }
-    return item;
-  });
-}
-
-function dataUriToBytes(dataUri, field) {
-  const commaIndex = dataUri.indexOf(",");
-  if (commaIndex === -1) {
-    throw new InputError(`${field} is not a valid data URI.`, 400, "validation_error");
-  }
-
-  let binary;
-  try {
-    binary = atob(dataUri.slice(commaIndex + 1));
-  } catch {
-    throw new InputError(`${field} is not a valid base64 image.`, 400, "validation_error");
-  }
-
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function validateFlux2DevReferenceImageDimensions(env, input) {
-  if (input?.model !== FLUX_2_DEV_MODEL_ID || !Array.isArray(input.referenceImages) || input.referenceImages.length === 0) {
-    return;
-  }
-
-  if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
-    throw new Error("Images binding is unavailable for FLUX.2 Dev reference image validation.");
-  }
-
-  for (const [index, dataUri] of input.referenceImages.entries()) {
-    const field = `referenceImages[${index}]`;
-    const bytes = dataUriToBytes(dataUri, field);
-
-    let info;
-    try {
-      info = await env.IMAGES.info(bytes);
-    } catch {
-      throw new InputError(
-        `${field} could not be inspected for dimensions.`,
-        400,
-        "validation_error"
-      );
-    }
-
-    const width = Number(info?.width);
-    const height = Number(info?.height);
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
-      throw new InputError(
-        `${field} could not be inspected for dimensions.`,
-        400,
-        "validation_error"
-      );
-    }
-
-    if (
-      width >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE ||
-      height >= FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE
-    ) {
-      throw new InputError(
-        `${field} must be smaller than 512x512 for ${FLUX_2_DEV_MODEL_ID}. Received ${width}x${height}.`,
-        400,
-        "validation_error"
-      );
-    }
-  }
-}
-
-function validateImagePayload(body) {
-  const input = ensureObject(body);
-  const width = optionalDimension(input.width, "width");
-  const height = optionalDimension(input.height, "height");
-
-  if ((width && !height) || (!width && height)) {
-    throw new InputError("width and height must be provided together.", 400, "validation_error");
-  }
-
-  if (width && height && width * height > LIMITS.image.maxPixels) {
-    throw new InputError(
-      `Image dimensions exceed the ${LIMITS.image.maxPixels} pixel safety cap.`,
-      400,
-      "validation_error"
-    );
-  }
-
-  const structuredPrompt = optionalStructuredPrompt(
-    input.structuredPrompt,
-    "structuredPrompt",
-    LIMITS.image.structuredPromptMax
-  );
-
-  const referenceImages = validateReferenceImages(input.referenceImages);
-
-  return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
-    prompt: structuredPrompt
-      ? optionalString(input.prompt, "prompt", LIMITS.image.promptMax)
-      : requiredString(input.prompt, "prompt", LIMITS.image.promptMax),
-    structuredPrompt,
-    promptMode: structuredPrompt ? "structured" : "standard",
-    width,
-    height,
-    steps: optionalInteger(
-      input.steps,
-      "steps",
-      LIMITS.image.minSteps,
-      LIMITS.image.maxSteps,
-      null
-    ),
-    seed: optionalInteger(input.seed, "seed", 0, LIMITS.image.maxSeed, null),
-    guidance: optionalNumber(
-      input.guidance,
-      "guidance",
-      LIMITS.image.minGuidance,
-      LIMITS.image.maxGuidance,
-      null
-    ),
-    referenceImages,
-  };
-}
-
-function validateEmbeddingsPayload(body) {
-  const input = ensureObject(body);
-  const values = normalizeStringArray(
-    input.input,
-    "input",
-    1,
-    LIMITS.embeddings.maxBatchSize,
-    LIMITS.embeddings.maxItemLength
-  );
-  const totalChars = values.reduce((sum, value) => sum + value.length, 0);
-
-  if (totalChars > LIMITS.embeddings.maxTotalChars) {
-    throw new InputError(
-      `input exceeds the total ${LIMITS.embeddings.maxTotalChars} character cap.`,
-      400,
-      "validation_error"
-    );
-  }
-
-  return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
-    input: values,
-  };
-}
-
-function validateComparePayload(body) {
-  const input = ensureObject(body);
-  const models = normalizeStringArray(
-    input.models,
-    "models",
-    LIMITS.compare.minModels,
-    LIMITS.compare.maxModels,
-    120
-  );
-
-  if (new Set(models).size !== models.length) {
-    throw new InputError("models must not contain duplicates.", 400, "duplicate_models");
-  }
-
-  return {
-    models,
-    prompt: requiredString(input.prompt, "prompt", LIMITS.compare.promptMax),
-    system: optionalString(input.system, "system", LIMITS.compare.systemMax),
-    maxTokens: optionalInteger(
-      input.maxTokens,
-      "maxTokens",
-      1,
-      LIMITS.compare.maxTokens,
-      LIMITS.compare.defaultMaxTokens
-    ),
-    temperature: optionalNumber(
-      input.temperature,
-      "temperature",
-      LIMITS.compare.minTemperature,
-      LIMITS.compare.maxTemperature,
-      LIMITS.compare.defaultTemperature
-    ),
-  };
-}
-
-const LIVE_AGENT_LIMITS = {
-  maxMessages: 40,
-  maxSystemLength: 1200,
-  maxMessageLength: 4000,
-};
-
 const SAVE_TEXT_ASSET_LIMITS = {
   titleMax: 120,
   maxWarnings: 12,
@@ -491,64 +173,6 @@ const SAVE_TEXT_ASSET_LIMITS = {
 };
 
 const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent"]);
-
-function validateLiveAgentPayload(body) {
-  const input = ensureObject(body);
-  const messages = input.messages;
-
-  if (!Array.isArray(messages) || messages.length === 0) {
-    throw new InputError("messages must be a non-empty array.", 400, "validation_error");
-  }
-  if (messages.length > LIVE_AGENT_LIMITS.maxMessages) {
-    throw new InputError(
-      `messages must contain at most ${LIVE_AGENT_LIMITS.maxMessages} items.`,
-      400,
-      "validation_error"
-    );
-  }
-
-  const validated = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
-      throw new InputError(`messages[${i}] must be an object.`, 400, "validation_error");
-    }
-
-    const role = msg.role;
-    if (role !== "system" && role !== "user" && role !== "assistant") {
-      throw new InputError(
-        `messages[${i}].role must be "system", "user", or "assistant".`,
-        400,
-        "validation_error"
-      );
-    }
-
-    if (typeof msg.content !== "string") {
-      throw new InputError(`messages[${i}].content must be a string.`, 400, "validation_error");
-    }
-
-    const maxLen = role === "system" ? LIVE_AGENT_LIMITS.maxSystemLength : LIVE_AGENT_LIMITS.maxMessageLength;
-    const trimmed = msg.content.trim();
-    if (!trimmed) {
-      throw new InputError(`messages[${i}].content must not be empty.`, 400, "validation_error");
-    }
-    if (trimmed.length > maxLen) {
-      throw new InputError(
-        `messages[${i}].content must be at most ${maxLen} characters.`,
-        400,
-        "validation_error"
-      );
-    }
-
-    validated.push({ role, content: trimmed });
-  }
-
-  if (!validated.some((m) => m.role === "user")) {
-    throw new InputError("messages must include at least one user message.", 400, "validation_error");
-  }
-
-  return { messages: validated };
-}
 
 function ensurePlainObject(value, field) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -628,8 +252,8 @@ function validateSavedTextData(data) {
   return {
     preset: optionalString(input.preset, "data.preset", 64),
     model: optionalModelSummary(input.model, "data.model"),
-    system: optionalString(input.system, "data.system", LIMITS.text.systemMax),
-    prompt: requiredString(input.prompt, "data.prompt", LIMITS.text.promptMax),
+    system: optionalString(input.system, "data.system", LIMITS.text.maxSystemLength),
+    prompt: requiredString(input.prompt, "data.prompt", LIMITS.text.maxPromptLength),
     output: requiredString(input.output, "data.output", SAVE_TEXT_ASSET_LIMITS.maxResultLength),
     maxTokens: optionalInteger(input.maxTokens, "data.maxTokens", 1, LIMITS.text.maxTokens, null),
     temperature: optionalNumber(
@@ -801,8 +425,8 @@ function optionalDiffSummary(value) {
 function validateSavedCompareData(data) {
   const input = ensurePlainObject(data, "data");
   return {
-    prompt: requiredString(input.prompt, "data.prompt", LIMITS.compare.promptMax),
-    system: optionalString(input.system, "data.system", LIMITS.compare.systemMax),
+    prompt: requiredString(input.prompt, "data.prompt", LIMITS.compare.maxPromptLength),
+    system: optionalString(input.system, "data.system", LIMITS.compare.maxSystemLength),
     maxTokens: optionalInteger(input.maxTokens, "data.maxTokens", 1, LIMITS.compare.maxTokens, null),
     temperature: optionalNumber(
       input.temperature,

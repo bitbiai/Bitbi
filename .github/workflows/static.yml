@@ -25,7 +25,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   
 jobs:
+  release-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run release compatibility tests
+        run: npm run test:release-compat
+      - name: Run asset version tests
+        run: npm run test:asset-version
+      - name: Validate release compatibility
+        run: npm run validate:release
+      - name: Validate asset version sources
+        run: npm run validate:asset-version
+
   worker-validation:
+    needs: release-compatibility
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,7 +64,7 @@ jobs:
 
   # Single deploy job since we're just deploying
   deploy:
-    needs: worker-validation
+    needs: [release-compatibility, worker-validation]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -173,11 +195,7 @@ jobs:
           path: playwright-report/
           retention-days: 7
       - name: Prepare deployment
-        run: |
-          mkdir _site
-          cp *.html robots.txt sitemap.xml _site/ 2>/dev/null || true
-          cp -r assets css fonts js _site/
-          cp -r experiments account admin legal _site/
+        run: npm run build:static
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:

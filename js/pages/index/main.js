@@ -16,7 +16,7 @@ import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
-import { initGalleryStudio } from './studio.js?v=20260409-wave7-fix';
+import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';

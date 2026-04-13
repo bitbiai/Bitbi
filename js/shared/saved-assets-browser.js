@@ -8,8 +8,8 @@ import {
     apiAiGetAssets,
     apiAiGetFolders,
     apiAiGetFoldersForDelete,
-} from './auth-api.js?v=20260412-wave14';
-import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=20260412-wave14';
+} from './auth-api.js?v=__ASSET_VERSION__';
+import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';

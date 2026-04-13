@@ -8,22 +8,28 @@ import {
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
     apiAdminAiTestText,
-} from '../../shared/auth-api.js?v=20260412-wave15';
-import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=20260412-wave15';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    ADMIN_AI_DEFAULT_COMPARE_MODELS,
+    ADMIN_AI_DEFAULT_PRESETS,
+    ADMIN_AI_IMAGE_CAPABILITY_FALLBACK,
+    ADMIN_AI_LIMITS,
+    ADMIN_AI_LIVE_AGENT_MODEL,
+    FLUX_2_DEV_MODEL_ID,
+    FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
+} from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
+import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
 const HISTORY_LIMIT = 6;
-// Keep this token aligned with admin/index.html, js/pages/admin/main.js, and the admin release-token checklist in CLAUDE.md.
-const ADMIN_AI_UI_VERSION = '20260412-wave15';
+const ADMIN_AI_UI_VERSION = '__ASSET_VERSION__';
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 180_000,
     embeddings: 15_000,
     compare: 30_000,
 };
-const FLUX_2_DEV_MODEL_ID = '@cf/black-forest-labs/flux-2-dev';
-const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 const TASK_UI = {
     text: {
         label: 'Text',
@@ -64,7 +70,7 @@ const ADMIN_AI_CODE_MESSAGES = {
 
 const DEFAULT_FORMS = {
     text: {
-        preset: 'balanced',
+        preset: ADMIN_AI_DEFAULT_PRESETS.text,
         model: '',
         system: 'You are a concise assistant.',
         prompt: '',
@@ -72,7 +78,7 @@ const DEFAULT_FORMS = {
         temperature: 0.7,
     },
     image: {
-        preset: 'image_fast',
+        preset: ADMIN_AI_DEFAULT_PRESETS.image,
         model: '',
         prompt: '',
         promptMode: 'standard',
@@ -85,13 +91,13 @@ const DEFAULT_FORMS = {
         referenceImages: [],
     },
     embeddings: {
-        preset: 'embedding_default',
+        preset: ADMIN_AI_DEFAULT_PRESETS.embeddings,
         model: '',
         input: '',
     },
     compare: {
-        modelA: '@cf/meta/llama-3.1-8b-instruct-fast',
-        modelB: '@cf/openai/gpt-oss-20b',
+        modelA: ADMIN_AI_DEFAULT_COMPARE_MODELS.modelA,
+        modelB: ADMIN_AI_DEFAULT_COMPARE_MODELS.modelB,
         system: 'You are concise.',
         prompt: '',
         maxTokens: 250,
@@ -101,12 +107,6 @@ const DEFAULT_FORMS = {
 
 const DEFAULT_PREFERENCES = {
     compareOnlyDifferences: false,
-};
-
-const LIVE_AGENT_MODEL = {
-    id: '@cf/google/gemma-4-26b-a4b-it',
-    label: 'Gemma 4 26B A4B',
-    vendor: 'Google',
 };
 
 const SAMPLE_LIBRARY = {
@@ -1549,37 +1549,11 @@ export function createAdminAiLab({ showToast } = {}) {
     function getSelectedImageModelCapabilities() {
         const modelId = state.forms.image.model;
         if (!modelId || !hasCatalog()) {
-            return {
-                supportsSeed: true,
-                supportsSteps: true,
-                supportsDimensions: false,
-                supportsGuidance: false,
-                supportsStructuredPrompt: false,
-                supportsReferenceImages: false,
-                maxReferenceImages: 0,
-                maxSteps: 8,
-                defaultSteps: 4,
-                minGuidance: null,
-                maxGuidance: null,
-                defaultGuidance: null,
-            };
+            return ADMIN_AI_IMAGE_CAPABILITY_FALLBACK;
         }
         const model = getModelInfo(state.catalog.data, 'image', modelId);
         if (!model?.capabilities) {
-            return {
-                supportsSeed: true,
-                supportsSteps: true,
-                supportsDimensions: false,
-                supportsGuidance: false,
-                supportsStructuredPrompt: false,
-                supportsReferenceImages: false,
-                maxReferenceImages: 0,
-                maxSteps: 8,
-                defaultSteps: 4,
-                minGuidance: null,
-                maxGuidance: null,
-                defaultGuidance: null,
-            };
+            return ADMIN_AI_IMAGE_CAPABILITY_FALLBACK;
         }
         return model.capabilities;
     }
@@ -1649,7 +1623,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refDisabled) {
             refs.image.refHint.textContent = 'Current model does not support reference images.';
         }
-        const maxRef = caps.maxReferenceImages || 4;
+        const maxRef = caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages;
         refs.image.refCount.textContent = `${state.forms.image.referenceImages.length} / ${maxRef}`;
         updateRefSlots();
     }
@@ -1753,7 +1727,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function updateRefSlots() {
         const caps = getSelectedImageModelCapabilities();
-        const maxRef = caps.maxReferenceImages || 4;
+        const maxRef = caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages;
         const disabled = !caps.supportsReferenceImages;
         const images = state.forms.image.referenceImages;
 
@@ -1782,7 +1756,7 @@ export function createAdminAiLab({ showToast } = {}) {
     async function handleRefFileSelect(index, file) {
         if (!file || !file.type.startsWith('image/')) return;
         const caps = getSelectedImageModelCapabilities();
-        const maxRef = caps.maxReferenceImages || 4;
+        const maxRef = caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages;
         if (state.forms.image.referenceImages.length >= maxRef) return;
 
         try {
@@ -1821,10 +1795,10 @@ export function createAdminAiLab({ showToast } = {}) {
         const imagePresets = getCatalogPresets(state.catalog.data, 'image').map((item) => item.name);
         const embeddingPresets = getCatalogPresets(state.catalog.data, 'embeddings').map((item) => item.name);
 
-        if (!textPresets.includes(state.forms.text.preset)) state.forms.text.preset = textPresets[0] || 'balanced';
-        if (!imagePresets.includes(state.forms.image.preset)) state.forms.image.preset = imagePresets[0] || 'image_fast';
+        if (!textPresets.includes(state.forms.text.preset)) state.forms.text.preset = textPresets[0] || ADMIN_AI_DEFAULT_PRESETS.text;
+        if (!imagePresets.includes(state.forms.image.preset)) state.forms.image.preset = imagePresets[0] || ADMIN_AI_DEFAULT_PRESETS.image;
         if (!embeddingPresets.includes(state.forms.embeddings.preset)) {
-            state.forms.embeddings.preset = embeddingPresets[0] || 'embedding_default';
+            state.forms.embeddings.preset = embeddingPresets[0] || ADMIN_AI_DEFAULT_PRESETS.embeddings;
         }
 
         const textIds = getCatalogModels(state.catalog.data, 'text').map((item) => item.id);
@@ -1975,7 +1949,11 @@ export function createAdminAiLab({ showToast } = {}) {
         updateCounter(refs.text.system, refs.text.systemCount, 1200);
         updateCounter(refs.text.prompt, refs.text.promptCount, 4000);
         updateCounter(refs.image.prompt, refs.image.promptCount, 2048);
-        updateCounter(refs.image.structuredPrompt, refs.image.structuredPromptCount, 8192);
+        updateCounter(
+            refs.image.structuredPrompt,
+            refs.image.structuredPromptCount,
+            ADMIN_AI_LIMITS.image.maxStructuredPromptLength
+        );
         updateCounter(refs.embeddings.input, refs.embeddings.inputCount, 8000, (value) => {
             const lines = value
                 .split(/\r?\n/)

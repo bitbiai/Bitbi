@@ -2,7 +2,7 @@ import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, addMinutesIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
 import { hashPassword } from "../lib/passwords.js";
-import { isRateLimited, isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { sendResetEmail } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 
@@ -64,7 +64,7 @@ export async function handleForgotPassword(ctx) {
 export async function handleValidateReset(ctx) {
   const { request, url, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`reset-validate:${ip}`, 10, 900_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-reset-validate-ip", ip, 10, 900_000)) return rateLimitResponse();
 
   const rawToken = url.searchParams.get("token");
 
@@ -89,7 +89,7 @@ export async function handleValidateReset(ctx) {
 export async function handleResetPassword(ctx) {
   const { request, env } = ctx;
   const ip = getClientIp(request);
-  if (isRateLimited(`reset:${ip}`, 5, 3600_000)) return rateLimitResponse();
+  if (await isSharedRateLimited(env, "auth-reset-ip", ip, 5, 3600_000)) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 

@@ -5,7 +5,7 @@
 import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
-import { isRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { logUserActivity } from "../lib/activity.js";
 import {
   AI_IMAGE_DERIVATIVE_VERSION,
@@ -229,7 +229,7 @@ export async function handleUploadAvatar(ctx) {
   const { request, env } = ctx;
 
   const ip = getClientIp(request);
-  if (isRateLimited(`avatar-upload:${ip}`, 10, 3_600_000)) {
+  if (await isSharedRateLimited(env, "avatar-upload-ip", ip, 10, 3_600_000)) {
     return rateLimitResponse();
   }
 
