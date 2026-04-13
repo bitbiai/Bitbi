@@ -48,9 +48,13 @@ export function validateReleaseCompatibility(context) {
     aiWrangler,
     authApiSource,
     authAdminAiSource,
+    authAdminAiProxySource,
     aiIndexSource,
     workflowSource,
   } = context;
+  const authAdminAiImplementationSource = [authAdminAiSource, authAdminAiProxySource]
+    .filter((source) => typeof source === "string" && source.length > 0)
+    .join("\n");
 
   const latestMigration = extractLatestMigrationFilename(migrationFiles);
   if (!latestMigration) {
@@ -104,10 +108,10 @@ export function validateReleaseCompatibility(context) {
   }
 
   for (const [externalRoute, internalRoute] of Object.entries(manifest.adminAi.authToAiRoutes || {})) {
-    if (!includesRouteLiteral(authAdminAiSource, externalRoute)) {
+    if (!includesRouteLiteral(authAdminAiImplementationSource, externalRoute)) {
       issues.push(`Auth admin AI proxy is missing external route "${externalRoute}".`);
     }
-    if (!includesRouteLiteral(authAdminAiSource, internalRoute)) {
+    if (!includesRouteLiteral(authAdminAiImplementationSource, internalRoute)) {
       issues.push(
         `Auth admin AI proxy does not forward "${externalRoute}" to "${internalRoute}".`
       );
@@ -174,6 +178,10 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     authApiSource: fs.readFileSync(path.join(repoRoot, "js/shared/auth-api.js"), "utf8"),
     authAdminAiSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-ai.js"),
+      "utf8"
+    ),
+    authAdminAiProxySource: fs.readFileSync(
+      path.join(repoRoot, "workers/auth/src/lib/admin-ai-proxy.js"),
       "utf8"
     ),
     aiIndexSource: fs.readFileSync(path.join(repoRoot, "workers/ai/src/index.js"), "utf8"),

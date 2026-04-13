@@ -60,9 +60,15 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/models") return proxyToAiLab("/internal/ai/models");
       if (pathname === "/api/admin/ai/test-text") return proxyToAiLab("/internal/ai/test-text");
     `,
+    authAdminAiProxySource: `
+      export async function proxyLiveAgentToAiLab() {
+        return fetch("/internal/ai/live-agent");
+      }
+    `,
     aiIndexSource: `
       if (pathname === "/internal/ai/models") return handleModels();
       if (pathname === "/internal/ai/test-text") return handleText();
+      if (pathname === "/internal/ai/live-agent") return handleLiveAgent();
     `,
     workflowSource: `
   release-compatibility:
@@ -94,6 +100,16 @@ function createValidContext() {
 
 {
   const issues = validateReleaseCompatibility(createValidContext());
+  assert.deepEqual(issues, []);
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAi.authToAiRoutes["/api/admin/ai/live-agent"] = "/internal/ai/live-agent";
+  context.authAdminAiSource += `
+      if (pathname === "/api/admin/ai/live-agent") return proxyLiveAgentToAiLab();
+  `;
+  const issues = validateReleaseCompatibility(context);
   assert.deepEqual(issues, []);
 }
 
