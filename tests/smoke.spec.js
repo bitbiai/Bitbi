@@ -128,8 +128,8 @@ test.describe('Homepage', () => {
               {
                 id: 'a1b2c3d4',
                 slug: 'mempic-a1b2c3d4',
-                title: 'Mempic A1B2C3',
-                caption: 'Published by a bitbi member on 2026-04-12.',
+                title: 'Mempics',
+                caption: 'Published by Ada Member on 2026-04-12.',
                 category: 'mempics',
                 thumb: {
                   url: '/api/gallery/mempics/a1b2c3d4/thumb',
@@ -165,12 +165,13 @@ test.describe('Homepage', () => {
     await expect(mempicsBtn).toBeVisible();
     await mempicsBtn.click();
 
-    const mempicsCard = page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Mempic A1B2C3' });
+    const mempicsCard = page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Mempics' });
     await expect(mempicsCard).toHaveCount(1);
     await expect(mempicsCard).toBeVisible();
 
     await mempicsCard.click();
-    await expect(page.locator('#modalTitle')).toHaveText('Mempic A1B2C3');
+    await expect(page.locator('#modalTitle')).toHaveText('Mempics');
+    await expect(page.locator('#modalCaption')).toHaveText('Published by Ada Member on 2026-04-12.');
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', '/api/gallery/mempics/a1b2c3d4/file');
     await page.locator('.modal-close').click();
 

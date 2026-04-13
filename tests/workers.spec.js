@@ -3941,6 +3941,17 @@ test.describe('Worker routes', () => {
         createContractUser({ id: 'artist-a', role: 'user' }),
         createContractUser({ id: 'artist-b', role: 'user' }),
       ],
+      profiles: [
+        {
+          user_id: 'artist-a',
+          display_name: 'Ada Member',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          created_at: '2026-04-01T00:00:00.000Z',
+          updated_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
       aiImages: [
         {
           id: 'a1b2c3d4',
@@ -3962,6 +3973,27 @@ test.describe('Worker routes', () => {
           thumb_height: 256,
           medium_width: 1280,
           medium_height: 1024,
+        },
+        {
+          id: 'c0ffee12',
+          user_id: 'artist-b',
+          folder_id: null,
+          r2_key: 'users/artist-b/folders/unsorted/c0ffee12.png',
+          prompt: 'Should not show as file name',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 9,
+          created_at: '2026-04-08T08:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-08T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-b/derivatives/v1/c0ffee12/thumb.webp',
+          medium_key: 'users/artist-b/derivatives/v1/c0ffee12/medium.webp',
+          thumb_width: 320,
+          thumb_height: 320,
+          medium_width: 1280,
+          medium_height: 1280,
         },
         {
           id: '0f1e2d3c',
@@ -4017,7 +4049,8 @@ test.describe('Worker routes', () => {
           {
             id: 'a1b2c3d4',
             slug: 'mempic-a1b2c3d4',
-            title: 'Mempic A1B2C3',
+            title: 'Mempics',
+            caption: 'Published by Ada Member on 2026-04-10.',
             category: 'mempics',
             thumb: {
               url: '/api/gallery/mempics/a1b2c3d4/thumb',
@@ -4033,14 +4066,38 @@ test.describe('Worker routes', () => {
               url: '/api/gallery/mempics/a1b2c3d4/file',
             },
           },
+          {
+            id: 'c0ffee12',
+            slug: 'mempic-c0ffee12',
+            title: 'Mempics',
+            caption: 'Published by a bitbi member on 2026-04-08.',
+            category: 'mempics',
+            thumb: {
+              url: '/api/gallery/mempics/c0ffee12/thumb',
+              w: 320,
+              h: 320,
+            },
+            preview: {
+              url: '/api/gallery/mempics/c0ffee12/medium',
+              w: 1280,
+              h: 1280,
+            },
+            full: {
+              url: '/api/gallery/mempics/c0ffee12/file',
+            },
+          },
         ],
       },
     });
-    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items).toHaveLength(2);
     expect(body.data.items[0].prompt).toBeUndefined();
     expect(body.data.items[0].user_id).toBeUndefined();
     expect(body.data.items[0].folder_id).toBeUndefined();
     expect(body.data.items[0].r2_key).toBeUndefined();
+    expect(body.data.items[1].prompt).toBeUndefined();
+    expect(body.data.items[1].user_id).toBeUndefined();
+    expect(body.data.items[1].folder_id).toBeUndefined();
+    expect(body.data.items[1].r2_key).toBeUndefined();
   });
 
   function createSharedBulkMoveEnv() {

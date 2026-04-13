@@ -9,23 +9,32 @@ function toSafeLimit(value) {
   return Math.min(Math.max(Math.floor(limit), 1), MAX_MEMPICS_LIMIT);
 }
 
-function getPublicMempicTitle(id) {
-  const shortId = String(id || "").slice(0, 6).toUpperCase();
-  return shortId ? `Mempic ${shortId}` : "Mempic";
+function getPublicMempicTitle() {
+  return "Mempics";
 }
 
-function getPublicMempicCaption(publishedAt) {
+function getPublicMempicOwnerLabel(displayName) {
+  const normalized = String(displayName || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 50);
+  return normalized || "a bitbi member";
+}
+
+function getPublicMempicCaption(displayName, publishedAt) {
+  const ownerLabel = getPublicMempicOwnerLabel(displayName);
   const date = String(publishedAt || "").slice(0, 10);
-  if (date) return `Published by a bitbi member on ${date}.`;
-  return "Published by a bitbi member.";
+  if (date) return `Published by ${ownerLabel} on ${date}.`;
+  return `Published by ${ownerLabel}.`;
 }
 
 function toPublicMempicRecord(row) {
   return {
     id: row.id,
     slug: `mempic-${row.id}`,
-    title: getPublicMempicTitle(row.id),
-    caption: getPublicMempicCaption(row.published_at || row.created_at),
+    title: getPublicMempicTitle(),
+    caption: getPublicMempicCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "mempics",
     thumb: {
       url: `/api/gallery/mempics/${row.id}/thumb`,
@@ -58,12 +67,20 @@ async function handleListMempics(ctx) {
   const { env, url } = ctx;
   const limit = toSafeLimit(url.searchParams.get("limit"));
   const rows = await env.DB.prepare(
-    `SELECT id, created_at, published_at, thumb_width, thumb_height, medium_width, medium_height
+    `SELECT ai_images.id,
+            ai_images.created_at,
+            ai_images.published_at,
+            ai_images.thumb_width,
+            ai_images.thumb_height,
+            ai_images.medium_width,
+            ai_images.medium_height,
+            profiles.display_name AS owner_display_name
      FROM ai_images
-     WHERE visibility = 'public'
-       AND derivatives_status = 'ready'
-       AND thumb_key IS NOT NULL
-       AND medium_key IS NOT NULL
+     LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
+     WHERE ai_images.visibility = 'public'
+       AND ai_images.derivatives_status = 'ready'
+       AND ai_images.thumb_key IS NOT NULL
+       AND ai_images.medium_key IS NOT NULL
      ORDER BY COALESCE(published_at, created_at) DESC, created_at DESC, id DESC
      LIMIT ?`
   ).bind(limit).all();

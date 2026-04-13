@@ -1015,7 +1015,7 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith("SELECT id, created_at, published_at, thumb_width, thumb_height, medium_width, medium_height FROM ai_images WHERE visibility = 'public'")) {
+    if (query.startsWith("SELECT ai_images.id, ai_images.created_at, ai_images.published_at, ai_images.thumb_width, ai_images.thumb_height, ai_images.medium_width, ai_images.medium_height, profiles.display_name AS owner_display_name FROM ai_images LEFT JOIN profiles ON profiles.user_id = ai_images.user_id WHERE ai_images.visibility = 'public'")) {
       const [limit] = bindings;
       const rows = this.state.aiImages
         .filter((row) =>
@@ -1036,6 +1036,7 @@ class MockD1 {
           id: row.id,
           created_at: row.created_at,
           published_at: row.published_at,
+          owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
           thumb_width: row.thumb_width,
           thumb_height: row.thumb_height,
           medium_width: row.medium_width,
