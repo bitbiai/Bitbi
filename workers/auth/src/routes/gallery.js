@@ -81,7 +81,9 @@ async function handleListMempics(ctx) {
        AND ai_images.derivatives_status = 'ready'
        AND ai_images.thumb_key IS NOT NULL
        AND ai_images.medium_key IS NOT NULL
-     ORDER BY COALESCE(published_at, created_at) DESC, created_at DESC, id DESC
+     ORDER BY COALESCE(ai_images.published_at, ai_images.created_at) DESC,
+              ai_images.created_at DESC,
+              ai_images.id DESC
      LIMIT ?`
   ).bind(limit).all();
 
