@@ -7,6 +7,8 @@ import {
 export const AI_IMAGE_DERIVATIVE_VERSION = 1;
 export const AI_IMAGE_DERIVATIVE_QUEUE_SCHEMA_VERSION = 1;
 export const AI_IMAGE_DERIVATIVE_LEASE_MS = 15 * 60 * 1000;
+export const AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS = 2 * 60 * 1000;
+export const AI_IMAGE_DERIVATIVE_RECOVERY_REENQUEUE_COOLDOWN_MS = 15 * 60 * 1000;
 export const AI_IMAGE_DERIVATIVE_PRESETS = {
   thumb: {
     variant: "thumb",
@@ -41,6 +43,16 @@ function permanentAiImageDerivativeError(message, code) {
 
 function toLeaseExpiresAt(baseMs = Date.now()) {
   return new Date(baseMs + AI_IMAGE_DERIVATIVE_LEASE_MS).toISOString();
+}
+
+function toIsoOrNull(value) {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+function parseIsoMs(value) {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function sanitizeDerivativeError(error) {
@@ -159,6 +171,29 @@ export function hasActiveAiImageDerivativeLease(row, now = nowIso()) {
   );
 }
 
+export function hasRecentAiImageDerivativeAttempt(
+  row,
+  cooldownMs = AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS,
+  nowMs = Date.now()
+) {
+  if (!row || !cooldownMs || cooldownMs <= 0) return false;
+  const attemptedMs = parseIsoMs(row.derivatives_attempted_at);
+  if (!attemptedMs) return false;
+  return attemptedMs > (nowMs - cooldownMs);
+}
+
+export function shouldAttemptOnDemandAiImageDerivative(
+  row,
+  {
+    now = nowIso(),
+    cooldownMs = AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS,
+  } = {}
+) {
+  if (!row?.r2_key) return false;
+  if (hasActiveAiImageDerivativeLease(row, now)) return false;
+  return !hasRecentAiImageDerivativeAttempt(row, cooldownMs, Date.parse(now) || Date.now());
+}
+
 export function needsAiImageDerivativeRefresh(
   row,
   targetVersion = AI_IMAGE_DERIVATIVE_VERSION,
@@ -172,6 +207,11 @@ export function needsAiImageDerivativeRefresh(
     return false;
   }
   return true;
+}
+
+export function getAiImageDerivativeRetryDelaySeconds(attempts = 1) {
+  const attemptNumber = Math.max(1, Number(attempts) || 1);
+  return Math.min(30 * (2 ** Math.max(0, attemptNumber - 1)), 15 * 60);
 }
 
 export function listAiImageObjectKeys(row) {
@@ -267,6 +307,7 @@ export async function listAiImagesNeedingDerivativeWork(
     includeFailed = true,
     now = nowIso(),
     targetVersion = AI_IMAGE_DERIVATIVE_VERSION,
+    attemptedBefore = null,
   } = {}
 ) {
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
@@ -286,6 +327,12 @@ export async function listAiImagesNeedingDerivativeWork(
     conditions.push("derivatives_status != 'failed'");
   }
 
+  const attemptedBeforeIso = toIsoOrNull(attemptedBefore);
+  if (attemptedBeforeIso) {
+    conditions.push("(derivatives_attempted_at IS NULL OR derivatives_attempted_at <= ?)");
+    bindings.push(attemptedBeforeIso);
+  }
+
   if (cursorParts) {
     conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
     bindings.push(cursorParts.createdAt, cursorParts.createdAt, cursorParts.id);
@@ -293,7 +340,7 @@ export async function listAiImagesNeedingDerivativeWork(
 
   const rows = await env.DB.prepare(
     `SELECT id, user_id, r2_key, created_at, thumb_key, medium_key,
-            derivatives_status, derivatives_version, derivatives_lease_expires_at
+            derivatives_status, derivatives_version, derivatives_attempted_at, derivatives_lease_expires_at
      FROM ai_images
      WHERE ${conditions.join(" AND ")}
      ORDER BY created_at DESC, id DESC

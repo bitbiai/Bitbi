@@ -1,6 +1,11 @@
 import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
-import { parseCookies, buildSessionCookie, buildExpiredSessionCookie } from "../lib/cookies.js";
+import {
+  parseCookies,
+  buildSessionCookie,
+  buildExpiredSessionCookies,
+  getSessionTokenFromCookies,
+} from "../lib/cookies.js";
 import { hashPassword, verifyPassword } from "../lib/passwords.js";
 import { nowIso, addDaysIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
 import { getSessionUser } from "../lib/session.js";
@@ -297,7 +302,7 @@ export async function handleLogin(ctx) {
 export async function handleLogout(ctx) {
   const { request, env, isSecure } = ctx;
   const cookies = parseCookies(request.headers.get("Cookie"));
-  const sessionToken = cookies.bitbi_session;
+  const sessionToken = getSessionTokenFromCookies(cookies);
 
   let loggedOutUserId = null;
   if (sessionToken) {
@@ -324,6 +329,8 @@ export async function handleLogout(ctx) {
     message: "Logout successful.",
   });
 
-  response.headers.set("Set-Cookie", buildExpiredSessionCookie(isSecure));
+  for (const value of buildExpiredSessionCookies(isSecure)) {
+    response.headers.append("Set-Cookie", value);
+  }
   return response;
 }

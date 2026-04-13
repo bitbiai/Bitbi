@@ -193,7 +193,7 @@
                 <h3 class="h3-margin">Sitzungsverwaltung</h3>
                 <p>Bei der Anmeldung wird ein kryptographisch zuf&auml;lliges Sitzungstoken erzeugt. Nur ein <strong class="text-strong">SHA-256-Hash</strong> dieses Tokens (kombiniert mit einem serverseitigen Geheimnis) wird in der Datenbank gespeichert &mdash; das Token selbst wird niemals auf dem Server persistiert. Das Token wird als Cookie an Ihren Browser gesendet:</p>
                 <ul>
-                    <li><strong class="text-strong">Cookie-Name:</strong> <code>bitbi_session</code></li>
+                    <li><strong class="text-strong">Cookie-Name:</strong> <code>__Host-bitbi_session</code> auf der Live-HTTPS-Seite (bei lokaler Entwicklung ohne HTTPS gegebenenfalls <code>bitbi_session</code>)</li>
                     <li><strong class="text-strong">Attribute:</strong> <code>HttpOnly</code>, <code>Secure</code> (nur HTTPS), <code>SameSite=Lax</code>, <code>Path=/</code></li>
                     <li><strong class="text-strong">G&uuml;ltigkeitsdauer:</strong> 30 Tage (serverseitig durchgesetzt)</li>
                 </ul>
@@ -232,7 +232,7 @@
                 <p>Der Banner wird Besuchern im Europ&auml;ischen Wirtschaftsraum (EWR) beim ersten Besuch angezeigt. Sie k&ouml;nnen Ihre Einwilligung jederzeit &uuml;ber den Link &bdquo;Cookie Settings&ldquo; im Fu&szlig;bereich der Seite &auml;ndern oder widerrufen.</p>
                 <p>Kategorien:</p>
                 <ul>
-                    <li><strong class="text-strong">Notwendig</strong> (immer aktiv) &mdash; Speicherung Ihrer Einwilligungspr&auml;ferenz (unbedingt erforderlich f&uuml;r den Betrieb der Einwilligungsverwaltung); das <code>bitbi_session</code>-Cookie f&uuml;r angemeldete Nutzer (unbedingt erforderlich f&uuml;r den Anmeldedienst, siehe &sect;&nbsp;6). Auf einzelnen interaktiven Seiten k&ouml;nnen zus&auml;tzlich Spielst&auml;nde oder Highscores lokal im Browser gespeichert werden, soweit dies f&uuml;r die jeweilige Spielfunktion erforderlich ist; diese Daten werden niemals an einen Server &uuml;bermittelt.</li>
+                    <li><strong class="text-strong">Notwendig</strong> (immer aktiv) &mdash; Speicherung Ihrer Einwilligungspr&auml;ferenz (unbedingt erforderlich f&uuml;r den Betrieb der Einwilligungsverwaltung); das <code>__Host-bitbi_session</code>-Sitzungs-Cookie f&uuml;r angemeldete Nutzer auf der Live-HTTPS-Seite (unbedingt erforderlich f&uuml;r den Anmeldedienst, siehe &sect;&nbsp;6; bei lokaler Entwicklung ohne HTTPS gegebenenfalls <code>bitbi_session</code>). Auf einzelnen interaktiven Seiten k&ouml;nnen zus&auml;tzlich Spielst&auml;nde oder Highscores lokal im Browser gespeichert werden, soweit dies f&uuml;r die jeweilige Spielfunktion erforderlich ist; diese Daten werden niemals an einen Server &uuml;bermittelt.</li>
                     <li><strong class="text-strong">Analyse</strong> &mdash; Leistungsmessung (Cloudflare RUM)</li>
                     <li><strong class="text-strong">Marketing</strong> &mdash; eingebettete Inhalte (YouTube-Videos)</li>
                 </ul>

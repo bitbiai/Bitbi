@@ -85,7 +85,7 @@ Example with an authenticated admin session cookie:
 curl 'https://bitbi.ai/api/admin/ai/image-derivatives/backfill' \
   -X POST \
   -H 'content-type: application/json' \
-  -H 'cookie: bitbi_session=YOUR_ADMIN_SESSION_COOKIE' \
+  -H 'cookie: __Host-bitbi_session=YOUR_ADMIN_SESSION_COOKIE' \
   --data '{"limit":50,"includeFailed":true}'
 ```
 
@@ -93,5 +93,7 @@ curl 'https://bitbi.ai/api/admin/ai/image-derivatives/backfill' \
 
 - New saves publish a queue message immediately after the original and `ai_images` row are persisted.
 - The queue consumer is idempotent and lease-based.
-- A small daily scheduled recovery scan re-enqueues stale `pending` work.
+- Queue retries now use bounded backoff and stop after the configured retry budget is exhausted.
+- A small daily scheduled recovery scan re-enqueues only stale `pending` work that has not been attempted recently.
+- On-demand preview/avatar fallback stays bounded: recently failed derivative rows are cooled down instead of repeatedly regenerating inline on every read.
 - Failed items can be requeued later with the admin backfill route once the underlying issue is fixed.

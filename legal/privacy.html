@@ -193,7 +193,7 @@
                 <h3 class="h3-margin">Session management</h3>
                 <p>When you log in, a cryptographically random session token is generated. Only a <strong class="text-strong">SHA-256 hash</strong> of this token (combined with a server-side secret) is stored in the database &mdash; the token itself is never persisted on the server. The token is sent to your browser as a cookie:</p>
                 <ul>
-                    <li><strong class="text-strong">Cookie name:</strong> <code>bitbi_session</code></li>
+                    <li><strong class="text-strong">Cookie name:</strong> <code>__Host-bitbi_session</code> on the live HTTPS site (local non-HTTPS development may fall back to <code>bitbi_session</code>)</li>
                     <li><strong class="text-strong">Attributes:</strong> <code>HttpOnly</code>, <code>Secure</code> (HTTPS only), <code>SameSite=Lax</code>, <code>Path=/</code></li>
                     <li><strong class="text-strong">Lifetime:</strong> 30 days (server-side expiration enforced)</li>
                 </ul>
@@ -232,7 +232,7 @@
                 <p>The banner is displayed to visitors in the European Economic Area (EEA) upon first visit. You can change or revoke your consent at any time via the "Cookie Settings" link in the footer.</p>
                 <p>Categories:</p>
                 <ul>
-                    <li><strong class="text-strong">Necessary</strong> (always active) — Storage of your consent preference (strictly necessary for consent management); the <code>bitbi_session</code> cookie for authenticated users (strictly necessary for the login service, see &sect;&nbsp;6). On certain interactive pages, gameplay progress or highscores may additionally be stored locally in the browser where this is required for that specific game feature; this data is never transmitted to any server.</li>
+                    <li><strong class="text-strong">Necessary</strong> (always active) — Storage of your consent preference (strictly necessary for consent management); the <code>__Host-bitbi_session</code> session cookie for authenticated users on the live HTTPS site (strictly necessary for the login service, see &sect;&nbsp;6; local non-HTTPS development may fall back to <code>bitbi_session</code>). On certain interactive pages, gameplay progress or highscores may additionally be stored locally in the browser where this is required for that specific game feature; this data is never transmitted to any server.</li>
                     <li><strong class="text-strong">Analytics</strong> — performance measurement (Cloudflare RUM)</li>
                     <li><strong class="text-strong">Marketing</strong> — embedded content (YouTube videos)</li>
                 </ul>

@@ -465,6 +465,13 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.sessions.length } };
     }
 
+    if (query === 'DELETE FROM sessions WHERE expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.sessions.length;
+      this.state.sessions = this.state.sessions.filter((row) => row.expires_at >= now);
+      return { success: true, meta: { changes: before - this.state.sessions.length } };
+    }
+
     if (query === 'DELETE FROM email_verification_tokens WHERE user_id = ?') {
       const [userId] = bindings;
       const before = this.state.emailVerificationTokens.length;
@@ -472,10 +479,28 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.emailVerificationTokens.length } };
     }
 
+    if (query === 'DELETE FROM email_verification_tokens WHERE used_at IS NOT NULL OR expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.emailVerificationTokens.length;
+      this.state.emailVerificationTokens = this.state.emailVerificationTokens.filter(
+        (row) => row.used_at == null && row.expires_at >= now
+      );
+      return { success: true, meta: { changes: before - this.state.emailVerificationTokens.length } };
+    }
+
     if (query === 'DELETE FROM password_reset_tokens WHERE user_id = ?') {
       const [userId] = bindings;
       const before = this.state.passwordResetTokens.length;
       this.state.passwordResetTokens = this.state.passwordResetTokens.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.passwordResetTokens.length } };
+    }
+
+    if (query === 'DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.passwordResetTokens.length;
+      this.state.passwordResetTokens = this.state.passwordResetTokens.filter(
+        (row) => row.used_at == null && row.expires_at >= now
+      );
       return { success: true, meta: { changes: before - this.state.passwordResetTokens.length } };
     }
 
@@ -982,8 +1007,8 @@ class MockD1 {
     }
 
     if (
-      query === 'SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?' ||
-      query === 'SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?'
+      query === 'SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, derivatives_attempted_at, derivatives_lease_expires_at, r2_key FROM ai_images WHERE id = ? AND user_id = ?' ||
+      query === 'SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, derivatives_attempted_at, derivatives_lease_expires_at, r2_key FROM ai_images WHERE id = ? AND user_id = ?'
     ) {
       const [imageId, userId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
@@ -993,6 +1018,8 @@ class MockD1 {
           derivative_key: row.thumb_key,
           mime_type: row.thumb_mime_type,
           derivatives_status: row.derivatives_status,
+          derivatives_attempted_at: row.derivatives_attempted_at,
+          derivatives_lease_expires_at: row.derivatives_lease_expires_at,
           r2_key: row.r2_key,
         };
       }
@@ -1000,6 +1027,8 @@ class MockD1 {
         derivative_key: row.medium_key,
         mime_type: row.medium_mime_type,
         derivatives_status: row.derivatives_status,
+        derivatives_attempted_at: row.derivatives_attempted_at,
+        derivatives_lease_expires_at: row.derivatives_lease_expires_at,
         r2_key: row.r2_key,
       };
     }
@@ -1018,13 +1047,17 @@ class MockD1 {
     }
 
     if (
-      query.startsWith('SELECT id, user_id, r2_key, created_at, thumb_key, medium_key, derivatives_status, derivatives_version, derivatives_lease_expires_at FROM ai_images WHERE (')
+      query.startsWith('SELECT id, user_id, r2_key, created_at, thumb_key, medium_key, derivatives_status, derivatives_version, derivatives_attempted_at, derivatives_lease_expires_at FROM ai_images WHERE (')
       && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
     ) {
       let index = 0;
       const targetVersion = bindings[index++];
       const now = bindings[index++];
       const includeFailed = !query.includes("derivatives_status != 'failed'");
+      let attemptedBefore = null;
+      if (query.includes('(derivatives_attempted_at IS NULL OR derivatives_attempted_at <= ?)')) {
+        attemptedBefore = bindings[index++];
+      }
       let cursor = null;
       if (query.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
         const cursorCreatedAt = bindings[index++];
@@ -1046,7 +1079,11 @@ class MockD1 {
           row.derivatives_lease_expires_at == null ||
           row.derivatives_lease_expires_at < now;
         const failedAllowed = includeFailed || row.derivatives_status !== 'failed';
-        return needsWork && processingExpired && failedAllowed;
+        const attemptAllowed =
+          !attemptedBefore ||
+          row.derivatives_attempted_at == null ||
+          row.derivatives_attempted_at <= attemptedBefore;
+        return needsWork && processingExpired && failedAllowed && attemptAllowed;
       });
       if (cursor) {
         rows = rows.filter(
@@ -1069,6 +1106,7 @@ class MockD1 {
           medium_key: row.medium_key,
           derivatives_status: row.derivatives_status,
           derivatives_version: row.derivatives_version,
+          derivatives_attempted_at: row.derivatives_attempted_at,
           derivatives_lease_expires_at: row.derivatives_lease_expires_at,
         })),
       };
@@ -1639,6 +1677,56 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
+    if (query === "SELECT id, r2_key FROM r2_cleanup_queue WHERE status = 'pending' AND attempts < 5 ORDER BY created_at ASC LIMIT 50") {
+      const rows = this.state.r2CleanupQueue
+        .filter((row) => row.status === 'pending' && row.attempts < 5)
+        .slice()
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+        .slice(0, 50)
+        .map((row) => ({ id: row.id, r2_key: row.r2_key }));
+      return { results: rows };
+    }
+
+    if (query === "SELECT id, r2_key, attempts FROM r2_cleanup_queue WHERE status = 'pending' AND attempts >= 5 AND last_attempt_at IS NOT NULL") {
+      const rows = this.state.r2CleanupQueue
+        .filter((row) => row.status === 'pending' && row.attempts >= 5 && row.last_attempt_at != null)
+        .map((row) => ({ id: row.id, r2_key: row.r2_key, attempts: row.attempts }));
+      return { results: rows };
+    }
+
+    if (query.startsWith('DELETE FROM r2_cleanup_queue WHERE id IN (')) {
+      const ids = new Set(bindings);
+      const before = this.state.r2CleanupQueue.length;
+      this.state.r2CleanupQueue = this.state.r2CleanupQueue.filter((row) => !ids.has(row.id));
+      return { success: true, meta: { changes: before - this.state.r2CleanupQueue.length } };
+    }
+
+    if (query.startsWith('UPDATE r2_cleanup_queue SET attempts = attempts + 1, last_attempt_at = ? WHERE id IN (')) {
+      const [attemptedAt, ...ids] = bindings;
+      let changes = 0;
+      for (const row of this.state.r2CleanupQueue) {
+        if (ids.includes(row.id)) {
+          row.attempts += 1;
+          row.last_attempt_at = attemptedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query.startsWith("UPDATE r2_cleanup_queue SET status = 'dead', last_attempt_at = ? WHERE id IN (")) {
+      const [attemptedAt, ...ids] = bindings;
+      let changes = 0;
+      for (const row of this.state.r2CleanupQueue) {
+        if (ids.includes(row.id)) {
+          row.status = 'dead';
+          row.last_attempt_at = attemptedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (
       query.startsWith('WITH requested(id) AS (VALUES')
       && query.includes('DELETE FROM ai_images')
@@ -1701,6 +1789,15 @@ class MockD1 {
       const before = this.state.aiDailyQuotaUsage.length;
       this.state.aiDailyQuotaUsage = this.state.aiDailyQuotaUsage.filter(
         (row) => !(row.user_id === userId && row.day_start === dayStart && row.status === 'reserved' && row.expires_at < now)
+      );
+      return { success: true, meta: { changes: before - this.state.aiDailyQuotaUsage.length } };
+    }
+
+    if (query === "DELETE FROM ai_daily_quota_usage WHERE day_start < ? OR (status = 'reserved' AND expires_at < ?)") {
+      const [dayStart, now] = bindings;
+      const before = this.state.aiDailyQuotaUsage.length;
+      this.state.aiDailyQuotaUsage = this.state.aiDailyQuotaUsage.filter(
+        (row) => !(row.day_start < dayStart || (row.status === 'reserved' && row.expires_at < now))
       );
       return { success: true, meta: { changes: before - this.state.aiDailyQuotaUsage.length } };
     }

@@ -703,6 +703,65 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-no-thumb-user')).toBeUndefined();
     });
 
+    test('saved asset avatar assignment does not reattempt derivative generation during cooldown after a failed attempt', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'avatar-cooldown-user',
+            email: 'avatar-cooldown@example.com',
+            password_hash: 'unused',
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        aiImages: [
+          {
+            id: 'c001face',
+            user_id: 'avatar-cooldown-user',
+            folder_id: null,
+            r2_key: 'users/avatar-cooldown-user/originals/c001face.png',
+            thumb_key: null,
+            medium_key: null,
+            derivatives_status: 'failed',
+            derivatives_attempted_at: nowIso(),
+            prompt: 'portrait',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: null,
+            created_at: nowIso(),
+          },
+        ],
+      });
+
+      const token = await seedSession(env, 'avatar-cooldown-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'POST', {
+          source_image_id: 'c001face',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.45',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'avatar_thumb_unavailable',
+      });
+      expect(env.IMAGES.infoCalls).toHaveLength(0);
+      expect(env.IMAGES.transformCalls).toHaveLength(0);
+      expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-cooldown-user')).toBe(false);
+    });
+
     test('saved asset avatar assignment enforces image ownership', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const foreignThumbBytes = Buffer.from([9, 9, 9]);
@@ -1769,7 +1828,8 @@ test.describe('Worker routes', () => {
     expect(loginBody.ok).toBe(true);
     expect(loginBody.user.email).toBe('member@example.com');
     const setCookie = loginRes.headers.get('Set-Cookie');
-    expect(setCookie).toContain('bitbi_session=');
+    expect(setCookie).toContain('__Host-bitbi_session=');
+    expect(setCookie).toContain('Secure');
     expect(env.DB.state.sessions).toHaveLength(1);
 
     const meRes = await authWorker.fetch(
@@ -1804,7 +1864,10 @@ test.describe('Worker routes', () => {
     await logoutCtx.flush();
 
     expect(logoutRes.status).toBe(200);
-    expect(logoutRes.headers.get('Set-Cookie')).toContain('Max-Age=0');
+    const logoutCookies = logoutRes.headers.get('Set-Cookie');
+    expect(logoutCookies).toContain('__Host-bitbi_session=');
+    expect(logoutCookies).toContain('bitbi_session=');
+    expect(logoutCookies).toContain('Max-Age=0');
     expect(env.DB.state.sessions).toHaveLength(0);
 
     const meAfterLogout = await authWorker.fetch(
@@ -1817,6 +1880,37 @@ test.describe('Worker routes', () => {
     await expect(meAfterLogout.json()).resolves.toMatchObject({
       loggedIn: false,
       user: null,
+    });
+  });
+
+  test('/api/me accepts the legacy session cookie name for backward compatibility', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({
+          id: 'legacy-cookie-user',
+          email: 'legacy@example.com',
+          role: 'user',
+        }),
+      ],
+    });
+    const token = await seedSession(env, 'legacy-cookie-user');
+
+    const meRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(meRes.status).toBe(200);
+    await expect(meRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        id: 'legacy-cookie-user',
+        email: 'legacy-cookie-user@example.com',
+      },
     });
   });
 
@@ -3110,6 +3204,7 @@ test.describe('Worker routes', () => {
     const earlyBatch = createQueueBatch([body], { attempts: 3 });
     await authWorker.queue(earlyBatch.batch, env, createExecutionContext().execCtx);
     expect(earlyBatch.states[0]).toMatchObject({ acked: false, retried: true });
+    expect(earlyBatch.states[0].retryOptions).toEqual({ delaySeconds: 120 });
     const rowAfterRetry = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
     expect(rowAfterRetry.derivatives_status).toBe('pending');
 
@@ -3120,6 +3215,59 @@ test.describe('Worker routes', () => {
     const rowAfterExhaustion = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
     expect(rowAfterExhaustion.derivatives_status).toBe('failed');
     expect(rowAfterExhaustion.derivatives_error).toContain('retries exhausted');
+  });
+
+  test('AI image derivative consumer applies bounded retry backoff for transient failures', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const originalKey = 'users/backoff-user/folders/unsorted/original.png';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'backoff-user', role: 'user' })],
+      aiImages: [
+        {
+          id: 'ba110001',
+          user_id: 'backoff-user',
+          folder_id: null,
+          r2_key: originalKey,
+          prompt: 'Retry backoff test',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 101,
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        [originalKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+      imagesBinding: {
+        failResponseWith: new Error('Transient transform failure'),
+      },
+    });
+
+    const body = createAiImageDerivativeMessage({
+      imageId: 'ba110001',
+      userId: 'backoff-user',
+      originalKey,
+      derivativesVersion: 1,
+    });
+
+    const firstRetryBatch = createQueueBatch([body], { attempts: 1 });
+    await authWorker.queue(firstRetryBatch.batch, env, createExecutionContext().execCtx);
+    expect(firstRetryBatch.states[0]).toMatchObject({
+      acked: false,
+      retried: true,
+      retryOptions: { delaySeconds: 30 },
+    });
+
+    const cappedRetryBatch = createQueueBatch([body], { attempts: 6 });
+    await authWorker.queue(cappedRetryBatch.batch, env, createExecutionContext().execCtx);
+    expect(cappedRetryBatch.states[0]).toMatchObject({
+      acked: false,
+      retried: true,
+      retryOptions: { delaySeconds: 900 },
+    });
   });
 
   [
@@ -4018,6 +4166,220 @@ test.describe('Worker routes', () => {
     );
     expect(mediumRes.status).toBe(200);
     expect(mediumRes.headers.get('content-type')).toContain('image/webp');
+  });
+
+  test('AI image thumb on-demand fallback is cooled down after a failed inline generation attempt', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const originalKey = 'users/cooloff-user/folders/unsorted/original.png';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'cooloff-user', role: 'user' })],
+      aiImages: [
+        {
+          id: '0de00002',
+          user_id: 'cooloff-user',
+          folder_id: null,
+          r2_key: originalKey,
+          prompt: 'On-demand cooldown test',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 12,
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        [originalKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+      imagesBinding: {
+        failResponseWith: new Error('Inline derivative transform failure'),
+      },
+    });
+
+    const token = await seedSession(env, 'cooloff-user');
+    const requestHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+
+    const firstRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/0de00002/thumb', 'GET', undefined, requestHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(404);
+    await expect(firstRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image preview not ready.',
+    });
+    expect(env.IMAGES.infoCalls).toHaveLength(1);
+
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/0de00002/thumb', 'GET', undefined, requestHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(404);
+    await expect(secondRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image preview not ready.',
+    });
+    expect(env.IMAGES.infoCalls).toHaveLength(1);
+
+    const row = env.DB.state.aiImages.find((item) => item.id === '0de00002');
+    expect(row.derivatives_status).toBe('failed');
+    expect(row.derivatives_error).toContain('retries exhausted');
+  });
+
+  test('scheduled derivative recovery throttles recently attempted rows and skips failed or actively leased work', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const now = Date.now();
+    const env = createAuthTestEnv({
+      aiImages: [
+        {
+          id: 'sched-ready',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/ready.png',
+          created_at: nowIso(),
+          thumb_key: 'users/recover-user/derivatives/v1/sched-ready/thumb.webp',
+          medium_key: 'users/recover-user/derivatives/v1/sched-ready/medium.webp',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+        },
+        {
+          id: 'sched-recent',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/recent.png',
+          created_at: nowIso(),
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+          derivatives_attempted_at: new Date(now - (5 * 60 * 1000)).toISOString(),
+        },
+        {
+          id: 'sched-old',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/old.png',
+          created_at: nowIso(),
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+          derivatives_attempted_at: new Date(now - (60 * 60 * 1000)).toISOString(),
+        },
+        {
+          id: 'sched-never',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/never.png',
+          created_at: nowIso(),
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+        },
+        {
+          id: 'sched-failed',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/failed.png',
+          created_at: nowIso(),
+          derivatives_status: 'failed',
+          derivatives_version: 1,
+          derivatives_attempted_at: new Date(now - (2 * 60 * 60 * 1000)).toISOString(),
+        },
+        {
+          id: 'sched-processing',
+          user_id: 'recover-user',
+          r2_key: 'users/recover-user/folders/unsorted/processing.png',
+          created_at: nowIso(),
+          derivatives_status: 'processing',
+          derivatives_version: 1,
+          derivatives_attempted_at: new Date(now - (60 * 60 * 1000)).toISOString(),
+          derivatives_lease_expires_at: new Date(now + (10 * 60 * 1000)).toISOString(),
+        },
+      ],
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages.map((message) => message.image_id).sort()).toEqual([
+      'sched-never',
+      'sched-old',
+    ]);
+  });
+
+  test('scheduled R2 cleanup deletes successful keys and retries failed ones without dropping them', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      userImages: {
+        'cleanup/good.webp': {
+          body: new TextEncoder().encode('good').buffer,
+        },
+        'cleanup/bad.webp': {
+          body: new TextEncoder().encode('bad').buffer,
+          failDelete: true,
+        },
+      },
+      r2CleanupQueue: [
+        {
+          id: 1,
+          r2_key: 'cleanup/good.webp',
+          status: 'pending',
+          created_at: nowIso(),
+          attempts: 0,
+          last_attempt_at: null,
+        },
+        {
+          id: 2,
+          r2_key: 'cleanup/bad.webp',
+          status: 'pending',
+          created_at: nowIso(),
+          attempts: 0,
+          last_attempt_at: null,
+        },
+      ],
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(env.USER_IMAGES.objects.has('cleanup/good.webp')).toBe(false);
+    expect(env.USER_IMAGES.objects.has('cleanup/bad.webp')).toBe(true);
+    expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 1)).toBeUndefined();
+    expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 2)).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+    });
+  });
+
+  test('scheduled R2 cleanup dead-letters only entries that actually exhausted retries', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      r2CleanupQueue: [
+        {
+          id: 1,
+          r2_key: 'cleanup/exhausted.webp',
+          status: 'pending',
+          created_at: nowIso(),
+          attempts: 5,
+          last_attempt_at: new Date(Date.now() - 60_000).toISOString(),
+        },
+        {
+          id: 2,
+          r2_key: 'cleanup/not-yet.webp',
+          status: 'pending',
+          created_at: nowIso(),
+          attempts: 5,
+          last_attempt_at: null,
+        },
+      ],
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 1)).toMatchObject({
+      status: 'dead',
+      attempts: 5,
+    });
+    expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 2)).toMatchObject({
+      status: 'pending',
+      attempts: 5,
+      last_attempt_at: null,
+    });
   });
 
   test('IMAGES binding mock matches Cloudflare ImageTransformationResult contract', async () => {

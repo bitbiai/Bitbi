@@ -4,12 +4,14 @@ import { readJsonBody } from "../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
 import { isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
 import {
+  AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS,
   AI_IMAGE_DERIVATIVE_VERSION,
   buildAiImageCleanupQueueInsertSql,
   buildAiImageDerivativeMessage,
   enqueueAiImageDerivativeJob,
   listAiImageObjectKeys,
   processAiImageDerivativeMessage,
+  shouldAttemptOnDemandAiImageDerivative,
   toAiImageAssetRecord,
 } from "../lib/ai-image-derivatives.js";
 import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
@@ -1043,8 +1045,8 @@ async function handleGetImageDerivative(ctx, imageId, variant) {
 
   const select =
     variant === "thumb"
-      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?"
-      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
+      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, derivatives_attempted_at, derivatives_lease_expires_at, r2_key FROM ai_images WHERE id = ? AND user_id = ?"
+      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type, derivatives_status, derivatives_attempted_at, derivatives_lease_expires_at, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
 
   const row = await env.DB.prepare(select).bind(imageId, session.user.id).first();
   if (!row) {
@@ -1065,7 +1067,7 @@ async function handleGetImageDerivative(ctx, imageId, variant) {
   // On-demand fallback: generate derivatives inline when the queue pipeline
   // has not delivered them (covers queue-consumer downtime, binding failures,
   // retry exhaustion, and any other asynchronous pipeline breakage).
-  if (row.r2_key) {
+  if (shouldAttemptOnDemandAiImageDerivative(row, { cooldownMs: AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS })) {
     try {
       const result = await processAiImageDerivativeMessage(
         env,

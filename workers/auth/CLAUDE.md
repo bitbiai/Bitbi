@@ -69,7 +69,7 @@ src/
 
 **Route matching**: Manual `pathname + method` checks in index.js dispatch to route modules. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters inside `admin.js`.
 
-**Auth flow**: PBKDF2-SHA256 password hashing (100k iterations — Cloudflare Workers runtime cap). Transparent rehash-on-login if stored iterations are below the target. Sessions use a random 32-byte hex token stored in a `bitbi_session` HttpOnly cookie. Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1. Origin validation blocks cross-origin state-changing requests.
+**Auth flow**: PBKDF2-SHA256 password hashing (100k iterations — Cloudflare Workers runtime cap). Transparent rehash-on-login if stored iterations are below the target. Sessions use a random 32-byte hex token stored in an HttpOnly cookie (`__Host-bitbi_session` on secure HTTPS responses, with legacy `bitbi_session` still accepted for compatibility and local non-HTTPS dev). Only the SHA-256 hash of `token:SESSION_SECRET` is stored in D1. Origin validation blocks cross-origin state-changing requests.
 
 **Password reset**: Token-based flow via Resend API email. Raw token sent in email link, only hash stored in DB. Tokens expire after 60 minutes, single-use.
 
@@ -148,7 +148,7 @@ src/
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0017_add_ai_image_derivatives`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0018_add_profile_avatar_state`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -157,6 +157,7 @@ Key migration-dependent behavior:
 - `0015_add_rate_limit_counters` — required before auth/contact deploy if shared durable rate limiting must work immediately
 - `0016_add_ai_text_assets` — required before auth/AI deploy if admin AI text asset persistence must work immediately
 - `0017_add_ai_image_derivatives` — required before auth deploy if saved-image derivative tracking must work immediately
+- `0018_add_profile_avatar_state` — required before auth deploy if `/api/me` must use cached avatar state instead of per-request R2 probing
 
 ## Conventions
 
@@ -171,6 +172,6 @@ Key migration-dependent behavior:
 - Login checks password BEFORE status to prevent account enumeration via distinguishable error messages
 - Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
-- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, and retries pending `r2_cleanup_queue` deletes
+- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
 - Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

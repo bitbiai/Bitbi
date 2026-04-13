@@ -1,10 +1,10 @@
 import { json } from "./response.js";
-import { parseCookies } from "./cookies.js";
+import { getSessionTokenFromCookies, parseCookies } from "./cookies.js";
 import { nowIso, sha256Hex } from "./tokens.js";
 
 export async function getSessionUser(request, env) {
   const cookies = parseCookies(request.headers.get("Cookie"));
-  const sessionToken = cookies.bitbi_session;
+  const sessionToken = getSessionTokenFromCookies(cookies);
 
   if (!sessionToken) {
     return null;

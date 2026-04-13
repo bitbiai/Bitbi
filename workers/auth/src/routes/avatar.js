@@ -8,9 +8,11 @@ import { requireUser } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { logUserActivity } from "../lib/activity.js";
 import {
+  AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS,
   AI_IMAGE_DERIVATIVE_VERSION,
   buildAiImageDerivativeMessage,
   processAiImageDerivativeMessage,
+  shouldAttemptOnDemandAiImageDerivative,
 } from "../lib/ai-image-derivatives.js";
 import {
   getErrorFields,
@@ -26,7 +28,7 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
 const THUMB_UNAVAILABLE_ERROR = "Preview pending. This image thumbnail is not ready yet.";
 const OWNED_IMAGE_THUMB_SELECT =
-  "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
+  "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type, derivatives_status, derivatives_attempted_at, derivatives_lease_expires_at, r2_key FROM ai_images WHERE id = ? AND user_id = ?";
 
 function isHexAssetId(value) {
   return typeof value === "string" && /^[a-f0-9]+$/.test(value);
@@ -131,6 +133,17 @@ async function resolveOwnedAvatarSourceThumb(env, userId, imageId) {
     };
   }
 
+  if (!shouldAttemptOnDemandAiImageDerivative(row, { cooldownMs: AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS })) {
+    return {
+      ok: false,
+      status: 409,
+      error: row.derivatives_status === "failed"
+        ? "Thumbnail unavailable. Please retry when the preview is available."
+        : THUMB_UNAVAILABLE_ERROR,
+      code: "avatar_thumb_unavailable",
+    };
+  }
+
   try {
     const result = await processAiImageDerivativeMessage(
       env,
@@ -158,10 +171,14 @@ async function resolveOwnedAvatarSourceThumb(env, userId, imageId) {
       }
     }
   } catch (error) {
-    console.warn("avatar thumb generation failed:", {
-      imageId,
-      userId,
-      error: error instanceof Error ? error.message : String(error),
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "avatar",
+      event: "avatar_thumb_generation_failed",
+      level: "warn",
+      user_id: userId,
+      image_id: imageId,
+      ...getErrorFields(error),
     });
   }
 

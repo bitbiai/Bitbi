@@ -1,3 +1,6 @@
+export const LEGACY_SESSION_COOKIE_NAME = "bitbi_session";
+export const SECURE_SESSION_COOKIE_NAME = "__Host-bitbi_session";
+
 export function parseCookies(cookieHeader) {
   const cookies = {};
   if (!cookieHeader) return cookies;
@@ -11,13 +14,17 @@ export function parseCookies(cookieHeader) {
   return cookies;
 }
 
-export function buildSessionCookie(token, isSecure) {
+export function getSessionTokenFromCookies(cookies) {
+  return cookies?.[SECURE_SESSION_COOKIE_NAME] || cookies?.[LEGACY_SESSION_COOKIE_NAME] || null;
+}
+
+function buildCookie(name, value, isSecure, maxAge) {
   const parts = [
-    `bitbi_session=${token}`,
+    `${name}=${value}`,
     "HttpOnly",
     "Path=/",
     "SameSite=Lax",
-    "Max-Age=2592000",
+    `Max-Age=${maxAge}`,
   ];
 
   if (isSecure) {
@@ -27,18 +34,15 @@ export function buildSessionCookie(token, isSecure) {
   return parts.join("; ");
 }
 
-export function buildExpiredSessionCookie(isSecure) {
-  const parts = [
-    "bitbi_session=",
-    "HttpOnly",
-    "Path=/",
-    "SameSite=Lax",
-    "Max-Age=0",
-  ];
+export function buildSessionCookie(token, isSecure) {
+  const cookieName = isSecure ? SECURE_SESSION_COOKIE_NAME : LEGACY_SESSION_COOKIE_NAME;
+  return buildCookie(cookieName, token, isSecure, 2592000);
+}
 
+export function buildExpiredSessionCookies(isSecure) {
+  const names = [LEGACY_SESSION_COOKIE_NAME];
   if (isSecure) {
-    parts.push("Secure");
+    names.unshift(SECURE_SESSION_COOKIE_NAME);
   }
-
-  return parts.join("; ");
+  return names.map((name) => buildCookie(name, "", isSecure, 0));
 }

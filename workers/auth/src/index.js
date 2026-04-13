@@ -16,8 +16,10 @@ import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
 import {
+  AI_IMAGE_DERIVATIVE_RECOVERY_REENQUEUE_COOLDOWN_MS,
   AI_IMAGE_DERIVATIVE_VERSION,
   enqueueAiImageDerivativeJob,
+  getAiImageDerivativeRetryDelaySeconds,
   listAiImagesNeedingDerivativeWork,
   processAiImageDerivativeMessage,
 } from "./lib/ai-image-derivatives.js";
@@ -238,6 +240,9 @@ export default {
       const page = await listAiImagesNeedingDerivativeWork(env, {
         limit: 25,
         includeFailed: false,
+        attemptedBefore: new Date(
+          Date.now() - AI_IMAGE_DERIVATIVE_RECOVERY_REENQUEUE_COOLDOWN_MS
+        ).toISOString(),
         targetVersion: AI_IMAGE_DERIVATIVE_VERSION,
       });
       let enqueued = 0;
@@ -324,9 +329,10 @@ export default {
           image_id: imageId,
           derivatives_version: version,
           attempts,
+          retry_delay_seconds: getAiImageDerivativeRetryDelaySeconds(attempts),
           ...getErrorFields(error),
         });
-        message.retry({ delaySeconds: 30 });
+        message.retry({ delaySeconds: getAiImageDerivativeRetryDelaySeconds(attempts) });
       }
     }
   },

@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bitbi is a static portfolio website showcasing digital art and experimental web projects. Live at `https://bitbi.ai`, hosted on GitHub Pages with automatic deployment via GitHub Actions on push to `main`.
 
-**No build step.** All development is direct HTML/CSS/JS. No linter. Playwright smoke tests run in CI (see [Testing](#testing)).
+Source authoring still stays plain HTML/CSS/JS, but deploys now run repo-native validation/build steps for release compatibility and asset-version rewriting. There is still no framework/bundler migration and no linter. Playwright smoke tests run in CI (see [Testing](#testing)).
 
 ## Development
 
@@ -50,6 +50,11 @@ Playwright smoke tests in `tests/` validate page loads, navigation, asset integr
 npm test                    # run all tests (static smoke + worker contract tests)
 npm run test:static         # run only static-site smoke tests
 npm run test:workers        # run only worker route contract tests
+npm run test:release-compat # run release gate validation tests
+npm run test:asset-version  # run asset-version validation tests
+npm run validate:release    # validate release compatibility against the repo state
+npm run validate:asset-version # validate source asset-version placeholders/tokens
+npm run build:static        # build deploy-ready static output into _site/
 npm run test:headed         # run static tests with visible browser
 npx playwright test -c playwright.config.js tests/smoke.spec.js       # run a single test file
 npx playwright test -c playwright.config.js -g "hero section renders" # run a single test by name
@@ -88,6 +93,9 @@ Current migration-to-worker dependencies:
 - `0012_add_user_activity_log` — admin user-activity views and durable activity logging
 - `0014_add_ai_daily_quota_usage` — `/api/ai/quota` and non-admin daily image quota enforcement
 - `0015_add_rate_limit_counters` — shared durable rate limiting in both auth and contact workers
+- `0016_add_ai_text_assets` — admin AI text-asset persistence and shared-folder save flows
+- `0017_add_ai_image_derivatives` — saved-image derivative tracking, queue generation, and derivative backfill
+- `0018_add_profile_avatar_state` — `/api/me` cached avatar-state hot path and avatar cache updates
 
 Some paths degrade gracefully if a table is missing, but the intended production deploy path is still migrations first, then worker deploys.
 
@@ -105,6 +113,8 @@ Some paths degrade gracefully if a table is missing, but the intended production
 - `https://bitbi.ai/api/health` returns HTTP 200 from the auth worker
 - Auth routes backed by new schema return application JSON instead of `500`/`503` (`/api/admin/user-activity` for `0012`, `/api/ai/quota` for `0014`, AI delete/bulk-delete flows for `0010`)
 - One real contact-form submission from `https://bitbi.ai` returns the expected `200`/`400`/`429` shape, and contact worker logs do not show durable limiter fallback after `0015`
+- Admin AI proxy and worker contract checks still pass via `npm run validate:release` after any auth/AI route changes
+- Pages deploy should be built from `npm run build:static` output so `__ASSET_VERSION__` placeholders are rewritten consistently
 
 **Cloudflare Free plan constraint**: the single WAF rate-limiting rule slot is already used by the auth-domain rule documented in `docs/cloudflare-rate-limiting-wave1.md`, so `contact.bitbi.ai` depends on worker-side limiting rather than dashboard WAF protection.
 
