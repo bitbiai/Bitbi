@@ -1,7 +1,7 @@
 /* ============================================================
    BITBI — Gallery image data (R2-backed public variants)
    ============================================================
-   Single source of truth for public gallery items 100–108.
+   Single source of truth for public gallery items 100–107.
    Change R2_PUBLIC_BASE when the production bucket URL is known.
    ============================================================ */
 
@@ -97,16 +97,5 @@ export const galleryItems = [
         thumb:   { url: r2('gallery/thumbs/ai-creations/blue-moth-specimen-480.webp'),      w: 480,  h: 360 },
         preview: { url: r2('gallery/previews/ai-creations/blue-moth-specimen-900.webp'),    w: 900,  h: 675 },
         full:    { url: r2('gallery/full/ai-creations/blue-moth-specimen-1024.webp'),       w: 1024, h: 768 },
-    },
-    {
-        id: '108',
-        slug: 'emerald-blast-scene',
-        title: 'Planetary Meltdown in Green',
-        caption: 'A massive green planet crumbles apart in a blinding explosion of sparks, flying rocks, and cosmic debris \u2014 captured in that split second where everything goes spectacularly wrong.',
-        category: 'experimental',
-        aspectRatio: '16:9',
-        thumb:   { url: r2('gallery/thumbs/ai-creations/emerald-blast-scene-480.webp'),      w: 480,  h: 269 },
-        preview: { url: r2('gallery/previews/ai-creations/emerald-blast-scene-960.webp'),    w: 960,  h: 539 },
-        full:    { url: r2('gallery/full/ai-creations/emerald-blast-scene-1131.webp'),       w: 1131, h: 635 },
     },
 ];

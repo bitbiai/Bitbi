@@ -114,6 +114,7 @@ test.describe('Homepage', () => {
     await expect(modeBar.getByRole('tab', { name: /Create/ })).toBeVisible();
     await expect(page.locator('#galleryExplore')).toBeVisible();
     await expect(page.locator('#galleryStudio')).toBeHidden();
+    await expect(page.locator('.filter-btn[data-filter="experimental"]')).toHaveCount(0);
   });
 
   test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {

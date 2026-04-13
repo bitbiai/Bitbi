@@ -381,7 +381,6 @@ export function initGallery() {
         const cats = [
             { key: 'pictures', label: 'Pictures' },
             { key: 'creepy', label: 'Creepy Creatures' },
-            { key: 'experimental', label: 'Experimental' },
             { key: 'mempics', label: 'Mempics' },
         ];
 
