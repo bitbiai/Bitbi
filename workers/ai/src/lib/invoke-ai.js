@@ -1,4 +1,8 @@
 import { buildAdminAiMultipartImageRequest } from "../../../../js/shared/admin-ai-contract.mjs";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 function ensureAI(env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
@@ -192,7 +196,21 @@ export async function invokeText(env, model, input) {
     temperature: input.temperature,
   };
 
-  const raw = await env.AI.run(model.id, payload);
+  let raw;
+  try {
+    raw = await env.AI.run(model.id, payload);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-text",
+      event: "workers_ai_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      ...getErrorFields(error),
+    });
+    throw error;
+  }
   const text = extractTextResponse(raw);
 
   if (!text) {
@@ -257,7 +275,22 @@ export async function invokeImage(env, model, input) {
     warnings.push(`Model "${model.id}" does not support reference images. They were ignored.`);
   }
 
-  const raw = await env.AI.run(model.id, payload);
+  let raw;
+  try {
+    raw = await env.AI.run(model.id, payload);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-image",
+      event: "workers_ai_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      input_format: model.inputFormat || "json",
+      ...getErrorFields(error),
+    });
+    throw error;
+  }
   const image = await extractImageResponse(raw, model);
 
   if (!image) {
@@ -278,9 +311,23 @@ export async function invokeImage(env, model, input) {
 export async function invokeEmbeddings(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
-  const raw = await env.AI.run(model.id, {
-    text: input.input.length === 1 ? input.input[0] : input.input,
-  });
+  let raw;
+  try {
+    raw = await env.AI.run(model.id, {
+      text: input.input.length === 1 ? input.input[0] : input.input,
+    });
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-embeddings",
+      event: "workers_ai_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      ...getErrorFields(error),
+    });
+    throw error;
+  }
 
   const embeddings = extractEmbeddingsResponse(raw);
   if (!embeddings) {

@@ -112,6 +112,8 @@ class MockBucket {
     this.objects = new Map();
     this.failDeleteKeys = new Set();
     this.putCalls = [];
+    this.getCalls = [];
+    this.listCalls = [];
     this.deleteCalls = [];
     for (const [key, value] of Object.entries(initial)) {
       this.objects.set(key, {
@@ -135,6 +137,7 @@ class MockBucket {
   }
 
   async get(key) {
+    this.getCalls.push(key);
     return this.objects.get(key) || null;
   }
 
@@ -147,6 +150,7 @@ class MockBucket {
   }
 
   async list({ prefix = '', limit = 1000 } = {}) {
+    this.listCalls.push({ prefix, limit });
     const objects = [];
     for (const [key, value] of this.objects) {
       if (!key.startsWith(prefix)) continue;
@@ -298,6 +302,10 @@ class MockD1 {
       r2CleanupQueue: [],
       ...deepClone(seed),
     };
+    this.state.profiles = (this.state.profiles || []).map((row) => ({
+      has_avatar: row.has_avatar ?? null,
+      ...row,
+    }));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
     this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
     this._lastChanges = 0;
@@ -490,6 +498,16 @@ class MockD1 {
       return { display_name: row.display_name };
     }
 
+    if (query === 'SELECT display_name, has_avatar FROM profiles WHERE user_id = ? LIMIT 1') {
+      const [userId] = bindings;
+      const row = this.state.profiles.find((entry) => entry.user_id === userId);
+      if (!row) return null;
+      return {
+        display_name: row.display_name,
+        has_avatar: row.has_avatar ?? null,
+      };
+    }
+
     if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at) VALUES')) {
       const [userId, displayName, bio, website, youtubeUrl, createdAt, updatedAt] = bindings;
       const existing = this.state.profiles.find((row) => row.user_id === userId);
@@ -506,6 +524,28 @@ class MockD1 {
           bio,
           website,
           youtube_url: youtubeUrl,
+          has_avatar: null,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        });
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, has_avatar, created_at, updated_at) VALUES')) {
+      const [userId, hasAvatar, createdAt, updatedAt] = bindings;
+      const existing = this.state.profiles.find((row) => row.user_id === userId);
+      if (existing) {
+        existing.has_avatar = hasAvatar;
+        existing.updated_at = updatedAt;
+      } else {
+        this.state.profiles.push({
+          user_id: userId,
+          display_name: '',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          has_avatar: hasAvatar,
           created_at: createdAt,
           updated_at: updatedAt,
         });

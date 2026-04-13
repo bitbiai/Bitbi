@@ -2,8 +2,12 @@ import { invokeText } from "../lib/invoke-ai.js";
 import { getModelSummary, resolveCompareModels } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
 import { readJsonBody, validateCompareBody } from "../lib/validate.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
-export async function handleCompare({ request, env }) {
+export async function handleCompare({ request, env, correlationId }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -16,7 +20,7 @@ export async function handleCompare({ request, env }) {
     const results = await Promise.all(
       models.map(async (model) => {
         try {
-          const output = await invokeText(env, model, input);
+          const output = await invokeText(env, model, { ...input, correlationId });
           return {
             ok: true,
             model: getModelSummary(model),
@@ -61,7 +65,14 @@ export async function handleCompare({ request, env }) {
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error) {
-    console.error("AI lab compare route failed", error);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "route-compare",
+      event: "admin_ai_compare_failed",
+      level: "error",
+      correlationId,
+      ...getErrorFields(error),
+    });
     return fromError(error, "Model comparison failed");
   }
 }

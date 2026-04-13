@@ -1,5 +1,10 @@
 import { json } from "./lib/response.js";
 import { nowIso } from "./lib/tokens.js";
+import {
+  getCorrelationId,
+  getErrorFields,
+  logDiagnostic,
+} from "../../../js/shared/worker-observability.mjs";
 import { handleHealth } from "./routes/health.js";
 import { handleMe, handleRegister, handleLogin, handleLogout } from "./routes/auth.js";
 import { handleForgotPassword, handleValidateReset, handleResetPassword } from "./routes/password.js";
@@ -49,7 +54,16 @@ export default {
     const pathname = url.pathname;
     const method = request.method;
     const isSecure = url.protocol === "https:";
-    const ctx = { request, env, url, pathname, method, isSecure, execCtx };
+    const ctx = {
+      request,
+      env,
+      url,
+      pathname,
+      method,
+      isSecure,
+      execCtx,
+      correlationId: getCorrelationId(request),
+    };
 
     // Require a same-origin browser context for state-changing requests.
     // Email verification is exempt because it is intentionally opened from inbox links.
@@ -197,7 +211,14 @@ export default {
       ).all();
       if (exhausted.results && exhausted.results.length > 0) {
         for (const row of exhausted.results) {
-          console.error(`R2 cleanup dead-lettered: r2_key=${row.r2_key}, attempts=${row.attempts}`);
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "scheduled-r2-cleanup",
+            event: "r2_cleanup_dead_lettered",
+            level: "error",
+            r2_key: row.r2_key,
+            attempts: row.attempts,
+          });
         }
         const ph = exhausted.results.map(() => "?").join(",");
         stmts.push(env.DB.prepare(
@@ -231,9 +252,14 @@ export default {
         enqueued += 1;
       }
       if (enqueued > 0) {
-        console.log(
-          `AI image derivative scheduled recovery queued=${enqueued} version=${AI_IMAGE_DERIVATIVE_VERSION} has_more=${page.hasMore}`
-        );
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-derivatives",
+          event: "ai_derivative_recovery_enqueued",
+          queued: enqueued,
+          derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
+          has_more: page.hasMore,
+        });
       }
     } catch (e) {
       if (
@@ -241,9 +267,21 @@ export default {
         String(e).includes("no such column") ||
         String(e).includes("queue binding is unavailable")
       ) {
-        console.warn("AI image derivative scheduled recovery skipped", e);
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-derivatives",
+          event: "ai_derivative_recovery_skipped",
+          level: "warn",
+          ...getErrorFields(e),
+        });
       } else {
-        console.error("AI image derivative scheduled recovery failed", e);
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-derivatives",
+          event: "ai_derivative_recovery_failed",
+          level: "error",
+          ...getErrorFields(e),
+        });
       }
     }
   },
@@ -254,33 +292,40 @@ export default {
       const imageId = rawBody.image_id || "unknown";
       const version = rawBody.derivatives_version || "unknown";
       const attempts = message.attempts ?? 0;
+      const correlationId = rawBody.correlation_id || null;
       // Must stay in sync with queues.consumers[0].max_retries in wrangler.jsonc (currently 8).
       const isLastAttempt = attempts >= 7;
-      console.log(
-        `AI image derivative consumer start image=${imageId} version=${version} attempts=${attempts}`
-      );
 
       try {
         const result = await processAiImageDerivativeMessage(env, message.body, { isLastAttempt });
-        if (result.status === "ready") {
-          console.log(
-            `AI image derivative consumer success image=${result.payload.imageId} version=${result.payload.derivativesVersion}`
-          );
-        } else if (result.status === "failed") {
-          console.error(
-            `AI image derivative consumer ${result.reason === "retries_exhausted" ? "retries-exhausted" : "permanent-failure"} image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
-          );
-        } else {
-          console.log(
-            `AI image derivative consumer noop image=${result.payload.imageId} version=${result.payload.derivativesVersion} reason=${result.reason}`
-          );
+        if (result.status === "failed") {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "ai-image-derivatives-queue",
+            event: "ai_derivative_consumer_failed",
+            level: "error",
+            correlationId,
+            image_id: result.payload.imageId,
+            user_id: result.payload.userId,
+            derivatives_version: result.payload.derivativesVersion,
+            reason: result.reason,
+            attempts,
+            ...getErrorFields(result.error),
+          });
         }
         message.ack();
       } catch (error) {
-        console.error(
-          `AI image derivative consumer retry image=${imageId} version=${version} attempts=${attempts}`,
-          error
-        );
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "ai-image-derivatives-queue",
+          event: "ai_derivative_consumer_retry",
+          level: "error",
+          correlationId,
+          image_id: imageId,
+          derivatives_version: version,
+          attempts,
+          ...getErrorFields(error),
+        });
         message.retry({ delaySeconds: 30 });
       }
     }

@@ -13,6 +13,11 @@ import {
   toAiImageAssetRecord,
 } from "../lib/ai-image-derivatives.js";
 import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
+import {
+  getErrorFields,
+  logDiagnostic,
+  withCorrelationId,
+} from "../../../../js/shared/worker-observability.mjs";
 
 const {
   DEFAULT_AI_IMAGE_MODEL,
@@ -373,6 +378,8 @@ async function handleQuota(ctx) {
 // ── POST /api/ai/generate-image ──
 async function handleGenerateImage(ctx) {
   const { request, env } = ctx;
+  const correlationId = ctx.correlationId || null;
+  const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
@@ -387,12 +394,12 @@ async function handleGenerateImage(ctx) {
 
   const body = await readJsonBody(request);
   if (!body || !body.prompt) {
-    return json({ ok: false, error: "Prompt is required." }, { status: 400 });
+    return respond({ ok: false, error: "Prompt is required." }, { status: 400 });
   }
 
   const prompt = String(body.prompt).trim();
   if (prompt.length === 0 || prompt.length > MAX_PROMPT_LENGTH) {
-    return json(
+    return respond(
       { ok: false, error: `Prompt must be 1–${MAX_PROMPT_LENGTH} characters.` },
       { status: 400 }
     );
@@ -401,7 +408,7 @@ async function handleGenerateImage(ctx) {
   const requestedModel = body.model;
   const modelConfig = resolveAiImageModel(requestedModel);
   if (!modelConfig) {
-    return json({ ok: false, error: "Unsupported image model." }, { status: 400 });
+    return respond({ ok: false, error: "Unsupported image model." }, { status: 400 });
   }
 
   let steps = DEFAULT_STEPS;
@@ -475,17 +482,39 @@ async function handleGenerateImage(ctx) {
       }
     }
   } catch (e) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_generate_failed",
+      level: "error",
+      correlationId,
+      user_id: userId,
+      model: modelConfig.id,
+      request_mode: modelConfig.requestMode || "json",
+      is_admin: isAdmin,
+      ...getErrorFields(e),
+    });
     if (quotaReservationId) {
       try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
     }
-    return json({ ok: false, error: "Image generation failed." }, { status: 502 });
+    return respond({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
 
   if (!base64) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_generate_empty_result",
+      level: "error",
+      correlationId,
+      user_id: userId,
+      model: modelConfig.id,
+      is_admin: isAdmin,
+    });
     if (quotaReservationId) {
       try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
     }
-    return json({ ok: false, error: "No image was generated." }, { status: 502 });
+    return respond({ ok: false, error: "No image was generated." }, { status: 502 });
   }
 
   // Log generation for quota tracking / history
@@ -505,7 +534,17 @@ async function handleGenerateImage(ctx) {
         try {
           await env.DB.prepare("DELETE FROM ai_generation_log WHERE id = ?").bind(logId).run();
         } catch { /* ignore */ }
-        return json(
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "ai-generate-image",
+          event: "ai_generate_finalize_conflict",
+          level: "error",
+          correlationId,
+          user_id: userId,
+          model: modelConfig.id,
+          quota_reservation_id: quotaReservationId,
+        });
+        return respond(
           { ok: false, error: "Image generation could not be finalized. Please try again." },
           { status: 500 }
         );
@@ -516,16 +555,27 @@ async function handleGenerateImage(ctx) {
       ).bind(logId, userId, completedAt).run();
     }
   } catch (e) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_generate_finalize_failed",
+      level: "error",
+      correlationId,
+      user_id: userId,
+      model: modelConfig.id,
+      quota_reservation_id: quotaReservationId,
+      ...getErrorFields(e),
+    });
     if (quotaReservationId) {
       try { await releaseQuotaReservation(env, quotaReservationId); } catch { /* ignore */ }
     }
-    return json(
+    return respond(
       { ok: false, error: "Image generation could not be finalized. Please try again." },
       { status: 500 }
     );
   }
 
-  return json({
+  return respond({
     ok: true,
     data: {
       imageBase64: base64,
@@ -727,12 +777,14 @@ async function handleGetAssets(ctx) {
 // ── POST /api/ai/images/save ──
 async function handleSaveImage(ctx) {
   const { request, env } = ctx;
+  const correlationId = ctx.correlationId || null;
+  const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
   const body = await readJsonBody(request);
   if (!body || !body.imageData || !body.prompt) {
-    return json({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
+    return respond({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
   }
 
   // Validate optional folder ownership (only active folders accept saves)
@@ -743,7 +795,7 @@ async function handleSaveImage(ctx) {
       "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
     ).bind(body.folder_id, session.user.id).first();
     if (!folder) {
-      return json({ ok: false, error: "Folder not found." }, { status: 404 });
+      return respond({ ok: false, error: "Folder not found." }, { status: 404 });
     }
     folderId = folder.id;
     folderSlug = folder.slug;
@@ -752,7 +804,7 @@ async function handleSaveImage(ctx) {
   // Decode base64 data URI to bytes
   const match = String(body.imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
   if (!match) {
-    return json({ ok: false, error: "Invalid image data format." }, { status: 400 });
+    return respond({ ok: false, error: "Invalid image data format." }, { status: 400 });
   }
   const savedMimeType = match[1];
 
@@ -762,11 +814,11 @@ async function handleSaveImage(ctx) {
     imageBytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) imageBytes[i] = raw.charCodeAt(i);
   } catch {
-    return json({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
+    return respond({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
   }
 
   if (imageBytes.byteLength > MAX_SAVED_AI_IMAGE_BYTES) {
-    return json({ ok: false, error: "Image data must be 10 MB or smaller." }, { status: 400 });
+    return respond({ ok: false, error: "Image data must be 10 MB or smaller." }, { status: 400 });
   }
 
   // Validate image magic bytes (PNG, JPEG, or WebP)
@@ -774,11 +826,19 @@ async function handleSaveImage(ctx) {
   const isJpeg = imageBytes.length >= 3 && imageBytes[0] === 0xFF && imageBytes[1] === 0xD8 && imageBytes[2] === 0xFF;
   const isWebp = imageBytes.length >= 12 && imageBytes[0] === 0x52 && imageBytes[1] === 0x49 && imageBytes[2] === 0x46 && imageBytes[3] === 0x46 && imageBytes[8] === 0x57 && imageBytes[9] === 0x45 && imageBytes[10] === 0x42 && imageBytes[11] === 0x50;
   if (!isPng && !isJpeg && !isWebp) {
-    return json({ ok: false, error: "Invalid image format." }, { status: 400 });
+    return respond({ ok: false, error: "Invalid image format." }, { status: 400 });
   }
 
   if (!env?.IMAGES || typeof env.IMAGES.info !== "function") {
-    return json(
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-image",
+      event: "ai_image_inspection_unavailable",
+      level: "error",
+      correlationId,
+      user_id: session.user.id,
+    });
+    return respond(
       { ok: false, error: "Image save is temporarily unavailable. Please try again later." },
       { status: 503 }
     );
@@ -788,21 +848,21 @@ async function handleSaveImage(ctx) {
   try {
     imageInfo = await env.IMAGES.info(imageBytes);
   } catch {
-    return json({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
+    return respond({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
   }
 
   const width = Number(imageInfo?.width);
   const height = Number(imageInfo?.height);
   const pixels = width * height;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
-    return json({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
+    return respond({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
   }
   if (
     width > MAX_SAVED_AI_IMAGE_WIDTH ||
     height > MAX_SAVED_AI_IMAGE_HEIGHT ||
     pixels > MAX_SAVED_AI_IMAGE_PIXELS
   ) {
-    return json(
+    return respond(
       {
         ok: false,
         error: `Saved image must be ${MAX_SAVED_AI_IMAGE_WIDTH}x${MAX_SAVED_AI_IMAGE_HEIGHT} pixels or smaller. Received ${width}x${height}.`,
@@ -820,6 +880,20 @@ async function handleSaveImage(ctx) {
   // Store in R2
   await env.USER_IMAGES.put(r2Key, imageBytes.buffer, {
     httpMetadata: { contentType: savedMimeType },
+  });
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-save-image",
+    event: "ai_image_stored",
+    correlationId,
+    user_id: session.user.id,
+    image_id: imageId,
+    r2_key: r2Key,
+    size_bytes: imageBytes.byteLength,
+    mime_type: savedMimeType,
+    width,
+    height,
+    folder_id: folderId,
   });
 
   // Store metadata in D1
@@ -850,13 +924,36 @@ async function handleSaveImage(ctx) {
   } catch (e) {
     // INSERT failed (e.g. FK violation from concurrent folder delete)
     try { await env.USER_IMAGES.delete(r2Key); } catch { /* best effort */ }
-    return json({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-image",
+      event: "ai_image_metadata_insert_failed",
+      level: "error",
+      correlationId,
+      user_id: session.user.id,
+      image_id: imageId,
+      folder_id: folderId,
+      r2_key: r2Key,
+      ...getErrorFields(e),
+    });
+    return respond({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
   }
 
   // If the conditional insert produced 0 rows the folder was deleted/deleting
   if (!insertResult.meta.changes) {
     try { await env.USER_IMAGES.delete(r2Key); } catch { /* best effort */ }
-    return json({ ok: false, error: "Folder was deleted. Image not saved." }, { status: 404 });
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-image",
+      event: "ai_image_folder_deleted_before_insert",
+      level: "warn",
+      correlationId,
+      user_id: session.user.id,
+      image_id: imageId,
+      folder_id: folderId,
+      r2_key: r2Key,
+    });
+    return respond({ ok: false, error: "Folder was deleted. Image not saved." }, { status: 404 });
   }
 
   let derivativesEnqueued = true;
@@ -866,17 +963,23 @@ async function handleSaveImage(ctx) {
       userId: session.user.id,
       originalKey: r2Key,
       derivativesVersion: AI_IMAGE_DERIVATIVE_VERSION,
+      correlationId,
       trigger: "save",
     });
-    console.log(
-      `AI image derivative enqueue success image=${queued.image_id} version=${queued.derivatives_version} trigger=${queued.trigger}`
-    );
   } catch (error) {
     derivativesEnqueued = false;
-    console.error(
-      `AI image derivative enqueue failed image=${imageId} version=${AI_IMAGE_DERIVATIVE_VERSION}`,
-      error
-    );
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-image",
+      event: "ai_image_derivative_enqueue_failed",
+      level: "error",
+      correlationId,
+      user_id: session.user.id,
+      image_id: imageId,
+      derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
+      r2_key: r2Key,
+      ...getErrorFields(error),
+    });
     try {
       await env.DB.prepare(
         "UPDATE ai_images SET derivatives_error = ?, derivatives_attempted_at = ? WHERE id = ? AND user_id = ?"
@@ -891,7 +994,7 @@ async function handleSaveImage(ctx) {
     }
   }
 
-  return json({
+  return respond({
     ok: true,
     data: {
       id: imageId,

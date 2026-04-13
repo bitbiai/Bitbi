@@ -19,6 +19,13 @@ import {
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
+import {
+    buildCompareSaveIntent,
+    buildEmbeddingsSaveIntent,
+    buildImageSaveIntent,
+    buildLiveAgentSaveIntent,
+    buildTextSaveIntent,
+} from './ai-lab-save-intents.mjs?v=__ASSET_VERSION__';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
@@ -544,15 +551,6 @@ function getModelLabel(catalog, task, modelId) {
     if (!modelId) return 'Preset default';
     const model = getModelInfo(catalog, task, modelId);
     return model ? `${model.label} (${model.id})` : modelId;
-}
-
-function buildSaveTitle(seed, fallback) {
-    const cleaned = String(seed || '')
-        .replace(/\s+/g, ' ')
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim()
-        .slice(0, 120);
-    return cleaned || fallback;
 }
 
 export function createAdminAiLab({ showToast } = {}) {
@@ -1209,142 +1207,62 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function getTextSaveIntent() {
         const response = state.results.text?.raw;
-        const result = response?.result;
-        if (!result?.text) return null;
-        return {
-            type: 'text',
-            sourceModule: 'text',
-            modalTitle: 'Save Text Result',
-            description: 'Save the current text run as a UTF-8 .txt file in your existing Image Studio folder structure.',
-            confirmLabel: 'Save Text',
-            defaultTitle: buildSaveTitle(state.forms.text.prompt, 'AI Lab Text'),
-            note: 'The auth worker serializes the final .txt server-side and stores it beside your images.',
-            payload: {
-                preset: response?.preset || null,
-                model: response?.model || null,
-                system: state.forms.text.system || '',
-                prompt: state.forms.text.prompt || '',
-                output: result.text,
-                maxTokens: result.maxTokens,
-                temperature: result.temperature,
-                usage: result.usage || null,
-                warnings: getWarnings(response),
-                elapsedMs: response?.elapsedMs || null,
-                receivedAt: state.results.text?.receivedAt instanceof Date
-                    ? state.results.text.receivedAt.toISOString()
-                    : null,
-            },
-        };
+        return buildTextSaveIntent({
+            response,
+            prompt: state.forms.text.prompt,
+            system: state.forms.text.system,
+            warnings: getWarnings(response),
+            receivedAt: state.results.text?.receivedAt instanceof Date
+                ? state.results.text.receivedAt.toISOString()
+                : null,
+        });
     }
 
     function getImageSaveIntent() {
         const response = state.results.image?.raw;
-        const result = response?.result;
-        if (!result?.imageBase64) return null;
-        return {
-            type: 'image',
-            modalTitle: 'Save Image',
-            description: 'Save the current image with the same folder logic and backend path used by the existing Image Studio.',
-            confirmLabel: 'Save Image',
-            defaultTitle: buildSaveTitle(state.forms.image.prompt, 'AI Lab Image'),
-            note: 'The existing image save endpoint generates the final filename automatically. Only the folder selection is required here.',
-            payload: {
-                imageData: `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`,
-                prompt: response?.prompt || state.forms.image.prompt || '',
-                model: response?.model?.id || state.forms.image.model || '',
-                steps: result.steps,
-                seed: result.seed,
-                guidance: result.guidance,
-            },
-        };
+        return buildImageSaveIntent({
+            response,
+            prompt: state.forms.image.prompt,
+            fallbackModel: state.forms.image.model,
+        });
     }
 
     function getEmbeddingsSaveIntent() {
         const response = state.results.embeddings?.raw;
-        const result = response?.result;
-        if (!Array.isArray(result?.vectors) || result.vectors.length === 0) return null;
-        const inputItems = (state.forms.embeddings.input || '')
-            .split(/\r?\n/)
-            .map((entry) => entry.trim())
-            .filter(Boolean);
-        return {
-            type: 'text',
-            sourceModule: 'embeddings',
-            modalTitle: 'Save Embeddings Result',
-            description: 'Save the current embeddings run as a structured .txt file in your existing folder structure.',
-            confirmLabel: 'Save Embeddings',
-            defaultTitle: buildSaveTitle(inputItems[0] || 'AI Lab Embeddings', 'AI Lab Embeddings'),
-            note: 'Vectors are serialized server-side into a plain-text file with bounded metadata and the recorded vector output.',
-            payload: {
-                preset: response?.preset || null,
-                model: response?.model || null,
-                inputItems,
-                vectors: result.vectors,
-                dimensions: result.dimensions,
-                count: result.count,
-                shape: Array.isArray(result.shape) ? result.shape : null,
-                pooling: result.pooling || null,
-                warnings: getWarnings(response),
-                elapsedMs: response?.elapsedMs || null,
-                receivedAt: state.results.embeddings?.receivedAt instanceof Date
-                    ? state.results.embeddings.receivedAt.toISOString()
-                    : null,
-            },
-        };
+        return buildEmbeddingsSaveIntent({
+            response,
+            input: state.forms.embeddings.input,
+            warnings: getWarnings(response),
+            receivedAt: state.results.embeddings?.receivedAt instanceof Date
+                ? state.results.embeddings.receivedAt.toISOString()
+                : null,
+        });
     }
 
     function getCompareSaveIntent() {
         const response = state.results.compare?.raw;
         const results = Array.isArray(response?.result?.results) ? response.result.results : [];
-        if (results.length === 0) return null;
         const diff = buildCompareDiff(results);
-        return {
-            type: 'text',
-            sourceModule: 'compare',
-            modalTitle: 'Save Compare Result',
-            description: 'Save the current compare run as a structured .txt file with both model outputs and the existing difference aid summary.',
-            confirmLabel: 'Save Compare',
-            defaultTitle: buildSaveTitle(state.forms.compare.prompt, 'AI Lab Compare'),
-            note: 'The saved file includes the shared prompt, per-model outputs, warnings, and the compare difference summary.',
-            payload: {
-                prompt: state.forms.compare.prompt || '',
-                system: state.forms.compare.system || '',
-                maxTokens: response?.result?.maxTokens || null,
-                temperature: response?.result?.temperature || null,
-                elapsedMs: response?.elapsedMs || null,
-                receivedAt: state.results.compare?.receivedAt instanceof Date
-                    ? state.results.compare.receivedAt.toISOString()
-                    : null,
-                warnings: getWarnings(response),
-                diffSummary: diff.available ? diff : null,
-                results,
-            },
-        };
+        return buildCompareSaveIntent({
+            response,
+            prompt: state.forms.compare.prompt,
+            system: state.forms.compare.system,
+            warnings: getWarnings(response),
+            diffSummary: diff.available ? diff : null,
+            receivedAt: state.results.compare?.receivedAt instanceof Date
+                ? state.results.compare.receivedAt.toISOString()
+                : null,
+        });
     }
 
     function getLiveAgentSaveIntent() {
-        if (!Array.isArray(liveAgentState.messages) || liveAgentState.messages.length === 0) return null;
-        const lastAssistant = [...liveAgentState.messages].reverse().find((entry) => entry.role === 'assistant');
-        const lastUser = [...liveAgentState.messages].reverse().find((entry) => entry.role === 'user');
-        return {
-            type: 'text',
-            sourceModule: 'live_agent',
-            modalTitle: 'Save Live Agent Transcript',
-            description: 'Save the current live-agent transcript as a structured .txt file in your existing folder structure.',
-            confirmLabel: 'Save Transcript',
-            defaultTitle: buildSaveTitle(lastUser?.content || 'AI Lab Live Agent', 'AI Lab Live Agent'),
-            note: 'The transcript is serialized server-side as plain text with the system prompt, ordered messages, and final assistant response.',
-            payload: {
-                model: LIVE_AGENT_MODEL,
-                system: refs.liveAgent.system.value || '',
-                transcript: liveAgentState.messages.map((entry) => ({
-                    role: entry.role,
-                    content: entry.content,
-                })),
-                finalResponse: lastAssistant?.content || '',
-                receivedAt: new Date().toISOString(),
-            },
-        };
+        return buildLiveAgentSaveIntent({
+            messages: liveAgentState.messages,
+            transcriptRoot: refs.liveAgent.transcript,
+            system: refs.liveAgent.system.value || '',
+            model: ADMIN_AI_LIVE_AGENT_MODEL,
+            receivedAt: new Date().toISOString(),
+        });
     }
 
     function getSaveIntent(task) {

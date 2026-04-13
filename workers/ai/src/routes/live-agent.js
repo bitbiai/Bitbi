@@ -4,6 +4,10 @@ import {
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import { errorResponse, fromError } from "../lib/responses.js";
 import { readJsonBody } from "../lib/validate.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 function ensureAI(env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
@@ -13,7 +17,7 @@ function ensureAI(env) {
   }
 }
 
-export async function handleLiveAgent({ request, env }) {
+export async function handleLiveAgent({ request, env, correlationId }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -38,7 +42,14 @@ export async function handleLiveAgent({ request, env }) {
       },
     });
   } catch (error) {
-    console.error("AI lab live-agent route failed", error);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "route-live-agent",
+      event: "admin_ai_live_agent_failed",
+      level: "error",
+      correlationId,
+      ...getErrorFields(error),
+    });
     return fromError(error, "Live agent request failed");
   }
 }

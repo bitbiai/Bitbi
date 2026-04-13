@@ -240,10 +240,11 @@ async function seedCookieConsent(page) {
     localStorage.setItem(
       'bitbi_cookie_consent',
       JSON.stringify({
+        v: '1',
+        ts: Date.now(),
         necessary: true,
         analytics: false,
         marketing: false,
-        timestamp: Date.now(),
       }),
     );
   });
@@ -1217,10 +1218,11 @@ test.describe('Auth modal', () => {
       localStorage.setItem(
         'bitbi_cookie_consent',
         JSON.stringify({
+          v: '1',
+          ts: Date.now(),
           necessary: true,
           analytics: false,
           marketing: false,
-          timestamp: Date.now(),
         }),
       );
     });
@@ -2606,6 +2608,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiLiveAgentSend').click();
     await expect(page.locator('#aiLiveAgentTranscript')).toContainText('Hello from the live agent.');
     await page.locator('#aiLiveAgentSave').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
     await page.locator('#aiLabSaveInput').fill('Live Agent Transcript');
     await page.selectOption('#aiLabSaveFolder', 'folder-research');
     await page.locator('#aiLabSaveConfirm').click();
@@ -3284,10 +3287,11 @@ test.describe('Regression: auth modal form injection', () => {
       localStorage.setItem(
         'bitbi_cookie_consent',
         JSON.stringify({
+          v: '1',
+          ts: Date.now(),
           necessary: true,
           analytics: false,
           marketing: false,
-          timestamp: Date.now(),
         }),
       );
     });

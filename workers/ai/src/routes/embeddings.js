@@ -2,8 +2,12 @@ import { invokeEmbeddings } from "../lib/invoke-ai.js";
 import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
 import { readJsonBody, validateEmbeddingsBody } from "../lib/validate.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
-export async function handleEmbeddings({ request, env }) {
+export async function handleEmbeddings({ request, env, correlationId }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -12,7 +16,7 @@ export async function handleEmbeddings({ request, env }) {
 
     const input = validateEmbeddingsBody(body);
     const selection = resolveModelSelection("embeddings", input);
-    const output = await invokeEmbeddings(env, selection.model, input);
+    const output = await invokeEmbeddings(env, selection.model, { ...input, correlationId });
     const warnings = [...selection.warnings];
 
     return ok({
@@ -30,7 +34,14 @@ export async function handleEmbeddings({ request, env }) {
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error) {
-    console.error("AI lab embeddings route failed", error);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "route-embeddings",
+      event: "admin_ai_embeddings_failed",
+      level: "error",
+      correlationId,
+      ...getErrorFields(error),
+    });
     return fromError(error, "Embedding generation failed");
   }
 }

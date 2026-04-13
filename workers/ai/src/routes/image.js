@@ -2,8 +2,12 @@ import { invokeImage } from "../lib/invoke-ai.js";
 import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
 import { readJsonBody, validateImageBody } from "../lib/validate.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
-export async function handleImage({ request, env }) {
+export async function handleImage({ request, env, correlationId }) {
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -12,7 +16,7 @@ export async function handleImage({ request, env }) {
 
     const input = validateImageBody(body);
     const selection = resolveModelSelection("image", input);
-    const output = await invokeImage(env, selection.model, input);
+    const output = await invokeImage(env, selection.model, { ...input, correlationId });
     const warnings = [...selection.warnings, ...output.warnings];
 
     return ok({
@@ -40,7 +44,14 @@ export async function handleImage({ request, env }) {
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error) {
-    console.error("AI lab image route failed", error);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "route-image",
+      event: "admin_ai_image_failed",
+      level: "error",
+      correlationId,
+      ...getErrorFields(error),
+    });
     return fromError(error, "Image generation failed");
   }
 }

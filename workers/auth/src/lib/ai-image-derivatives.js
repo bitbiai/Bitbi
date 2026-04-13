@@ -1,4 +1,8 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 export const AI_IMAGE_DERIVATIVE_VERSION = 1;
 export const AI_IMAGE_DERIVATIVE_QUEUE_SCHEMA_VERSION = 1;
@@ -224,6 +228,16 @@ export async function enqueueAiImageDerivativeJob(env, payload) {
   }
   const message = buildAiImageDerivativeMessage(payload);
   await env.AI_IMAGE_DERIVATIVES_QUEUE.send(message);
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-image-derivatives",
+    event: "ai_derivative_enqueued",
+    correlationId: message.correlation_id,
+    image_id: message.image_id,
+    user_id: message.user_id,
+    derivatives_version: message.derivatives_version,
+    trigger: message.trigger,
+  });
   return message;
 }
 
@@ -448,11 +462,16 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
       headers: { "content-type": contentType },
     });
   } else {
-    console.error(
-      `AI derivative transform unexpected shape: type=${typeof transformResult} ` +
-      `ctor=${transformResult?.constructor?.name} ` +
-      `keys=${Object.keys(transformResult || {}).join(",")}`
-    );
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-image-derivatives",
+      event: "ai_derivative_transform_invalid_shape",
+      level: "error",
+      transform_type: typeof transformResult,
+      transform_ctor: transformResult?.constructor?.name || null,
+      transform_keys: Object.keys(transformResult || {}),
+      preset: preset.variant,
+    });
     throw new Error(`Derivative transform returned an invalid result for ${preset.variant}.`);
   }
 
@@ -610,6 +629,17 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
     );
     await cleanupDerivativeKeysBestEffort(env, staleKeys);
 
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-image-derivatives",
+      event: "ai_derivative_generated",
+      correlationId: payload.correlationId,
+      image_id: payload.imageId,
+      user_id: payload.userId,
+      derivatives_version: payload.derivativesVersion,
+      trigger: payload.trigger,
+    });
+
     return {
       status: "ready",
       reason: "generated",
@@ -618,6 +648,20 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
     };
   } catch (error) {
     await cleanupDerivativeKeysBestEffort(env, writtenKeys);
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-image-derivatives",
+      event: "ai_derivative_generation_failed",
+      level: isLastAttempt || isPermanentAiImageDerivativeError(error) ? "error" : "warn",
+      correlationId: payload.correlationId,
+      image_id: payload.imageId,
+      user_id: payload.userId,
+      derivatives_version: payload.derivativesVersion,
+      trigger: payload.trigger,
+      final_attempt: !!isLastAttempt,
+      ...getErrorFields(error),
+    });
 
     if (isPermanentAiImageDerivativeError(error)) {
       await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));

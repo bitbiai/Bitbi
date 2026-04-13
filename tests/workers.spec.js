@@ -20,6 +20,11 @@ async function loadRequestModule() {
   return import(requestPath);
 }
 
+async function loadObservabilityModule() {
+  const observabilityPath = pathToFileURL(path.join(process.cwd(), 'js/shared/worker-observability.mjs')).href;
+  return import(observabilityPath);
+}
+
 function authJsonRequest(pathname, method, body, headers = {}) {
   const requestHeaders = new Headers(headers);
   if (body !== undefined) {
@@ -145,6 +150,51 @@ const ONE_PIXEL_PNG_BYTES = Buffer.from(
   ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''),
   'base64'
 );
+
+test('worker observability helper builds stable structured events and correlation headers', async () => {
+  const {
+    BITBI_CORRELATION_HEADER,
+    buildDiagnosticEvent,
+    getErrorFields,
+    withCorrelationId,
+  } = await loadObservabilityModule();
+
+  const error = new Error('provider exploded');
+  error.code = 'upstream_error';
+  error.status = 502;
+
+  const event = buildDiagnosticEvent({
+    service: 'bitbi-auth',
+    component: 'ai-generate-image',
+    event: 'ai_generate_failed',
+    level: 'error',
+    correlationId: 'corr-12345678',
+    user_id: 'user-1',
+    ...getErrorFields(error),
+  });
+
+  expect(event).toEqual(expect.objectContaining({
+    service: 'bitbi-auth',
+    component: 'ai-generate-image',
+    event: 'ai_generate_failed',
+    level: 'error',
+    correlation_id: 'corr-12345678',
+    user_id: 'user-1',
+    error_message: 'provider exploded',
+    error_code: 'upstream_error',
+    error_status: 502,
+  }));
+  expect(typeof event.ts).toBe('string');
+
+  const response = withCorrelationId(
+    new Response(JSON.stringify({ ok: false }), {
+      status: 502,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    }),
+    'corr-12345678'
+  );
+  expect(response.headers.get(BITBI_CORRELATION_HEADER)).toBe('corr-12345678');
+});
 
 async function readMultipartEntries(multipart) {
   const response = new Response(multipart.body, {
@@ -430,6 +480,7 @@ test.describe('Worker routes', () => {
       expect(stored).toBeTruthy();
       expect(stored.httpMetadata).toMatchObject({ contentType: 'image/png' });
       expect(Buffer.from(stored.body)).toEqual(ONE_PIXEL_PNG_BYTES);
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-upload-user')?.has_avatar).toBe(1);
     });
 
     test('saved asset avatar assignment copies the owned thumb instead of the original image', async () => {
@@ -512,6 +563,7 @@ test.describe('Worker routes', () => {
       expect(stored.httpMetadata).toMatchObject({ contentType: 'image/webp' });
       expect(Buffer.from(stored.body)).toEqual(thumbBytes);
       expect(Buffer.from(stored.body)).not.toEqual(originalBytes);
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-thumb-user')?.has_avatar).toBe(1);
     });
 
     test('saved asset avatar assignment generates the thumb first when it is missing', async () => {
@@ -591,6 +643,7 @@ test.describe('Worker routes', () => {
       expect(stored.httpMetadata).toMatchObject({
         contentType: generatedThumb.httpMetadata.contentType,
       });
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-derivative-user')?.has_avatar).toBe(1);
     });
 
     test('saved asset avatar assignment never falls back to the original image when no thumb can be produced', async () => {
@@ -647,6 +700,7 @@ test.describe('Worker routes', () => {
         code: 'avatar_thumb_unavailable',
       });
       expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-no-thumb-user')).toBe(false);
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-no-thumb-user')).toBeUndefined();
     });
 
     test('saved asset avatar assignment enforces image ownership', async () => {
@@ -723,6 +777,55 @@ test.describe('Worker routes', () => {
         error: 'Saved image not found.',
       });
       expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-owner-user')).toBe(false);
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-owner-user')).toBeUndefined();
+    });
+
+    test('DELETE /api/profile/avatar clears the cached avatar profile state', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createContractUser({ id: 'avatar-delete-user', role: 'user' })],
+        profiles: [
+          {
+            user_id: 'avatar-delete-user',
+            display_name: 'Avatar Delete',
+            bio: '',
+            website: '',
+            youtube_url: '',
+            has_avatar: 1,
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          },
+        ],
+        privateMedia: {
+          'avatars/avatar-delete-user': {
+            body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+              ONE_PIXEL_PNG_BYTES.byteOffset,
+              ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+            ),
+            httpMetadata: { contentType: 'image/png' },
+          },
+        },
+      });
+
+      const token = await seedSession(env, 'avatar-delete-user');
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/profile/avatar', 'DELETE', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        message: 'Avatar removed.',
+      });
+      expect(env.PRIVATE_MEDIA.objects.has('avatars/avatar-delete-user')).toBe(false);
+      expect(env.DB.state.profiles.find((row) => row.user_id === 'avatar-delete-user')?.has_avatar).toBe(0);
     });
   });
 
@@ -1449,6 +1552,7 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(502);
+      expect(res.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
       await expect(res.json()).resolves.toEqual(expect.objectContaining({
         ok: false,
         code: 'upstream_error',
@@ -1714,6 +1818,106 @@ test.describe('Worker routes', () => {
       loggedIn: false,
       user: null,
     });
+  });
+
+  test('/api/me uses cached avatar state without probing R2 on the hot path', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'me-cached-user', role: 'user' })],
+      profiles: [
+        {
+          user_id: 'me-cached-user',
+          display_name: 'Cached Avatar',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          has_avatar: 1,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'me-cached-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        display_name: 'Cached Avatar',
+        has_avatar: true,
+        avatar_url: '/api/profile/avatar',
+      },
+    });
+    expect(env.PRIVATE_MEDIA.getCalls).toHaveLength(0);
+    expect(env.PRIVATE_MEDIA.listCalls).toHaveLength(0);
+  });
+
+  test('/api/me falls back once for legacy avatar state and persists the cached profile flag', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'me-legacy-user', role: 'user' })],
+      profiles: [
+        {
+          user_id: 'me-legacy-user',
+          display_name: 'Legacy Avatar',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        },
+      ],
+      privateMedia: {
+        'avatars/me-legacy-user': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+            ONE_PIXEL_PNG_BYTES.byteOffset,
+            ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+          ),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'me-legacy-user');
+    const firstRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(firstRes.status).toBe(200);
+    await expect(firstRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        display_name: 'Legacy Avatar',
+        has_avatar: true,
+        avatar_url: '/api/profile/avatar',
+      },
+    });
+    expect(env.PRIVATE_MEDIA.getCalls).toEqual(['avatars/me-legacy-user']);
+    expect(env.PRIVATE_MEDIA.listCalls).toHaveLength(0);
+    expect(env.DB.state.profiles.find((row) => row.user_id === 'me-legacy-user')?.has_avatar).toBe(1);
+
+    env.PRIVATE_MEDIA.getCalls.length = 0;
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(200);
+    expect(env.PRIVATE_MEDIA.getCalls).toHaveLength(0);
   });
 
   test('admin destructive path: delete user without AI-owned records', async () => {
@@ -4087,6 +4291,7 @@ test.describe('Worker routes', () => {
     );
 
     expect(res.status).toBe(502);
+    expect(res.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
     await expect(res.json()).resolves.toMatchObject({
       ok: false,
       error: 'Image generation failed.',

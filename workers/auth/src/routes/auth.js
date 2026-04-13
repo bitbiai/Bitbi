@@ -7,10 +7,7 @@ import { getSessionUser } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
-
-function avatarKey(userId) {
-  return `avatars/${userId}`;
-}
+import { resolveCachedAvatarPresence } from "../lib/profile-avatar-state.js";
 
 export async function handleMe(ctx) {
   const { request, env } = ctx;
@@ -23,17 +20,12 @@ export async function handleMe(ctx) {
     });
   }
 
-  const [profileRow, avatarListing] = await Promise.all([
-    env.DB.prepare(
-      "SELECT display_name FROM profiles WHERE user_id = ? LIMIT 1"
-    )
-      .bind(session.user.id)
-      .first(),
-    env.PRIVATE_MEDIA.list({ prefix: avatarKey(session.user.id), limit: 1 }).catch(() => null),
-  ]);
-
-  const hasAvatar = Array.isArray(avatarListing?.objects)
-    && avatarListing.objects.some((object) => object.key === avatarKey(session.user.id));
+  const profileRow = await env.DB.prepare(
+    "SELECT display_name, has_avatar FROM profiles WHERE user_id = ? LIMIT 1"
+  )
+    .bind(session.user.id)
+    .first();
+  const hasAvatar = await resolveCachedAvatarPresence(env, session.user.id, profileRow?.has_avatar);
 
   return json({
     loggedIn: true,
