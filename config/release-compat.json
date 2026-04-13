@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0018_add_profile_avatar_state.sql",
+    "currentSchemaMigration": "0019_add_ai_image_publication.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",

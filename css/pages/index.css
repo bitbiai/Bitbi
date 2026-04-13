@@ -53,6 +53,15 @@
         background: linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.4) 50%, transparent 100%);
     }
 
+    .gallery-empty-state {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: var(--space-10) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.38);
+    }
+
     /* --- Gallery Mode Toggle (Explore / Create) �� Premium neon-glass hero controls --- */
     .gallery-mode {
         display: flex;

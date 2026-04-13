@@ -3737,6 +3737,9 @@ test.describe('Worker routes', () => {
         thumb_url: '/api/ai/images/1ab100cd/thumb',
         medium_url: '/api/ai/images/1ab100cd/medium',
         derivatives_status: 'ready',
+        visibility: 'private',
+        is_public: false,
+        published_at: null,
       }),
     ]);
 
@@ -3751,6 +3754,293 @@ test.describe('Worker routes', () => {
     expect(fileRes.status).toBe(200);
     expect(await fileRes.text()).toBe('Compare Notes');
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
+  });
+
+  test('owner can publish and unpublish their own saved image asset without changing ownership or folder state', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'mempic-owner', role: 'user' })],
+      aiImages: [
+        {
+          id: 'abc123ef',
+          user_id: 'mempic-owner',
+          folder_id: 'fold1000',
+          r2_key: 'users/mempic-owner/folders/launch/abc123ef.png',
+          prompt: 'Private image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 7,
+          created_at: '2026-04-10T10:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/mempic-owner/derivatives/v1/abc123ef/thumb.webp',
+          medium_key: 'users/mempic-owner/derivatives/v1/abc123ef/medium.webp',
+          thumb_mime_type: 'image/webp',
+          medium_mime_type: 'image/webp',
+          thumb_width: 320,
+          thumb_height: 320,
+          medium_width: 1280,
+          medium_height: 1280,
+        },
+      ],
+      userImages: {
+        'users/mempic-owner/folders/launch/abc123ef.png': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(0),
+          httpMetadata: { contentType: 'image/png' },
+        },
+        'users/mempic-owner/derivatives/v1/abc123ef/thumb.webp': {
+          body: new TextEncoder().encode('thumb').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/mempic-owner/derivatives/v1/abc123ef/medium.webp': {
+          body: new TextEncoder().encode('medium').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'mempic-owner');
+
+    const publishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/abc123ef/publication', 'PATCH', {
+        visibility: 'public',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(publishRes.status).toBe(200);
+    await expect(publishRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: 'abc123ef',
+        visibility: 'public',
+        is_public: true,
+        published_at: expect.any(String),
+      },
+    });
+    expect(env.DB.state.aiImages[0]).toMatchObject({
+      id: 'abc123ef',
+      user_id: 'mempic-owner',
+      folder_id: 'fold1000',
+      visibility: 'public',
+    });
+    expect(typeof env.DB.state.aiImages[0].published_at).toBe('string');
+
+    const publicFileRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/abc123ef/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicFileRes.status).toBe(200);
+    expect(publicFileRes.headers.get('cache-control')).toBe('no-store');
+
+    const unpublishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/abc123ef/publication', 'PATCH', {
+        visibility: 'private',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(unpublishRes.status).toBe(200);
+    await expect(unpublishRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: 'abc123ef',
+        visibility: 'private',
+        is_public: false,
+        published_at: null,
+      },
+    });
+    expect(env.DB.state.aiImages[0]).toMatchObject({
+      id: 'abc123ef',
+      user_id: 'mempic-owner',
+      folder_id: 'fold1000',
+      visibility: 'private',
+      published_at: null,
+    });
+
+    const hiddenRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics/abc123ef/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(hiddenRes.status).toBe(404);
+  });
+
+  test('non-owner cannot publish or unpublish another user’s saved image asset', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'mempic-owner', role: 'user' }),
+        createContractUser({ id: 'mempic-other', role: 'user' }),
+      ],
+      aiImages: [
+        {
+          id: 'f00dbeef',
+          user_id: 'mempic-owner',
+          folder_id: null,
+          r2_key: 'users/mempic-owner/folders/unsorted/f00dbeef.png',
+          prompt: 'Owner image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 9,
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T09:30:00.000Z',
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'mempic-other');
+
+    const publishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/f00dbeef/publication', 'PATCH', {
+        visibility: 'public',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publishRes.status).toBe(404);
+
+    const unpublishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/f00dbeef/publication', 'PATCH', {
+        visibility: 'private',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unpublishRes.status).toBe(404);
+    expect(env.DB.state.aiImages[0]).toMatchObject({
+      id: 'f00dbeef',
+      user_id: 'mempic-owner',
+      visibility: 'public',
+      published_at: '2026-04-10T09:30:00.000Z',
+    });
+  });
+
+  test('public Mempics listing returns only explicitly published ready images and exposes only safe public fields', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'artist-a', role: 'user' }),
+        createContractUser({ id: 'artist-b', role: 'user' }),
+      ],
+      aiImages: [
+        {
+          id: 'a1b2c3d4',
+          user_id: 'artist-a',
+          folder_id: 'foldpub1',
+          r2_key: 'users/artist-a/folders/public/a1b2c3d4.png',
+          prompt: 'Should stay private',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          created_at: '2026-04-09T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-a/derivatives/v1/a1b2c3d4/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/a1b2c3d4/medium.webp',
+          thumb_width: 320,
+          thumb_height: 256,
+          medium_width: 1280,
+          medium_height: 1024,
+        },
+        {
+          id: '0f1e2d3c',
+          user_id: 'artist-a',
+          folder_id: null,
+          r2_key: 'users/artist-a/folders/unsorted/0f1e2d3c.png',
+          prompt: 'Private prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 2,
+          created_at: '2026-04-10T10:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-a/derivatives/v1/0f1e2d3c/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/0f1e2d3c/medium.webp',
+          thumb_width: 320,
+          thumb_height: 320,
+          medium_width: 1280,
+          medium_height: 1280,
+        },
+        {
+          id: 'bead5678',
+          user_id: 'artist-b',
+          folder_id: null,
+          r2_key: 'users/artist-b/folders/unsorted/bead5678.png',
+          prompt: 'Pending prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 3,
+          created_at: '2026-04-11T10:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-11T11:00:00.000Z',
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+        },
+      ],
+    });
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(listRes.status).toBe(200);
+    const body = await listRes.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: 'a1b2c3d4',
+            slug: 'mempic-a1b2c3d4',
+            title: 'Mempic A1B2C3',
+            category: 'mempics',
+            thumb: {
+              url: '/api/gallery/mempics/a1b2c3d4/thumb',
+              w: 320,
+              h: 256,
+            },
+            preview: {
+              url: '/api/gallery/mempics/a1b2c3d4/medium',
+              w: 1280,
+              h: 1024,
+            },
+            full: {
+              url: '/api/gallery/mempics/a1b2c3d4/file',
+            },
+          },
+        ],
+      },
+    });
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0].prompt).toBeUndefined();
+    expect(body.data.items[0].user_id).toBeUndefined();
+    expect(body.data.items[0].folder_id).toBeUndefined();
+    expect(body.data.items[0].r2_key).toBeUndefined();
   });
 
   function createSharedBulkMoveEnv() {

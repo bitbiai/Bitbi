@@ -116,6 +116,69 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryStudio')).toBeHidden();
   });
 
+  test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'a1b2c3d4',
+                slug: 'mempic-a1b2c3d4',
+                title: 'Mempic A1B2C3',
+                caption: 'Published by a bitbi member on 2026-04-12.',
+                category: 'mempics',
+                thumb: {
+                  url: '/api/gallery/mempics/a1b2c3d4/thumb',
+                  w: 320,
+                  h: 320,
+                },
+                preview: {
+                  url: '/api/gallery/mempics/a1b2c3d4/medium',
+                  w: 1280,
+                  h: 1280,
+                },
+                full: {
+                  url: '/api/gallery/mempics/a1b2c3d4/file',
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.goto('/');
+
+    const mempicsBtn = page.locator('.filter-btn[data-filter="mempics"]');
+    await expect(mempicsBtn).toBeVisible();
+    await mempicsBtn.click();
+
+    const mempicsCard = page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Mempic A1B2C3' });
+    await expect(mempicsCard).toHaveCount(1);
+    await expect(mempicsCard).toBeVisible();
+
+    await mempicsCard.click();
+    await expect(page.locator('#modalTitle')).toHaveText('Mempic A1B2C3');
+    await expect(page.locator('#modalFullLink')).toHaveAttribute('href', '/api/gallery/mempics/a1b2c3d4/file');
+    await page.locator('.modal-close').click();
+
+    await page.locator('.filter-btn[data-filter="pictures"]').click();
+    const freeCards = await page.locator('#galleryGrid .gallery-item').count();
+    expect(freeCards).toBeGreaterThan(0);
+  });
+
   test('markets render malicious upstream text inertly', async ({ page }) => {
     await page.route('https://api.bitbi.ai', async (route) => {
       await route.fulfill({

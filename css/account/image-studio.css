@@ -723,6 +723,7 @@
         opacity: 0;
         display: flex;
         align-items: flex-end;
+        gap: var(--space-2);
         padding: var(--space-2);
         transition: opacity 0.2s var(--ease-default);
     }
@@ -747,6 +748,65 @@
 
     .studio__image-delete:hover {
         background: rgba(239, 68, 68, 0.25);
+    }
+
+    .studio__image-publish {
+        padding: var(--space-1) var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.15);
+        border: 1px solid rgba(0, 240, 255, 0.28);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all 0.2s var(--ease-default);
+    }
+
+    .studio__image-publish:hover {
+        background: rgba(0, 240, 255, 0.24);
+    }
+
+    .studio__image-publish--public {
+        color: rgba(255, 179, 0, 0.95);
+        background: rgba(255, 179, 0, 0.14);
+        border-color: rgba(255, 179, 0, 0.26);
+    }
+
+    .studio__image-publish--public:hover {
+        background: rgba(255, 179, 0, 0.22);
+    }
+
+    .studio__image-visibility {
+        position: absolute;
+        inset-block-start: 8px;
+        inset-inline-end: 8px;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        padding: 0.3rem 0.55rem;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        background: rgba(10, 10, 10, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        pointer-events: none;
+    }
+
+    .studio__image-visibility--private {
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .studio__image-visibility--public {
+        color: rgba(255, 179, 0, 0.95);
+        background: rgba(255, 179, 0, 0.14);
+        border-color: rgba(255, 179, 0, 0.18);
     }
 
     .studio__gallery-empty {
@@ -799,6 +859,10 @@
     }
 
     .studio__image-grid.studio--selecting .studio__image-overlay {
+        display: none;
+    }
+
+    .studio__image-grid.studio--selecting .studio__image-visibility {
         display: none;
     }
 

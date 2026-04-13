@@ -12,6 +12,7 @@ import { handleVerifyEmail, handleResendVerification, handleRequestReverificatio
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
+import { handleGallery } from "./routes/gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
@@ -121,6 +122,12 @@ export default {
     // AI Image Studio
     if (pathname.startsWith("/api/ai/")) {
       const result = await handleAI(ctx);
+      if (result) return result;
+    }
+
+    // Public gallery
+    if (pathname.startsWith("/api/gallery/")) {
+      const result = await handleGallery(ctx);
       if (result) return result;
     }
 

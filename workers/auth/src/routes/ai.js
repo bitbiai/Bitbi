@@ -36,7 +36,7 @@ const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const DAILY_IMAGE_LIMIT = 10; // max successful generations per non-admin user per UTC day
 const QUOTA_RESERVATION_TTL_MINUTES = 60;
 const AI_IMAGE_LIST_COLUMNS =
-  "id, folder_id, prompt, model, steps, seed, created_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
+  "id, folder_id, prompt, model, steps, seed, created_at, visibility, published_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
 const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
 const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
@@ -774,6 +774,45 @@ async function handleGetAssets(ctx) {
     .slice(0, 200);
 
   return json({ ok: true, data: { assets } });
+}
+
+// ── PATCH /api/ai/images/:id/publication ──
+async function handleUpdateImagePublication(ctx, imageId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const visibility = String(body?.visibility || "").trim().toLowerCase();
+  if (visibility !== "public" && visibility !== "private") {
+    return json({ ok: false, error: "Invalid visibility." }, { status: 400 });
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, visibility, published_at FROM ai_images WHERE id = ? AND user_id = ?"
+  ).bind(imageId, session.user.id).first();
+
+  if (!existing) {
+    return json({ ok: false, error: "Image not found." }, { status: 404 });
+  }
+
+  const publishedAt = visibility === "public"
+    ? (existing.visibility === "public" && existing.published_at ? existing.published_at : nowIso())
+    : null;
+
+  await env.DB.prepare(
+    "UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
+  ).bind(visibility, publishedAt, imageId, session.user.id).run();
+
+  return json({
+    ok: true,
+    data: {
+      id: imageId,
+      visibility,
+      is_public: visibility === "public",
+      published_at: publishedAt,
+    },
+  });
 }
 
 // ── POST /api/ai/images/save ──
@@ -1998,6 +2037,11 @@ export async function handleAI(ctx) {
   const deleteMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)$/);
   if (deleteMatch && method === "DELETE") {
     return handleDeleteImage(ctx, deleteMatch[1]);
+  }
+
+  const publicationMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/publication$/);
+  if (publicationMatch && method === "PATCH") {
+    return handleUpdateImagePublication(ctx, publicationMatch[1]);
   }
 
   const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);

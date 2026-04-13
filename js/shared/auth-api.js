@@ -272,6 +272,10 @@ export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
 
+export function apiAiSetImagePublication(imageId, visibility) {
+    return request('PATCH', `/ai/images/${imageId}/publication`, { visibility });
+}
+
 export function apiAiDeleteTextAsset(assetId) {
     return request('DELETE', `/ai/text-assets/${assetId}`);
 }

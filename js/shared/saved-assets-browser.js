@@ -8,6 +8,7 @@ import {
     apiAiGetAssets,
     apiAiGetFolders,
     apiAiGetFoldersForDelete,
+    apiAiSetImagePublication,
 } from './auth-api.js?v=__ASSET_VERSION__';
 import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=__ASSET_VERSION__';
 
@@ -51,6 +52,10 @@ function isAudioAsset(asset) {
 
 function isImageAsset(asset) {
     return asset?.asset_type === 'image';
+}
+
+function isPublishedImageAsset(asset) {
+    return String(asset?.visibility || 'private') === 'public';
 }
 
 function getFileBadge(asset) {
@@ -289,11 +294,15 @@ export function createSavedAssetsBrowser({
         item.appendChild(check);
     }
 
-    async function deleteSingleAsset(asset) {
+async function deleteSingleAsset(asset) {
         if (isImageAsset(asset)) {
             return apiAiDeleteImage(asset.id);
         }
         return apiAiDeleteTextAsset(asset.id);
+    }
+
+    async function updateImagePublication(asset, visibility) {
+        return apiAiSetImagePublication(asset.id, visibility);
     }
 
     async function loadFolders({ preserveFilter = true } = {}) {
@@ -417,8 +426,36 @@ export function createSavedAssetsBrowser({
             item.appendChild(buildImagePreviewPlaceholder(asset));
         }
 
+        const visibilityBadge = document.createElement('span');
+        visibilityBadge.className = `studio__image-visibility ${isPublishedImageAsset(asset) ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
+        visibilityBadge.textContent = isPublishedImageAsset(asset) ? 'Public' : 'Private';
+        item.appendChild(visibilityBadge);
+
         const overlay = document.createElement('div');
         overlay.className = 'studio__image-overlay';
+
+        const publishButton = document.createElement('button');
+        publishButton.type = 'button';
+        publishButton.className = `studio__image-publish ${isPublishedImageAsset(asset) ? 'studio__image-publish--public' : ''}`;
+        publishButton.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
+        publishButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            const nextVisibility = isPublishedImageAsset(asset) ? 'private' : 'public';
+            publishButton.disabled = true;
+            publishButton.textContent = '…';
+            const result = await updateImagePublication(asset, nextVisibility);
+            if (!result.ok) {
+                publishButton.disabled = false;
+                publishButton.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
+                showMsg(result.error || 'Visibility update failed.', 'error');
+                return;
+            }
+            await refresh();
+            showMsg(
+                nextVisibility === 'public' ? 'Image published to Mempics.' : 'Image removed from Mempics.',
+                'success',
+            );
+        });
 
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
@@ -440,6 +477,7 @@ export function createSavedAssetsBrowser({
             showMsg('Image deleted.', 'success');
         });
 
+        overlay.appendChild(publishButton);
         overlay.appendChild(deleteButton);
         item.appendChild(overlay);
         appendSelectionCheck(item);

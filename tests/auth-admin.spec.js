@@ -80,6 +80,16 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
     addAsset(asset) {
       assetMap.set(asset.id, cloneJson(asset));
     },
+    setImageVisibility(id, visibility) {
+      const asset = assetMap.get(id);
+      if (!asset || asset.asset_type !== 'image') return null;
+      asset.visibility = visibility;
+      asset.is_public = visibility === 'public';
+      asset.published_at = visibility === 'public'
+        ? (asset.published_at || '2026-04-12T12:00:00.000Z')
+        : null;
+      return cloneJson(asset);
+    },
     moveAssets(ids, folderId) {
       ids.forEach((id) => {
         const asset = assetMap.get(id);
@@ -664,8 +674,36 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
-  await page.route('**/api/ai/images/*', async (route) => {
-    if (route.request().method() !== 'DELETE') {
+  await page.route('**/api/ai/images/**', async (route) => {
+    const method = route.request().method();
+    if (method === 'PATCH' && /\/api\/ai\/images\/[^/]+\/publication$/.test(new URL(route.request().url()).pathname)) {
+      const imageId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const updated = assetStore.setImageVisibility(imageId, body.visibility);
+      if (!updated) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Image not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: updated.id,
+            visibility: updated.visibility,
+            is_public: updated.is_public,
+            published_at: updated.published_at,
+          },
+        }),
+      });
+      return;
+    }
+    if (method !== 'DELETE') {
       await route.fallback();
       return;
     }
@@ -896,8 +934,36 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     });
   });
 
-  await page.route('**/api/ai/images/*', async (route) => {
-    if (route.request().method() !== 'DELETE') {
+  await page.route('**/api/ai/images/**', async (route) => {
+    const method = route.request().method();
+    if (method === 'PATCH' && /\/api\/ai\/images\/[^/]+\/publication$/.test(new URL(route.request().url()).pathname)) {
+      const imageId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const updated = assetStore.setImageVisibility(imageId, body.visibility);
+      if (!updated) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Image not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: updated.id,
+            visibility: updated.visibility,
+            is_public: updated.is_public,
+            published_at: updated.published_at,
+          },
+        }),
+      });
+      return;
+    }
+    if (method !== 'DELETE') {
       await route.fallback();
       return;
     }
@@ -1560,6 +1626,64 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
     await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
     await expect(page.locator('.studio__asset-open').first()).toHaveAttribute('href', /\/api\/ai\/text-assets\//);
+  });
+
+  test('account Image Studio lets the owner publish and unpublish a saved image into Mempics', async ({
+    page,
+  }) => {
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'img-publish-1',
+            asset_type: 'image',
+            folder_id: null,
+            title: 'Member sunset',
+            preview_text: 'Member sunset',
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            steps: 4,
+            seed: 123,
+            created_at: '2026-04-10T12:00:00.000Z',
+            visibility: 'private',
+            is_public: false,
+            published_at: null,
+            file_url: '/api/ai/images/img-publish-1/file',
+            original_url: '/api/ai/images/img-publish-1/file',
+            thumb_url: '/api/ai/images/img-publish-1/thumb',
+            medium_url: '/api/ai/images/img-publish-1/medium',
+            thumb_width: 320,
+            thumb_height: 320,
+            medium_width: 1280,
+            medium_height: 1280,
+            derivatives_status: 'ready',
+          },
+        ],
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    const card = page.locator('#studioImageGrid [data-asset-id="img-publish-1"]');
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
+
+    await card.hover();
+    await card.getByRole('button', { name: 'Publish' }).click();
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Public');
+    await expect(card.locator('.studio__image-publish')).toHaveText('Unpublish');
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Image published to Mempics.');
+
+    await card.hover();
+    await card.getByRole('button', { name: 'Unpublish' }).click();
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
+    await expect(card.locator('.studio__image-publish')).toHaveText('Publish');
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Image removed from Mempics.');
   });
 
   test('account Image Studio moves and deletes mixed saved assets with one shared selection flow', async ({

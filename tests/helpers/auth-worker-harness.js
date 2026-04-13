@@ -24,6 +24,8 @@ function nowIso() {
 
 function normalizeAiImageRow(row = {}) {
   return {
+    visibility: 'private',
+    published_at: null,
     thumb_key: null,
     medium_key: null,
     thumb_mime_type: null,
@@ -759,6 +761,31 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === 'SELECT id, visibility, published_at FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row
+        ? {
+            id: row.id,
+            visibility: row.visibility,
+            published_at: row.published_at,
+          }
+        : null;
+    }
+
+    if (query === 'UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?') {
+      const [visibility, publishedAt, imageId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId) {
+          row.visibility = visibility;
+          row.published_at = publishedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (query.startsWith('INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at) SELECT')) {
       const [id, userId, folderId, r2Key, title, fileName, sourceModule, mimeType, sizeBytes, previewText, metadataJson, createdAt, existsFolderId, existsUserId] = bindings;
       const folder = this.state.aiFolders.find(
@@ -966,6 +993,12 @@ class MockD1 {
           steps: row.steps,
           seed: row.seed,
           created_at: row.created_at,
+          ...(query.includes('visibility')
+            ? {
+                visibility: row.visibility,
+                published_at: row.published_at,
+              }
+            : {}),
           ...(query.includes('thumb_key')
             ? {
                 thumb_key: row.thumb_key,
@@ -980,6 +1013,64 @@ class MockD1 {
             : {}),
         })),
       };
+    }
+
+    if (query.startsWith("SELECT id, created_at, published_at, thumb_width, thumb_height, medium_width, medium_height FROM ai_images WHERE visibility = 'public'")) {
+      const [limit] = bindings;
+      const rows = this.state.aiImages
+        .filter((row) =>
+          row.visibility === 'public'
+          && row.derivatives_status === 'ready'
+          && row.thumb_key != null
+          && row.medium_key != null
+        )
+        .slice()
+        .sort((a, b) => {
+          const aOrder = String(a.published_at || a.created_at || '');
+          const bOrder = String(b.published_at || b.created_at || '');
+          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id));
+        })
+        .slice(0, limit);
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          created_at: row.created_at,
+          published_at: row.published_at,
+          thumb_width: row.thumb_width,
+          thumb_height: row.thumb_height,
+          medium_width: row.medium_width,
+          medium_height: row.medium_height,
+        })),
+      };
+    }
+
+    if (query === "SELECT r2_key FROM ai_images WHERE id = ? AND visibility = 'public'") {
+      const [imageId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
+      return row ? { r2_key: row.r2_key } : null;
+    }
+
+    if (
+      query === "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND thumb_key IS NOT NULL" ||
+      query === "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND medium_key IS NOT NULL"
+    ) {
+      const [imageId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
+      if (!row) return null;
+      if (query.startsWith('SELECT thumb_key')) {
+        return row.thumb_key
+          ? {
+              derivative_key: row.thumb_key,
+              mime_type: row.thumb_mime_type,
+            }
+          : null;
+      }
+      return row.medium_key
+        ? {
+            derivative_key: row.medium_key,
+            mime_type: row.medium_mime_type,
+          }
+        : null;
     }
 
     if (query.startsWith('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at FROM ai_text_assets WHERE user_id = ?')) {

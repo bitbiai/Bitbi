@@ -10,6 +10,8 @@ import { createStarButton } from '../../shared/favorites.js';
 
 
 const items = galleryItems;
+const MEMPICS_CATEGORY = 'mempics';
+const MEMPICS_LIMIT = 60;
 
 let focusTrapCleanup = null;
 
@@ -17,8 +19,112 @@ export function initGallery() {
     const grid = document.getElementById('galleryGrid');
     const modal = document.getElementById('galleryModal');
     if (!grid || !modal) return;
+    let renderSeq = 0;
+    let mempicsPromise = null;
 
-    function render(filter) {
+    function renderGalleryState(message) {
+        const empty = document.createElement('div');
+        empty.className = 'gallery-empty-state';
+        empty.textContent = message;
+        grid.appendChild(empty);
+    }
+
+    async function fetchMempics() {
+        if (mempicsPromise) return mempicsPromise;
+        mempicsPromise = (async () => {
+            try {
+                const res = await fetch(`/api/gallery/mempics?limit=${MEMPICS_LIMIT}`, {
+                    credentials: 'same-origin',
+                });
+                const data = await res.json().catch(() => null);
+                if (!res.ok) {
+                    throw new Error(data?.error || `Error ${res.status}`);
+                }
+                const items = Array.isArray(data?.data?.items) ? data.data.items : [];
+                return items.map((item) => ({ ...item, favoriteType: false }));
+            } catch (error) {
+                console.warn('mempics:', error);
+                throw error;
+            } finally {
+                mempicsPromise = null;
+            }
+        })();
+        return mempicsPromise;
+    }
+
+    function buildGalleryCard(item) {
+        const card = document.createElement('div');
+        card.className = 'gallery-item';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', item.title);
+
+        const inner = document.createElement('div');
+        inner.className = 'gallery-inner rounded-xl overflow-hidden relative';
+        inner.style.border = '1px solid rgba(255,255,255,0.04)';
+
+        const img = new Image();
+        img.src = item.thumb.url;
+        img.alt = item.title;
+        img.width = item.thumb.w;
+        img.height = item.thumb.h;
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.style.cssText = 'width:100%;display:block;object-fit:cover';
+        img.onerror = function() {
+            this.onerror = null;
+            this.style.display = 'none';
+            inner.style.background = '#0D1B2A';
+            inner.style.minHeight = '200px';
+        };
+        inner.appendChild(img);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'gallery-overlay';
+        overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px;z-index:1';
+
+        const copy = document.createElement('div');
+
+        const title = document.createElement('h4');
+        title.style.cssText = "font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)";
+        title.textContent = item.title;
+        copy.appendChild(title);
+
+        const category = document.createElement('p');
+        category.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;text-transform:capitalize';
+        category.textContent = item.category;
+        copy.appendChild(category);
+
+        const cta = document.createElement('span');
+        cta.style.cssText = "display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF";
+        cta.textContent = 'View Full →';
+        copy.appendChild(cta);
+
+        overlay.appendChild(copy);
+        inner.appendChild(overlay);
+
+        if (item.favoriteType !== false) {
+            const star = createStarButton(item.favoriteType || 'gallery', item.id, {
+                title: item.title,
+                thumb_url: item.thumb.url,
+            });
+            star.style.cssText = 'position:absolute;top:8px;right:8px';
+            inner.appendChild(star);
+        }
+
+        card.appendChild(inner);
+        card.addEventListener('click', () => openModal(item));
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openModal(item);
+            }
+        });
+        return card;
+    }
+
+    async function render(filter) {
+        const seq = ++renderSeq;
         /* Preserve exclusive cards injected by locked-sections.js */
         const exclusiveCards = Array.from(grid.querySelectorAll('.locked-area.gallery-item'));
         exclusiveCards.forEach(card => card.remove());
@@ -40,38 +146,30 @@ export function initGallery() {
             grid.appendChild(card);
         });
 
-        const list = items.filter(i => i.category === filter);
+        let list = [];
+        if (filter === MEMPICS_CATEGORY) {
+            renderGalleryState('Loading Mempics…');
+            try {
+                list = await fetchMempics();
+            } catch {
+                if (seq !== renderSeq) return;
+                Array.from(grid.querySelectorAll('.gallery-empty-state')).forEach((node) => node.remove());
+                renderGalleryState('Could not load Mempics right now.');
+                return;
+            }
+            if (seq !== renderSeq) return;
+            Array.from(grid.querySelectorAll('.gallery-empty-state')).forEach((node) => node.remove());
+        } else {
+            list = items.filter(i => i.category === filter);
+        }
+
+        if (!list.length) {
+            renderGalleryState(filter === MEMPICS_CATEGORY ? 'No Mempics published yet.' : 'Nothing to show here yet.');
+            return;
+        }
+
         list.forEach((item) => {
-            const d = document.createElement('div');
-            d.className = 'gallery-item';
-            d.setAttribute('tabindex', '0');
-            d.setAttribute('role', 'button');
-            d.setAttribute('aria-label', item.title);
-            const img = new Image();
-            img.src = item.thumb.url;
-            img.alt = item.title;
-            img.width = item.thumb.w;
-            img.height = item.thumb.h;
-            img.loading = 'lazy';
-            img.decoding = 'async';
-            img.style.cssText = 'width:100%;display:block;object-fit:cover';
-            img.onerror = function() {
-                this.onerror = null;
-                this.style.display = 'none';
-                this.parentElement.style.background = '#0D1B2A';
-                this.parentElement.style.minHeight = '200px';
-            };
-            d.innerHTML = `<div class="gallery-inner rounded-xl overflow-hidden relative" style="border:1px solid rgba(255,255,255,0.04)"><div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px;z-index:1"><div><h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${item.title}</h4><p style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;text-transform:capitalize">${item.category}</p><span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full \u2192</span></div></div></div>`;
-            const inner = d.querySelector('.gallery-inner');
-            inner.prepend(img);
-            const star = createStarButton('gallery', item.id, { title: item.title, thumb_url: item.thumb.url });
-            star.style.cssText = 'position:absolute;top:8px;right:8px';
-            inner.appendChild(star);
-            d.addEventListener('click', () => openModal(item));
-            d.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(item); }
-            });
-            grid.appendChild(d);
+            grid.appendChild(buildGalleryCard(item));
         });
     }
 
@@ -284,6 +382,7 @@ export function initGallery() {
             { key: 'pictures', label: 'Pictures' },
             { key: 'creepy', label: 'Creepy Creatures' },
             { key: 'experimental', label: 'Experimental' },
+            { key: 'mempics', label: 'Mempics' },
         ];
 
         const galBtns = {};
