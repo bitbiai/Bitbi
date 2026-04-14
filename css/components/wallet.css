@@ -481,6 +481,15 @@
         color: rgba(255, 255, 255, 0.6);
     }
 
+    .wallet-modal__option-meta,
+    .wallet-modal__summary-address,
+    .wallet-modal__detail-value,
+    .wallet-modal__footnote,
+    .wallet-modal__warning-copy {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
     .wallet-ui__provider-visual {
         display: inline-flex;
         align-items: center;
@@ -672,15 +681,15 @@
             inline-size: 100%;
             block-size: 100%;
             max-inline-size: none;
-            padding:
-                calc(5rem + env(safe-area-inset-top, 0px))
-                var(--space-6)
-                calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+            padding: 0;
             border-inline-start: 0;
             border-top: 0;
             border-radius: 0;
+            background: #0a0a0a;
             transform: translateX(100%);
-            box-shadow: -24px 0 60px rgba(0, 0, 0, 0.38);
+            box-shadow: none;
+            overflow-y: auto;
+            overscroll-behavior-y: contain;
         }
 
         .wallet-modal.is-open .wallet-modal__panel {
@@ -688,7 +697,11 @@
         }
 
         .wallet-modal__header {
-            padding: 0 2.75rem 1.25rem 0;
+            position: relative;
+            padding:
+                calc(5rem + env(safe-area-inset-top, 0px))
+                var(--space-6)
+                0;
         }
 
         .wallet-modal__close {
@@ -710,10 +723,125 @@
             text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 0 0 28px rgba(239, 68, 68, 0.6);
         }
 
+        .wallet-modal__title {
+            font-size: clamp(1.9rem, 8vw, 2.5rem);
+        }
+
+        .wallet-modal__desc {
+            max-inline-size: 24rem;
+        }
+
         .wallet-modal__body {
             block-size: auto;
             max-block-size: 100%;
-            padding-inline-end: 0;
+            gap: 0;
+            padding:
+                var(--space-5)
+                var(--space-6)
+                calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+            padding-inline-end: var(--space-6);
+        }
+
+        .wallet-modal__body > * {
+            margin: 0 0 var(--space-5);
+            padding-block-end: var(--space-5);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .wallet-modal__body > *:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: 0;
+        }
+
+        .wallet-modal__banner,
+        .wallet-modal__connecting,
+        .wallet-modal__details,
+        .wallet-modal__empty,
+        .wallet-modal__option,
+        .wallet-modal__summary,
+        .wallet-modal__warning {
+            border: 0;
+            border-radius: 0;
+            background: none;
+            box-shadow: none;
+        }
+
+        .wallet-modal__summary,
+        .wallet-modal__details,
+        .wallet-modal__empty,
+        .wallet-modal__warning,
+        .wallet-modal__connecting {
+            padding: 0;
+        }
+
+        .wallet-modal__details {
+            gap: 0;
+        }
+
+        .wallet-modal__detail-row {
+            padding-inline: 0;
+        }
+
+        .wallet-modal__stack {
+            gap: var(--space-3);
+        }
+
+        .wallet-modal__mini-title,
+        .wallet-modal__section-title {
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .wallet-modal__mini-title {
+            font-size: 11px;
+            color: rgba(0, 240, 255, 0.4);
+        }
+
+        .wallet-modal__section-title,
+        .wallet-modal__connecting-title {
+            font-size: 1rem;
+        }
+
+        .wallet-modal__option {
+            gap: 0.7rem;
+            padding: 0;
+            color: rgba(255, 255, 255, 0.86);
+        }
+
+        .wallet-modal__option:hover,
+        .wallet-modal__option:focus-visible {
+            transform: none;
+            border-color: transparent;
+        }
+
+        .wallet-modal__option-title {
+            font-size: 1.35rem;
+            font-family: var(--font-display);
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.86);
+        }
+
+        .wallet-modal__option-meta {
+            font-size: 0.76rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.42);
+        }
+
+        .wallet-modal__summary-name {
+            font-size: 1.1rem;
+            font-family: var(--font-display);
+        }
+
+        .wallet-modal__action-row {
+            flex-direction: column;
+        }
+
+        .wallet-modal__action,
+        .wallet-modal__switch-btn {
+            inline-size: 100%;
         }
     }
 

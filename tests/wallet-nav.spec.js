@@ -180,6 +180,112 @@ function injectPersistentMockInjectedWallet(page) {
   });
 }
 
+function injectMockWalletConnect(page, { persisted = false } = {}) {
+  return page.addInitScript(({ persisted }) => {
+    const listeners = new Map();
+    const statsKey = 'bitbi_mock_walletconnect_stats';
+    const account = '0x9999999999999999999999999999999999999999';
+    const chainId = '0x1';
+    const balanceHex = '0xde0b6b3a7640000';
+
+    function readStats() {
+      try {
+        return JSON.parse(sessionStorage.getItem(statsKey) || '{"init":0,"enable":0,"disconnect":0,"lastShowQrModal":null,"requests":{}}');
+      } catch {
+        return { init: 0, enable: 0, disconnect: 0, lastShowQrModal: null, requests: {} };
+      }
+    }
+
+    function writeStats(next) {
+      sessionStorage.setItem(statsKey, JSON.stringify(next));
+    }
+
+    function getHandlers(event) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      return listeners.get(event);
+    }
+
+    function emit(event, value) {
+      getHandlers(event).forEach((handler) => handler(value));
+    }
+
+    const provider = {
+      chainId,
+      accounts: persisted ? [account] : [],
+      session: persisted
+        ? { peer: { metadata: { name: 'Mock WalletConnect', icons: [] } } }
+        : null,
+      async enable() {
+        const stats = readStats();
+        stats.enable += 1;
+        writeStats(stats);
+        provider.accounts = [account];
+        provider.session = { peer: { metadata: { name: 'Mock WalletConnect', icons: [] } } };
+        localStorage.setItem('bitbi_wallet_connector_type', 'walletconnect');
+        localStorage.setItem('bitbi_wallet_connector_id', 'walletconnect');
+        localStorage.setItem('bitbi_wallet_address', account);
+        localStorage.setItem('bitbi_wallet_chain_id', '1');
+        localStorage.setItem('bitbi_wallet_updated_at', new Date().toISOString());
+        return [account];
+      },
+      async request({ method } = {}) {
+        const stats = readStats();
+        stats.requests[method] = (stats.requests[method] || 0) + 1;
+        writeStats(stats);
+
+        switch (method) {
+          case 'eth_accounts':
+            return provider.accounts;
+          case 'eth_chainId':
+            return chainId;
+          case 'eth_getBalance':
+            return balanceHex;
+          default:
+            throw new Error(`Unsupported WalletConnect method: ${method}`);
+        }
+      },
+      on(event, handler) {
+        getHandlers(event).add(handler);
+      },
+      removeListener(event, handler) {
+        getHandlers(event).delete(handler);
+      },
+      async disconnect() {
+        const stats = readStats();
+        stats.disconnect += 1;
+        writeStats(stats);
+        provider.accounts = [];
+        provider.session = null;
+        emit('disconnect', {});
+      },
+    };
+
+    window.__bitbiMockWalletConnectStats = {
+      read: () => JSON.parse(sessionStorage.getItem(statsKey) || '{"init":0,"enable":0,"disconnect":0,"lastShowQrModal":null,"requests":{}}'),
+    };
+
+    window['@walletconnect/ethereum-provider'] = {
+      EthereumProvider: {
+        init: async (options = {}) => {
+          const stats = readStats();
+          stats.init += 1;
+          stats.lastShowQrModal = !!options.showQrModal;
+          writeStats(stats);
+          return provider;
+        },
+      },
+    };
+
+    if (persisted) {
+      localStorage.setItem('bitbi_wallet_connector_type', 'walletconnect');
+      localStorage.setItem('bitbi_wallet_connector_id', 'walletconnect');
+      localStorage.setItem('bitbi_wallet_address', account);
+      localStorage.setItem('bitbi_wallet_chain_id', '1');
+      localStorage.setItem('bitbi_wallet_updated_at', new Date().toISOString());
+    }
+  }, { persisted });
+}
+
 test.describe('Wallet navigation', () => {
   test('desktop wallet panel renders disconnected state with WalletConnect enabled', async ({ page }) => {
     await page.goto('/');
@@ -319,6 +425,46 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
     await expect(page.locator('h1')).toContainText('Wallet');
   });
+
+  test('mobile wallet page load and reload do not passively initialize WalletConnect', async ({ page }) => {
+    await injectMockWalletConnect(page, { persisted: true });
+    await page.goto('/account/wallet.html');
+    await page.waitForTimeout(700);
+
+    let stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(0);
+    expect(stats.enable).toBe(0);
+    await expect(page.locator('#walletPageEmpty')).toBeVisible();
+
+    await page.reload();
+    await page.waitForTimeout(700);
+
+    stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(0);
+    expect(stats.enable).toBe(0);
+  });
+
+  test('mobile WalletConnect handoff only starts from an explicit wallet action', async ({ page }) => {
+    await injectMockWalletConnect(page);
+    await page.goto('/');
+
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('.mobile-nav__section--wallet [data-wallet-open="mobile"]').click();
+
+    const modal = page.locator('#walletModal');
+    const walletConnectButton = modal.locator('[data-wallet-connect="true"]').first();
+    await expect(walletConnectButton).toBeEnabled();
+    await walletConnectButton.click();
+
+    await expect(modal).toContainText('Mock WalletConnect');
+    await expect(modal).toContainText('0x9999999999999999999999999999999999999999');
+    await expect(modal.locator('[data-wallet-disconnect="true"]')).toBeVisible();
+
+    const stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(1);
+    expect(stats.enable).toBe(1);
+    expect(stats.lastShowQrModal).toBe(true);
+  });
 });
 
 test.describe('Wallet page', () => {
@@ -426,6 +572,39 @@ test.describe('Wallet page', () => {
       to: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
       value: '0x3782dace9d90000',
     });
+  });
+
+  test('mobile send success stays within the viewport after returning to the wallet page state', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/account/wallet.html');
+
+    await page.locator('#walletPageConnectBtn').click();
+    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.locator('#walletSendTab').click();
+    await page.locator('#walletSendRecipient').fill('0xabcdefabcdefabcdefabcdefabcdefabcdefabcd');
+    await page.locator('#walletSendAmount').fill('0.25');
+    await page.locator('#walletSendSubmit').click();
+
+    await expect(page.locator('#walletSendMsg')).toContainText('Transaction submitted:');
+    await expect(page.locator('#walletSendMsg .wallet-page__msg-hash')).toBeVisible();
+
+    const overflow = await page.evaluate(() => {
+      const root = document.documentElement;
+      const sendPanel = document.getElementById('wallet-send');
+      const sendMsg = document.getElementById('walletSendMsg');
+      return {
+        pageOverflow: root.scrollWidth - root.clientWidth,
+        panelOverflow: sendPanel ? sendPanel.scrollWidth - sendPanel.clientWidth : 0,
+        messageOverflow: sendMsg ? sendMsg.scrollWidth - sendMsg.clientWidth : 0,
+      };
+    });
+
+    expect(overflow.pageOverflow).toBeLessThanOrEqual(2);
+    expect(overflow.panelOverflow).toBeLessThanOrEqual(2);
+    expect(overflow.messageOverflow).toBeLessThanOrEqual(2);
   });
 });
 

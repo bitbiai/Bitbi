@@ -241,7 +241,20 @@ function renderSendMessage() {
     if (!text) return;
 
     const copy = document.createElement('span');
-    copy.textContent = text;
+    copy.className = 'wallet-page__msg-copy';
+
+    const txPrefix = 'Transaction submitted: ';
+    if (text.startsWith(txPrefix) && text.slice(txPrefix.length).startsWith('0x')) {
+        const intro = document.createElement('span');
+        intro.textContent = txPrefix.trim();
+        const hash = document.createElement('code');
+        hash.className = 'wallet-page__msg-hash';
+        hash.textContent = text.slice(txPrefix.length);
+        copy.append(intro, document.createTextNode(' '), hash);
+    } else {
+        copy.textContent = text;
+    }
+
     $sendMsg.appendChild(copy);
 
     if (explorerUrl) {
@@ -250,6 +263,7 @@ function renderSendMessage() {
         link.href = explorerUrl;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
+        link.className = 'wallet-page__msg-link';
         link.textContent = 'View transaction';
         $sendMsg.appendChild(link);
     }

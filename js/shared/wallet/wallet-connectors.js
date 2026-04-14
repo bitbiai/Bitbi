@@ -20,6 +20,21 @@ let walletConnectLibraryPromise = null;
 let walletConnectProvider = null;
 let walletConnectProviderUsesModal = false;
 
+function isLikelyMobileWalletEnvironment() {
+    if (typeof window === 'undefined') return false;
+
+    const userAgent = typeof navigator?.userAgent === 'string' ? navigator.userAgent : '';
+    const isMobileUserAgent = /android|iphone|ipad|ipod|mobile/i.test(userAgent);
+    const isCoarsePointer = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse)').matches
+        : false;
+    const isNarrowViewport = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 1023px)').matches
+        : false;
+
+    return isMobileUserAgent || isNarrowViewport || isCoarsePointer;
+}
+
 function notifyInjectedDiscovery() {
     const wallets = listInjectedWallets();
     discoveryListeners.forEach(listener => {
@@ -316,6 +331,13 @@ export async function connectWalletConnect() {
 
 export async function restoreWalletConnect() {
     if (!isWalletConnectConfigured()) return null;
+
+    // A fresh WalletConnect init on mobile can trigger unsolicited "open in wallet"
+    // prompts during passive restore. Only reuse an in-memory provider there; a new
+    // mobile handoff must come from an explicit connect action.
+    if (!walletConnectProvider && isLikelyMobileWalletEnvironment()) {
+        return null;
+    }
 
     const provider = await initWalletConnectProvider(false);
     const accounts = provider?.accounts?.length
