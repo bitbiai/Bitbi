@@ -21,6 +21,7 @@ import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
 import { loadFavorites } from '../../shared/favorites.js';
+import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
@@ -45,6 +46,7 @@ try { initBinaryRain('binaryRain', {
 
 /* Navbar */
 try { initMobileNav(); } catch (e) { console.warn('mobileNav FAILED:', e); }
+try { initWalletController(); } catch (e) { console.warn('wallet FAILED:', e); }
 
 /* Scroll reveal */
 let revealObserver = null;

@@ -3,7 +3,7 @@
    Entry point for reset-password.html
    ============================================================ */
 
-import { initSiteHeader }       from '../../shared/site-header.js';
+import { initSiteHeader }       from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initParticles }        from '../../shared/particles.js';
 import { initBinaryRain }       from '../../shared/binary-rain.js';
 import { initBinaryFooter }     from '../../shared/binary-footer.js';
