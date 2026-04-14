@@ -13,6 +13,9 @@ export const walletConfig = Object.freeze({
     storageKeys: {
         connectorType: 'bitbi_wallet_connector_type',
         connectorId: 'bitbi_wallet_connector_id',
+        address: 'bitbi_wallet_address',
+        chainId: 'bitbi_wallet_chain_id',
+        updatedAt: 'bitbi_wallet_updated_at',
     },
     walletConnect: {
         bundleUrl: new URL('../../vendor/walletconnect-ethereum-provider-2.23.8.umd.js?v=__ASSET_VERSION__', import.meta.url).toString(),

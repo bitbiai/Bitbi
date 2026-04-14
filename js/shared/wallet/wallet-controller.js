@@ -1,8 +1,10 @@
 /* ============================================================
    BITBI — Wallet controller
-   Shared controller for wallet state, connectors, and UI.
+   Shared controller for wallet state, SIWE auth, connectors, and UI.
    ============================================================ */
 
+import { apiWalletSiweNonce, apiWalletSiweVerify, apiWalletStatus, apiWalletUnlink } from '../auth-api.js?v=__ASSET_VERSION__';
+import { getAuthState, initAuth } from '../auth-state.js';
 import {
     ETHERSCAN_ADDRESS_BASE,
     MAINNET_CHAIN_HEX,
@@ -20,6 +22,7 @@ import {
     restoreWalletConnect,
     startInjectedDiscovery,
 } from './wallet-connectors.js?v=__ASSET_VERSION__';
+import { buildSiweMessage, utf8ToHex } from './siwe-message.js?v=__ASSET_VERSION__';
 import {
     getWalletState,
     patchWalletState,
@@ -35,6 +38,7 @@ let removeActiveListeners = null;
 let messageTimer = null;
 let balanceRequestToken = 0;
 let restoreAttempted = false;
+let walletStatusRequestToken = 0;
 
 function readStorage(key) {
     try {
@@ -56,21 +60,35 @@ function writeStorage(key, value) {
     }
 }
 
-function persistSelection(type, id) {
-    writeStorage(walletConfig.storageKeys.connectorType, type);
-    writeStorage(walletConfig.storageKeys.connectorId, id);
+function addressesEqual(left, right) {
+    if (!left || !right) return false;
+    return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function persistConnectionSnapshot(snapshot = {}) {
+    writeStorage(walletConfig.storageKeys.connectorType, snapshot.type || null);
+    writeStorage(walletConfig.storageKeys.connectorId, snapshot.id || null);
+    writeStorage(walletConfig.storageKeys.address, snapshot.address || null);
+    writeStorage(walletConfig.storageKeys.chainId, snapshot.chainId != null ? String(snapshot.chainId) : null);
+    writeStorage(walletConfig.storageKeys.updatedAt, new Date().toISOString());
 }
 
 function clearPersistedSelection() {
     writeStorage(walletConfig.storageKeys.connectorType, null);
     writeStorage(walletConfig.storageKeys.connectorId, null);
+    writeStorage(walletConfig.storageKeys.address, null);
+    writeStorage(walletConfig.storageKeys.chainId, null);
+    writeStorage(walletConfig.storageKeys.updatedAt, null);
 }
 
 function readPersistedSelection() {
     const type = readStorage(walletConfig.storageKeys.connectorType);
     const id = readStorage(walletConfig.storageKeys.connectorId);
+    const address = readStorage(walletConfig.storageKeys.address);
+    const chainId = normalizeChainId(readStorage(walletConfig.storageKeys.chainId));
+    const updatedAt = readStorage(walletConfig.storageKeys.updatedAt);
     if (!type) return null;
-    return { type, id };
+    return { type, id, address, chainId, updatedAt };
 }
 
 function clearMessageTimer() {
@@ -96,7 +114,7 @@ function normalizeWalletError(error, fallback) {
     const code = error?.code;
 
     if (code === 4001 || lower.includes('user rejected') || lower.includes('user denied')) {
-        return 'The connection request was cancelled.';
+        return 'The wallet request was cancelled.';
     }
     if (code === -32002 || lower.includes('already pending')) {
         return 'A wallet request is already pending. Finish it in your wallet first.';
@@ -111,13 +129,17 @@ function normalizeWalletError(error, fallback) {
         return 'WalletConnect could not be loaded right now.';
     }
     if (lower.includes('did not return an account')) {
-        return 'The wallet connected without exposing an account.';
+        return 'The connected wallet did not expose an account.';
     }
     if (lower.includes('unauthorized') || lower.includes('unsupported method')) {
         return 'The connected wallet rejected this request.';
     }
 
     return fallback;
+}
+
+function normalizeApiError(result, fallback) {
+    return typeof result?.error === 'string' && result.error.trim() ? result.error.trim() : fallback;
 }
 
 function shortenAddress(address) {
@@ -133,6 +155,31 @@ function formatEthBalance(hexValue) {
     const fractionText = fraction.toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
     const wholeText = whole.toLocaleString('en-US');
     return fractionText ? `${wholeText}.${fractionText} ETH` : `${wholeText} ETH`;
+}
+
+function normalizeLinkedWallet(raw) {
+    if (!raw || typeof raw !== 'object' || !raw.address) return null;
+    return {
+        address: raw.address,
+        shortAddress: raw.short_address || shortenAddress(raw.address),
+        chainId: normalizeChainId(raw.chain_id) || 1,
+        linkedAt: raw.linked_at || '',
+        lastLoginAt: raw.last_login_at || '',
+        isPrimary: Boolean(raw.is_primary),
+    };
+}
+
+function getWalletAuthView(state = getWalletState()) {
+    const hasConnectedWallet = state.status === 'connected' && !!state.active.address;
+    const linkedWallet = state.linkedWallet;
+    const linkedMatchesActive = !!(linkedWallet && hasConnectedWallet && addressesEqual(linkedWallet.address, state.active.address));
+    const connectedDiffersFromLinked = !!(linkedWallet && hasConnectedWallet && !linkedMatchesActive);
+    return {
+        hasConnectedWallet,
+        linkedWallet,
+        linkedMatchesActive,
+        connectedDiffersFromLinked,
+    };
 }
 
 async function copyText(value) {
@@ -241,6 +288,58 @@ async function refreshBalance(provider, snapshot) {
     }
 }
 
+async function refreshWalletStatus() {
+    const authState = getAuthState();
+    const requestToken = ++walletStatusRequestToken;
+
+    if (!authState.ready) {
+        patchWalletState({
+            authReady: false,
+            authLoggedIn: false,
+            identityStatus: 'idle',
+        });
+        return null;
+    }
+
+    if (!authState.loggedIn) {
+        patchWalletState({
+            authReady: true,
+            authLoggedIn: false,
+            identityStatus: 'ready',
+            identityAction: getWalletState().identityAction === 'unlinking' ? 'unlinking' : 'idle',
+            linkedWallet: null,
+            pendingAuthIntent: getWalletState().pendingAuthIntent === 'login' ? 'login' : null,
+        });
+        return null;
+    }
+
+    patchWalletState({
+        authReady: true,
+        authLoggedIn: true,
+        identityStatus: 'loading',
+    });
+
+    const result = await apiWalletStatus();
+    if (requestToken !== walletStatusRequestToken) return null;
+
+    if (!result.ok) {
+        patchWalletState({
+            identityStatus: 'error',
+        });
+        return null;
+    }
+
+    const linkedWallet = normalizeLinkedWallet(result.data?.linked_wallet);
+    patchWalletState({
+        authReady: true,
+        authLoggedIn: !!result.data?.authenticated,
+        identityStatus: 'ready',
+        linkedWallet,
+        pendingAuthIntent: getWalletState().pendingAuthIntent === 'login' ? null : getWalletState().pendingAuthIntent,
+    });
+    return linkedWallet;
+}
+
 async function syncConnectionFromProvider(provider, base = {}) {
     if (!provider) return;
 
@@ -250,6 +349,7 @@ async function syncConnectionFromProvider(provider, base = {}) {
         cleanupProviderListeners();
         clearPersistedSelection();
         resetWalletConnection({ isOpen: getWalletState().isOpen });
+        patchWalletState({ identityAction: 'idle' });
         flashMessage('info', 'The wallet disconnected from this site.');
         return;
     }
@@ -268,6 +368,7 @@ async function syncConnectionFromProvider(provider, base = {}) {
         balanceFormatted: '',
         balanceError: snapshot.isMainnet ? '' : 'Switch to Ethereum Mainnet to load the ETH balance.',
     });
+    persistConnectionSnapshot(snapshot);
     await refreshBalance(provider, snapshot);
 }
 
@@ -283,6 +384,7 @@ function bindProviderEvents(connection) {
             cleanupProviderListeners();
             clearPersistedSelection();
             resetWalletConnection({ isOpen: getWalletState().isOpen });
+            patchWalletState({ identityAction: 'idle' });
             flashMessage('info', 'The wallet disconnected from this site.');
             return;
         }
@@ -299,6 +401,7 @@ function bindProviderEvents(connection) {
         cleanupProviderListeners();
         clearPersistedSelection();
         resetWalletConnection({ isOpen: getWalletState().isOpen });
+        patchWalletState({ identityAction: 'idle' });
         flashMessage('info', 'The wallet disconnected from this site.');
     };
 
@@ -325,13 +428,13 @@ async function activateConnection(connection, options = {}) {
     await refreshBalance(connection.provider, snapshot);
 
     if (options.persist !== false) {
-        persistSelection(snapshot.type, snapshot.id);
+        persistConnectionSnapshot(snapshot);
     }
 
-    if (options.message) {
-        flashMessage('success', options.message);
-    } else {
+    if (options.message === null) {
         setWalletMessage(null, null);
+    } else if (options.message) {
+        flashMessage('success', options.message);
     }
 }
 
@@ -343,26 +446,191 @@ async function restorePreviousConnection() {
     if (!persisted) return;
 
     try {
+        let connection = null;
+
         if (persisted.type === 'injected' && persisted.id) {
-            const connection = await restoreInjectedWallet(persisted.id);
-            if (connection) {
-                await activateConnection(connection, { message: null, persist: true });
-                return;
-            }
+            connection = await restoreInjectedWallet(persisted.id);
+        } else if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
+            connection = await restoreWalletConnect();
         }
 
-        if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
-            const connection = await restoreWalletConnect();
-            if (connection) {
-                await activateConnection(connection, { message: null, persist: true });
-                return;
-            }
+        if (!connection) {
+            clearPersistedSelection();
+            return;
         }
+
+        if (persisted.address && !addressesEqual(persisted.address, connection.address)) {
+            clearPersistedSelection();
+            return;
+        }
+
+        await activateConnection(connection, { message: null, persist: true });
     } catch (error) {
         console.warn('walletRestore:', error);
+        clearPersistedSelection();
+    }
+}
+
+function isRetryablePersonalSignError(error) {
+    const lower = String(error?.message || '').toLowerCase();
+    if (!lower) return false;
+    return (
+        lower.includes('invalid params')
+        || lower.includes('expected a hex')
+        || lower.includes('hex string')
+        || lower.includes('invalid input')
+        || lower.includes('must provide an ethereum address')
+        || lower.includes('invalid address')
+        || lower.includes('unsupported format')
+    );
+}
+
+async function signMessageWithProvider(provider, address, message) {
+    const hexMessage = utf8ToHex(message);
+    const attempts = [
+        [hexMessage, address],
+        [address, hexMessage],
+        [message, address],
+        [address, message],
+    ];
+
+    let lastError = null;
+    for (const params of attempts) {
+        try {
+            return await provider.request({
+                method: 'personal_sign',
+                params,
+            });
+        } catch (error) {
+            lastError = error;
+            if (!isRetryablePersonalSignError(error)) {
+                throw error;
+            }
+        }
     }
 
-    clearPersistedSelection();
+    throw lastError || new Error('The wallet could not sign this message.');
+}
+
+function ensureWalletReadyForIntent(intent) {
+    const state = getWalletState();
+    const authState = getAuthState();
+
+    if (state.identityAction !== 'idle' || state.status === 'connecting') {
+        return false;
+    }
+
+    if (intent === 'link' && !authState.loggedIn) {
+        patchWalletState({ pendingAuthIntent: null });
+        flashMessage('warning', 'Sign in to your BITBI account before linking a wallet.');
+        return false;
+    }
+
+    if (intent === 'login' && authState.loggedIn) {
+        patchWalletState({ pendingAuthIntent: null });
+        flashMessage('info', 'You are already signed in.');
+        return false;
+    }
+
+    if (state.status !== 'connected' || !state.active.address || !activeProvider?.request) {
+        patchWalletState({ pendingAuthIntent: intent, isOpen: true });
+        flashMessage('info', intent === 'login'
+            ? 'Connect a wallet first, then continue with Sign in with Ethereum.'
+            : 'Connect the wallet you want to link, then continue.');
+        return false;
+    }
+
+    if (!state.active.isMainnet) {
+        patchWalletState({ pendingAuthIntent: intent, isOpen: true });
+        flashMessage('warning', 'Switch to Ethereum Mainnet before continuing.');
+        return false;
+    }
+
+    const authView = getWalletAuthView(state);
+    if (intent === 'link' && authView.linkedWallet && authView.connectedDiffersFromLinked) {
+        patchWalletState({ pendingAuthIntent: 'link', isOpen: true });
+        flashMessage('warning', 'A different wallet is already linked to this BITBI account. Unlink it before linking another wallet.');
+        return false;
+    }
+
+    return true;
+}
+
+async function performSiweIntent(intent) {
+    if (!ensureWalletReadyForIntent(intent)) return;
+
+    const state = getWalletState();
+    const address = state.active.address;
+    if (!address || !activeProvider?.request) return;
+
+    patchWalletState({
+        pendingAuthIntent: intent,
+        identityAction: 'requesting',
+    });
+
+    const nonceResult = await apiWalletSiweNonce(intent);
+    if (!nonceResult.ok || !nonceResult.data?.challenge) {
+        patchWalletState({ identityAction: 'idle' });
+        if (nonceResult.status === 401 && intent === 'link') {
+            await initAuth();
+        }
+        flashMessage('error', normalizeApiError(nonceResult, 'Could not start the wallet request.'));
+        return;
+    }
+
+    let message = '';
+    try {
+        message = buildSiweMessage({
+            ...nonceResult.data.challenge,
+            address,
+        });
+    } catch {
+        patchWalletState({ identityAction: 'idle' });
+        flashMessage('error', 'Could not prepare the wallet message.');
+        return;
+    }
+
+    let signature = '';
+    try {
+        patchWalletState({ identityAction: 'signing' });
+        signature = await signMessageWithProvider(activeProvider, address, message);
+    } catch (error) {
+        patchWalletState({ identityAction: 'idle' });
+        flashMessage('warning', normalizeWalletError(error, 'The wallet signature request was cancelled.'));
+        return;
+    }
+
+    patchWalletState({ identityAction: 'verifying' });
+    const verifyResult = await apiWalletSiweVerify(intent, message, signature);
+    if (!verifyResult.ok) {
+        patchWalletState({ identityAction: 'idle' });
+        if (verifyResult.status === 401 && intent === 'link') {
+            await initAuth();
+        }
+        flashMessage('error', normalizeApiError(verifyResult, intent === 'login'
+            ? 'That wallet could not sign in on BITBI.'
+            : 'That wallet could not be linked to this BITBI account.'));
+        return;
+    }
+
+    if (intent === 'login') {
+        await initAuth();
+        await refreshWalletStatus();
+        patchWalletState({
+            identityAction: 'idle',
+            pendingAuthIntent: null,
+        });
+        flashMessage('success', 'Signed in with Ethereum.');
+        return;
+    }
+
+    patchWalletState({
+        identityAction: 'idle',
+        identityStatus: 'ready',
+        pendingAuthIntent: null,
+        linkedWallet: normalizeLinkedWallet(verifyResult.data?.linked_wallet),
+    });
+    flashMessage('success', 'Wallet linked to your BITBI account.');
 }
 
 async function connectInjected(id) {
@@ -422,6 +690,10 @@ async function disconnectActiveWallet() {
     cleanupProviderListeners();
     clearPersistedSelection();
     resetWalletConnection({ isOpen });
+    patchWalletState({
+        identityAction: 'idle',
+        pendingAuthIntent: null,
+    });
 
     try {
         if (currentType === 'walletconnect') {
@@ -462,12 +734,51 @@ async function copyConnectedAddress() {
     }
 }
 
+async function unlinkLinkedWallet() {
+    const authState = getAuthState();
+    if (!authState.loggedIn) {
+        flashMessage('warning', 'Sign in to your BITBI account before unlinking a wallet.');
+        return;
+    }
+
+    const currentState = getWalletState();
+    if (currentState.identityAction !== 'idle') return;
+
+    patchWalletState({ identityAction: 'unlinking' });
+    const result = await apiWalletUnlink();
+    if (!result.ok) {
+        patchWalletState({ identityAction: 'idle' });
+        if (result.status === 401) {
+            await initAuth();
+        }
+        flashMessage('error', normalizeApiError(result, 'Could not unlink that wallet.'));
+        return;
+    }
+
+    patchWalletState({
+        identityAction: 'idle',
+        identityStatus: 'ready',
+        linkedWallet: null,
+        pendingAuthIntent: null,
+    });
+    flashMessage('success', 'Wallet unlinked from your BITBI account.');
+}
+
 function openWalletPanel() {
     patchWalletState({ isOpen: true });
 }
 
 function closeWalletPanel() {
     patchWalletState({ isOpen: false });
+}
+
+function syncAuthState(authState = getAuthState()) {
+    patchWalletState({
+        authReady: !!authState.ready,
+        authLoggedIn: !!authState.loggedIn,
+    });
+
+    void refreshWalletStatus();
 }
 
 export function initWalletController() {
@@ -481,6 +792,8 @@ export function initWalletController() {
     patchWalletState({
         walletConnectConfigured: isWalletConnectConfigured(),
         walletConnectProjectId: walletConfig.walletConnectProjectId,
+        authReady: !!getAuthState().ready,
+        authLoggedIn: !!getAuthState().loggedIn,
     });
 
     initWalletUI({
@@ -491,18 +804,50 @@ export function initWalletController() {
         disconnectWallet: disconnectActiveWallet,
         switchToMainnet: switchToEthereumMainnet,
         copyAddress: copyConnectedAddress,
+        loginWithWallet: () => performSiweIntent('login'),
+        linkWallet: () => performSiweIntent('link'),
+        unlinkWallet: unlinkLinkedWallet,
     });
 
     startInjectedDiscovery((wallets) => {
         patchWalletState({ injectedWallets: wallets });
     });
 
+    document.addEventListener('bitbi:auth-change', (event) => {
+        syncAuthState(event.detail || getAuthState());
+    });
+
+    syncAuthState(getAuthState());
+
     window.setTimeout(() => {
         void restorePreviousConnection();
     }, 320);
 }
 
+export function requestWalletLogin() {
+    openWalletPanel();
+    return performSiweIntent('login');
+}
+
+export function requestWalletLink() {
+    openWalletPanel();
+    return performSiweIntent('link');
+}
+
+export { unlinkLinkedWallet, refreshWalletStatus };
+export function openWalletPanelView() {
+    openWalletPanel();
+}
+
 export function getConnectedAddressLink() {
     const address = getWalletState().active.address;
     return address ? `${ETHERSCAN_ADDRESS_BASE}${address}` : '';
+}
+
+export function getWalletPanelState() {
+    return getWalletState();
+}
+
+export function getWalletIdentitySummary() {
+    return getWalletAuthView(getWalletState());
 }

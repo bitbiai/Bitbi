@@ -7,8 +7,8 @@ import {
   getSessionTokenFromCookies,
 } from "../lib/cookies.js";
 import { hashPassword, verifyPassword } from "../lib/passwords.js";
-import { nowIso, addDaysIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
-import { getSessionUser } from "../lib/session.js";
+import { nowIso, sha256Hex } from "../lib/tokens.js";
+import { createSession, getSessionUser } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
@@ -262,20 +262,7 @@ export async function handleLogin(ctx) {
       .run();
   }
 
-  const sessionToken = randomTokenHex(32);
-  const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
-  const sessionId = crypto.randomUUID();
-  const createdAt = nowIso();
-  const expiresAt = addDaysIso(30);
-
-  await env.DB.prepare(
-    `
-    INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    `
-  )
-    .bind(sessionId, user.id, tokenHash, createdAt, expiresAt, createdAt)
-    .run();
+  const { sessionToken } = await createSession(env, user.id);
 
   // Log login (durable background write)
   ctx.execCtx.waitUntil(

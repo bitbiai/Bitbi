@@ -338,6 +338,29 @@
         margin-block-start: calc(var(--space-1) * -1);
     }
 
+    .auth-modal__wallet-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        padding-block-start: var(--space-2);
+    }
+
+    .auth-modal__wallet-divider {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: rgba(255, 255, 255, 0.28);
+    }
+
+    .auth-modal__hint--wallet {
+        margin-block-start: 0;
+        text-align: center;
+    }
+
     /* ── Locked Area ── */
     .locked-area {
         position: relative;

@@ -21,8 +21,8 @@ async function request(method, path, body, options = {}) {
         const res = await fetch(BASE + path, opts);
         let data;
         try { data = await res.json(); } catch { data = null; }
-        if (res.ok) return { ok: true, data };
-        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data };
+        if (res.ok) return { ok: true, data, status: res.status };
+        return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data, status: res.status };
     } catch (e) {
         if (e?.name === 'AbortError') {
             return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
@@ -45,6 +45,24 @@ export function apiGetMe() {
 
 export function apiLogout() {
     return request('POST', '/logout');
+}
+
+/* ── Wallet / SIWE ── */
+
+export function apiWalletStatus() {
+    return request('GET', '/wallet/status');
+}
+
+export function apiWalletSiweNonce(intent) {
+    return request('POST', '/wallet/siwe/nonce', { intent });
+}
+
+export function apiWalletSiweVerify(intent, message, signature) {
+    return request('POST', '/wallet/siwe/verify', { intent, message, signature });
+}
+
+export function apiWalletUnlink() {
+    return request('POST', '/wallet/unlink');
 }
 
 /* ── Profile ── */

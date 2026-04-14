@@ -4,7 +4,7 @@
 
 import { apiGetMe, apiLogin, apiLogout, apiRegister } from './auth-api.js';
 
-let state = { loggedIn: false, user: null };
+let state = { ready: false, loggedIn: false, user: null };
 
 function dispatch() {
     document.dispatchEvent(new CustomEvent('bitbi:auth-change', { detail: state }));
@@ -17,9 +17,9 @@ export function getAuthState() {
 export async function initAuth() {
     const res = await apiGetMe();
     if (res.ok && res.data?.loggedIn && res.data?.user) {
-        state = { loggedIn: true, user: res.data.user };
+        state = { ready: true, loggedIn: true, user: res.data.user };
     } else {
-        state = { loggedIn: false, user: null };
+        state = { ready: true, loggedIn: false, user: null };
     }
     dispatch();
 }
@@ -38,7 +38,7 @@ export async function authRegister(email, password) {
 
 export async function authLogout() {
     await apiLogout();
-    state = { loggedIn: false, user: null };
+    state = { ready: true, loggedIn: false, user: null };
     dispatch();
 }
 

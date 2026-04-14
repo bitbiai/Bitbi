@@ -673,6 +673,109 @@
         text-align: end;
     }
 
+    .profile__wallet-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-block-end: var(--space-4);
+    }
+
+    .profile__wallet-copy {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.5);
+        margin-block-start: calc(var(--space-2) * -1);
+    }
+
+    .profile__wallet-rows {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .profile__wallet-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        margin-block-start: var(--space-5);
+    }
+
+    .profile__wallet-btn {
+        appearance: none;
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        background: linear-gradient(135deg, rgba(0, 240, 255, 0.16), rgba(0, 140, 255, 0.12));
+        color: rgba(255, 255, 255, 0.88);
+        border-radius: var(--radius-full);
+        padding: 0.72rem 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: transform 0.25s var(--ease-default), border-color 0.25s var(--ease-default), background 0.25s var(--ease-default), color 0.25s var(--ease-default);
+    }
+
+    .profile__wallet-btn:hover,
+    .profile__wallet-btn:focus-visible {
+        transform: translateY(-1px);
+        border-color: rgba(0, 240, 255, 0.32);
+        color: rgba(255, 255, 255, 0.96);
+    }
+
+    .profile__wallet-btn:disabled {
+        opacity: 0.58;
+        cursor: default;
+        transform: none;
+    }
+
+    .profile__wallet-btn--ghost {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .profile__wallet-btn--danger {
+        border-color: rgba(239, 68, 68, 0.22);
+        background: rgba(239, 68, 68, 0.08);
+        color: rgba(255, 219, 219, 0.92);
+    }
+
+    .profile__wallet-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.24rem 0.56rem;
+        border-radius: var(--radius-full);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .profile__wallet-pill--success {
+        color: var(--color-success);
+        border-color: rgba(34, 197, 94, 0.22);
+        background: rgba(34, 197, 94, 0.08);
+    }
+
+    .profile__wallet-pill--warning {
+        color: var(--color-gold);
+        border-color: rgba(255, 179, 0, 0.22);
+        background: rgba(255, 179, 0, 0.08);
+    }
+
+    .profile__wallet-pill--danger {
+        color: #fda4af;
+        border-color: rgba(239, 68, 68, 0.22);
+        background: rgba(239, 68, 68, 0.08);
+    }
+
     /* ── Badges ── */
     .profile__badge {
         display: inline-block;

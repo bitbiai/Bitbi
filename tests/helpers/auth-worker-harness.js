@@ -291,6 +291,8 @@ class MockD1 {
       sessions: [],
       emailVerificationTokens: [],
       passwordResetTokens: [],
+      linkedWallets: [],
+      siweChallenges: [],
       profiles: [],
       favorites: [],
       adminAuditLog: [],
@@ -455,6 +457,15 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.rateLimitCounters.length } };
     }
 
+    if (query === 'DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.siweChallenges.length;
+      this.state.siweChallenges = this.state.siweChallenges.filter(
+        (row) => row.used_at == null && row.expires_at >= now
+      );
+      return { success: true, meta: { changes: before - this.state.siweChallenges.length } };
+    }
+
     if (query === 'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1') {
       const [userId] = bindings;
       return this.state.users.find((row) => row.id === userId) || null;
@@ -472,6 +483,120 @@ class MockD1 {
       const before = this.state.sessions.length;
       this.state.sessions = this.state.sessions.filter((row) => row.expires_at >= now);
       return { success: true, meta: { changes: before - this.state.sessions.length } };
+    }
+
+    if (query.startsWith('INSERT INTO siwe_challenges (id, nonce, intent, user_id, address_normalized, domain, uri, chain_id, statement, issued_at, expires_at, used_at, requested_ip, created_at) VALUES')) {
+      const [id, nonce, intent, userId, domain, uri, chainId, statement, issuedAt, expiresAt, requestedIp, createdAt] = bindings;
+      this.state.siweChallenges.push({
+        id,
+        nonce,
+        intent,
+        user_id: userId,
+        address_normalized: null,
+        domain,
+        uri,
+        chain_id: chainId,
+        statement,
+        issued_at: issuedAt,
+        expires_at: expiresAt,
+        used_at: null,
+        requested_ip: requestedIp,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, nonce, intent, user_id, address_normalized, domain, uri, chain_id, statement, issued_at, expires_at, used_at, requested_ip, created_at FROM siwe_challenges WHERE nonce = ? LIMIT 1') {
+      const [nonce] = bindings;
+      return this.state.siweChallenges.find((row) => row.nonce === nonce) || null;
+    }
+
+    if (query === 'UPDATE siwe_challenges SET used_at = ?, address_normalized = ? WHERE id = ? AND used_at IS NULL') {
+      const [usedAt, addressNormalized, challengeId] = bindings;
+      const row = this.state.siweChallenges.find((item) => item.id === challengeId && item.used_at == null);
+      if (!row) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.used_at = usedAt;
+      row.address_normalized = addressNormalized;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, user_id, address_normalized, address_display, chain_id, is_primary, linked_at, last_login_at, created_at, updated_at FROM linked_wallets WHERE user_id = ? LIMIT 1') {
+      const [userId] = bindings;
+      return this.state.linkedWallets.find((row) => row.user_id === userId) || null;
+    }
+
+    if (query === 'SELECT id, user_id, address_normalized, address_display, chain_id, is_primary, linked_at, last_login_at, created_at, updated_at FROM linked_wallets WHERE address_normalized = ? LIMIT 1') {
+      const [addressNormalized] = bindings;
+      return this.state.linkedWallets.find((row) => row.address_normalized === addressNormalized) || null;
+    }
+
+    if (query.startsWith('INSERT INTO linked_wallets (id, user_id, address_normalized, address_display, chain_id, is_primary, linked_at, last_login_at, created_at, updated_at) VALUES')) {
+      const [id, userId, addressNormalized, addressDisplay, chainId, linkedAt, createdAt, updatedAt] = bindings;
+      this.state.linkedWallets.push({
+        id,
+        user_id: userId,
+        address_normalized: addressNormalized,
+        address_display: addressDisplay,
+        chain_id: chainId,
+        is_primary: 1,
+        linked_at: linkedAt,
+        last_login_at: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE linked_wallets SET address_display = ?, chain_id = ?, is_primary = 1, updated_at = ? WHERE id = ?') {
+      const [addressDisplay, chainId, updatedAt, id] = bindings;
+      const row = this.state.linkedWallets.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.address_display = addressDisplay;
+      row.chain_id = chainId;
+      row.is_primary = 1;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT lw.id AS link_id, lw.user_id AS user_id, lw.address_normalized AS address_normalized, lw.address_display AS address_display, lw.chain_id AS chain_id, lw.is_primary AS is_primary, lw.linked_at AS linked_at, lw.last_login_at AS last_login_at, u.email AS email, u.created_at AS created_at, u.status AS status, u.role AS role, u.verification_method AS verification_method FROM linked_wallets lw INNER JOIN users u ON u.id = lw.user_id WHERE lw.address_normalized = ? LIMIT 1')) {
+      const [addressNormalized] = bindings;
+      const linkedWallet = this.state.linkedWallets.find((row) => row.address_normalized === addressNormalized);
+      if (!linkedWallet) return null;
+      const user = this.state.users.find((row) => row.id === linkedWallet.user_id);
+      if (!user) return null;
+      return {
+        link_id: linkedWallet.id,
+        user_id: linkedWallet.user_id,
+        address_normalized: linkedWallet.address_normalized,
+        address_display: linkedWallet.address_display,
+        chain_id: linkedWallet.chain_id,
+        is_primary: linkedWallet.is_primary,
+        linked_at: linkedWallet.linked_at,
+        last_login_at: linkedWallet.last_login_at,
+        email: user.email,
+        created_at: user.created_at,
+        status: user.status,
+        role: user.role,
+        verification_method: user.verification_method ?? null,
+      };
+    }
+
+    if (query === 'UPDATE linked_wallets SET last_login_at = ?, updated_at = ? WHERE id = ?') {
+      const [lastLoginAt, updatedAt, id] = bindings;
+      const row = this.state.linkedWallets.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.last_login_at = lastLoginAt;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM linked_wallets WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.linkedWallets.length;
+      this.state.linkedWallets = this.state.linkedWallets.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.linkedWallets.length } };
     }
 
     if (query === 'DELETE FROM email_verification_tokens WHERE user_id = ?') {
@@ -638,6 +763,8 @@ class MockD1 {
       this.state.sessions = this.state.sessions.filter((row) => row.user_id !== userId);
       this.state.emailVerificationTokens = this.state.emailVerificationTokens.filter((row) => row.user_id !== userId);
       this.state.passwordResetTokens = this.state.passwordResetTokens.filter((row) => row.user_id !== userId);
+      this.state.linkedWallets = this.state.linkedWallets.filter((row) => row.user_id !== userId);
+      this.state.siweChallenges = this.state.siweChallenges.filter((row) => row.user_id !== userId);
       this.state.profiles = this.state.profiles.filter((row) => row.user_id !== userId);
       this.state.favorites = this.state.favorites.filter((row) => row.user_id !== userId);
       this.state.aiGenerationLog = this.state.aiGenerationLog.filter((row) => row.user_id !== userId);

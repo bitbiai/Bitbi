@@ -28,6 +28,10 @@ function createEmptyConnection() {
     };
 }
 
+function createEmptyLinkedWallet() {
+    return null;
+}
+
 let state = {
     isOpen: false,
     status: 'disconnected',
@@ -37,6 +41,12 @@ let state = {
     walletConnectProjectId: walletConfig.walletConnectProjectId,
     message: null,
     active: createEmptyConnection(),
+    authReady: false,
+    authLoggedIn: false,
+    identityStatus: 'idle',
+    identityAction: 'idle',
+    pendingAuthIntent: null,
+    linkedWallet: createEmptyLinkedWallet(),
 };
 
 function cloneMessage(message) {
@@ -53,12 +63,20 @@ function cloneConnection(active) {
     };
 }
 
+function cloneLinkedWallet(linkedWallet) {
+    if (!linkedWallet) return null;
+    return {
+        ...linkedWallet,
+    };
+}
+
 function cloneState() {
     return {
         ...state,
         injectedWallets: state.injectedWallets.map(wallet => ({ ...wallet })),
         message: cloneMessage(state.message),
         active: cloneConnection(state.active),
+        linkedWallet: cloneLinkedWallet(state.linkedWallet),
     };
 }
 
@@ -96,6 +114,9 @@ export function patchWalletState(patch) {
                 ...patch.active,
             }
             : state.active,
+        linkedWallet: Object.prototype.hasOwnProperty.call(patch, 'linkedWallet')
+            ? cloneLinkedWallet(patch.linkedWallet)
+            : state.linkedWallet,
     };
 
     dispatch();
@@ -142,5 +163,15 @@ export function updateWalletConnection(connection = {}) {
             balanceStatus: connection.balanceStatus || 'idle',
             balanceError: connection.balanceError || '',
         },
+    });
+}
+
+export function clearWalletIdentityState(overrides = {}) {
+    patchWalletState({
+        identityStatus: 'idle',
+        identityAction: 'idle',
+        pendingAuthIntent: null,
+        linkedWallet: createEmptyLinkedWallet(),
+        ...overrides,
     });
 }

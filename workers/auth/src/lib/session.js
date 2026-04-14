@@ -1,6 +1,6 @@
 import { json } from "./response.js";
 import { getSessionTokenFromCookies, parseCookies } from "./cookies.js";
-import { nowIso, sha256Hex } from "./tokens.js";
+import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 
 export async function getSessionUser(request, env) {
   const cookies = parseCookies(request.headers.get("Cookie"));
@@ -60,6 +60,30 @@ export async function getSessionUser(request, env) {
       role: sessionRow.role,
       verificationMethod: sessionRow.verification_method,
     },
+  };
+}
+
+export async function createSession(env, userId) {
+  const sessionToken = randomTokenHex(32);
+  const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
+  const sessionId = crypto.randomUUID();
+  const createdAt = nowIso();
+  const expiresAt = addDaysIso(30);
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    `
+  )
+    .bind(sessionId, userId, tokenHash, createdAt, expiresAt, createdAt)
+    .run();
+
+  return {
+    sessionId,
+    sessionToken,
+    createdAt,
+    expiresAt,
   };
 }
 

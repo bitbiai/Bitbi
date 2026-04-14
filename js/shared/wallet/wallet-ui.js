@@ -48,6 +48,24 @@ function getSafeImageUrl(raw) {
     return '';
 }
 
+function addressesEqual(left, right) {
+    if (!left || !right) return false;
+    return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function getAuthContext(state) {
+    const hasConnectedWallet = state.status === 'connected' && !!state.active.address;
+    const linkedWallet = state.linkedWallet;
+    const linkedMatchesActive = !!(linkedWallet && hasConnectedWallet && addressesEqual(linkedWallet.address, state.active.address));
+    return {
+        hasConnectedWallet,
+        linkedWallet,
+        linkedMatchesActive,
+        connectedDiffersFromLinked: !!(linkedWallet && hasConnectedWallet && !linkedMatchesActive),
+        busy: state.identityAction && state.identityAction !== 'idle',
+    };
+}
+
 function createProviderVisual(name, icon, size = 'md') {
     const visual = createElement('span', `wallet-ui__provider-visual wallet-ui__provider-visual--${size}`);
     const safeIcon = getSafeImageUrl(icon);
@@ -182,7 +200,7 @@ function ensureModal() {
     const eyebrow = createElement('span', 'wallet-modal__eyebrow', 'Ethereum');
     const title = createElement('h2', 'wallet-modal__title', 'Wallet');
     title.id = 'walletModalTitle';
-    const desc = createElement('p', 'wallet-modal__desc', 'Connect an Ethereum wallet to view account details on BITBI.');
+    const desc = createElement('p', 'wallet-modal__desc', 'Connect an Ethereum wallet to view account details and use wallet sign-in on BITBI.');
     titleWrap.append(eyebrow, title, desc);
     header.append(titleWrap, close);
 
@@ -230,13 +248,13 @@ function syncTrigger(trigger, state, isMobile = false) {
 
     trigger.classList.toggle('is-connected', isConnected);
     trigger.classList.toggle('is-warning', isWrongNetwork);
-    trigger.classList.toggle('is-busy', state.status === 'connecting');
+    trigger.classList.toggle('is-busy', state.status === 'connecting' || (state.identityAction && state.identityAction !== 'idle'));
     trigger.setAttribute('aria-expanded', String(!!state.isOpen));
 
     if (statusDot) {
         statusDot.classList.toggle('is-connected', isConnected);
         statusDot.classList.toggle('is-warning', isWrongNetwork);
-        statusDot.classList.toggle('is-busy', state.status === 'connecting');
+        statusDot.classList.toggle('is-busy', state.status === 'connecting' || (state.identityAction && state.identityAction !== 'idle'));
     }
 
     if (label) {
@@ -246,10 +264,16 @@ function syncTrigger(trigger, state, isMobile = false) {
     if (meta) {
         if (state.status === 'connecting') {
             meta.textContent = 'Connecting…';
+        } else if (state.identityAction === 'signing') {
+            meta.textContent = 'Check wallet';
+        } else if (state.identityAction === 'verifying') {
+            meta.textContent = 'Verifying…';
         } else if (isWrongNetwork) {
             meta.textContent = 'Wrong network';
         } else if (isConnected) {
             meta.textContent = state.active.providerName || 'Ethereum Mainnet';
+        } else if (state.authLoggedIn && state.linkedWallet) {
+            meta.textContent = state.linkedWallet.shortAddress || 'Linked wallet';
         } else {
             meta.textContent = isMobile ? 'Connect on Ethereum' : 'Connect';
         }
@@ -274,11 +298,143 @@ function createSectionTitle(title, subtitle) {
     return wrap;
 }
 
+function renderDetailRow(label, value, extraClass = '') {
+    const row = createElement('div', `wallet-modal__detail-row ${extraClass}`.trim());
+    row.append(
+        createElement('span', 'wallet-modal__detail-label', label),
+        createElement('span', 'wallet-modal__detail-value', value),
+    );
+    return row;
+}
+
+function buildIdentityActionLabel(state, intent) {
+    if (state.identityAction === 'requesting') {
+        return 'Preparing message…';
+    }
+    if (state.identityAction === 'signing') {
+        return 'Check your wallet…';
+    }
+    if (state.identityAction === 'verifying') {
+        return intent === 'login' ? 'Signing in…' : 'Linking…';
+    }
+    if (state.identityAction === 'unlinking') {
+        return 'Unlinking…';
+    }
+    if (intent === 'login') return 'Sign In with Ethereum';
+    if (intent === 'link') return 'Link Wallet to Account';
+    return 'Continue';
+}
+
+function createIdentityActionButton(state, intent) {
+    const button = createElement('button', 'wallet-modal__action', buildIdentityActionLabel(state, intent));
+    button.type = 'button';
+    button.disabled = state.identityAction !== 'idle' || !state.active.isMainnet;
+    if (intent === 'login') {
+        button.dataset.walletLogin = 'true';
+        button.addEventListener('click', () => actionsRef?.loginWithWallet?.());
+    } else {
+        button.dataset.walletLink = 'true';
+        button.addEventListener('click', () => actionsRef?.linkWallet?.());
+    }
+    return button;
+}
+
+function createUnlinkButton(state) {
+    const button = createElement('button', 'wallet-modal__action wallet-modal__action--ghost', state.identityAction === 'unlinking' ? 'Unlinking…' : 'Unlink Wallet');
+    button.type = 'button';
+    button.dataset.walletUnlink = 'true';
+    button.disabled = state.identityAction !== 'idle';
+    button.addEventListener('click', () => actionsRef?.unlinkWallet?.());
+    return button;
+}
+
+function renderDisconnectedIdentityState(state) {
+    if (!state.authReady || !state.authLoggedIn || !state.linkedWallet) return null;
+
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(createSectionTitle(
+        'Linked wallet',
+        'Your BITBI account session stays active even when no wallet is currently connected in this browser tab.',
+    ));
+
+    const details = createElement('div', 'wallet-modal__details');
+    details.appendChild(renderDetailRow('Linked address', state.linkedWallet.address));
+    details.appendChild(renderDetailRow('Network', 'Ethereum Mainnet'));
+    if (state.linkedWallet.lastLoginAt) {
+        details.appendChild(renderDetailRow('Last wallet sign-in', state.linkedWallet.lastLoginAt));
+    }
+    fragment.appendChild(details);
+
+    const actions = createElement('div', 'wallet-modal__action-row');
+    actions.appendChild(createUnlinkButton(state));
+    fragment.appendChild(actions);
+    return fragment;
+}
+
+function renderConnectedIdentityState(state) {
+    const auth = getAuthContext(state);
+    const fragment = document.createDocumentFragment();
+
+    fragment.appendChild(createSectionTitle(
+        'Wallet access',
+        'Connecting a wallet does not automatically sign you in or link it to your BITBI account.',
+    ));
+
+    if (!state.active.isMainnet) {
+        const note = createElement('p', 'wallet-modal__footnote', 'Switch to Ethereum Mainnet before using wallet sign-in or wallet linking.');
+        fragment.appendChild(note);
+        return fragment;
+    }
+
+    if (!state.authReady) {
+        fragment.appendChild(createElement('p', 'wallet-modal__footnote', 'Loading BITBI account state…'));
+        return fragment;
+    }
+
+    if (!state.authLoggedIn) {
+        fragment.appendChild(createElement('p', 'wallet-modal__footnote', 'If this wallet is already linked to a BITBI account, use Sign in with Ethereum to create the normal BITBI session.'));
+        const actions = createElement('div', 'wallet-modal__action-row');
+        actions.appendChild(createIdentityActionButton(state, 'login'));
+        fragment.appendChild(actions);
+        return fragment;
+    }
+
+    if (!auth.linkedWallet) {
+        fragment.appendChild(createElement('p', 'wallet-modal__footnote', 'This connected wallet is not yet linked to your current BITBI account.'));
+        const actions = createElement('div', 'wallet-modal__action-row');
+        actions.appendChild(createIdentityActionButton(state, 'link'));
+        fragment.appendChild(actions);
+        return fragment;
+    }
+
+    if (auth.linkedMatchesActive) {
+        const banner = createElement('div', 'wallet-modal__banner wallet-modal__banner--success');
+        banner.textContent = 'This connected wallet is already linked to your BITBI account.';
+        fragment.appendChild(banner);
+        const actions = createElement('div', 'wallet-modal__action-row');
+        actions.appendChild(createUnlinkButton(state));
+        fragment.appendChild(actions);
+        return fragment;
+    }
+
+    const warning = createElement('div', 'wallet-modal__warning');
+    warning.append(
+        createElement('strong', 'wallet-modal__warning-title', 'Different linked wallet'),
+        createElement('p', 'wallet-modal__warning-copy', `Your BITBI account is currently linked to ${state.linkedWallet.shortAddress || state.linkedWallet.address}. Unlink it before linking a different wallet.`),
+    );
+    fragment.appendChild(warning);
+
+    const actions = createElement('div', 'wallet-modal__action-row');
+    actions.appendChild(createUnlinkButton(state));
+    fragment.appendChild(actions);
+    return fragment;
+}
+
 function renderDisconnectedState(state) {
     const fragment = document.createDocumentFragment();
     fragment.appendChild(createSectionTitle(
         'Connect a wallet',
-        'Ethereum Mainnet is the only supported network in this first release.',
+        'Ethereum Mainnet is the only supported network in this release.',
     ));
 
     const walletsWrap = createElement('div', 'wallet-modal__stack');
@@ -345,6 +501,11 @@ function renderDisconnectedState(state) {
     externalWrap.appendChild(note);
     fragment.appendChild(externalWrap);
 
+    const linkedState = renderDisconnectedIdentityState(state);
+    if (linkedState) {
+        fragment.appendChild(linkedState);
+    }
+
     return fragment;
 }
 
@@ -360,15 +521,6 @@ function renderConnectingState(state) {
         createElement('p', 'wallet-modal__connecting-copy', `Waiting for ${connectorName} to finish the connection request.`),
     );
     return wrap;
-}
-
-function renderDetailRow(label, value, extraClass = '') {
-    const row = createElement('div', `wallet-modal__detail-row ${extraClass}`.trim());
-    row.append(
-        createElement('span', 'wallet-modal__detail-label', label),
-        createElement('span', 'wallet-modal__detail-value', value),
-    );
-    return row;
 }
 
 function renderConnectedState(state) {
@@ -437,6 +589,8 @@ function renderConnectedState(state) {
         warning.appendChild(switchBtn);
         fragment.appendChild(warning);
     }
+
+    fragment.appendChild(renderConnectedIdentityState(state));
 
     return fragment;
 }

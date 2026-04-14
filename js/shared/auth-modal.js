@@ -7,6 +7,7 @@
 import { authLogin, authRegister } from './auth-state.js';
 import { apiResendVerification } from './auth-api.js';
 import { setupFocusTrap } from './focus-trap.js';
+import { requestWalletLogin } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 
 let overlay = null;
 let formsContainer = null;
@@ -78,6 +79,11 @@ function injectForms() {
             <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
             <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="8" maxlength="128" aria-describedby="authLoginMsg" spellcheck="false">
             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
+            <div class="auth-modal__wallet-actions">
+                <span class="auth-modal__wallet-divider" aria-hidden="true">or</span>
+                <button type="button" id="authWalletLoginBtn" class="btn-secondary btn-primary--block btn-primary--sm">Sign In with Ethereum</button>
+                <p class="auth-modal__hint auth-modal__hint--wallet">Connect a linked Ethereum Mainnet wallet to use SIWE sign-in.</p>
+            </div>
             <p style="text-align:center;margin-top:var(--space-3)"><a href="/account/forgot-password.html" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">Forgot password?</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
@@ -92,6 +98,7 @@ function injectForms() {
     const registerForm = document.getElementById('authRegisterForm');
     const loginMsg = document.getElementById('authLoginMsg');
     const registerMsg = document.getElementById('authRegisterMsg');
+    const walletLoginBtn = document.getElementById('authWalletLoginBtn');
 
     /* Login */
     loginForm.addEventListener('submit', async (e) => {
@@ -120,6 +127,16 @@ function injectForms() {
             } else {
                 showMsg(loginMsg, 'error', res.error);
             }
+        }
+    });
+
+    walletLoginBtn?.addEventListener('click', async () => {
+        clearMsg(loginMsg);
+        closeAuthModal();
+        try {
+            await requestWalletLogin();
+        } catch {
+            /* wallet controller surfaces its own UI messages */
         }
     });
 

@@ -25,6 +25,49 @@ async function loadObservabilityModule() {
   return import(observabilityPath);
 }
 
+async function loadWalletTestModules() {
+  const accounts = await import('viem/accounts');
+  return {
+    privateKeyToAccount: accounts.privateKeyToAccount,
+  };
+}
+
+function buildTestSiweMessage(fields = {}) {
+  const domain = String(fields.domain || '').trim();
+  const address = String(fields.address || '').trim();
+  const statement = String(fields.statement || '').trim();
+  const uri = String(fields.uri || '').trim();
+  const version = String(fields.version || '1').trim() || '1';
+  const chainId = Number(fields.chainId);
+  const nonce = String(fields.nonce || '').trim();
+  const issuedAt = String(fields.issuedAt || '').trim();
+  const expirationTime = String(fields.expirationTime || '').trim();
+
+  const lines = [
+    `${domain} wants you to sign in with your Ethereum account:`,
+    address,
+    '',
+  ];
+
+  if (statement) {
+    lines.push(statement, '');
+  }
+
+  lines.push(
+    `URI: ${uri}`,
+    `Version: ${version}`,
+    `Chain ID: ${chainId}`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${issuedAt}`
+  );
+
+  if (expirationTime) {
+    lines.push(`Expiration Time: ${expirationTime}`);
+  }
+
+  return lines.join('\n');
+}
+
 function authJsonRequest(pathname, method, body, headers = {}) {
   const requestHeaders = new Headers(headers);
   if (body !== undefined) {
@@ -143,6 +186,21 @@ async function createAdminAiContractHarness(options = {}) {
 
 function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
+}
+
+async function createSignedWalletPayload({ challenge, privateKey }) {
+  const { privateKeyToAccount } = await loadWalletTestModules();
+  const account = privateKeyToAccount(privateKey);
+  const message = buildTestSiweMessage({
+    ...challenge,
+    address: account.address,
+  });
+  const signature = await account.signMessage({ message });
+  return {
+    account,
+    message,
+    signature,
+  };
 }
 
 const ONE_PIXEL_PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=';
@@ -316,6 +374,515 @@ function makeActiveRateLimitCounter(scope, limiterKey, count, windowMs) {
     updated_at: new Date(nowMs).toISOString(),
   };
 }
+
+test.describe('Wallet SIWE routes', () => {
+  const walletPrivateKey = '0x59c6995e998f97a5a0044966f094538e2d7d7b6c8f4f7f22e9f11d8932ff9d14';
+  const otherWalletPrivateKey = '0x8b3a350cf5c34c9194ca3a545d5cb4d0a27f9a9f1d3d3b5c9b5f6a6d7b8c9d10';
+
+  function createWalletUser(id = 'wallet-user-1') {
+    return {
+      id,
+      email: `${id}@example.com`,
+      password_hash: 'unused',
+      created_at: nowIso(),
+      status: 'active',
+      role: 'member',
+      email_verified_at: nowIso(),
+      verification_method: 'email_verified',
+    };
+  }
+
+  test('issues login nonce challenge', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv();
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'login' }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.45',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.challenge).toEqual(expect.objectContaining({
+      intent: 'login',
+      domain: 'bitbi.ai',
+      uri: 'https://bitbi.ai',
+      version: '1',
+      chainId: 1,
+      statement: 'Sign in to BITBI with your linked Ethereum wallet.',
+    }));
+    expect(typeof body.challenge.nonce).toBe('string');
+    expect(env.DB.state.siweChallenges).toHaveLength(1);
+    expect(env.DB.state.siweChallenges[0].intent).toBe('login');
+  });
+
+  test('link nonce requires auth', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv();
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.46',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  test('links a wallet to the authenticated account', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-link-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx, flush } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.47',
+    };
+
+    const nonceResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers),
+      env,
+      execCtx
+    );
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const verifyResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+    await flush();
+
+    expect(verifyResponse.status).toBe(200);
+    const verifyBody = await verifyResponse.json();
+    expect(verifyBody.ok).toBe(true);
+    expect(verifyBody.linked_wallet.address).toBe(signedPayload.account.address);
+    expect(env.DB.state.linkedWallets).toHaveLength(1);
+    expect(env.DB.state.linkedWallets[0].user_id).toBe(user.id);
+    expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_link')).toBe(true);
+  });
+
+  test('wallet login creates a normal app session', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const { privateKeyToAccount } = await loadWalletTestModules();
+    const account = privateKeyToAccount(walletPrivateKey);
+    const user = createWalletUser('wallet-login-user');
+    const env = createAuthTestEnv({
+      users: [user],
+      linkedWallets: [{
+        id: 'linked-wallet-1',
+        user_id: user.id,
+        address_normalized: account.address.toLowerCase(),
+        address_display: account.address,
+        chain_id: 1,
+        is_primary: 1,
+        linked_at: nowIso(),
+        last_login_at: null,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+    const { execCtx, flush } = createExecutionContext();
+
+    const nonceResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'login' }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.48',
+      }),
+      env,
+      execCtx
+    );
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const verifyResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'login',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.48',
+      }),
+      env,
+      execCtx
+    );
+    await flush();
+
+    expect(verifyResponse.status).toBe(200);
+    expect(verifyResponse.headers.get('set-cookie')).toContain('bitbi_session=');
+    const verifyBody = await verifyResponse.json();
+    expect(verifyBody.ok).toBe(true);
+    expect(env.DB.state.sessions.length).toBe(1);
+    expect(env.DB.state.linkedWallets[0].last_login_at).toBeTruthy();
+    expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_login')).toBe(true);
+  });
+
+  test('rejects nonce reuse', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-reuse-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.49',
+    };
+
+    const nonceResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers),
+      env,
+      execCtx
+    );
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const payload = {
+      intent: 'link',
+      message: signedPayload.message,
+      signature: signedPayload.signature,
+    };
+
+    const firstResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/verify', 'POST', payload, headers), env, execCtx);
+    expect(firstResponse.status).toBe(200);
+
+    const secondResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/verify', 'POST', payload, headers), env, execCtx);
+    expect(secondResponse.status).toBe(409);
+  });
+
+  test('rejects expired nonce', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-expired-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.50',
+    };
+
+    const nonceResponse = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers),
+      env,
+      execCtx
+    );
+    const nonceBody = await nonceResponse.json();
+    env.DB.state.siweChallenges[0].expires_at = '2000-01-01T00:00:00.000Z';
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('expired');
+  });
+
+  test('rejects wrong domain', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-domain-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.51',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: {
+        ...nonceBody.challenge,
+        domain: 'evil.example',
+      },
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('domain');
+  });
+
+  test('rejects wrong uri', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-uri-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.52',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: {
+        ...nonceBody.challenge,
+        uri: 'https://evil.example',
+      },
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('URI');
+  });
+
+  test('rejects wrong chain', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-chain-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.53',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: {
+        ...nonceBody.challenge,
+        chainId: 137,
+      },
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('Ethereum Mainnet');
+  });
+
+  test('rejects wrong intent', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-intent-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.54',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'login',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('requested action');
+  });
+
+  test('rejects invalid signature', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createWalletUser('wallet-signature-user');
+    const env = createAuthTestEnv({ users: [user] });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.55',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+    const otherSignedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: otherWalletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: otherSignedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(401);
+    expect((await response.json()).error).toContain('signature');
+  });
+
+  test('rejects linking a wallet already linked to another user', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const { privateKeyToAccount } = await loadWalletTestModules();
+    const account = privateKeyToAccount(walletPrivateKey);
+    const user = createWalletUser('wallet-link-conflict');
+    const otherUser = createWalletUser('wallet-link-other');
+    const env = createAuthTestEnv({
+      users: [user, otherUser],
+      linkedWallets: [{
+        id: 'linked-wallet-conflict',
+        user_id: otherUser.id,
+        address_normalized: account.address.toLowerCase(),
+        address_display: account.address,
+        chain_id: 1,
+        is_primary: 1,
+        linked_at: nowIso(),
+        last_login_at: null,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+    const { execCtx } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'CF-Connecting-IP': '203.0.113.56',
+    };
+
+    const nonceResponse = await worker.fetch(authJsonRequest('/api/wallet/siwe/nonce', 'POST', { intent: 'link' }, headers), env, execCtx);
+    const nonceBody = await nonceResponse.json();
+    const signedPayload = await createSignedWalletPayload({
+      challenge: nonceBody.challenge,
+      privateKey: walletPrivateKey,
+    });
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/siwe/verify', 'POST', {
+        intent: 'link',
+        message: signedPayload.message,
+        signature: signedPayload.signature,
+      }, headers),
+      env,
+      execCtx
+    );
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain('cannot be linked');
+  });
+
+  test('unlinks the current wallet', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const { privateKeyToAccount } = await loadWalletTestModules();
+    const account = privateKeyToAccount(walletPrivateKey);
+    const user = createWalletUser('wallet-unlink-user');
+    const env = createAuthTestEnv({
+      users: [user],
+      linkedWallets: [{
+        id: 'linked-wallet-unlink',
+        user_id: user.id,
+        address_normalized: account.address.toLowerCase(),
+        address_display: account.address,
+        chain_id: 1,
+        is_primary: 1,
+        linked_at: nowIso(),
+        last_login_at: nowIso(),
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+    const { execCtx, flush } = createExecutionContext();
+    const sessionToken = await seedSession(env, user.id);
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/wallet/unlink', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${sessionToken}`,
+        'CF-Connecting-IP': '203.0.113.57',
+      }),
+      env,
+      execCtx
+    );
+    await flush();
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.linked_wallet).toBe(null);
+    expect(env.DB.state.linkedWallets).toHaveLength(0);
+    expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_unlink')).toBe(true);
+  });
+});
 
 test.describe('Worker routes', () => {
   test('auth email validation uses bounded string checks', async () => {

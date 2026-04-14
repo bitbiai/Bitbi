@@ -17,6 +17,12 @@ import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
 import {
+  handleWalletSiweNonce,
+  handleWalletSiweVerify,
+  handleWalletStatus,
+  handleWalletUnlink,
+} from "./routes/wallet.js";
+import {
   AI_IMAGE_DERIVATIVE_RECOVERY_REENQUEUE_COOLDOWN_MS,
   AI_IMAGE_DERIVATIVE_VERSION,
   enqueueAiImageDerivativeJob,
@@ -87,6 +93,10 @@ export default {
     if (pathname === "/api/register" && method === "POST") return handleRegister(ctx);
     if (pathname === "/api/login" && method === "POST") return handleLogin(ctx);
     if (pathname === "/api/logout" && method === "POST") return handleLogout(ctx);
+    if (pathname === "/api/wallet/status" && method === "GET") return handleWalletStatus(ctx);
+    if (pathname === "/api/wallet/siwe/nonce" && method === "POST") return handleWalletSiweNonce(ctx);
+    if (pathname === "/api/wallet/siwe/verify" && method === "POST") return handleWalletSiweVerify(ctx);
+    if (pathname === "/api/wallet/unlink" && method === "POST") return handleWalletUnlink(ctx);
 
     // Profile
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
@@ -160,6 +170,16 @@ export default {
       env.DB.prepare("DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
       env.DB.prepare("DELETE FROM email_verification_tokens WHERE used_at IS NOT NULL OR expires_at < ?").bind(now),
     ]);
+
+    try {
+      await env.DB.prepare(
+        "DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?"
+      ).bind(now).run();
+    } catch (e) {
+      if (!String(e).includes("no such table")) {
+        throw e;
+      }
+    }
 
     try {
       await env.DB.prepare(

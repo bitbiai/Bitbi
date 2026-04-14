@@ -11,6 +11,13 @@ import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { setupFocusTrap }    from '../../shared/focus-trap.js';
 import { patchAuthUser }     from '../../shared/auth-state.js';
+import {
+    openWalletPanelView,
+    refreshWalletStatus,
+    requestWalletLink,
+    unlinkLinkedWallet,
+} from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
+import { subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
 
 import {
     apiAiGetFolders,
@@ -45,6 +52,10 @@ const $summaryEmail   = document.getElementById('summaryEmail');
 const $summaryRole    = document.getElementById('summaryRole');
 const $summaryVerified = document.getElementById('summaryVerified');
 const $summarySince   = document.getElementById('summarySince');
+const $walletSectionCopy = document.getElementById('walletSectionCopy');
+const $walletSectionMsg = document.getElementById('walletSectionMsg');
+const $walletSectionRows = document.getElementById('walletSectionRows');
+const $walletSectionActions = document.getElementById('walletSectionActions');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
@@ -80,6 +91,7 @@ const $avatarAssetsGrid = document.getElementById('avatarAssetsGrid');
 const PROFILE_VIEW = 'profile';
 const AI_LAB_HASH = 'ai-lab';
 let canAccessAdminAiLab = false;
+let walletViewState = null;
 
 const HERO_CONTENT = {
     [PROFILE_VIEW]: {
@@ -215,6 +227,157 @@ function showMsg(text, type) {
 function hideMsg() {
     $formMsg.className = 'profile__msg';
     $formMsg.textContent = '';
+}
+
+function showWalletSectionMsg(text, type = 'success') {
+    if (!$walletSectionMsg) return;
+    $walletSectionMsg.textContent = text || '';
+    $walletSectionMsg.className = text
+        ? `profile__msg profile__msg--${type}`
+        : 'profile__msg';
+}
+
+function createWalletRow(label, valueNode) {
+    const row = document.createElement('div');
+    row.className = 'profile__row';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'profile__label';
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'profile__value';
+    if (typeof valueNode === 'string') {
+        valueEl.textContent = valueNode;
+    } else if (valueNode) {
+        valueEl.appendChild(valueNode);
+    } else {
+        valueEl.textContent = '\u2014';
+    }
+
+    row.append(labelEl, valueEl);
+    return row;
+}
+
+function createWalletPill(label, variant = '') {
+    const pill = document.createElement('span');
+    pill.className = `profile__wallet-pill${variant ? ` profile__wallet-pill--${variant}` : ''}`;
+    pill.textContent = label;
+    return pill;
+}
+
+function addressesEqual(left, right) {
+    if (!left || !right) return false;
+    return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function renderWalletSection(state = walletViewState) {
+    if (!$walletSectionRows || !$walletSectionActions || !$walletSectionCopy || !state) return;
+
+    const linkedWallet = state.linkedWallet || null;
+    const connectedAddress = state.active?.address || '';
+    const isConnected = state.status === 'connected' && !!connectedAddress;
+    const linkedMatchesConnected = !!(linkedWallet && isConnected && addressesEqual(linkedWallet.address, connectedAddress));
+    const connectedDiffersFromLinked = !!(linkedWallet && isConnected && !linkedMatchesConnected);
+    const actionBusy = state.identityAction && state.identityAction !== 'idle';
+
+    $walletSectionRows.innerHTML = '';
+    $walletSectionActions.innerHTML = '';
+
+    if (!state.authReady) {
+        $walletSectionCopy.textContent = 'Loading wallet and account status…';
+        $walletSectionRows.appendChild(createWalletRow('Status', 'Loading…'));
+        return;
+    }
+
+    if (!linkedWallet && !isConnected) {
+        $walletSectionCopy.textContent = 'No wallet is linked yet. Connect an Ethereum Mainnet wallet to link it to this BITBI account.';
+        $walletSectionRows.appendChild(createWalletRow('Status', createWalletPill('No wallet linked')));
+
+        const connectBtn = document.createElement('button');
+        connectBtn.type = 'button';
+        connectBtn.className = 'profile__wallet-btn';
+        connectBtn.textContent = 'Connect Wallet';
+        connectBtn.addEventListener('click', () => openWalletPanelView());
+        $walletSectionActions.appendChild(connectBtn);
+        return;
+    }
+
+    if (!linkedWallet && isConnected) {
+        $walletSectionCopy.textContent = 'Your wallet is connected in this browser, but it is not linked to your BITBI account yet.';
+        $walletSectionRows.appendChild(createWalletRow('Status', createWalletPill('Connected, not linked', 'warning')));
+        $walletSectionRows.appendChild(createWalletRow('Connected wallet', connectedAddress));
+        $walletSectionRows.appendChild(createWalletRow('Network', state.active?.chainLabel || '\u2014'));
+
+        const linkBtn = document.createElement('button');
+        linkBtn.type = 'button';
+        linkBtn.className = 'profile__wallet-btn';
+        linkBtn.disabled = actionBusy;
+        linkBtn.textContent = actionBusy ? 'Working…' : 'Link Connected Wallet';
+        linkBtn.addEventListener('click', () => requestWalletLink());
+        $walletSectionActions.appendChild(linkBtn);
+
+        const panelBtn = document.createElement('button');
+        panelBtn.type = 'button';
+        panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
+        panelBtn.textContent = 'Open Wallet Panel';
+        panelBtn.addEventListener('click', () => openWalletPanelView());
+        $walletSectionActions.appendChild(panelBtn);
+        return;
+    }
+
+    if (linkedWallet) {
+        $walletSectionRows.appendChild(createWalletRow('Linked wallet', linkedWallet.address));
+        $walletSectionRows.appendChild(createWalletRow('Network', 'Ethereum Mainnet'));
+        $walletSectionRows.appendChild(createWalletRow('Linked at', formatDate(linkedWallet.linkedAt)));
+        if (linkedWallet.lastLoginAt) {
+            $walletSectionRows.appendChild(createWalletRow('Last wallet sign-in', formatDate(linkedWallet.lastLoginAt)));
+        }
+    }
+
+    if (linkedWallet && linkedMatchesConnected) {
+        $walletSectionCopy.textContent = 'The connected wallet matches the wallet linked to this BITBI account.';
+        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Linked and connected', 'success')));
+    } else if (linkedWallet && connectedDiffersFromLinked) {
+        $walletSectionCopy.textContent = 'A different wallet is connected in this browser than the wallet currently linked to this BITBI account.';
+        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Different wallet connected', 'danger')));
+        $walletSectionRows.appendChild(createWalletRow('Connected wallet', connectedAddress));
+    } else if (linkedWallet) {
+        $walletSectionCopy.textContent = 'A wallet is linked to this BITBI account. You can keep your BITBI session active even when the wallet is not currently connected.';
+        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Linked', 'success')));
+    }
+
+    if (!isConnected) {
+        const connectBtn = document.createElement('button');
+        connectBtn.type = 'button';
+        connectBtn.className = 'profile__wallet-btn';
+        connectBtn.textContent = 'Connect Wallet';
+        connectBtn.addEventListener('click', () => openWalletPanelView());
+        $walletSectionActions.appendChild(connectBtn);
+    } else {
+        const panelBtn = document.createElement('button');
+        panelBtn.type = 'button';
+        panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
+        panelBtn.textContent = 'Open Wallet Panel';
+        panelBtn.addEventListener('click', () => openWalletPanelView());
+        $walletSectionActions.appendChild(panelBtn);
+    }
+
+    const unlinkBtn = document.createElement('button');
+    unlinkBtn.type = 'button';
+    unlinkBtn.className = 'profile__wallet-btn profile__wallet-btn--danger';
+    unlinkBtn.disabled = actionBusy;
+    unlinkBtn.textContent = state.identityAction === 'unlinking' ? 'Unlinking…' : 'Unlink Wallet';
+    unlinkBtn.addEventListener('click', async () => {
+        showWalletSectionMsg('', 'success');
+        try {
+            await unlinkLinkedWallet();
+            showWalletSectionMsg('Wallet unlinked from this BITBI account.', 'success');
+        } catch {
+            showWalletSectionMsg('Could not unlink that wallet.', 'error');
+        }
+    });
+    $walletSectionActions.appendChild(unlinkBtn);
 }
 
 /* ── Avatar helpers ── */
@@ -696,6 +859,8 @@ function renderProfile(profile, account) {
     $bio.value = profile.bio;
     $website.value = profile.website;
     $youtubeUrl.value = profile.youtube_url;
+
+    renderWalletSection();
 }
 
 /* ── Favorites rendering + viewer ── */
@@ -1217,6 +1382,11 @@ function handleTileClick(fav) {
     }
 }
 
+subscribeWalletState((state) => {
+    walletViewState = state;
+    renderWalletSection(state);
+});
+
 /* ── Init ── */
 async function init() {
     // Shared header (nav, mobile menu, auth)
@@ -1242,6 +1412,7 @@ async function init() {
     showState($content);
     renderProfile(res.data.profile, res.data.account);
     loadAvatar(false);
+    refreshWalletStatus().catch(e => console.warn('walletStatus:', e));
 
     // Load and render favorites
     apiGetFavorites().then(favRes => {
