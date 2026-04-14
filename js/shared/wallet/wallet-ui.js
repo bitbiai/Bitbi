@@ -155,41 +155,43 @@ function ensureMobileTrigger() {
     const mobileAuth = document.getElementById('mobileNavAuth');
     if (!mobileNav || !mobileAuth?.parentNode) return null;
 
-    const section = createElement('section', 'mobile-nav__section mobile-nav__section--wallet');
+    const section = createElement('nav', 'mobile-nav__section mobile-nav__section--wallet');
     section.setAttribute('aria-label', 'Wallet');
 
     const label = createElement('span', 'mobile-nav__label', 'Wallet');
     section.appendChild(label);
-
-    mobileRow = createElement('div', 'wallet-nav__mobile-row');
+    mobileRow = section;
 
     mobilePageLink = document.createElement('a');
-    mobilePageLink.className = 'wallet-nav__mobile-link';
+    mobilePageLink.className = 'mobile-nav__link mobile-nav__link--primary wallet-nav__mobile-link';
     mobilePageLink.href = WALLET_PAGE_URL;
     mobilePageLink.dataset.walletPage = 'mobile';
-    mobilePageLink.innerHTML = `
-        <span class="wallet-nav__mobile-status" aria-hidden="true"></span>
-        <span class="wallet-nav__mobile-copy">
-            <span class="wallet-nav__mobile-label">Wallet</span>
-            <span class="wallet-nav__mobile-meta">Open wallet page</span>
-        </span>
-    `;
+    const pageCopy = createElement('span', 'wallet-nav__mobile-copy');
+    pageCopy.append(
+        createElement('span', 'wallet-nav__mobile-label', 'Wallet'),
+        createElement('span', 'wallet-nav__mobile-meta', 'Open wallet workspace'),
+    );
+    mobilePageLink.appendChild(pageCopy);
 
-    mobileTrigger = createElement('button', 'wallet-nav__mobile-trigger');
+    mobileTrigger = createElement('button', 'mobile-nav__link wallet-nav__mobile-trigger');
     mobileTrigger.type = 'button';
     mobileTrigger.dataset.walletOpen = 'mobile';
     mobileTrigger.setAttribute('aria-label', 'Open wallet panel');
-    mobileTrigger.textContent = 'Panel';
+    const triggerCopy = createElement('span', 'wallet-nav__mobile-copy');
+    triggerCopy.append(
+        createElement('span', 'wallet-nav__mobile-label', 'Wallet Panel'),
+        createElement('span', 'wallet-nav__mobile-meta', 'Connect, switch, or disconnect'),
+    );
+    mobileTrigger.appendChild(triggerCopy);
     mobileTrigger.addEventListener('click', () => {
         document.getElementById('mobileNavClose')?.click();
         window.setTimeout(() => actionsRef?.openPanel?.(), 40);
     });
 
-    mobileRow.append(mobilePageLink, mobileTrigger);
-    section.appendChild(mobileRow);
+    section.append(mobilePageLink, mobileTrigger);
     mobileAuth.parentNode.insertBefore(section, mobileAuth.nextSibling);
 
-    return mobileRow;
+    return section;
 }
 
 function ensureModal() {

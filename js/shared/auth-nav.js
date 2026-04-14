@@ -167,7 +167,26 @@ function renderMobile() {
     renderMobileHeaderIdentity(loggedIn ? user : null);
 
     if (loggedIn) {
+        const logout = document.createElement('button');
+        logout.type = 'button';
+        logout.className = 'auth-nav__mobile-logout';
+        logout.textContent = 'Sign Out';
+        logout.addEventListener('click', () => authLogout());
+
+        const adminLink = user?.role === 'admin'
+            ? (() => {
+                const link = document.createElement('a');
+                link.href = '/admin/';
+                link.className = 'auth-nav__mobile-admin';
+                link.textContent = 'Admin';
+                return link;
+            })()
+            : null;
+
         if (hasAvatar(user)) {
+            const accountWrap = document.createElement('div');
+            accountWrap.className = 'auth-nav__mobile-account';
+
             const identityLink = document.createElement('a');
             identityLink.href = '/account/profile.html';
             identityLink.className = 'auth-nav__mobile-identity';
@@ -180,41 +199,28 @@ function renderMobile() {
             label.textContent = getIdentityLabel(user);
             identityLink.appendChild(label);
 
-            authContainer.appendChild(identityLink);
+            accountWrap.appendChild(identityLink);
+            if (adminLink) accountWrap.appendChild(adminLink);
+            accountWrap.appendChild(logout);
+            authContainer.appendChild(accountWrap);
         } else {
             const email = document.createElement('span');
             email.className = 'auth-nav__mobile-email';
             email.textContent = user?.email || 'Member';
             authContainer.appendChild(email);
-        }
+            const actionsWrap = document.createElement('div');
+            actionsWrap.className = 'auth-nav__mobile-actions';
 
-        const actionsWrap = document.createElement('div');
-        actionsWrap.className = 'auth-nav__mobile-actions';
-
-        const logout = document.createElement('button');
-        logout.type = 'button';
-        logout.className = 'auth-nav__mobile-logout';
-        logout.textContent = 'Sign Out';
-        logout.addEventListener('click', () => authLogout());
-        actionsWrap.appendChild(logout);
-
-        if (!hasAvatar(user)) {
             const profileLink = document.createElement('a');
             profileLink.href = '/account/profile.html';
             profileLink.className = 'auth-nav__mobile-profile';
             profileLink.textContent = 'Profile';
             actionsWrap.appendChild(profileLink);
-        }
 
-        if (user?.role === 'admin') {
-            const adminLink = document.createElement('a');
-            adminLink.href = '/admin/';
-            adminLink.className = 'auth-nav__mobile-admin';
-            adminLink.textContent = 'Admin';
-            actionsWrap.appendChild(adminLink);
+            if (adminLink) actionsWrap.appendChild(adminLink);
+            actionsWrap.appendChild(logout);
+            authContainer.appendChild(actionsWrap);
         }
-
-        authContainer.appendChild(actionsWrap);
     } else {
         const btn = document.createElement('button');
         btn.type = 'button';

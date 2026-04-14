@@ -2268,7 +2268,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
-      role: 'user',
+      role: 'admin',
       email: 'mobile-header@example.com',
       displayName: '',
       hasAvatar: true,
@@ -2283,9 +2283,21 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('.auth-nav__mobile-account')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity-label')).toHaveText('mobile-header@example.com');
+    await expect(page.locator('.auth-nav__mobile-admin')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-logout')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
+
+    const mobileAccountOrder = await page.locator('.auth-nav__mobile-account').evaluate((node) =>
+      Array.from(node.children).map((child) => child.className),
+    );
+    expect(mobileAccountOrder).toEqual([
+      'auth-nav__mobile-identity',
+      'auth-nav__mobile-admin',
+      'auth-nav__mobile-logout',
+    ]);
   });
 
   test('mobile header keeps the legacy menu/profile layout when no avatar exists', async ({
@@ -2321,18 +2333,17 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
+    await expect(page.locator('#profileTabBar a[href="/account/wallet.html"]')).toBeVisible();
     await expect(page.locator('#profileStudioStack')).toBeHidden();
     await expect(page.locator('#profileStudioCard')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Studio', 'AI Lab']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio', 'AI Lab']);
 
-    const studioLinkBox = await page.locator('#profileTabBar .profile-tab-link:visible').first().boundingBox();
-    const labLinkBox = await page.locator('#profileMobileAiLabLink').boundingBox();
-    expect(studioLinkBox).not.toBeNull();
-    expect(labLinkBox).not.toBeNull();
-    expect(labLinkBox.x).toBeGreaterThan(studioLinkBox.x);
-    expect(Math.abs(labLinkBox.y - studioLinkBox.y)).toBeLessThanOrEqual(2);
+    const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
+      (node) => node.scrollWidth > node.clientWidth + 1,
+    );
+    expect(tabBarOverflow).toBe(false);
 
     await page.locator('#profileMobileAiLabLink').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
@@ -2363,9 +2374,10 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
+    await expect(page.locator('#profileTabBar a[href="/account/wallet.html"]')).toBeVisible();
     await expect(page.locator('#profileStudioStack')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
 
     await page.goto('/account/profile.html#ai-lab');
     await expect(page.locator('#profileHomeView')).toBeVisible();

@@ -21,11 +21,17 @@
             opacity 0.22s var(--ease-default);
     }
 
-    .wallet-nav__dock,
-    .wallet-nav__mobile-row {
+    .wallet-nav__dock {
         display: flex;
         align-items: stretch;
         gap: 0.55rem;
+    }
+
+    .wallet-nav__mobile-copy {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
     }
 
     .wallet-nav__page-link {
@@ -167,42 +173,20 @@
         padding-block-start: 0;
     }
 
-    .wallet-nav__mobile-row {
-        width: 100%;
-    }
-
     .wallet-nav__mobile-link {
-        display: flex;
-        align-items: center;
-        gap: 0.875rem;
-        flex: 1 1 auto;
-        min-width: 0;
-        padding: 0.95rem 1rem;
-        border-radius: var(--radius-lg);
-        border: 1px solid rgba(0, 240, 255, 0.14);
-        background:
-            linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(255, 170, 0, 0.03)),
-            rgba(255, 255, 255, 0.03);
-        color: rgba(255, 255, 255, 0.92);
-        text-align: left;
         text-decoration: none;
     }
 
+    .wallet-nav__mobile-link,
     .wallet-nav__mobile-trigger {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-        min-inline-size: 5.1rem;
-        padding: 0.95rem 0.9rem;
-        border-radius: var(--radius-lg);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.05);
-        color: rgba(255, 255, 255, 0.88);
-        font-size: 0.7rem;
-        font-family: var(--font-mono);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        display: grid;
+        gap: 0.35rem;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: none;
+        text-align: left;
+        font: inherit;
         cursor: pointer;
     }
 
@@ -210,24 +194,44 @@
     .wallet-nav__mobile-link:focus-visible,
     .wallet-nav__mobile-trigger:hover,
     .wallet-nav__mobile-trigger:focus-visible {
-        transform: translateY(-1px);
-        border-color: rgba(0, 240, 255, 0.26);
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
         outline: none;
     }
 
-    .wallet-nav__mobile-link.is-current {
-        border-color: rgba(0, 240, 255, 0.26);
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+    .wallet-nav__mobile-link .wallet-nav__mobile-label,
+    .wallet-nav__mobile-trigger .wallet-nav__mobile-label {
+        font: inherit;
+        color: inherit;
+        transition: color 0.22s var(--ease-default);
     }
 
-    .wallet-nav__mobile-link.is-warning {
-        border-color: rgba(255, 170, 0, 0.26);
+    .wallet-nav__mobile-link .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-trigger .wallet-nav__mobile-meta {
+        max-inline-size: none;
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
 
-    .wallet-nav__mobile-trigger[aria-expanded="true"] {
-        border-color: rgba(0, 240, 255, 0.28);
-        background: rgba(0, 240, 255, 0.08);
+    .wallet-nav__mobile-trigger .wallet-nav__mobile-meta {
+        color: rgba(255, 255, 255, 0.36);
+    }
+
+    .wallet-nav__mobile-link:hover .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-link:focus-visible .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-trigger:hover .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-trigger:focus-visible .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-link.is-current .wallet-nav__mobile-meta,
+    .wallet-nav__mobile-trigger[aria-expanded="true"] .wallet-nav__mobile-meta {
+        color: rgba(0, 240, 255, 0.72);
+    }
+
+    .wallet-nav__mobile-link.is-current .wallet-nav__mobile-label,
+    .wallet-nav__mobile-trigger[aria-expanded="true"] .wallet-nav__mobile-label {
+        color: var(--color-cyan);
+    }
+
+    .wallet-nav__mobile-link.is-warning .wallet-nav__mobile-meta {
+        color: rgba(255, 170, 0, 0.92);
     }
 
     .wallet-modal {
@@ -660,27 +664,56 @@
         }
 
         .wallet-modal {
-            align-items: flex-end;
-            justify-content: stretch;
+            align-items: stretch;
+            justify-content: flex-end;
         }
 
         .wallet-modal__panel {
             inline-size: 100%;
-            block-size: min(88vh, 42rem);
+            block-size: 100%;
             max-inline-size: none;
+            padding:
+                calc(5rem + env(safe-area-inset-top, 0px))
+                var(--space-6)
+                calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
             border-inline-start: 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 1.5rem 1.5rem 0 0;
-            transform: translateY(100%);
-            box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.38);
+            border-top: 0;
+            border-radius: 0;
+            transform: translateX(100%);
+            box-shadow: -24px 0 60px rgba(0, 0, 0, 0.38);
         }
 
         .wallet-modal.is-open .wallet-modal__panel {
-            transform: translateY(0);
+            transform: translateX(0);
+        }
+
+        .wallet-modal__header {
+            padding: 0 2.75rem 1.25rem 0;
+        }
+
+        .wallet-modal__close {
+            position: absolute;
+            inset-block-start: calc(var(--space-5) + env(safe-area-inset-top, 0px));
+            inset-inline-end: var(--space-5);
+            border: 0;
+            background: none;
+            font-size: 1.75rem;
+            color: var(--color-cyan);
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.6), 0 0 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .wallet-modal__close:hover,
+        .wallet-modal__close:focus-visible {
+            background: none;
+            border: 0;
+            color: var(--color-white);
+            text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 0 0 28px rgba(239, 68, 68, 0.6);
         }
 
         .wallet-modal__body {
-            block-size: calc(100% - 6rem);
+            block-size: auto;
+            max-block-size: 100%;
+            padding-inline-end: 0;
         }
     }
 

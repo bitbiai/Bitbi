@@ -27,6 +27,7 @@ import { renderWalletQrSvg } from '../../shared/wallet/wallet-qr.js?v=__ASSET_VE
 import { getWalletState, subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
 
 const $banner = document.getElementById('walletPageBanner');
+const $sectionNav = document.getElementById('walletSectionNav');
 const $empty = document.getElementById('walletPageEmpty');
 const $emptyText = document.getElementById('walletPageEmptyText');
 const $emptyConnectBtn = document.getElementById('walletPageConnectBtn');
@@ -91,10 +92,31 @@ const pageUiState = {
         submitting: false,
     },
 };
+const walletSectionIds = ['wallet-overview', 'wallet-send', 'wallet-receive', 'wallet-account'];
 
 function shortenAddress(address) {
     if (typeof address !== 'string' || address.length < 10) return address || '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function setActiveSectionLink(sectionId) {
+    if (!$sectionNav) return;
+    const resolvedSectionId = walletSectionIds.includes(sectionId) ? sectionId : 'wallet-overview';
+    $sectionNav.querySelectorAll('[data-wallet-section-link]').forEach((link) => {
+        const isActive = link.dataset.walletSectionLink === resolvedSectionId;
+        link.classList.toggle('active', isActive);
+        if (isActive) {
+            link.setAttribute('aria-current', 'true');
+        } else {
+            link.removeAttribute('aria-current');
+        }
+    });
+}
+
+function syncSectionNav() {
+    if (!$sectionNav || $sectionNav.hidden) return;
+    const hash = window.location.hash.replace(/^#/, '').trim().toLowerCase();
+    setActiveSectionLink(walletSectionIds.includes(hash) ? hash : 'wallet-overview');
 }
 
 function addressesEqual(left, right) {
@@ -537,6 +559,9 @@ function render(state) {
 
     $empty.hidden = connected;
     $dashboard.hidden = !connected;
+    if ($sectionNav) {
+        $sectionNav.hidden = !connected;
+    }
 
     if (!connected) {
         qrToken += 1;
@@ -547,10 +572,12 @@ function render(state) {
         $qrHint.textContent = 'A local QR code appears here for the connected wallet address.';
         renderEmptyState(state);
         renderSendState(state);
+        setActiveSectionLink('wallet-overview');
         return;
     }
 
     renderConnectedState(state);
+    syncSectionNav();
 }
 
 function normalizeSendError(error) {
@@ -685,6 +712,7 @@ function bindEvents() {
     $sendPanelBtn?.addEventListener('click', () => openWalletPanelView());
     $sendMaxBtn?.addEventListener('click', () => { void handleUseMax(); });
     $sendForm?.addEventListener('submit', (event) => { void handleSend(event); });
+    window.addEventListener('hashchange', syncSectionNav);
 }
 
 function init() {

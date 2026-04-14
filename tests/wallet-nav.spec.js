@@ -291,7 +291,10 @@ test.describe('Wallet navigation mobile', () => {
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
 
-    const walletEntry = page.locator('[data-wallet-open="mobile"]');
+    const walletSection = page.locator('.mobile-nav__section--wallet');
+    await expect(walletSection).toBeVisible();
+
+    const walletEntry = walletSection.locator('[data-wallet-open="mobile"]');
     await expect(walletEntry).toBeVisible();
     await walletEntry.click();
 
@@ -308,7 +311,8 @@ test.describe('Wallet navigation mobile', () => {
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
 
-    const walletPageLink = page.locator('[data-wallet-page="mobile"]');
+    const walletSection = page.locator('.mobile-nav__section--wallet');
+    const walletPageLink = walletSection.locator('[data-wallet-page="mobile"]');
     await expect(walletPageLink).toBeVisible();
     await walletPageLink.click();
 
@@ -321,6 +325,7 @@ test.describe('Wallet page', () => {
   test('disconnected wallet page renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
     await page.goto('/account/wallet.html');
 
+    await expect(page.locator('#walletSectionNav')).toBeHidden();
     await expect(page.locator('#walletPageEmpty')).toBeVisible();
     await expect(page.locator('#walletPageEmpty')).toContainText('Connect a wallet');
     await expect(page.locator('#walletPageDashboard')).toBeHidden();
@@ -338,6 +343,17 @@ test.describe('Wallet page', () => {
     await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
     await expect(page.locator('#walletModal')).toBeHidden();
+
+    await expect(page.locator('#walletSectionNav')).toBeVisible();
+    await expect(page.locator('#walletSectionNav .wallet-page__section-link')).toHaveText([
+      'Overview',
+      'Send',
+      'Receive',
+      'Bitbi Account',
+    ]);
+    await page.locator('#walletSectionNav [data-wallet-section-link="wallet-send"]').click();
+    await expect(page).toHaveURL(/#wallet-send$/);
+    await expect(page.locator('#walletSectionNav [data-wallet-section-link="wallet-send"]')).toHaveClass(/active/);
 
     await expect(page.locator('#walletPageDashboard')).toBeVisible();
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
