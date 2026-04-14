@@ -1313,7 +1313,7 @@ test.describe('Auth modal', () => {
     await expect(form.locator('input[name="email"]')).toBeVisible();
     await expect(form.locator('input[name="password"]')).toBeVisible();
     await expect(
-      form.getByRole('button', { name: /sign in/i }),
+      form.getByRole('button', { name: 'Sign In', exact: true }),
     ).toBeVisible();
   });
 
