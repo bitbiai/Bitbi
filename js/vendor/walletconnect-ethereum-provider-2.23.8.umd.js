@@ -2164,7 +2164,7 @@ Minimum version required to store current data is: `+U+`.
       <a
         data-testid="ux-branding-reown"
         href=${y2e}
-        rel="noreferrer"
+        rel="noopener noreferrer"
         target="_blank"
         style="text-decoration: none;"
       >

@@ -6,3 +6,7 @@ Vendored asset for the wallet connector feature:
 - License file: [walletconnect-ethereum-provider-2.23.8.LICENSE.md](/Users/btc2020/Bitbi/Bitbi/js/vendor/walletconnect-ethereum-provider-2.23.8.LICENSE.md)
 
 This bundle is checked in so the site can keep its existing static no-build architecture without depending on a runtime CDN import.
+
+Local patch note:
+
+- `js/vendor/walletconnect-ethereum-provider-2.23.8.umd.js` was patched after vendoring to add `rel="noopener noreferrer"` to a `target="_blank"` anchor for repo security-check compliance.
