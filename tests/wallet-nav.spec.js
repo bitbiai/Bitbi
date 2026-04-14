@@ -170,7 +170,7 @@ function injectPersistentMockInjectedWallet(page) {
 }
 
 test.describe('Wallet navigation', () => {
-  test('desktop wallet panel renders degraded disconnected state', async ({ page }) => {
+  test('desktop wallet panel renders disconnected state with WalletConnect enabled', async ({ page }) => {
     await page.goto('/');
 
     const trigger = page.locator('[data-wallet-open="desktop"]');
@@ -182,8 +182,9 @@ test.describe('Wallet navigation', () => {
     await expect(modal).toBeVisible();
     await expect(modal).toContainText('Connect a wallet');
     await expect(modal).toContainText('No browser wallet detected');
-    await expect(page.locator('[data-wallet-connect="true"]')).toBeDisabled();
-    await expect(modal).toContainText('Reown project ID');
+    const walletConnectButton = modal.locator('[data-wallet-connect="true"]').first();
+    await expect(walletConnectButton).toBeEnabled();
+    await expect(modal).not.toContainText('Reown project ID');
 
     await page.keyboard.press('Escape');
     await expect(modal).toBeHidden();
