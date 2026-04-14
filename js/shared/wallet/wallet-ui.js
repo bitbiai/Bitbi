@@ -278,12 +278,12 @@ function syncTrigger(trigger, state, isMobile = false) {
 
     trigger.classList.toggle('is-connected', isConnected);
     trigger.classList.toggle('is-warning', isWrongNetwork);
-    trigger.classList.toggle('is-busy', state.status === 'connecting' || (state.identityAction && state.identityAction !== 'idle'));
+    trigger.classList.toggle('is-busy', (state.status === 'connecting' || state.status === 'restoring') || (state.identityAction && state.identityAction !== 'idle'));
 
     if (statusDot) {
         statusDot.classList.toggle('is-connected', isConnected);
         statusDot.classList.toggle('is-warning', isWrongNetwork);
-        statusDot.classList.toggle('is-busy', state.status === 'connecting' || (state.identityAction && state.identityAction !== 'idle'));
+        statusDot.classList.toggle('is-busy', (state.status === 'connecting' || state.status === 'restoring') || (state.identityAction && state.identityAction !== 'idle'));
     }
 
     if (label) {
@@ -296,6 +296,8 @@ function syncTrigger(trigger, state, isMobile = false) {
 
         if (state.status === 'connecting') {
             metaText = 'Connection pending';
+        } else if (state.status === 'restoring') {
+            metaText = 'Restoring wallet';
         } else if (state.identityAction === 'signing') {
             metaText = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
@@ -490,7 +492,7 @@ function renderDisconnectedState(state) {
             const button = createElement('button', 'wallet-modal__option');
             button.type = 'button';
             button.dataset.walletProviderId = wallet.id;
-            button.disabled = state.status === 'connecting';
+            button.disabled = state.status === 'connecting' || state.status === 'restoring';
             button.append(
                 createProviderVisual(wallet.name, wallet.icon, 'sm'),
                 (() => {
@@ -522,7 +524,7 @@ function renderDisconnectedState(state) {
     const walletConnectButton = createElement('button', 'wallet-modal__option');
     walletConnectButton.type = 'button';
     walletConnectButton.dataset.walletConnect = 'true';
-    walletConnectButton.disabled = !state.walletConnectConfigured || state.status === 'connecting';
+    walletConnectButton.disabled = !state.walletConnectConfigured || state.status === 'connecting' || state.status === 'restoring';
     walletConnectButton.append(
         createProviderVisual('WalletConnect', '', 'sm'),
         (() => {
@@ -563,6 +565,16 @@ function renderConnectingState(state) {
         createElement('div', 'wallet-modal__spinner'),
         createElement('h3', 'wallet-modal__connecting-title', 'Connecting…'),
         createElement('p', 'wallet-modal__connecting-copy', `Waiting for ${connectorName} to finish the connection request.`),
+    );
+    return wrap;
+}
+
+function renderRestoringState() {
+    const wrap = createElement('div', 'wallet-modal__connecting');
+    wrap.append(
+        createElement('div', 'wallet-modal__spinner'),
+        createElement('h3', 'wallet-modal__connecting-title', 'Restoring…'),
+        createElement('p', 'wallet-modal__connecting-copy', 'Reattaching the previous wallet session without opening a new wallet prompt.'),
     );
     return wrap;
 }
@@ -648,6 +660,11 @@ function renderBody(state) {
 
     if (state.status === 'connecting') {
         modalBody.appendChild(renderConnectingState(state));
+        return;
+    }
+
+    if (state.status === 'restoring') {
+        modalBody.appendChild(renderRestoringState());
         return;
     }
 

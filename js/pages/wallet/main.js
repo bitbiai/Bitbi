@@ -323,6 +323,15 @@ function renderEmptyState(state) {
         return;
     }
 
+    if (state.status === 'restoring') {
+        $emptyText.textContent = 'Restoring the previous wallet session without opening a new wallet prompt. BITBI keeps the workspace ready while the provider settles.';
+        $emptyConnectBtn.disabled = true;
+        $emptyConnectBtn.textContent = 'Restoring…';
+        $emptyOpenPanelBtn.disabled = false;
+        $emptyOpenPanelBtn.textContent = 'Open Wallet Panel';
+        return;
+    }
+
     $emptyText.textContent = connectedLinkedWallet;
     $emptyConnectBtn.disabled = false;
     $emptyConnectBtn.textContent = state.authLoggedIn && state.linkedWallet ? 'Reconnect Wallet' : 'Connect Wallet';

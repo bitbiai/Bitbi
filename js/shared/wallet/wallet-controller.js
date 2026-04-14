@@ -40,6 +40,13 @@ let messageTimer = null;
 let balanceRequestToken = 0;
 let restoreAttempted = false;
 let walletStatusRequestToken = 0;
+let transientDisconnectTimer = null;
+let lifecycleReconcileTimer = null;
+let reconcilePromise = null;
+
+const PERSISTED_SELECTION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+const TRANSIENT_DISCONNECT_GRACE_MS = 1800;
+const LIFECYCLE_RECONCILE_DELAY_MS = 240;
 
 function readStorage(key) {
     try {
@@ -64,6 +71,30 @@ function writeStorage(key, value) {
 function addressesEqual(left, right) {
     if (!left || !right) return false;
     return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function clearTransientDisconnectTimer() {
+    if (!transientDisconnectTimer) return;
+    window.clearTimeout(transientDisconnectTimer);
+    transientDisconnectTimer = null;
+}
+
+function clearLifecycleReconcileTimer() {
+    if (!lifecycleReconcileTimer) return;
+    window.clearTimeout(lifecycleReconcileTimer);
+    lifecycleReconcileTimer = null;
+}
+
+function parseStoredTimestamp(value) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isPersistedSelectionClearlyStale(persisted) {
+    const timestamp = parseStoredTimestamp(persisted?.updatedAt);
+    if (!timestamp) return false;
+    return (Date.now() - timestamp) > PERSISTED_SELECTION_STALE_MS;
 }
 
 function persistConnectionSnapshot(snapshot = {}) {
@@ -170,6 +201,15 @@ function normalizeLinkedWallet(raw) {
     };
 }
 
+function markWalletRestoring() {
+    const state = getWalletState();
+    if (state.status === 'connected' || state.status === 'connecting') return;
+    patchWalletState({
+        status: 'restoring',
+        connectingConnectorId: null,
+    });
+}
+
 function getWalletAuthView(state = getWalletState()) {
     const hasConnectedWallet = state.status === 'connected' && !!state.active.address;
     const linkedWallet = state.linkedWallet;
@@ -216,11 +256,32 @@ async function readChainId(provider) {
 }
 
 function cleanupProviderListeners() {
+    clearTransientDisconnectTimer();
     if (typeof removeActiveListeners === 'function') {
         removeActiveListeners();
     }
     removeActiveListeners = null;
     activeProvider = null;
+}
+
+function finalizeDisconnectedState(message = 'The wallet disconnected from this site.', options = {}) {
+    const { clearPersisted = true } = options;
+    const isOpen = getWalletState().isOpen;
+
+    cleanupProviderListeners();
+    if (clearPersisted) {
+        clearPersistedSelection();
+    }
+
+    resetWalletConnection({ isOpen });
+    patchWalletState({
+        identityAction: 'idle',
+        pendingAuthIntent: null,
+    });
+
+    if (message) {
+        flashMessage('info', message);
+    }
 }
 
 function baseConnectionSnapshot(connection = {}) {
@@ -291,6 +352,22 @@ async function refreshBalance(provider, snapshot) {
             },
         });
     }
+}
+
+async function readConnectionSnapshotFromProvider(provider, base = {}) {
+    if (!provider?.request) return null;
+
+    const accounts = await readAccounts(provider);
+    const address = accounts[0];
+    if (!address) return null;
+
+    const chainId = await readChainId(provider);
+    return baseConnectionSnapshot({
+        ...getWalletState().active,
+        ...base,
+        address,
+        chainId,
+    });
 }
 
 function ensureActiveProviderConnection() {
@@ -403,28 +480,24 @@ async function refreshWalletStatus() {
     return linkedWallet;
 }
 
-async function syncConnectionFromProvider(provider, base = {}) {
+async function syncConnectionFromProvider(provider, base = {}, options = {}) {
     if (!provider) return;
 
-    const accounts = await readAccounts(provider);
-    const address = accounts[0];
-    if (!address) {
-        cleanupProviderListeners();
-        clearPersistedSelection();
-        resetWalletConnection({ isOpen: getWalletState().isOpen });
-        patchWalletState({ identityAction: 'idle' });
-        flashMessage('info', 'The wallet disconnected from this site.');
-        return;
+    const {
+        disconnectOnMissingAddress = true,
+        clearPersistedOnDisconnect = true,
+        disconnectMessage = 'The wallet disconnected from this site.',
+    } = options;
+
+    const snapshot = await readConnectionSnapshotFromProvider(provider, base);
+    if (!snapshot) {
+        if (disconnectOnMissingAddress) {
+            finalizeDisconnectedState(disconnectMessage, { clearPersisted: clearPersistedOnDisconnect });
+        }
+        return null;
     }
 
-    const chainId = await readChainId(provider);
-    const snapshot = baseConnectionSnapshot({
-        ...getWalletState().active,
-        ...base,
-        address,
-        chainId,
-    });
-
+    clearTransientDisconnectTimer();
     updateWalletConnection({
         ...snapshot,
         balanceStatus: snapshot.isMainnet ? 'loading' : 'unavailable',
@@ -433,6 +506,125 @@ async function syncConnectionFromProvider(provider, base = {}) {
     });
     persistConnectionSnapshot(snapshot);
     await refreshBalance(provider, snapshot);
+    return snapshot;
+}
+
+async function restorePersistedConnection(persisted = readPersistedSelection()) {
+    if (!persisted?.type) return null;
+
+    if (persisted.type === 'injected' && persisted.id) {
+        return restoreInjectedWallet(persisted.id);
+    }
+
+    if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
+        return restoreWalletConnect();
+    }
+
+    return null;
+}
+
+async function reconcileConnectionState(options = {}) {
+    const {
+        provider = activeProvider,
+        base = getWalletState().active,
+        allowPersistedRestore = true,
+        markRestoringState = false,
+        clearOnConfirmedDisconnect = false,
+        disconnectMessage = 'The wallet disconnected from this site.',
+    } = options;
+
+    if (reconcilePromise) return reconcilePromise;
+
+    if (markRestoringState && readPersistedSelection()) {
+        markWalletRestoring();
+    }
+
+    reconcilePromise = (async () => {
+        const persisted = allowPersistedRestore ? readPersistedSelection() : null;
+        let providerReadFailed = false;
+        let providerReportedNoAccount = false;
+        let restoreFailed = false;
+
+        if (provider?.request) {
+            try {
+                const synced = await syncConnectionFromProvider(provider, base, {
+                    disconnectOnMissingAddress: false,
+                });
+                if (synced) return synced;
+                providerReportedNoAccount = true;
+            } catch (error) {
+                providerReadFailed = true;
+                console.warn('walletReconcile:provider', error);
+            }
+        }
+
+        if (persisted) {
+            try {
+                const restored = await restorePersistedConnection(persisted);
+                if (restored) {
+                    await activateConnection(restored, { message: null, persist: true });
+                    return restored;
+                }
+            } catch (error) {
+                restoreFailed = true;
+                console.warn('walletReconcile:restore', error);
+            }
+        }
+
+        if (clearOnConfirmedDisconnect && providerReportedNoAccount && !providerReadFailed && !restoreFailed) {
+            finalizeDisconnectedState(disconnectMessage, { clearPersisted: true });
+            return null;
+        }
+
+        if (providerReadFailed || restoreFailed) {
+            scheduleLifecycleReconcile('reconcile-retry');
+        }
+
+        if (getWalletState().status === 'restoring') {
+            resetWalletConnection({ isOpen: getWalletState().isOpen });
+        }
+
+        if (persisted && isPersistedSelectionClearlyStale(persisted)) {
+            clearPersistedSelection();
+        }
+
+        return null;
+    })().finally(() => {
+        reconcilePromise = null;
+    });
+
+    return reconcilePromise;
+}
+
+function scheduleTransientConnectionVerification(provider, base = {}, reason = 'provider') {
+    clearTransientDisconnectTimer();
+    transientDisconnectTimer = window.setTimeout(() => {
+        transientDisconnectTimer = null;
+        if (activeProvider !== provider) return;
+        void reconcileConnectionState({
+            provider,
+            base,
+            allowPersistedRestore: true,
+            clearOnConfirmedDisconnect: true,
+            disconnectMessage: 'The wallet disconnected from this site.',
+        });
+    }, TRANSIENT_DISCONNECT_GRACE_MS);
+}
+
+function scheduleLifecycleReconcile(reason = 'lifecycle') {
+    const persisted = readPersistedSelection();
+    if (getWalletState().status === 'connecting') return;
+    if (!activeProvider?.request && !persisted) return;
+
+    clearLifecycleReconcileTimer();
+    lifecycleReconcileTimer = window.setTimeout(() => {
+        lifecycleReconcileTimer = null;
+        void reconcileConnectionState({
+            allowPersistedRestore: true,
+            markRestoringState: getWalletState().status !== 'connected',
+            clearOnConfirmedDisconnect: false,
+        });
+    }, LIFECYCLE_RECONCILE_DELAY_MS);
 }
 
 function bindProviderEvents(connection) {
@@ -444,28 +636,30 @@ function bindProviderEvents(connection) {
         if (activeProvider !== connection.provider) return;
         const nextAddress = Array.isArray(accounts) ? accounts[0] : '';
         if (!nextAddress) {
-            cleanupProviderListeners();
-            clearPersistedSelection();
-            resetWalletConnection({ isOpen: getWalletState().isOpen });
-            patchWalletState({ identityAction: 'idle' });
-            flashMessage('info', 'The wallet disconnected from this site.');
+            scheduleTransientConnectionVerification(connection.provider, connection, 'accountsChanged');
             return;
         }
-        void syncConnectionFromProvider(connection.provider, connection);
+        void syncConnectionFromProvider(connection.provider, connection, {
+            disconnectOnMissingAddress: false,
+        }).catch((error) => {
+            console.warn('walletEvent:accountsChanged', error);
+            scheduleLifecycleReconcile('accountsChanged');
+        });
     };
 
     const handleChainChanged = () => {
         if (activeProvider !== connection.provider) return;
-        void syncConnectionFromProvider(connection.provider, connection);
+        void syncConnectionFromProvider(connection.provider, connection, {
+            disconnectOnMissingAddress: false,
+        }).catch((error) => {
+            console.warn('walletEvent:chainChanged', error);
+            scheduleLifecycleReconcile('chainChanged');
+        });
     };
 
     const handleDisconnect = () => {
         if (activeProvider !== connection.provider) return;
-        cleanupProviderListeners();
-        clearPersistedSelection();
-        resetWalletConnection({ isOpen: getWalletState().isOpen });
-        patchWalletState({ identityAction: 'idle' });
-        flashMessage('info', 'The wallet disconnected from this site.');
+        scheduleTransientConnectionVerification(connection.provider, connection, 'disconnect');
     };
 
     activeProvider.on('accountsChanged', handleAccountsChanged);
@@ -480,6 +674,7 @@ function bindProviderEvents(connection) {
 }
 
 async function activateConnection(connection, options = {}) {
+    clearTransientDisconnectTimer();
     const snapshot = baseConnectionSnapshot(connection);
     bindProviderEvents(connection);
     updateWalletConnection({
@@ -508,29 +703,26 @@ async function restorePreviousConnection() {
     const persisted = readPersistedSelection();
     if (!persisted) return;
 
-    try {
-        let connection = null;
+    markWalletRestoring();
 
-        if (persisted.type === 'injected' && persisted.id) {
-            connection = await restoreInjectedWallet(persisted.id);
-        } else if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
-            connection = await restoreWalletConnect();
-        }
+    try {
+        const connection = await restorePersistedConnection(persisted);
 
         if (!connection) {
-            clearPersistedSelection();
-            return;
-        }
-
-        if (persisted.address && !addressesEqual(persisted.address, connection.address)) {
-            clearPersistedSelection();
+            if (isPersistedSelectionClearlyStale(persisted)) {
+                clearPersistedSelection();
+            }
+            resetWalletConnection({ isOpen: getWalletState().isOpen });
             return;
         }
 
         await activateConnection(connection, { message: null, persist: true });
     } catch (error) {
         console.warn('walletRestore:', error);
-        clearPersistedSelection();
+        if (isPersistedSelectionClearlyStale(persisted)) {
+            clearPersistedSelection();
+        }
+        resetWalletConnection({ isOpen: getWalletState().isOpen });
     }
 }
 
@@ -699,6 +891,8 @@ async function performSiweIntent(intent) {
 async function connectInjected(id) {
     if (!id) return;
 
+    clearTransientDisconnectTimer();
+    clearLifecycleReconcileTimer();
     patchWalletState({
         status: 'connecting',
         connectingConnectorId: id,
@@ -723,6 +917,8 @@ async function connectExternalWallet() {
     }
 
     const shouldReopen = getWalletState().isOpen;
+    clearTransientDisconnectTimer();
+    clearLifecycleReconcileTimer();
     patchWalletState({
         status: 'connecting',
         connectingConnectorId: 'walletconnect',
@@ -750,6 +946,7 @@ async function disconnectActiveWallet() {
     const currentType = currentState.active.type;
     const isOpen = currentState.isOpen;
 
+    clearLifecycleReconcileTimer();
     cleanupProviderListeners();
     clearPersistedSelection();
     resetWalletConnection({ isOpen });
@@ -803,7 +1000,12 @@ async function refreshActiveWalletConnection() {
         throw new Error('Connect a wallet first.');
     }
 
-    await syncConnectionFromProvider(activeProvider);
+    const snapshot = await syncConnectionFromProvider(activeProvider, state.active, {
+        disconnectOnMissingAddress: false,
+    });
+    if (!snapshot) {
+        throw new Error('The connected wallet could not be refreshed right now.');
+    }
     return getWalletState().active;
 }
 
@@ -924,6 +1126,20 @@ export function initWalletController() {
     });
 
     syncAuthState(getAuthState());
+
+    window.addEventListener('pageshow', () => {
+        scheduleLifecycleReconcile('pageshow');
+    });
+
+    window.addEventListener('focus', () => {
+        scheduleLifecycleReconcile('focus');
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            scheduleLifecycleReconcile('visibilitychange');
+        }
+    });
 
     window.setTimeout(() => {
         void restorePreviousConnection();
