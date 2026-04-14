@@ -113,11 +113,13 @@ function ensureDesktopTrigger() {
     if (!actions) return null;
 
     desktopDock = createElement('div', 'wallet-nav__dock');
+    desktopDock.dataset.walletRow = 'desktop';
 
     desktopPageLink = document.createElement('a');
     desktopPageLink.className = 'wallet-nav__page-link';
     desktopPageLink.href = WALLET_PAGE_URL;
     desktopPageLink.dataset.walletPage = 'desktop';
+    desktopPageLink.dataset.walletDefaultMeta = 'Open wallet page';
     desktopPageLink.innerHTML = `
         <span class="wallet-nav__status-dot" aria-hidden="true"></span>
         <span class="wallet-nav__text">
@@ -162,10 +164,14 @@ function ensureMobileTrigger() {
     section.appendChild(label);
     mobileRow = section;
 
+    const mobileRowLayout = createElement('div', 'wallet-nav__mobile-row');
+    mobileRowLayout.dataset.walletRow = 'mobile';
+
     mobilePageLink = document.createElement('a');
     mobilePageLink.className = 'mobile-nav__link mobile-nav__link--primary wallet-nav__mobile-link';
     mobilePageLink.href = WALLET_PAGE_URL;
     mobilePageLink.dataset.walletPage = 'mobile';
+    mobilePageLink.dataset.walletDefaultMeta = 'Open wallet workspace';
     const pageCopy = createElement('span', 'wallet-nav__mobile-copy');
     pageCopy.append(
         createElement('span', 'wallet-nav__mobile-label', 'Wallet'),
@@ -173,22 +179,19 @@ function ensureMobileTrigger() {
     );
     mobilePageLink.appendChild(pageCopy);
 
-    mobileTrigger = createElement('button', 'mobile-nav__link wallet-nav__mobile-trigger');
+    mobileTrigger = createElement('button', 'wallet-nav__mobile-trigger');
     mobileTrigger.type = 'button';
     mobileTrigger.dataset.walletOpen = 'mobile';
     mobileTrigger.setAttribute('aria-label', 'Open wallet panel');
-    const triggerCopy = createElement('span', 'wallet-nav__mobile-copy');
-    triggerCopy.append(
-        createElement('span', 'wallet-nav__mobile-label', 'Wallet Panel'),
-        createElement('span', 'wallet-nav__mobile-meta', 'Connect, switch, or disconnect'),
-    );
-    mobileTrigger.appendChild(triggerCopy);
+    const triggerLabel = createElement('span', 'wallet-nav__mobile-trigger-label', 'Panel');
+    mobileTrigger.appendChild(triggerLabel);
     mobileTrigger.addEventListener('click', () => {
         document.getElementById('mobileNavClose')?.click();
         window.setTimeout(() => actionsRef?.openPanel?.(), 40);
     });
 
-    section.append(mobilePageLink, mobileTrigger);
+    mobileRowLayout.append(mobilePageLink, mobileTrigger);
+    section.appendChild(mobileRowLayout);
     mobileAuth.parentNode.insertBefore(section, mobileAuth.nextSibling);
 
     return section;
@@ -213,6 +216,7 @@ function ensureModal() {
     modalPanel.setAttribute('aria-modal', 'true');
     modalPanel.setAttribute('aria-labelledby', 'walletModalTitle');
     modalPanel.tabIndex = -1;
+    modalPanel.dataset.walletScroll = 'panel';
 
     const close = createElement('button', 'wallet-modal__close');
     close.type = 'button';
@@ -283,25 +287,27 @@ function syncTrigger(trigger, state, isMobile = false) {
     }
 
     if (label) {
-        label.textContent = isConnected ? (state.active.shortAddress || 'Wallet') : 'Wallet';
+        label.textContent = 'Wallet';
     }
 
     if (meta) {
+        const defaultMeta = trigger.dataset.walletDefaultMeta || (isMobile ? 'Open wallet workspace' : 'Open wallet page');
+        let metaText = defaultMeta;
+
         if (state.status === 'connecting') {
-            meta.textContent = 'Connection pending';
+            metaText = 'Connection pending';
         } else if (state.identityAction === 'signing') {
-            meta.textContent = 'Check wallet';
+            metaText = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
-            meta.textContent = 'Verifying…';
-        } else if (isWrongNetwork) {
-            meta.textContent = 'Wrong network';
+            metaText = 'Verifying…';
         } else if (isConnected) {
-            meta.textContent = state.active.providerName || 'Ethereum Mainnet';
+            metaText = state.active.shortAddress || state.active.address || 'Connected';
         } else if (state.authLoggedIn && state.linkedWallet) {
-            meta.textContent = state.linkedWallet.shortAddress || 'Linked wallet';
-        } else {
-            meta.textContent = isMobile ? 'Connect on Ethereum' : 'Connect';
+            metaText = state.linkedWallet.shortAddress || 'Linked wallet';
         }
+
+        meta.textContent = metaText;
+        meta.classList.toggle('is-connected-address', isConnected);
     }
 
     if (trigger.tagName === 'A') {

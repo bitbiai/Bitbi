@@ -380,7 +380,16 @@ test.describe('Wallet navigation', () => {
     await page.goto('/');
 
     const walletPageLink = page.locator('[data-wallet-page="desktop"]');
+    const walletPanelButton = page.locator('[data-wallet-open="desktop"]');
     await expect(walletPageLink).toBeVisible();
+    await expect(walletPanelButton).toBeVisible();
+
+    const walletPageBox = await walletPageLink.boundingBox();
+    const walletPanelBox = await walletPanelButton.boundingBox();
+    expect(walletPageBox).toBeTruthy();
+    expect(walletPanelBox).toBeTruthy();
+    expect(Math.abs(walletPageBox.y - walletPanelBox.y)).toBeLessThan(8);
+    expect(walletPanelBox.x).toBeGreaterThan(walletPageBox.x);
 
     await walletPageLink.click();
     await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
@@ -399,6 +408,15 @@ test.describe('Wallet navigation mobile', () => {
 
     const walletSection = page.locator('.mobile-nav__section--wallet');
     await expect(walletSection).toBeVisible();
+    await expect(walletSection).not.toContainText('Connect, switch, or disconnect');
+    await expect(walletSection.locator('[data-wallet-row="mobile"]')).toBeVisible();
+
+    const walletPageBox = await walletSection.locator('[data-wallet-page="mobile"]').boundingBox();
+    const walletPanelBox = await walletSection.locator('[data-wallet-open="mobile"]').boundingBox();
+    expect(walletPageBox).toBeTruthy();
+    expect(walletPanelBox).toBeTruthy();
+    expect(Math.abs(walletPageBox.y - walletPanelBox.y)).toBeLessThan(10);
+    expect(walletPanelBox.x).toBeGreaterThan(walletPageBox.x);
 
     const walletEntry = walletSection.locator('[data-wallet-open="mobile"]');
     await expect(walletEntry).toBeVisible();
@@ -406,6 +424,19 @@ test.describe('Wallet navigation mobile', () => {
 
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
     await expect(page.locator('#walletModal')).toBeVisible();
+
+    const scrollState = await page.locator('#walletModal').evaluate((modal) => {
+      const panel = modal.querySelector('[data-wallet-scroll="panel"]');
+      const body = modal.querySelector('[data-wallet-body="true"]');
+      const panelStyle = panel ? window.getComputedStyle(panel) : null;
+      const bodyStyle = body ? window.getComputedStyle(body) : null;
+      return {
+        panelOverflowY: panelStyle?.overflowY || '',
+        bodyOverflowY: bodyStyle?.overflowY || '',
+      };
+    });
+    expect(['auto', 'scroll']).toContain(scrollState.panelOverflowY);
+    expect(['visible', 'clip']).toContain(scrollState.bodyOverflowY);
 
     await page.locator('[data-wallet-close="panel"]').click();
     await expect(page.locator('#walletModal')).toBeHidden();
@@ -464,6 +495,23 @@ test.describe('Wallet navigation mobile', () => {
     expect(stats.init).toBe(1);
     expect(stats.enable).toBe(1);
     expect(stats.lastShowQrModal).toBe(true);
+  });
+
+  test('connected wallet state keeps Wallet and shows the address beneath it in the mobile menu', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/');
+
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('.mobile-nav__section--wallet [data-wallet-open="mobile"]').click();
+    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.locator('#mobileMenuBtn').click();
+
+    const walletLink = page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]');
+    await expect(walletLink.locator('.wallet-nav__mobile-label')).toHaveText('Wallet');
+    await expect(walletLink.locator('.wallet-nav__mobile-meta')).toHaveText('0x1234...5678');
+    await expect(walletLink.locator('.wallet-nav__mobile-meta')).toHaveClass(/is-connected-address/);
   });
 });
 
