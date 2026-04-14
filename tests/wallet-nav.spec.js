@@ -80,6 +80,7 @@ function injectPersistentMockInjectedWallet(page) {
     const listeners = new Map();
     const storageKey = 'bitbi_mock_wallet_connected';
     const statsKey = 'bitbi_mock_wallet_stats';
+    const txKey = 'bitbi_mock_wallet_last_tx';
     const state = {
       account: '0x1234567890abcdef1234567890abcdef12345678',
       chainId: '0x1',
@@ -125,8 +126,15 @@ function injectPersistentMockInjectedWallet(page) {
             return state.chainId;
           case 'eth_getBalance':
             return state.balanceHex;
+          case 'eth_gasPrice':
+            return '0x59682f00';
+          case 'eth_estimateGas':
+            return '0x5208';
           case 'personal_sign':
             return '0xmock-signature';
+          case 'eth_sendTransaction':
+            sessionStorage.setItem(txKey, JSON.stringify(params?.[0] || null));
+            return '0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface';
           case 'wallet_switchEthereumChain': {
             const target = params?.[0]?.chainId;
             state.chainId = target || '0x1';
@@ -162,6 +170,9 @@ function injectPersistentMockInjectedWallet(page) {
 
     window.__bitbiMockWalletStats = {
       read: () => JSON.parse(sessionStorage.getItem(statsKey) || '{"requestAccounts":0,"accounts":0}'),
+    };
+    window.__bitbiMockWalletLastTx = {
+      read: () => JSON.parse(sessionStorage.getItem(txKey) || 'null'),
     };
 
     window.addEventListener('eip6963:requestProvider', announce);
@@ -256,6 +267,18 @@ test.describe('Wallet navigation', () => {
   test('wallet trigger is available on shared subpage headers', async ({ page }) => {
     await page.goto('/legal/privacy.html');
     await expect(page.locator('[data-wallet-open="desktop"]')).toBeVisible();
+    await expect(page.locator('[data-wallet-page="desktop"]')).toBeVisible();
+  });
+
+  test('desktop wallet header link opens the dedicated wallet page', async ({ page }) => {
+    await page.goto('/');
+
+    const walletPageLink = page.locator('[data-wallet-page="desktop"]');
+    await expect(walletPageLink).toBeVisible();
+
+    await walletPageLink.click();
+    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
+    await expect(page.locator('h1')).toContainText('Wallet');
   });
 });
 
@@ -277,6 +300,72 @@ test.describe('Wallet navigation mobile', () => {
 
     await page.locator('[data-wallet-close="panel"]').click();
     await expect(page.locator('#walletModal')).toBeHidden();
+  });
+
+  test('mobile wallet link opens the wallet page from the real menu flow', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+
+    const walletPageLink = page.locator('[data-wallet-page="mobile"]');
+    await expect(walletPageLink).toBeVisible();
+    await walletPageLink.click();
+
+    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
+    await expect(page.locator('h1')).toContainText('Wallet');
+  });
+});
+
+test.describe('Wallet page', () => {
+  test('disconnected wallet page renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
+    await page.goto('/account/wallet.html');
+
+    await expect(page.locator('#walletPageEmpty')).toBeVisible();
+    await expect(page.locator('#walletPageEmpty')).toContainText('Connect a wallet');
+    await expect(page.locator('#walletPageDashboard')).toBeHidden();
+
+    await page.locator('#walletPageConnectBtn').click();
+    await expect(page.locator('#walletModal')).toBeVisible();
+    await expect(page.locator('#walletModal')).toContainText('Connect a wallet');
+  });
+
+  test('connected wallet page renders details, receive QR, and validates the native send flow', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/account/wallet.html');
+
+    await page.locator('#walletPageConnectBtn').click();
+    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-close="panel"]').click();
+    await expect(page.locator('#walletModal')).toBeHidden();
+
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
+    await expect(page.locator('#walletPageAddressFull')).toHaveText('0x1234567890abcdef1234567890abcdef12345678');
+    await expect(page.locator('#walletPageBalanceValue')).toContainText('2 ETH');
+    await expect(page.locator('#walletPageQrFrame')).toHaveAttribute('data-wallet-receive-qr', 'ready');
+
+    await page.locator('#walletSendRecipient').fill('abc');
+    await page.locator('#walletSendAmount').fill('0');
+    await page.locator('#walletSendSubmit').click();
+    await expect(page.locator('#walletSendMsg')).toContainText('Enter a valid Ethereum address.');
+
+    await page.locator('#walletSendRecipient').fill('0xabcdefabcdefabcdefabcdefabcdefabcdefabcd');
+    await page.locator('#walletSendAmount').fill('0');
+    await page.locator('#walletSendSubmit').click();
+    await expect(page.locator('#walletSendMsg')).toContainText('Enter an amount greater than 0.');
+
+    await page.locator('#walletSendAmount').fill('0.25');
+    await page.locator('#walletSendSubmit').click();
+    await expect(page.locator('#walletSendMsg')).toContainText('Transaction submitted: 0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface');
+    await expect(page.locator('#walletSendMsg')).toContainText('View transaction');
+
+    const lastTx = await page.evaluate(() => window.__bitbiMockWalletLastTx.read());
+    expect(lastTx).toEqual({
+      from: '0x1234567890abcdef1234567890abcdef12345678',
+      to: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+      value: '0x3782dace9d90000',
+    });
   });
 });
 

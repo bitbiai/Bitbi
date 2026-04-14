@@ -25,6 +25,7 @@ function createEmptyConnection() {
         balanceFormatted: '',
         balanceStatus: 'idle',
         balanceError: '',
+        refreshedAt: '',
     };
 }
 
@@ -162,6 +163,7 @@ export function updateWalletConnection(connection = {}) {
             balanceFormatted: connection.balanceFormatted || '',
             balanceStatus: connection.balanceStatus || 'idle',
             balanceError: connection.balanceError || '',
+            refreshedAt: connection.refreshedAt || '',
         },
     });
 }

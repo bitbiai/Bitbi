@@ -4,14 +4,18 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../focus-trap.js';
-import { ETHERSCAN_ADDRESS_BASE, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
+import { ETHERSCAN_ADDRESS_BASE, WALLET_PAGE_URL, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from './wallet-state.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let currentState = null;
 let actionsRef = null;
+let desktopDock = null;
 let desktopTrigger = null;
+let desktopPageLink = null;
+let mobileRow = null;
 let mobileTrigger = null;
+let mobilePageLink = null;
 let modalRoot = null;
 let modalPanel = null;
 let modalBody = null;
@@ -103,39 +107,49 @@ function handleEscape(event) {
 }
 
 function ensureDesktopTrigger() {
-    if (desktopTrigger?.isConnected) return desktopTrigger;
+    if (desktopDock?.isConnected) return desktopDock;
 
     const actions = document.querySelector('.site-nav__actions');
     if (!actions) return null;
+
+    desktopDock = createElement('div', 'wallet-nav__dock');
+
+    desktopPageLink = document.createElement('a');
+    desktopPageLink.className = 'wallet-nav__page-link';
+    desktopPageLink.href = WALLET_PAGE_URL;
+    desktopPageLink.dataset.walletPage = 'desktop';
+    desktopPageLink.innerHTML = `
+        <span class="wallet-nav__status-dot" aria-hidden="true"></span>
+        <span class="wallet-nav__text">
+            <span class="wallet-nav__label">Wallet</span>
+            <span class="wallet-nav__meta">Open wallet page</span>
+        </span>
+    `;
 
     desktopTrigger = createElement('button', 'wallet-nav__trigger');
     desktopTrigger.type = 'button';
     desktopTrigger.dataset.walletOpen = 'desktop';
     desktopTrigger.setAttribute('aria-haspopup', 'dialog');
     desktopTrigger.setAttribute('aria-controls', 'walletModal');
-    desktopTrigger.innerHTML = `
-        <span class="wallet-nav__status-dot" aria-hidden="true"></span>
-        <span class="wallet-nav__text">
-            <span class="wallet-nav__label">Wallet</span>
-            <span class="wallet-nav__meta">Connect</span>
-        </span>
-    `;
+    desktopTrigger.setAttribute('aria-label', 'Open wallet panel');
+    desktopTrigger.textContent = 'Panel';
     desktopTrigger.addEventListener('click', () => actionsRef?.openPanel?.());
+    desktopDock.append(desktopPageLink, desktopTrigger);
 
     const mood = actions.querySelector('.site-nav__mood');
     if (mood?.nextSibling) {
-        actions.insertBefore(desktopTrigger, mood.nextSibling);
+        actions.insertBefore(desktopDock, mood.nextSibling);
     } else if (mood) {
-        actions.appendChild(desktopTrigger);
+        actions.appendChild(desktopDock);
     } else {
-        actions.prepend(desktopTrigger);
+        actions.prepend(desktopDock);
     }
 
-    return desktopTrigger;
+    return desktopDock;
 }
 
 function ensureMobileTrigger() {
-    if (mobileTrigger?.isConnected) return mobileTrigger;
+    if (mobileRow?.isConnected) return mobileRow;
 
     const mobileNav = document.getElementById('mobileNav');
     const mobileAuth = document.getElementById('mobileNavAuth');
@@ -147,25 +161,35 @@ function ensureMobileTrigger() {
     const label = createElement('span', 'mobile-nav__label', 'Wallet');
     section.appendChild(label);
 
-    mobileTrigger = createElement('button', 'wallet-nav__mobile-trigger');
-    mobileTrigger.type = 'button';
-    mobileTrigger.dataset.walletOpen = 'mobile';
-    mobileTrigger.innerHTML = `
+    mobileRow = createElement('div', 'wallet-nav__mobile-row');
+
+    mobilePageLink = document.createElement('a');
+    mobilePageLink.className = 'wallet-nav__mobile-link';
+    mobilePageLink.href = WALLET_PAGE_URL;
+    mobilePageLink.dataset.walletPage = 'mobile';
+    mobilePageLink.innerHTML = `
         <span class="wallet-nav__mobile-status" aria-hidden="true"></span>
         <span class="wallet-nav__mobile-copy">
             <span class="wallet-nav__mobile-label">Wallet</span>
-            <span class="wallet-nav__mobile-meta">Connect on Ethereum</span>
+            <span class="wallet-nav__mobile-meta">Open wallet page</span>
         </span>
     `;
+
+    mobileTrigger = createElement('button', 'wallet-nav__mobile-trigger');
+    mobileTrigger.type = 'button';
+    mobileTrigger.dataset.walletOpen = 'mobile';
+    mobileTrigger.setAttribute('aria-label', 'Open wallet panel');
+    mobileTrigger.textContent = 'Panel';
     mobileTrigger.addEventListener('click', () => {
         document.getElementById('mobileNavClose')?.click();
         window.setTimeout(() => actionsRef?.openPanel?.(), 40);
     });
 
-    section.appendChild(mobileTrigger);
+    mobileRow.append(mobilePageLink, mobileTrigger);
+    section.appendChild(mobileRow);
     mobileAuth.parentNode.insertBefore(section, mobileAuth.nextSibling);
 
-    return mobileTrigger;
+    return mobileRow;
 }
 
 function ensureModal() {
@@ -249,7 +273,6 @@ function syncTrigger(trigger, state, isMobile = false) {
     trigger.classList.toggle('is-connected', isConnected);
     trigger.classList.toggle('is-warning', isWrongNetwork);
     trigger.classList.toggle('is-busy', state.status === 'connecting' || (state.identityAction && state.identityAction !== 'idle'));
-    trigger.setAttribute('aria-expanded', String(!!state.isOpen));
 
     if (statusDot) {
         statusDot.classList.toggle('is-connected', isConnected);
@@ -263,7 +286,7 @@ function syncTrigger(trigger, state, isMobile = false) {
 
     if (meta) {
         if (state.status === 'connecting') {
-            meta.textContent = 'Connecting…';
+            meta.textContent = 'Connection pending';
         } else if (state.identityAction === 'signing') {
             meta.textContent = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
@@ -276,6 +299,19 @@ function syncTrigger(trigger, state, isMobile = false) {
             meta.textContent = state.linkedWallet.shortAddress || 'Linked wallet';
         } else {
             meta.textContent = isMobile ? 'Connect on Ethereum' : 'Connect';
+        }
+    }
+
+    if (trigger.tagName === 'A') {
+        const currentPath = window.location.pathname.replace(/\/$/, '');
+        const walletPagePath = WALLET_PAGE_URL.replace(/\/$/, '');
+        const normalizedWalletPagePath = walletPagePath.replace(/\.html$/, '');
+        const isCurrent = currentPath === walletPagePath || currentPath === normalizedWalletPagePath;
+        trigger.classList.toggle('is-current', isCurrent);
+        if (isCurrent) {
+            trigger.setAttribute('aria-current', 'page');
+        } else {
+            trigger.removeAttribute('aria-current');
         }
     }
 }
@@ -621,8 +657,10 @@ function render(state) {
     ensureMobileTrigger();
     ensureModal();
 
-    syncTrigger(desktopTrigger, state, false);
-    syncTrigger(mobileTrigger, state, true);
+    syncTrigger(desktopPageLink, state, false);
+    syncTrigger(mobilePageLink, state, true);
+    desktopTrigger?.setAttribute('aria-expanded', String(!!state.isOpen));
+    mobileTrigger?.setAttribute('aria-expanded', String(!!state.isOpen));
     renderBody(state);
     setModalOpen(!!state.isOpen);
 }

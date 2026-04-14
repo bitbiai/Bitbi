@@ -6,9 +6,10 @@
 import { apiWalletSiweNonce, apiWalletSiweVerify, apiWalletStatus, apiWalletUnlink } from '../auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState, initAuth } from '../auth-state.js';
 import {
-    ETHERSCAN_ADDRESS_BASE,
     MAINNET_CHAIN_HEX,
+    getAddressExplorerUrl,
     getChainLabel,
+    getTransactionExplorerUrl,
     isWalletConnectConfigured,
     normalizeChainId,
     toChainHex,
@@ -236,6 +237,7 @@ function baseConnectionSnapshot(connection = {}) {
         chainHex,
         chainLabel: chainId != null ? getChainLabel(chainId) : (connection.chainLabel || 'Not connected'),
         isMainnet: chainHex === MAINNET_CHAIN_HEX,
+        refreshedAt: connection.refreshedAt || new Date().toISOString(),
     };
 }
 
@@ -248,6 +250,7 @@ async function refreshBalance(provider, snapshot) {
                 balanceStatus: snapshot.address ? 'unavailable' : 'idle',
                 balanceFormatted: '',
                 balanceError: snapshot.address ? 'Switch to Ethereum Mainnet to load the ETH balance.' : '',
+                refreshedAt: new Date().toISOString(),
             },
         });
         return;
@@ -274,6 +277,7 @@ async function refreshBalance(provider, snapshot) {
                 balanceStatus: 'loaded',
                 balanceFormatted: formatEthBalance(balanceHex),
                 balanceError: '',
+                refreshedAt: new Date().toISOString(),
             },
         });
     } catch {
@@ -283,9 +287,68 @@ async function refreshBalance(provider, snapshot) {
                 balanceStatus: 'error',
                 balanceFormatted: '',
                 balanceError: 'Could not load the ETH balance.',
+                refreshedAt: new Date().toISOString(),
             },
         });
     }
+}
+
+function ensureActiveProviderConnection() {
+    const state = getWalletState();
+    if (state.status !== 'connected' || !state.active.address || !activeProvider?.request) {
+        throw new Error('Connect a wallet first.');
+    }
+    return state;
+}
+
+function normalizeHexQuantity(value) {
+    const normalized = BigInt(value);
+    return `0x${normalized.toString(16)}`;
+}
+
+async function getGasPriceWei(provider) {
+    const value = await provider.request({ method: 'eth_gasPrice' });
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new Error('The wallet did not return a gas price.');
+    }
+    return BigInt(value);
+}
+
+async function getMaxSendableWei(recipient = '') {
+    const state = ensureActiveProviderConnection();
+
+    if (!state.active.isMainnet) {
+        throw new Error('Switch to Ethereum Mainnet before preparing a send amount.');
+    }
+
+    const balanceHex = await activeProvider.request({
+        method: 'eth_getBalance',
+        params: [state.active.address, 'latest'],
+    });
+    const balanceWei = BigInt(balanceHex);
+    const gasPriceWei = await getGasPriceWei(activeProvider);
+
+    let gasLimitWei = 21000n;
+    if (recipient) {
+        try {
+            const gasEstimate = await activeProvider.request({
+                method: 'eth_estimateGas',
+                params: [{
+                    from: state.active.address,
+                    to: recipient,
+                    value: '0x0',
+                }],
+            });
+            if (typeof gasEstimate === 'string' && gasEstimate.trim()) {
+                gasLimitWei = BigInt(gasEstimate);
+            }
+        } catch {
+            gasLimitWei = 21000n;
+        }
+    }
+
+    const reserveWei = gasPriceWei * gasLimitWei;
+    return balanceWei > reserveWei ? (balanceWei - reserveWei) : 0n;
 }
 
 async function refreshWalletStatus() {
@@ -734,6 +797,49 @@ async function copyConnectedAddress() {
     }
 }
 
+async function refreshActiveWalletConnection() {
+    const state = getWalletState();
+    if (state.status !== 'connected' || !activeProvider?.request) {
+        throw new Error('Connect a wallet first.');
+    }
+
+    await syncConnectionFromProvider(activeProvider);
+    return getWalletState().active;
+}
+
+async function sendNativeTransaction({ to, valueWei } = {}) {
+    const state = ensureActiveProviderConnection();
+
+    if (!state.active.isMainnet) {
+        throw new Error('Switch to Ethereum Mainnet before sending ETH from BITBI.');
+    }
+
+    const recipient = typeof to === 'string' ? to.trim() : '';
+    if (!recipient) {
+        throw new Error('Enter a recipient address.');
+    }
+
+    const normalizedValue = BigInt(valueWei ?? 0);
+    if (normalizedValue <= 0n) {
+        throw new Error('Enter an amount greater than 0.');
+    }
+
+    const txHash = await activeProvider.request({
+        method: 'eth_sendTransaction',
+        params: [{
+            from: state.active.address,
+            to: recipient,
+            value: normalizeHexQuantity(normalizedValue),
+        }],
+    });
+
+    return {
+        hash: typeof txHash === 'string' ? txHash : '',
+        explorerUrl: getTransactionExplorerUrl(state.active.chainId, txHash),
+        chainId: state.active.chainId,
+    };
+}
+
 async function unlinkLinkedWallet() {
     const authState = getAuthState();
     if (!authState.loggedIn) {
@@ -841,7 +947,8 @@ export function openWalletPanelView() {
 
 export function getConnectedAddressLink() {
     const address = getWalletState().active.address;
-    return address ? `${ETHERSCAN_ADDRESS_BASE}${address}` : '';
+    const chainId = getWalletState().active.chainId;
+    return address ? getAddressExplorerUrl(chainId, address) : '';
 }
 
 export function getWalletPanelState() {
@@ -850,4 +957,9 @@ export function getWalletPanelState() {
 
 export function getWalletIdentitySummary() {
     return getWalletAuthView(getWalletState());
+}
+
+export { refreshActiveWalletConnection, sendNativeTransaction, switchToEthereumMainnet as switchConnectedWalletToMainnet };
+export async function estimateMaxSendableAmount(recipient = '') {
+    return getMaxSendableWei(recipient);
 }
