@@ -9,7 +9,7 @@ export const MAINNET_NAMESPACE = 'eip155:1';
 export const ETHERSCAN_ADDRESS_BASE = 'https://etherscan.io/address/';
 
 export const walletConfig = Object.freeze({
-    walletConnectProjectId: 'REPLACE_WITH_REOWN_PROJECT_ID',
+    walletConnectProjectId: '0d0d325bb6cb9f63b7b98fe58fcd0492',
     storageKeys: {
         connectorType: 'bitbi_wallet_connector_type',
         connectorId: 'bitbi_wallet_connector_id',
