@@ -64,6 +64,7 @@ const $sendMaxBtn = document.getElementById('walletSendMaxBtn');
 const $identityCopy = document.getElementById('walletPageIdentityCopy');
 const $identityRows = document.getElementById('walletPageIdentityRows');
 const $identityActions = document.getElementById('walletPageIdentityActions');
+const $sectionPanels = Array.from(document.querySelectorAll('[data-wallet-tab]'));
 
 const detailDateTime = new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -92,31 +93,29 @@ const pageUiState = {
         submitting: false,
     },
 };
-const walletSectionIds = ['wallet-overview', 'wallet-send', 'wallet-receive', 'wallet-account'];
+const walletTabs = ['overview', 'send', 'receive', 'account'];
 
 function shortenAddress(address) {
     if (typeof address !== 'string' || address.length < 10) return address || '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function setActiveSectionLink(sectionId) {
-    if (!$sectionNav) return;
-    const resolvedSectionId = walletSectionIds.includes(sectionId) ? sectionId : 'wallet-overview';
-    $sectionNav.querySelectorAll('[data-wallet-section-link]').forEach((link) => {
-        const isActive = link.dataset.walletSectionLink === resolvedSectionId;
-        link.classList.toggle('active', isActive);
-        if (isActive) {
-            link.setAttribute('aria-current', 'true');
-        } else {
-            link.removeAttribute('aria-current');
-        }
+function setActiveWalletTab(tab) {
+    const resolvedTab = walletTabs.includes(tab) ? tab : 'overview';
+    if ($dashboard) {
+        $dashboard.dataset.activeTab = resolvedTab;
+    }
+    if ($sectionNav) {
+        $sectionNav.querySelectorAll('[data-wallet-tab-button]').forEach((button) => {
+            const isActive = button.dataset.walletTabButton === resolvedTab;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-selected', String(isActive));
+            button.tabIndex = isActive ? 0 : -1;
+        });
+    }
+    $sectionPanels.forEach((panel) => {
+        panel.hidden = panel.dataset.walletTab !== resolvedTab;
     });
-}
-
-function syncSectionNav() {
-    if (!$sectionNav || $sectionNav.hidden) return;
-    const hash = window.location.hash.replace(/^#/, '').trim().toLowerCase();
-    setActiveSectionLink(walletSectionIds.includes(hash) ? hash : 'wallet-overview');
 }
 
 function addressesEqual(left, right) {
@@ -572,12 +571,12 @@ function render(state) {
         $qrHint.textContent = 'A local QR code appears here for the connected wallet address.';
         renderEmptyState(state);
         renderSendState(state);
-        setActiveSectionLink('wallet-overview');
+        setActiveWalletTab('overview');
         return;
     }
 
     renderConnectedState(state);
-    syncSectionNav();
+    setActiveWalletTab($dashboard?.dataset.activeTab || 'overview');
 }
 
 function normalizeSendError(error) {
@@ -712,7 +711,12 @@ function bindEvents() {
     $sendPanelBtn?.addEventListener('click', () => openWalletPanelView());
     $sendMaxBtn?.addEventListener('click', () => { void handleUseMax(); });
     $sendForm?.addEventListener('submit', (event) => { void handleSend(event); });
-    window.addEventListener('hashchange', syncSectionNav);
+    $sectionNav?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-wallet-tab-button]');
+        if (!button) return;
+        if (button.dataset.walletTabButton === $dashboard?.dataset.activeTab) return;
+        setActiveWalletTab(button.dataset.walletTabButton);
+    });
 }
 
 function init() {

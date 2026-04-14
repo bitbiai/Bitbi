@@ -345,21 +345,29 @@ test.describe('Wallet page', () => {
     await expect(page.locator('#walletModal')).toBeHidden();
 
     await expect(page.locator('#walletSectionNav')).toBeVisible();
-    await expect(page.locator('#walletSectionNav .wallet-page__section-link')).toHaveText([
+    await expect(page.locator('#walletSectionNav [data-wallet-tab-button]')).toHaveText([
       'Overview',
       'Send',
       'Receive',
       'Bitbi Account',
     ]);
-    await page.locator('#walletSectionNav [data-wallet-section-link="wallet-send"]').click();
-    await expect(page).toHaveURL(/#wallet-send$/);
-    await expect(page.locator('#walletSectionNav [data-wallet-section-link="wallet-send"]')).toHaveClass(/active/);
-
     await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletOverviewTab')).toHaveClass(/active/);
+    await expect(page.locator('#wallet-overview')).toBeVisible();
+    await expect(page.locator('#wallet-send')).toBeHidden();
+    await expect(page.locator('#wallet-receive')).toBeHidden();
+    await expect(page.locator('#wallet-account')).toBeHidden();
+
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
     await expect(page.locator('#walletPageAddressFull')).toHaveText('0x1234567890abcdef1234567890abcdef12345678');
     await expect(page.locator('#walletPageBalanceValue')).toContainText('2 ETH');
-    await expect(page.locator('#walletPageQrFrame')).toHaveAttribute('data-wallet-receive-qr', 'ready');
+
+    await page.locator('#walletSendTab').click();
+    await expect(page.locator('#walletSendTab')).toHaveClass(/active/);
+    await expect(page.locator('#wallet-overview')).toBeHidden();
+    await expect(page.locator('#wallet-send')).toBeVisible();
+    await expect(page.locator('#wallet-receive')).toBeHidden();
+    await expect(page.locator('#wallet-account')).toBeHidden();
 
     await page.locator('#walletSendRecipient').fill('abc');
     await page.locator('#walletSendAmount').fill('0');
@@ -375,6 +383,21 @@ test.describe('Wallet page', () => {
     await page.locator('#walletSendSubmit').click();
     await expect(page.locator('#walletSendMsg')).toContainText('Transaction submitted: 0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface');
     await expect(page.locator('#walletSendMsg')).toContainText('View transaction');
+
+    await page.locator('#walletReceiveTab').click();
+    await expect(page.locator('#walletReceiveTab')).toHaveClass(/active/);
+    await expect(page.locator('#wallet-overview')).toBeHidden();
+    await expect(page.locator('#wallet-send')).toBeHidden();
+    await expect(page.locator('#wallet-receive')).toBeVisible();
+    await expect(page.locator('#wallet-account')).toBeHidden();
+    await expect(page.locator('#walletPageQrFrame')).toHaveAttribute('data-wallet-receive-qr', 'ready');
+
+    await page.locator('#walletAccountTab').click();
+    await expect(page.locator('#walletAccountTab')).toHaveClass(/active/);
+    await expect(page.locator('#wallet-overview')).toBeHidden();
+    await expect(page.locator('#wallet-send')).toBeHidden();
+    await expect(page.locator('#wallet-receive')).toBeHidden();
+    await expect(page.locator('#wallet-account')).toBeVisible();
 
     const lastTx = await page.evaluate(() => window.__bitbiMockWalletLastTx.read());
     expect(lastTx).toEqual({

@@ -62,12 +62,12 @@
 <section class="section" aria-label="Wallet content">
     <div class="section__inner--narrow wallet-page-shell">
         <div id="walletPageBanner" class="wallet-page__banner" role="status" hidden></div>
-        <nav id="walletSectionNav" class="profile-tab-bar wallet-page__section-nav" aria-label="Wallet sections" hidden>
-            <a href="#wallet-overview" class="profile-tab-btn wallet-page__section-link active" data-wallet-section-link="wallet-overview" aria-current="true">Overview</a>
-            <a href="#wallet-send" class="profile-tab-btn wallet-page__section-link" data-wallet-section-link="wallet-send">Send</a>
-            <a href="#wallet-receive" class="profile-tab-btn wallet-page__section-link" data-wallet-section-link="wallet-receive">Receive</a>
-            <a href="#wallet-account" class="profile-tab-btn wallet-page__section-link" data-wallet-section-link="wallet-account">Bitbi Account</a>
-        </nav>
+        <div id="walletSectionNav" class="profile-tab-bar wallet-page__section-nav" role="tablist" aria-label="Wallet sections" hidden>
+            <button type="button" id="walletOverviewTab" class="profile-tab-btn wallet-page__section-link active" data-wallet-tab-button="overview" role="tab" aria-selected="true" aria-controls="wallet-overview">Overview</button>
+            <button type="button" id="walletSendTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="send" role="tab" aria-selected="false" aria-controls="wallet-send">Send</button>
+            <button type="button" id="walletReceiveTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="receive" role="tab" aria-selected="false" aria-controls="wallet-receive">Receive</button>
+            <button type="button" id="walletAccountTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="account" role="tab" aria-selected="false" aria-controls="wallet-account">Bitbi Account</button>
+        </div>
 
         <section id="walletPageEmpty" class="wallet-page__empty reveal visible" aria-labelledby="walletEmptyTitle">
             <div class="wallet-page__empty-visual" aria-hidden="true">
@@ -91,8 +91,8 @@
             </div>
         </section>
 
-        <div id="walletPageDashboard" class="wallet-page__grid" hidden>
-            <section id="wallet-overview" class="wallet-page__card wallet-page__card--summary wallet-page__section-card reveal visible" aria-labelledby="walletOverviewTitle">
+        <div id="walletPageDashboard" class="wallet-page__grid" data-active-tab="overview" hidden>
+            <section id="wallet-overview" class="wallet-page__card wallet-page__card--summary wallet-page__section-card reveal visible" data-wallet-tab="overview" role="tabpanel" aria-labelledby="walletOverviewTab">
                 <div class="wallet-page__card-head">
                     <div>
                         <span class="wallet-page__eyebrow">Overview</span>
@@ -145,7 +145,7 @@
                 </div>
             </section>
 
-            <section id="wallet-receive" class="wallet-page__card wallet-page__card--receive wallet-page__section-card reveal visible" aria-labelledby="walletReceiveTitle">
+            <section id="wallet-receive" class="wallet-page__card wallet-page__card--receive wallet-page__section-card reveal visible" data-wallet-tab="receive" role="tabpanel" aria-labelledby="walletReceiveTab" hidden>
                 <div class="wallet-page__card-head">
                     <div>
                         <span class="wallet-page__eyebrow">Receive</span>
@@ -167,7 +167,7 @@
                 </div>
             </section>
 
-            <section id="wallet-send" class="wallet-page__card wallet-page__card--send wallet-page__section-card reveal visible" aria-labelledby="walletSendTitle">
+            <section id="wallet-send" class="wallet-page__card wallet-page__card--send wallet-page__section-card reveal visible" data-wallet-tab="send" role="tabpanel" aria-labelledby="walletSendTab" hidden>
                 <div class="wallet-page__card-head">
                     <div>
                         <span class="wallet-page__eyebrow">Send</span>
@@ -201,7 +201,7 @@
                 </form>
             </section>
 
-            <section id="wallet-account" class="wallet-page__card wallet-page__card--identity wallet-page__section-card reveal visible" aria-labelledby="walletIdentityTitle">
+            <section id="wallet-account" class="wallet-page__card wallet-page__card--identity wallet-page__section-card reveal visible" data-wallet-tab="account" role="tabpanel" aria-labelledby="walletAccountTab" hidden>
                 <div class="wallet-page__card-head">
                     <div>
                         <span class="wallet-page__eyebrow">BITBI Account</span>

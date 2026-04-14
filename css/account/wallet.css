@@ -4,10 +4,6 @@
    ============================================================ */
 
 @layer pages {
-    html {
-        scroll-behavior: smooth;
-    }
-
     .wallet-page__banner[hidden],
     .wallet-page__empty[hidden],
     .wallet-page__grid[hidden],
@@ -54,22 +50,24 @@
     }
 
     .wallet-page__section-link.profile-tab-btn.active,
-    .wallet-page__section-link.profile-tab-btn[aria-current="true"] {
+    .wallet-page__section-link.profile-tab-btn[aria-selected="true"] {
         background: rgba(0, 240, 255, 0.12);
         border-color: rgba(0, 240, 255, 0.4);
         color: var(--color-cyan);
     }
 
     .wallet-page__section-card {
+        inline-size: min(100%, 58rem);
+        margin-inline: auto;
         scroll-margin-top: 7rem;
+    }
+
+    .wallet-page__section-card[hidden] {
+        display: none !important;
     }
 
     .wallet-page__grid {
         display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.88fr);
-        grid-template-areas:
-            "summary receive"
-            "send identity";
         gap: var(--space-6);
     }
 
@@ -94,10 +92,11 @@
         padding: clamp(1.15rem, 2vw, 1.7rem);
     }
 
-    .wallet-page__card--summary { grid-area: summary; }
-    .wallet-page__card--receive { grid-area: receive; }
-    .wallet-page__card--send { grid-area: send; }
-    .wallet-page__card--identity { grid-area: identity; }
+    .wallet-page__card--send,
+    .wallet-page__card--receive,
+    .wallet-page__card--identity {
+        inline-size: min(100%, 46rem);
+    }
 
     .wallet-page__banner {
         padding: 0.95rem 1.05rem;
@@ -571,15 +570,6 @@
     }
 
     @media (max-width: 980px) {
-        .wallet-page__grid {
-            grid-template-columns: 1fr;
-            grid-template-areas:
-                "summary"
-                "receive"
-                "send"
-                "identity";
-        }
-
         .wallet-page__empty {
             grid-template-columns: 1fr;
         }
