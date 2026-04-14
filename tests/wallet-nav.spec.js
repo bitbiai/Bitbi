@@ -325,9 +325,30 @@ test.describe('Wallet page', () => {
   test('disconnected wallet page renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
     await page.goto('/account/wallet.html');
 
-    await expect(page.locator('#walletSectionNav')).toBeHidden();
+    await expect(page.locator('#walletSectionNav')).toBeVisible();
+    await expect(page.locator('#walletSectionNav [data-wallet-tab-button]')).toHaveText([
+      'Overview',
+      'Send',
+      'Receive',
+      'Bitbi Account',
+    ]);
+    await expect(page.locator('#walletOverviewTab')).toHaveClass(/active/);
     await expect(page.locator('#walletPageEmpty')).toBeVisible();
     await expect(page.locator('#walletPageEmpty')).toContainText('Connect a wallet');
+    await expect(page.locator('#walletPageDashboard')).toBeHidden();
+
+    await page.locator('#walletSendTab').click();
+    await expect(page.locator('#walletSendTab')).toHaveClass(/active/);
+    await expect(page.locator('#walletPageEmpty')).toBeHidden();
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#wallet-send')).toBeVisible();
+    await expect(page.locator('#wallet-overview')).toBeHidden();
+    await expect(page.locator('#wallet-receive')).toBeHidden();
+    await expect(page.locator('#wallet-account')).toBeHidden();
+
+    await page.locator('#walletOverviewTab').click();
+    await expect(page.locator('#walletOverviewTab')).toHaveClass(/active/);
+    await expect(page.locator('#walletPageEmpty')).toBeVisible();
     await expect(page.locator('#walletPageDashboard')).toBeHidden();
 
     await page.locator('#walletPageConnectBtn').click();

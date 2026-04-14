@@ -118,6 +118,11 @@ function setActiveWalletTab(tab) {
     });
 }
 
+function getActiveWalletTab() {
+    const activeTab = $dashboard?.dataset.activeTab || 'overview';
+    return walletTabs.includes(activeTab) ? activeTab : 'overview';
+}
+
 function addressesEqual(left, right) {
     if (!left || !right) return false;
     return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
@@ -551,16 +556,14 @@ function render(state) {
     renderBanner(state);
 
     const connected = state.status === 'connected' && !!state.active.address;
+    const activeTab = getActiveWalletTab();
     if (previousAddress && previousAddress !== (state.active.address || '')) {
         setSendMessage('', '', '');
     }
     previousAddress = state.active.address || '';
 
-    $empty.hidden = connected;
-    $dashboard.hidden = !connected;
-    if ($sectionNav) {
-        $sectionNav.hidden = !connected;
-    }
+    $empty.hidden = connected || activeTab !== 'overview';
+    $dashboard.hidden = !connected && activeTab === 'overview';
 
     if (!connected) {
         qrToken += 1;
@@ -570,13 +573,15 @@ function render(state) {
         $qrFrame.replaceChildren();
         $qrHint.textContent = 'A local QR code appears here for the connected wallet address.';
         renderEmptyState(state);
+        renderReceive(state);
+        renderIdentity(state);
         renderSendState(state);
-        setActiveWalletTab('overview');
+        setActiveWalletTab(activeTab);
         return;
     }
 
     renderConnectedState(state);
-    setActiveWalletTab($dashboard?.dataset.activeTab || 'overview');
+    setActiveWalletTab(activeTab);
 }
 
 function normalizeSendError(error) {
@@ -714,8 +719,9 @@ function bindEvents() {
     $sectionNav?.addEventListener('click', (event) => {
         const button = event.target.closest('[data-wallet-tab-button]');
         if (!button) return;
-        if (button.dataset.walletTabButton === $dashboard?.dataset.activeTab) return;
+        if (button.dataset.walletTabButton === getActiveWalletTab()) return;
         setActiveWalletTab(button.dataset.walletTabButton);
+        render(walletState);
     });
 }
 
