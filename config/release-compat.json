@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0019_add_ai_image_publication.sql",
+    "currentSchemaMigration": "0020_add_wallet_siwe.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",
