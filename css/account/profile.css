@@ -571,15 +571,18 @@
         margin-inline: auto;
     }
 
-    .profile__view-actions {
-        display: flex;
-        justify-content: flex-start;
-        margin-block-end: var(--space-5);
-    }
-
     .profile__admin-lab-shell {
         display: grid;
         gap: var(--space-5);
+    }
+
+    .profile-ai-lab__back-link {
+        appearance: none;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-decoration: none;
+        cursor: pointer;
     }
 
     .profile__admin-lab-shell .glass-card {
