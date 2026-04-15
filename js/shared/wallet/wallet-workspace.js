@@ -67,7 +67,6 @@ function createWorkspaceMarkup() {
                 <div class="wallet-workspace__hero-copy">
                     <span class="wallet-workspace__eyebrow">Wallet Workspace</span>
                     <h2 id="walletWorkspaceTitle" class="wallet-workspace__title">Wallet</h2>
-                    <p class="wallet-workspace__desc">Review your connected wallet, receive funds with a local QR code, and send ETH through the wallet you already trust.</p>
                 </div>
                 <button type="button" class="wallet-workspace__close" aria-label="Close wallet workspace" data-wallet-workspace-close="panel">×</button>
             </div>

@@ -39,15 +39,15 @@ function buildAvatarImage(user, className) {
 }
 
 function buildDesktopIdentity(user) {
-    const identity = document.createElement('span');
+    const identity = document.createElement('a');
+    identity.href = '/account/profile.html';
     identity.className = 'auth-nav__identity';
+    identity.setAttribute('aria-label', `Open profile for ${getIdentityLabel(user)}`);
 
-    const avatarLink = document.createElement('a');
-    avatarLink.href = '/account/profile.html';
-    avatarLink.className = 'auth-nav__avatar-link';
-    avatarLink.setAttribute('aria-label', 'Open profile');
-    avatarLink.appendChild(buildAvatarImage(user, 'auth-nav__avatar-img'));
-    identity.appendChild(avatarLink);
+    const avatarFrame = document.createElement('span');
+    avatarFrame.className = 'auth-nav__avatar-link';
+    avatarFrame.appendChild(buildAvatarImage(user, 'auth-nav__avatar-img'));
+    identity.appendChild(avatarFrame);
 
     const label = document.createElement('span');
     label.className = 'auth-nav__identity-label';
@@ -108,8 +108,9 @@ function renderDesktop() {
             wrap.appendChild(buildDesktopIdentity(user));
             if (mood) mood.hidden = true;
         } else {
-            const email = document.createElement('span');
-            email.className = 'auth-nav__email';
+            const email = document.createElement('a');
+            email.href = '/account/profile.html';
+            email.className = 'auth-nav__email auth-nav__email-link';
             email.textContent = user?.email || 'Member';
             wrap.appendChild(email);
             if (mood) mood.hidden = false;
