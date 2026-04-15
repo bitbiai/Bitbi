@@ -8,6 +8,7 @@ import { initAuth } from './auth-state.js';
 import { initAuthModal } from './auth-modal.js';
 import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
+import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
 
 const NAV_HTML = `
 <nav class="site-nav glass-nav" aria-label="Main navigation">
@@ -88,6 +89,7 @@ export function initSiteHeader() {
     /* 3. Init mobile nav behavior */
     try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
     try { initWalletController(); } catch (e) { console.warn('wallet:', e); }
+    try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio:', e); }
 
     /* 4. Auth modal container (initAuthModal needs <div id="authModal"> in the DOM) */
     if (!document.getElementById('authModal')) {

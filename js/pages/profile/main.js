@@ -36,6 +36,16 @@ import {
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
 import { createAdminAiLab } from '../admin/ai-lab.js?v=__ASSET_VERSION__';
+import { buildSoundLabTrack, getSoundLabTrackBySlug } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
+import {
+    initGlobalAudioManager,
+    getGlobalAudioState,
+    subscribeGlobalAudioState,
+    playGlobalTrack,
+    pauseGlobalAudio,
+    resumeGlobalAudio,
+    seekGlobalAudio,
+} from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $loading        = document.getElementById('loadingState');
@@ -939,26 +949,11 @@ const EXPERIMENT_URLS = {
     'youtube-exclusives': null,
 };
 
-/* Map free soundlab slugs to public audio URLs */
-const FREE_TRACK_URLS = {
-    'cosmic-sea': `${R2_PUBLIC_BASE}/audio/sound-lab/cosmic-sea.mp3`,
-    'zufall-und-notwendigkeit': `${R2_PUBLIC_BASE}/audio/sound-lab/zufall-und-notwendigkeit.mp3`,
-    'relativity': `${R2_PUBLIC_BASE}/audio/sound-lab/relativity.mp3`,
-    'tiny-hearts': `${R2_PUBLIC_BASE}/audio/sound-lab/tiny-hearts.mp3`,
-    'grok': `${R2_PUBLIC_BASE}/audio/sound-lab/grok.mp3`,
-};
-
-/* Exclusive tracks use /api/music/{slug} */
-function getTrackUrl(slug) {
-    return FREE_TRACK_URLS[slug] || `/api/music/${slug}`;
-}
-
 /* ── Viewer overlay ── */
 const $viewer = document.getElementById('favViewer');
 const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
 const $viewerClose = document.getElementById('favViewerClose');
-let viewerAudio = null;
-let viewerAnimFrame = null;
+let viewerAudioCleanup = null;
 
 function openViewer(mode) {
     if (!$viewer) return;
@@ -970,15 +965,9 @@ function closeViewer() {
     if (!$viewer) return;
     $viewer.classList.remove('active');
     syncAvatarModalBodyLock();
-    /* Cleanup audio */
-    if (viewerAudio) {
-        viewerAudio.pause();
-        viewerAudio.src = '';
-        viewerAudio = null;
-    }
-    if (viewerAnimFrame) {
-        cancelAnimationFrame(viewerAnimFrame);
-        viewerAnimFrame = null;
+    if (viewerAudioCleanup) {
+        viewerAudioCleanup();
+        viewerAudioCleanup = null;
     }
     /* Cleanup iframe */
     const iframe = $viewerBody.querySelector('iframe');
@@ -1154,10 +1143,15 @@ function openExperimentInViewer(fav) {
 
 /* ── Open soundlab track in viewer ── */
 function openSoundlabInViewer(fav) {
-    const audioUrl = getTrackUrl(fav.item_id);
     const title = String(fav.title || '');
     const thumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
-    const isExclusive = !FREE_TRACK_URLS[fav.item_id];
+    const baseTrack = getSoundLabTrackBySlug(fav.item_id);
+    if (!baseTrack) return;
+    initGlobalAudioManager();
+    if (viewerAudioCleanup) {
+        viewerAudioCleanup();
+        viewerAudioCleanup = null;
+    }
 
     const player = document.createElement('div');
     player.className = 'fav-viewer__player';
@@ -1217,52 +1211,53 @@ function openSoundlabInViewer(fav) {
 
     openViewer('');
 
-    /* Wire up audio */
-    viewerAudio = new Audio();
-    if (isExclusive) {
-        viewerAudio.crossOrigin = 'use-credentials';
-    }
-    viewerAudio.src = audioUrl;
-    viewerAudio.volume = 0.8;
+    const track = buildSoundLabTrack(fav.item_id, {
+        title: title || baseTrack.title,
+        artworkUrl: thumbUrl || baseTrack.artwork,
+        originLabel: 'Profile favorites',
+    });
+    if (!track) return;
 
     const playIcon = document.getElementById('fvPlayIcon');
     const pauseIcon = document.getElementById('fvPauseIcon');
 
-    function tick() {
-        if (!viewerAudio) return;
-        if (viewerAudio.duration) {
-            progEl.style.width = (viewerAudio.currentTime / viewerAudio.duration * 100) + '%';
-            timeEl.textContent = formatTime(viewerAudio.currentTime) + ' / ' + formatTime(viewerAudio.duration);
-        }
-        if (!viewerAudio.paused) {
-            viewerAnimFrame = requestAnimationFrame(tick);
-        }
+    function renderViewerAudio(state) {
+        const isCurrentTrack = state.trackId === track.id;
+        const isPlaying = isCurrentTrack && state.status === 'playing';
+        const duration = isCurrentTrack ? Number(state.duration) || 0 : 0;
+        const currentTime = isCurrentTrack ? Number(state.currentTime) || 0 : 0;
+        const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+        playIcon.style.display = isPlaying ? 'none' : '';
+        pauseIcon.style.display = isPlaying ? '' : 'none';
+        progEl.style.width = `${progress}%`;
+        timeEl.textContent = duration > 0
+            ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+            : '0:00';
     }
 
-    playBtn.addEventListener('click', () => {
-        if (!viewerAudio) return;
-        if (viewerAudio.paused) {
-            viewerAudio.play().catch(() => {});
-            playIcon.style.display = 'none';
-            pauseIcon.style.display = '';
-            viewerAnimFrame = requestAnimationFrame(tick);
-        } else {
-            viewerAudio.pause();
-            playIcon.style.display = '';
-            pauseIcon.style.display = 'none';
-        }
-    });
+    viewerAudioCleanup = subscribeGlobalAudioState(renderViewerAudio);
+    renderViewerAudio(getGlobalAudioState());
 
-    viewerAudio.addEventListener('ended', () => {
-        playIcon.style.display = '';
-        pauseIcon.style.display = 'none';
-        progEl.style.width = '0%';
+    playBtn.addEventListener('click', async () => {
+        const audioState = getGlobalAudioState();
+        const isCurrentTrack = audioState.trackId === track.id;
+        if (isCurrentTrack && audioState.status === 'playing') {
+            pauseGlobalAudio();
+            return;
+        }
+        if (isCurrentTrack) {
+            await resumeGlobalAudio(true);
+            return;
+        }
+        playGlobalTrack(track);
     });
 
     barEl.addEventListener('click', (e) => {
-        if (!viewerAudio || !viewerAudio.duration) return;
+        const audioState = getGlobalAudioState();
+        if (audioState.trackId !== track.id || !audioState.duration) return;
         const rect = barEl.getBoundingClientRect();
-        viewerAudio.currentTime = ((e.clientX - rect.left) / rect.width) * viewerAudio.duration;
+        seekGlobalAudio(((e.clientX - rect.left) / rect.width) * audioState.duration);
     });
 }
 
