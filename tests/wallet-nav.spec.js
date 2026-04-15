@@ -613,7 +613,8 @@ test.describe('Wallet navigation', () => {
 
     await walletPageLink.click();
     await expect(page.locator('#walletWorkspace')).toBeVisible();
-    await expect(page.locator('#walletWorkspaceTitle')).toContainText('Wallet');
+    await expect(page.getByRole('dialog', { name: 'Wallet workspace' })).toBeVisible();
+    await expect(page.locator('#walletSectionNav')).toBeVisible();
     await expect(page).toHaveURL('/');
   });
 
@@ -674,7 +675,8 @@ test.describe('Wallet navigation mobile', () => {
   test('mobile wallet link opens the same-document wallet workspace from the real menu flow', async ({ page }) => {
     await page.goto('/');
     await openMobileWalletWorkspace(page);
-    await expect(page.locator('#walletWorkspaceTitle')).toContainText('Wallet');
+    await expect(page.getByRole('dialog', { name: 'Wallet workspace' })).toBeVisible();
+    await expect(page.locator('#walletSectionNav')).toBeVisible();
   });
 
   test('connected wallet state keeps Wallet and shows the address beneath it in the mobile menu', async ({ page }) => {
