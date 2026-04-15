@@ -43,6 +43,7 @@ let restoreAttempted = false;
 let walletStatusRequestToken = 0;
 let transientDisconnectTimer = null;
 let lifecycleReconcileTimer = null;
+let injectedDiscoverySettleTimer = null;
 let reconcilePromise = null;
 let disconnectConfirmationFingerprint = '';
 let disconnectConfirmationReason = '';
@@ -52,6 +53,7 @@ let workspaceHashRequested = false;
 const PERSISTED_SELECTION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSIENT_DISCONNECT_GRACE_MS = 1800;
 const LIFECYCLE_RECONCILE_DELAY_MS = 240;
+const INJECTED_DISCOVERY_SETTLE_MS = 900;
 
 function readStorage(key) {
     try {
@@ -92,6 +94,12 @@ function clearLifecycleReconcileTimer() {
     if (!lifecycleReconcileTimer) return;
     window.clearTimeout(lifecycleReconcileTimer);
     lifecycleReconcileTimer = null;
+}
+
+function clearInjectedDiscoverySettleTimer() {
+    if (!injectedDiscoverySettleTimer) return;
+    window.clearTimeout(injectedDiscoverySettleTimer);
+    injectedDiscoverySettleTimer = null;
 }
 
 function parseStoredTimestamp(value) {
@@ -151,6 +159,33 @@ function clearDisconnectConfirmation() {
     disconnectConfirmationFingerprint = '';
     disconnectConfirmationReason = '';
     disconnectConfirmationCount = 0;
+}
+
+function scheduleInjectedDiscoverySettle() {
+    clearInjectedDiscoverySettleTimer();
+    injectedDiscoverySettleTimer = window.setTimeout(() => {
+        injectedDiscoverySettleTimer = null;
+        const state = getWalletState();
+        if (state.injectedWallets.length > 0) {
+            patchWalletState({ injectedDiscoveryState: 'ready' });
+            return;
+        }
+        patchWalletState({ injectedDiscoveryState: 'settled' });
+    }, INJECTED_DISCOVERY_SETTLE_MS);
+}
+
+function beginInjectedDiscoveryScan() {
+    patchWalletState({ injectedDiscoveryState: 'scanning' });
+    scheduleInjectedDiscoverySettle();
+}
+
+function refreshInjectedDiscovery() {
+    beginInjectedDiscoveryScan();
+    try {
+        window.dispatchEvent(new Event('eip6963:requestProvider'));
+    } catch {
+        /* ignored */
+    }
 }
 
 function noteDisconnectConfirmation(fingerprint, reason = '') {
@@ -1247,6 +1282,10 @@ async function unlinkLinkedWallet() {
 }
 
 function openWalletPanel() {
+    const state = getWalletState();
+    if (state.injectedWallets.length === 0) {
+        refreshInjectedDiscovery();
+    }
     patchWalletState({ isOpen: true });
 }
 
@@ -1341,8 +1380,15 @@ export function initWalletController() {
         estimateMaxSendableAmount,
     });
 
+    beginInjectedDiscoveryScan();
     startInjectedDiscovery((wallets) => {
-        patchWalletState({ injectedWallets: wallets });
+        patchWalletState({
+            injectedWallets: wallets,
+            injectedDiscoveryState: wallets.length > 0 ? 'ready' : getWalletState().injectedDiscoveryState,
+        });
+        if (wallets.length > 0) {
+            clearInjectedDiscoverySettleTimer();
+        }
 
         const persisted = readPersistedSelection();
         const hasPersistedInjectedSelection = persisted?.type === 'injected'

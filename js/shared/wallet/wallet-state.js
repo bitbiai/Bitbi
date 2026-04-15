@@ -37,6 +37,7 @@ let state = {
     status: 'disconnected',
     connectingConnectorId: null,
     injectedWallets: [],
+    injectedDiscoveryState: 'idle',
     message: null,
     active: createEmptyConnection(),
     authReady: false,

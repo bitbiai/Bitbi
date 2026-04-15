@@ -293,6 +293,7 @@ test.describe('Wallet navigation', () => {
     const modal = page.locator('#walletModal');
     await expect(modal).toBeVisible();
     await expect(modal).toContainText('Connect a wallet');
+    await expect(modal).toContainText(/Looking for browser wallets|No browser wallet detected/);
     await expect(modal).toContainText('No browser wallet detected');
     await expect(modal.locator('[data-wallet-connect="true"]')).toHaveCount(0);
     await expect(modal).not.toContainText('Reown');
@@ -343,6 +344,42 @@ test.describe('Wallet navigation', () => {
     await expect(page.locator('#walletModal')).toBeVisible();
     await expect(page.locator('#walletModal')).toContainText('Connect a wallet');
     await expect(page.locator('#walletModal [data-wallet-connect="true"]')).toHaveCount(0);
+  });
+
+  test('direct wallet panel and Sign In with Ethereum share the same injected wallet availability', async ({ page }) => {
+    await injectMockInjectedWallet(page);
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/');
+
+    await page.locator('[data-wallet-open="desktop"]').click();
+    await expect(page.locator('[data-wallet-provider-id="com.bitbi.mock"]')).toBeVisible();
+    await expect(page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]')).toBeVisible();
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.locator('.site-nav__cta').click();
+    await page.locator('#authWalletLoginBtn').click();
+
+    const modal = page.locator('#walletModal');
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('[data-wallet-provider-id="com.bitbi.mock"]')).toBeVisible();
+    await expect(modal.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]')).toBeVisible();
+    await expect(modal).not.toContainText('No browser wallet detected');
+  });
+
+  test('Sign In with Ethereum shows a discovery state instead of a false no-wallet empty state while injected wallets are still announcing', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page, {
+      announceDelayMs: 1800,
+    });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    await page.locator('.site-nav__cta').click();
+    await page.locator('#authWalletLoginBtn').click();
+
+    const modal = page.locator('#walletModal');
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Looking for browser wallets');
+    await expect(modal).not.toContainText('No browser wallet detected');
+    await expect(modal.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]')).toBeVisible();
   });
 
   test('wallet sign-in flow still works with an injected wallet', async ({ page }) => {
@@ -443,6 +480,36 @@ test.describe('Wallet navigation', () => {
     await page.locator('[data-wallet-login="true"]').click();
     await expect(page.locator('#walletModal')).toContainText('already linked to your BITBI account');
     await expect(page.locator('#walletModal')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+  });
+
+  test('already connected injected wallet remains visible from the Sign In with Ethereum path', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+
+    await page.route('**/api/wallet/siwe/nonce', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: 'Nonce unavailable for this test',
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await page.locator('[data-wallet-open="desktop"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
+    await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.locator('.site-nav__cta').click();
+    await page.locator('#authWalletLoginBtn').click();
+
+    const modal = page.locator('#walletModal');
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Persistent Mock Wallet');
+    await expect(modal).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+    await expect(modal).not.toContainText('No browser wallet detected');
   });
 
   test('restores a connected injected wallet after reload without a new connect popup', async ({ page }) => {
