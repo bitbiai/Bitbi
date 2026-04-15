@@ -18,7 +18,9 @@ import {
 import {
     connectInjectedWallet,
     hasInjectedWalletProvider,
+    listInjectedWallets,
     restoreInjectedWallet,
+    restoreInjectedWalletByAddress,
     startInjectedDiscovery,
 } from './wallet-connectors.js?v=__ASSET_VERSION__';
 import { buildSiweMessage, utf8ToHex } from './siwe-message.js?v=__ASSET_VERSION__';
@@ -609,14 +611,50 @@ async function restorePersistedConnection(persisted = readPersistedSelection()) 
     }
 
     if (persisted.type === 'injected' && persisted.id) {
+        const availableInjectedWallets = listInjectedWallets();
         if (!hasInjectedWalletProvider(persisted.id)) {
-            return { connection: null, reason: 'waiting-for-provider' };
+            if (persisted.address) {
+                const matchedByAddress = await restoreInjectedWalletByAddress(persisted.address);
+                if (matchedByAddress) {
+                    return {
+                        connection: matchedByAddress,
+                        reason: 'restored',
+                    };
+                }
+            }
+
+            if (availableInjectedWallets.length === 0) {
+                return { connection: null, reason: 'waiting-for-provider' };
+            }
+
+            return { connection: null, reason: 'no-account' };
         }
 
         const connection = await restoreInjectedWallet(persisted.id);
+        if (connection) {
+            return {
+                connection,
+                reason: 'restored',
+            };
+        }
+
+        if (persisted.address) {
+            const matchedByAddress = await restoreInjectedWalletByAddress(persisted.address);
+            if (matchedByAddress) {
+                return {
+                    connection: matchedByAddress,
+                    reason: 'restored',
+                };
+            }
+        }
+
+        if (availableInjectedWallets.length === 0) {
+            return { connection: null, reason: 'waiting-for-provider' };
+        }
+
         return {
-            connection,
-            reason: connection ? 'restored' : 'no-account',
+            connection: null,
+            reason: 'no-account',
         };
     }
 
@@ -894,6 +932,7 @@ async function restorePreviousConnection() {
             return;
         }
         markWalletRestoring();
+        scheduleLifecycleReconcile('restore-error');
     }
 }
 
@@ -1306,16 +1345,18 @@ export function initWalletController() {
         patchWalletState({ injectedWallets: wallets });
 
         const persisted = readPersistedSelection();
-        const matchingInjectedWallet = persisted?.type === 'injected'
-            && persisted.id
-            && wallets.some(wallet => wallet.id === persisted.id);
+        const hasPersistedInjectedSelection = persisted?.type === 'injected'
+            && !!(persisted.id || persisted.address);
         const currentState = getWalletState();
         const alreadyRestored = currentState.status === 'connected'
             && currentState.active.type === 'injected'
-            && currentState.active.id === persisted?.id
-            && !!currentState.active.address;
+            && !!currentState.active.address
+            && (
+                (persisted?.address && addressesEqual(currentState.active.address, persisted.address))
+                || (persisted?.id && currentState.active.id === persisted.id)
+            );
 
-        if (matchingInjectedWallet && !alreadyRestored) {
+        if (hasPersistedInjectedSelection && wallets.length > 0 && !alreadyRestored) {
             scheduleLifecycleReconcile('injected-discovery');
         }
     });

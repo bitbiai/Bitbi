@@ -15,6 +15,19 @@ const discoveryListeners = new Set();
 
 let injectedDiscoveryStarted = false;
 
+function buildInjectedProviderId(info = {}) {
+    const rdns = typeof info?.rdns === 'string' ? info.rdns.trim() : '';
+    if (rdns) return rdns;
+
+    const name = typeof info?.name === 'string' ? info.name.trim() : '';
+    if (name) return name.toLowerCase();
+
+    const uuid = typeof info?.uuid === 'string' ? info.uuid.trim() : '';
+    if (uuid) return uuid;
+
+    return '';
+}
+
 function notifyInjectedDiscovery() {
     const wallets = listInjectedWallets();
     discoveryListeners.forEach(listener => {
@@ -55,7 +68,7 @@ function handleEip6963Announcement(event) {
     const provider = detail?.provider;
     if (!provider || !info) return;
 
-    const id = info.uuid || info.rdns || info.name;
+    const id = buildInjectedProviderId(info);
     if (!id) return;
 
     addInjectedProvider(buildInjectedWalletRecord({ id, info, provider }));
@@ -193,4 +206,36 @@ export async function restoreInjectedWallet(id) {
         address,
         chainId,
     });
+}
+
+export async function restoreInjectedWalletByAddress(address) {
+    const normalizedAddress = typeof address === 'string' ? address.trim().toLowerCase() : '';
+    if (!normalizedAddress) return null;
+
+    for (const entry of injectedProviders.values()) {
+        if (!entry?.provider?.request) continue;
+
+        try {
+            const accounts = await getAccounts(entry.provider, 'eth_accounts');
+            const activeAddress = typeof accounts[0] === 'string' ? accounts[0].trim() : '';
+            if (!activeAddress || activeAddress.toLowerCase() !== normalizedAddress) {
+                continue;
+            }
+
+            const chainId = await getChainId(entry.provider);
+            return buildConnectionPayload({
+                provider: entry.provider,
+                type: 'injected',
+                id: entry.id,
+                providerName: entry.name,
+                providerIcon: entry.icon,
+                address: activeAddress,
+                chainId,
+            });
+        } catch (error) {
+            console.warn('walletRestore:addressMatch', error);
+        }
+    }
+
+    return null;
 }

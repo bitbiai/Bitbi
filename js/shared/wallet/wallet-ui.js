@@ -21,6 +21,7 @@ let modalPanel = null;
 let modalBody = null;
 let removeFocusTrap = null;
 let modalIsOpen = false;
+let pendingScrollLockSync = false;
 
 function createElement(tag, className, text) {
     const element = document.createElement(tag);
@@ -99,6 +100,15 @@ function syncBodyScrollLock() {
         || document.querySelector('.auth-modal__overlay.active, .modal-overlay.active')
     );
     document.body.style.overflow = shouldLock ? 'hidden' : '';
+}
+
+function queueBodyScrollLockSync() {
+    if (pendingScrollLockSync) return;
+    pendingScrollLockSync = true;
+    queueMicrotask(() => {
+        pendingScrollLockSync = false;
+        syncBodyScrollLock();
+    });
 }
 
 function handleEscape(event) {
@@ -660,6 +670,7 @@ function render(state) {
     mobileTrigger?.setAttribute('aria-expanded', String(!!state.isOpen));
     renderBody(state);
     setModalOpen(!!state.isOpen);
+    queueBodyScrollLockSync();
 }
 
 export function initWalletUI(actions) {

@@ -76,12 +76,13 @@ function injectMockInjectedWallet(page) {
 }
 
 function injectPersistentMockInjectedWallet(page, options = {}) {
-  return page.addInitScript(({ announceDelayMs = 0, persistedSelection = false }) => {
+  return page.addInitScript(({ announceDelayMs = 0, persistedSelection = false, rotateUuidOnEachLoad = false }) => {
     const listeners = new Map();
     const storageKey = 'bitbi_mock_wallet_connected';
     const statsKey = 'bitbi_mock_wallet_stats';
     const txKey = 'bitbi_mock_wallet_last_tx';
     const accountReadFailureKey = 'bitbi_mock_wallet_account_failures';
+    const uuidCounterKey = 'bitbi_mock_wallet_uuid_counter';
     const state = {
       account: '0x1234567890abcdef1234567890abcdef12345678',
       chainId: '0x1',
@@ -180,9 +181,16 @@ function injectPersistentMockInjectedWallet(page, options = {}) {
       },
     };
 
+    const uuidCount = rotateUuidOnEachLoad
+      ? Number(sessionStorage.getItem(uuidCounterKey) || '0') + 1
+      : 1;
+    if (rotateUuidOnEachLoad) {
+      sessionStorage.setItem(uuidCounterKey, String(uuidCount));
+    }
+
     const detail = {
       info: {
-        uuid: 'persistent-mock-wallet',
+        uuid: `persistent-mock-wallet-${uuidCount}`,
         name: 'Persistent Mock Wallet',
         icon: '',
         rdns: 'com.bitbi.mock.persistent',
@@ -222,7 +230,7 @@ function injectPersistentMockInjectedWallet(page, options = {}) {
     if (persistedSelection) {
       localStorage.setItem(storageKey, '1');
       localStorage.setItem('bitbi_wallet_connector_type', 'injected');
-      localStorage.setItem('bitbi_wallet_connector_id', 'persistent-mock-wallet');
+      localStorage.setItem('bitbi_wallet_connector_id', 'com.bitbi.mock.persistent');
       localStorage.setItem('bitbi_wallet_address', state.account);
       localStorage.setItem('bitbi_wallet_chain_id', '1');
       localStorage.setItem('bitbi_wallet_updated_at', new Date().toISOString());
@@ -299,7 +307,7 @@ test.describe('Wallet navigation', () => {
 
     await page.locator('[data-wallet-open="desktop"]').click();
 
-    const providerButton = page.locator('[data-wallet-provider-id="mock-browser-wallet"]');
+    const providerButton = page.locator('[data-wallet-provider-id="com.bitbi.mock"]');
     await expect(providerButton).toBeVisible();
     await providerButton.click();
 
@@ -318,7 +326,7 @@ test.describe('Wallet navigation', () => {
     await page.locator('[data-wallet-disconnect="true"]').click();
 
     await expect(modal).toContainText('Connect a wallet');
-    await expect(page.locator('[data-wallet-provider-id="mock-browser-wallet"]')).toBeVisible();
+    await expect(page.locator('[data-wallet-provider-id="com.bitbi.mock"]')).toBeVisible();
   });
 
   test('auth modal exposes Sign in with Ethereum and routes into the wallet panel', async ({ page }) => {
@@ -429,7 +437,7 @@ test.describe('Wallet navigation', () => {
     await page.locator('#authWalletLoginBtn').click();
     await expect(page.locator('#walletModal')).toBeVisible();
 
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
 
     await page.locator('[data-wallet-login="true"]').click();
@@ -442,7 +450,7 @@ test.describe('Wallet navigation', () => {
     await page.goto('/');
 
     await page.locator('[data-wallet-open="desktop"]').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
     await expect(page.locator('#walletModal')).toContainText('2 ETH');
 
@@ -474,12 +482,35 @@ test.describe('Wallet navigation', () => {
     expect(stats.accounts).toBeGreaterThanOrEqual(1);
   });
 
+  test('restores a persisted injected wallet after reload even when the announced EIP-6963 uuid changes', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page, {
+      rotateUuidOnEachLoad: true,
+    });
+    await page.goto('/');
+
+    await page.locator('[data-wallet-open="desktop"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
+    await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.reload();
+    await page.locator('[data-wallet-open="desktop"]').click();
+
+    await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
+    await expect(page.locator('#walletModal')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+    await expect(page.locator('#walletModal')).not.toContainText('Restoring');
+
+    const persistedSelection = await page.evaluate(() => window.__bitbiMockWalletControl.readPersistedSelection());
+    expect(persistedSelection.connectorType).toBe('injected');
+    expect(persistedSelection.connectorId).toBe('com.bitbi.mock.persistent');
+  });
+
   test('wallet workspace opening preserves the injected wallet connection without a new connect request', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
     await page.goto('/');
 
     await page.locator('[data-wallet-open="desktop"]').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
     await page.locator('[data-wallet-close="panel"]').click();
 
@@ -585,7 +616,7 @@ test.describe('Wallet navigation mobile', () => {
 
     await page.locator('#mobileMenuBtn').click();
     await page.locator('.mobile-nav__section--wallet [data-wallet-open="mobile"]').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
 
     await page.locator('#mobileMenuBtn').click();
@@ -639,7 +670,7 @@ test.describe('Wallet workspace', () => {
     await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
     await expect(page.locator('#walletModal')).toBeHidden();
 
@@ -706,6 +737,32 @@ test.describe('Wallet workspace', () => {
     });
   });
 
+  test('closing the wallet workspace after connect releases document scroll lock', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
+
+    await page.locator('#walletPageConnectBtn').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
+    await page.locator('[data-wallet-close="panel"]').click();
+    await page.locator('[data-wallet-workspace-close="panel"]').click();
+
+    await expect(page.locator('#walletWorkspace')).toBeHidden();
+    await expect(page.locator('#walletModal')).toBeHidden();
+
+    const lockState = await page.evaluate(() => ({
+      bodyOverflow: document.body.style.overflow,
+      workspaceOpen: document.getElementById('walletWorkspace')?.classList.contains('is-open') || false,
+      modalOpen: document.getElementById('walletModal')?.classList.contains('is-open') || false,
+      mobileNavOpen: document.getElementById('mobileNav')?.classList.contains('open') || false,
+    }));
+
+    expect(lockState.bodyOverflow).toBe('');
+    expect(lockState.workspaceOpen).toBe(false);
+    expect(lockState.modalOpen).toBe(false);
+    expect(lockState.mobileNavOpen).toBe(false);
+  });
+
   test('mobile send success stays within the viewport after returning to the wallet workspace state', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await injectPersistentMockInjectedWallet(page);
@@ -713,7 +770,7 @@ test.describe('Wallet workspace', () => {
     await openMobileWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
 
     await page.locator('#walletSendTab').click();
@@ -746,7 +803,7 @@ test.describe('Wallet workspace', () => {
     await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
 
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
@@ -775,7 +832,7 @@ test.describe('Wallet workspace', () => {
     await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
 
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
@@ -933,7 +990,7 @@ test.describe('Wallet identity profile flow', () => {
 
     await page.locator('#walletSectionActions .profile__wallet-btn').first().click();
     await expect(page.locator('#walletModal')).toBeVisible();
-    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
 
     await page.locator('[data-wallet-link="true"]').click();
