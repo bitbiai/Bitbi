@@ -4,7 +4,7 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../focus-trap.js';
-import { ETHERSCAN_ADDRESS_BASE, WALLET_PAGE_URL, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
+import { ETHERSCAN_ADDRESS_BASE, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from './wallet-state.js?v=__ASSET_VERSION__';
 
 let initialized = false;
@@ -94,6 +94,7 @@ function createProviderVisual(name, icon, size = 'md') {
 function syncBodyScrollLock() {
     const shouldLock = !!(
         modalRoot?.classList.contains('is-open')
+        || document.querySelector('#walletWorkspace.is-open')
         || document.querySelector('#mobileNav.open')
         || document.querySelector('.auth-modal__overlay.active, .modal-overlay.active')
     );
@@ -115,18 +116,21 @@ function ensureDesktopTrigger() {
     desktopDock = createElement('div', 'wallet-nav__dock');
     desktopDock.dataset.walletRow = 'desktop';
 
-    desktopPageLink = document.createElement('a');
+    desktopPageLink = document.createElement('button');
     desktopPageLink.className = 'wallet-nav__page-link';
-    desktopPageLink.href = WALLET_PAGE_URL;
+    desktopPageLink.type = 'button';
     desktopPageLink.dataset.walletPage = 'desktop';
-    desktopPageLink.dataset.walletDefaultMeta = 'Open wallet page';
+    desktopPageLink.dataset.walletDefaultMeta = 'Open wallet workspace';
+    desktopPageLink.setAttribute('aria-haspopup', 'dialog');
+    desktopPageLink.setAttribute('aria-controls', 'walletWorkspace');
     desktopPageLink.innerHTML = `
         <span class="wallet-nav__status-dot" aria-hidden="true"></span>
         <span class="wallet-nav__text">
             <span class="wallet-nav__label">Wallet</span>
-            <span class="wallet-nav__meta">Open wallet page</span>
+            <span class="wallet-nav__meta">Open wallet workspace</span>
         </span>
     `;
+    desktopPageLink.addEventListener('click', () => actionsRef?.openWorkspace?.());
 
     desktopTrigger = createElement('button', 'wallet-nav__trigger');
     desktopTrigger.type = 'button';
@@ -167,17 +171,23 @@ function ensureMobileTrigger() {
     const mobileRowLayout = createElement('div', 'wallet-nav__mobile-row');
     mobileRowLayout.dataset.walletRow = 'mobile';
 
-    mobilePageLink = document.createElement('a');
+    mobilePageLink = document.createElement('button');
     mobilePageLink.className = 'mobile-nav__link mobile-nav__link--primary wallet-nav__mobile-link';
-    mobilePageLink.href = WALLET_PAGE_URL;
+    mobilePageLink.type = 'button';
     mobilePageLink.dataset.walletPage = 'mobile';
     mobilePageLink.dataset.walletDefaultMeta = 'Open wallet workspace';
+    mobilePageLink.setAttribute('aria-haspopup', 'dialog');
+    mobilePageLink.setAttribute('aria-controls', 'walletWorkspace');
     const pageCopy = createElement('span', 'wallet-nav__mobile-copy');
     pageCopy.append(
         createElement('span', 'wallet-nav__mobile-label', 'Wallet'),
         createElement('span', 'wallet-nav__mobile-meta', 'Open wallet workspace'),
     );
     mobilePageLink.appendChild(pageCopy);
+    mobilePageLink.addEventListener('click', () => {
+        document.getElementById('mobileNavClose')?.click();
+        window.setTimeout(() => actionsRef?.openWorkspace?.(), 40);
+    });
 
     mobileTrigger = createElement('button', 'wallet-nav__mobile-trigger');
     mobileTrigger.type = 'button';
@@ -291,7 +301,7 @@ function syncTrigger(trigger, state, isMobile = false) {
     }
 
     if (meta) {
-        const defaultMeta = trigger.dataset.walletDefaultMeta || (isMobile ? 'Open wallet workspace' : 'Open wallet page');
+        const defaultMeta = trigger.dataset.walletDefaultMeta || 'Open wallet workspace';
         let metaText = defaultMeta;
 
         if (state.status === 'connecting') {
@@ -318,18 +328,9 @@ function syncTrigger(trigger, state, isMobile = false) {
         meta.classList.toggle('is-connected-address', isConnected);
     }
 
-    if (trigger.tagName === 'A') {
-        const currentPath = window.location.pathname.replace(/\/$/, '');
-        const walletPagePath = WALLET_PAGE_URL.replace(/\/$/, '');
-        const normalizedWalletPagePath = walletPagePath.replace(/\.html$/, '');
-        const isCurrent = currentPath === walletPagePath || currentPath === normalizedWalletPagePath;
-        trigger.classList.toggle('is-current', isCurrent);
-        if (isCurrent) {
-            trigger.setAttribute('aria-current', 'page');
-        } else {
-            trigger.removeAttribute('aria-current');
-        }
-    }
+    const isCurrent = !!state.workspaceOpen;
+    trigger.classList.toggle('is-current', isCurrent);
+    trigger.setAttribute('aria-expanded', String(isCurrent));
 }
 
 function createBanner(state) {
@@ -714,9 +715,9 @@ function render(state) {
 }
 
 export function initWalletUI(actions) {
+    actionsRef = actions;
     if (initialized) return;
     initialized = true;
-    actionsRef = actions;
 
     ensureStyles();
     ensureDesktopTrigger();

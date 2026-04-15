@@ -13,6 +13,7 @@ import { setupFocusTrap }    from '../../shared/focus-trap.js';
 import { patchAuthUser }     from '../../shared/auth-state.js';
 import {
     openWalletPanelView,
+    openWalletWorkspaceView,
     refreshWalletStatus,
     requestWalletLink,
     unlinkLinkedWallet,
@@ -56,6 +57,7 @@ const $walletSectionCopy = document.getElementById('walletSectionCopy');
 const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
+const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
@@ -205,6 +207,10 @@ if ($tabBar) {
         setActiveTab(btn.dataset.tab);
     });
 }
+
+$profileWalletWorkspaceBtn?.addEventListener('click', () => {
+    openWalletWorkspaceView();
+});
 
 window.addEventListener('hashchange', syncAiLabView);
 

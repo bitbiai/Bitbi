@@ -2333,7 +2333,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
-    await expect(page.locator('#profileTabBar a[href="/account/wallet.html"]')).toBeVisible();
+    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
     await expect(page.locator('#profileStudioStack')).toBeHidden();
     await expect(page.locator('#profileStudioCard')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
@@ -2374,7 +2374,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
-    await expect(page.locator('#profileTabBar a[href="/account/wallet.html"]')).toBeVisible();
+    await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
     await expect(page.locator('#profileStudioStack')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);

@@ -7,6 +7,7 @@ import { apiWalletSiweNonce, apiWalletSiweVerify, apiWalletStatus, apiWalletUnli
 import { getAuthState, initAuth } from '../auth-state.js';
 import {
     MAINNET_CHAIN_HEX,
+    WALLET_WORKSPACE_HASH,
     getAddressExplorerUrl,
     getChainLabel,
     getTransactionExplorerUrl,
@@ -33,6 +34,7 @@ import {
     updateWalletConnection,
 } from './wallet-state.js?v=__ASSET_VERSION__';
 import { initWalletUI } from './wallet-ui.js?v=__ASSET_VERSION__';
+import { initWalletWorkspace } from './wallet-workspace.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let activeProvider = null;
@@ -47,6 +49,7 @@ let reconcilePromise = null;
 let disconnectConfirmationFingerprint = '';
 let disconnectConfirmationReason = '';
 let disconnectConfirmationCount = 0;
+let workspaceHashRequested = false;
 
 const PERSISTED_SELECTION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSIENT_DISCONNECT_GRACE_MS = 1800;
@@ -75,6 +78,10 @@ function writeStorage(key, value) {
 function addressesEqual(left, right) {
     if (!left || !right) return false;
     return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function isWalletWorkspaceHashActive() {
+    return window.location.hash.trim().toLowerCase() === WALLET_WORKSPACE_HASH;
 }
 
 function clearTransientDisconnectTimer() {
@@ -377,7 +384,7 @@ function cleanupProviderListeners() {
 
 function finalizeDisconnectedState(message = 'The wallet disconnected from this site.', options = {}) {
     const { clearPersisted = true } = options;
-    const isOpen = getWalletState().isOpen;
+    const { isOpen, workspaceOpen } = getWalletState();
 
     clearDisconnectConfirmation();
     cleanupProviderListeners();
@@ -385,7 +392,7 @@ function finalizeDisconnectedState(message = 'The wallet disconnected from this 
         clearPersistedSelection();
     }
 
-    resetWalletConnection({ isOpen });
+    resetWalletConnection({ isOpen, workspaceOpen });
     patchWalletState({
         identityAction: 'idle',
         pendingAuthIntent: null,
@@ -760,7 +767,8 @@ async function reconcileConnectionState(options = {}) {
 
         if (getWalletState().status === 'restoring' || getWalletState().status === 'resumable') {
             clearDisconnectConfirmation();
-            resetWalletConnection({ isOpen: getWalletState().isOpen });
+            const { isOpen, workspaceOpen } = getWalletState();
+            resetWalletConnection({ isOpen, workspaceOpen });
         }
 
         return null;
@@ -901,7 +909,8 @@ async function restorePreviousConnection() {
         if (isPersistedSelectionClearlyStale(persisted)) {
             clearPersistedSelection();
             clearDisconnectConfirmation();
-            resetWalletConnection({ isOpen: getWalletState().isOpen });
+            const { isOpen, workspaceOpen } = getWalletState();
+            resetWalletConnection({ isOpen, workspaceOpen });
             return;
         }
 
@@ -917,13 +926,17 @@ async function restorePreviousConnection() {
         }
 
         clearDisconnectConfirmation();
-        resetWalletConnection({ isOpen: getWalletState().isOpen });
+        {
+            const { isOpen, workspaceOpen } = getWalletState();
+            resetWalletConnection({ isOpen, workspaceOpen });
+        }
     } catch (error) {
         console.warn('walletRestore:', error);
         if (isPersistedSelectionClearlyStale(persisted)) {
             clearPersistedSelection();
             clearDisconnectConfirmation();
-            resetWalletConnection({ isOpen: getWalletState().isOpen });
+            const { isOpen, workspaceOpen } = getWalletState();
+            resetWalletConnection({ isOpen, workspaceOpen });
             return;
         }
         markWalletResumable();
@@ -1110,7 +1123,8 @@ async function connectInjected(id) {
             message: `${connection.providerName || 'Wallet'} connected.`,
         });
     } catch (error) {
-        resetWalletConnection({ isOpen: getWalletState().isOpen });
+        const { isOpen, workspaceOpen } = getWalletState();
+        resetWalletConnection({ isOpen, workspaceOpen });
         flashMessage('error', normalizeWalletError(error, 'Could not connect that browser wallet.'));
     }
 }
@@ -1141,7 +1155,7 @@ async function connectExternalWallet() {
             patchWalletState({ isOpen: true });
         }
     } catch (error) {
-        resetWalletConnection({ isOpen: shouldReopen });
+        resetWalletConnection({ isOpen: shouldReopen, workspaceOpen: getWalletState().workspaceOpen });
         flashMessage('error', normalizeWalletError(error, 'WalletConnect could not complete the connection.'));
     }
 }
@@ -1151,12 +1165,13 @@ async function disconnectActiveWallet() {
     const currentProvider = activeProvider;
     const currentType = currentState.active.type;
     const isOpen = currentState.isOpen;
+    const workspaceOpen = currentState.workspaceOpen;
 
     clearDisconnectConfirmation();
     clearLifecycleReconcileTimer();
     cleanupProviderListeners();
     clearPersistedSelection();
-    resetWalletConnection({ isOpen });
+    resetWalletConnection({ isOpen, workspaceOpen });
     patchWalletState({
         identityAction: 'idle',
         pendingAuthIntent: null,
@@ -1287,6 +1302,46 @@ function closeWalletPanel() {
     patchWalletState({ isOpen: false });
 }
 
+function openWalletWorkspace(options = {}) {
+    const { fromHash = false } = options;
+    workspaceHashRequested = fromHash || isWalletWorkspaceHashActive();
+    patchWalletState({
+        workspaceOpen: true,
+        isOpen: fromHash ? getWalletState().isOpen : false,
+    });
+}
+
+function closeWalletWorkspace(options = {}) {
+    const { clearHash = true } = options;
+    workspaceHashRequested = false;
+    patchWalletState({ workspaceOpen: false });
+
+    if (clearHash && isWalletWorkspaceHashActive()) {
+        history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+}
+
+function syncWorkspaceHashRoute() {
+    const shouldOpen = isWalletWorkspaceHashActive();
+    const state = getWalletState();
+
+    if (shouldOpen) {
+        if (!state.workspaceOpen) {
+            openWalletWorkspace({ fromHash: true });
+        } else {
+            workspaceHashRequested = true;
+        }
+        return;
+    }
+
+    if (workspaceHashRequested && state.workspaceOpen) {
+        closeWalletWorkspace({ clearHash: false });
+        return;
+    }
+
+    workspaceHashRequested = false;
+}
+
 function syncAuthState(authState = getAuthState()) {
     patchWalletState({
         authReady: !!authState.ready,
@@ -1312,6 +1367,7 @@ export function initWalletController() {
     });
 
     initWalletUI({
+        openWorkspace: openWalletWorkspace,
         openPanel: openWalletPanel,
         closePanel: closeWalletPanel,
         connectInjected,
@@ -1322,6 +1378,18 @@ export function initWalletController() {
         loginWithWallet: () => performSiweIntent('login'),
         linkWallet: () => performSiweIntent('link'),
         unlinkWallet: unlinkLinkedWallet,
+    });
+
+    initWalletWorkspace({
+        openPanel: openWalletPanel,
+        closeWorkspace: closeWalletWorkspace,
+        requestWalletLink,
+        requestWalletLogin,
+        refreshWallet: refreshActiveWalletConnection,
+        sendNativeTransaction,
+        switchToMainnet: switchToEthereumMainnet,
+        unlinkLinkedWallet,
+        estimateMaxSendableAmount,
     });
 
     startInjectedDiscovery((wallets) => {
@@ -1362,6 +1430,9 @@ export function initWalletController() {
         }
     });
 
+    window.addEventListener('hashchange', syncWorkspaceHashRoute);
+    syncWorkspaceHashRoute();
+
     window.setTimeout(() => {
         void restorePreviousConnection();
     }, 320);
@@ -1380,6 +1451,10 @@ export function requestWalletLink() {
 export { unlinkLinkedWallet, refreshWalletStatus };
 export function openWalletPanelView() {
     openWalletPanel();
+}
+
+export function openWalletWorkspaceView() {
+    openWalletWorkspace();
 }
 
 export function getConnectedAddressLink() {

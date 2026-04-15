@@ -8,6 +8,7 @@ export const MAINNET_CHAIN_HEX = '0x1';
 export const MAINNET_NAMESPACE = 'eip155:1';
 export const ETHERSCAN_ADDRESS_BASE = 'https://etherscan.io/address/';
 export const WALLET_PAGE_URL = '/account/wallet.html';
+export const WALLET_WORKSPACE_HASH = '#wallet-workspace';
 
 export const walletConfig = Object.freeze({
     walletConnectProjectId: '0d0d325bb6cb9f63b7b98fe58fcd0492',
@@ -48,6 +49,7 @@ export const walletConfig = Object.freeze({
         ]),
     },
     stylesUrl: new URL('../../../css/components/wallet.css?v=__ASSET_VERSION__', import.meta.url).toString(),
+    workspaceStylesUrl: new URL('../../../css/account/wallet.css?v=__ASSET_VERSION__', import.meta.url).toString(),
 });
 
 const KNOWN_CHAIN_NAMES = new Map([

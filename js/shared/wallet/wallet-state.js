@@ -35,6 +35,7 @@ function createEmptyLinkedWallet() {
 
 let state = {
     isOpen: false,
+    workspaceOpen: false,
     status: 'disconnected',
     connectingConnectorId: null,
     injectedWallets: [],

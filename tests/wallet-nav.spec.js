@@ -355,6 +355,35 @@ function injectMockWalletConnect(page, { persisted = false } = {}) {
   }, { persisted });
 }
 
+async function openDesktopWalletWorkspace(page) {
+  const beforeUrl = page.url();
+  await page.locator('[data-wallet-page="desktop"]').click();
+  await expect(page.locator('#walletWorkspace')).toBeVisible();
+  await dismissCookieBanner(page);
+  expect(page.url()).toBe(beforeUrl);
+}
+
+async function openMobileWalletWorkspace(page) {
+  const beforeUrl = page.url();
+  await page.locator('#mobileMenuBtn').click();
+  await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+  await page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]').click();
+  await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+  await expect(page.locator('#walletWorkspace')).toBeVisible();
+  await dismissCookieBanner(page);
+  expect(page.url()).toBe(beforeUrl);
+}
+
+async function dismissCookieBanner(page) {
+  const accept = page.locator('#ckAcceptAll');
+  if (await accept.count()) {
+    await accept.click({ trial: true }).catch(() => {});
+    if (await accept.isVisible().catch(() => false)) {
+      await accept.click();
+    }
+  }
+}
+
 test.describe('Wallet navigation', () => {
   test('desktop wallet panel renders disconnected state with WalletConnect enabled', async ({ page }) => {
     await page.goto('/');
@@ -456,7 +485,7 @@ test.describe('Wallet navigation', () => {
     expect(stats.accounts).toBeGreaterThanOrEqual(1);
   });
 
-  test('wallet page navigation preserves the injected wallet connection without a new connect request', async ({ page }) => {
+  test('wallet workspace opening preserves the injected wallet connection without a new connect request', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
     await page.goto('/');
 
@@ -465,14 +494,13 @@ test.describe('Wallet navigation', () => {
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
     await page.locator('[data-wallet-close="panel"]').click();
 
-    await page.locator('[data-wallet-page="desktop"]').click();
-    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
+    await openDesktopWalletWorkspace(page);
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
     await expect(page.locator('#walletPageAddressFull')).toHaveText('0x1234567890abcdef1234567890abcdef12345678');
 
     const stats = await page.evaluate(() => window.__bitbiMockWalletStats.read());
     expect(stats.requestAccounts).toBe(1);
-    expect(stats.accounts).toBeGreaterThanOrEqual(1);
+    expect(stats.accounts).toBe(0);
   });
 
   test('restores a connected WalletConnect session after reload without a new enable request on desktop', async ({ page }) => {
@@ -501,7 +529,7 @@ test.describe('Wallet navigation', () => {
     await expect(page.locator('[data-wallet-page="desktop"]')).toBeVisible();
   });
 
-  test('desktop wallet header link opens the dedicated wallet page', async ({ page }) => {
+  test('desktop wallet header link opens the same-document wallet workspace', async ({ page }) => {
     await page.goto('/');
 
     const walletPageLink = page.locator('[data-wallet-page="desktop"]');
@@ -517,8 +545,15 @@ test.describe('Wallet navigation', () => {
     expect(walletPanelBox.x).toBeGreaterThan(walletPageBox.x);
 
     await walletPageLink.click();
-    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
-    await expect(page.locator('h1')).toContainText('Wallet');
+    await expect(page.locator('#walletWorkspace')).toBeVisible();
+    await expect(page.locator('#walletWorkspaceTitle')).toContainText('Wallet');
+    await expect(page).toHaveURL('/');
+  });
+
+  test('legacy wallet route redirects into the hash-open wallet workspace instead of remaining the primary flow', async ({ page }) => {
+    await page.goto('/account/wallet.html');
+    await expect(page).toHaveURL(/\/#wallet-workspace$/);
+    await expect(page.locator('#walletWorkspace')).toBeVisible();
   });
 });
 
@@ -567,24 +602,15 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('#walletModal')).toBeHidden();
   });
 
-  test('mobile wallet link opens the wallet page from the real menu flow', async ({ page }) => {
+  test('mobile wallet link opens the same-document wallet workspace from the real menu flow', async ({ page }) => {
     await page.goto('/');
-
-    await page.locator('#mobileMenuBtn').click();
-    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
-
-    const walletSection = page.locator('.mobile-nav__section--wallet');
-    const walletPageLink = walletSection.locator('[data-wallet-page="mobile"]');
-    await expect(walletPageLink).toBeVisible();
-    await walletPageLink.click();
-
-    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
-    await expect(page.locator('h1')).toContainText('Wallet');
+    await openMobileWalletWorkspace(page);
+    await expect(page.locator('#walletWorkspaceTitle')).toContainText('Wallet');
   });
 
-  test('mobile WalletConnect reload and lifecycle resume keep the wallet visible without passive init', async ({ page }) => {
+  test('mobile WalletConnect hash-open reload and lifecycle resume keep the wallet visible without passive init', async ({ page }) => {
     await injectMockWalletConnect(page, { persisted: true });
-    await page.goto('/account/wallet.html');
+    await page.goto('/#wallet-workspace');
     await page.waitForTimeout(700);
 
     let stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
@@ -643,7 +669,7 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
   });
 
-  test('mobile WalletConnect header navigation keeps the wallet visibly available on the wallet page without passive re-init', async ({ page }) => {
+  test('mobile WalletConnect same-document wallet opening keeps the live wallet visible without passive re-init', async ({ page }) => {
     await injectMockWalletConnect(page);
     await page.goto('/');
 
@@ -659,8 +685,7 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"] .wallet-nav__mobile-meta')).toHaveText('0x9999...9999');
 
     await page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]').click();
-    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
-    await page.waitForTimeout(700);
+    await expect(page.locator('#walletWorkspace')).toBeVisible();
 
     const stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
     expect(stats.init).toBe(1);
@@ -669,9 +694,9 @@ test.describe('Wallet navigation mobile', () => {
 
     await expect(page.locator('#walletPageEmpty')).toBeHidden();
     await expect(page.locator('#walletPageDashboard')).toBeVisible();
-    await expect(page.locator('#walletPageProviderLabel')).toHaveText('WalletConnect');
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Mock WalletConnect');
     await expect(page.locator('#walletPageAddressFull')).toHaveText('0x9999999999999999999999999999999999999999');
-    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Connected');
     await expect(page.locator('[data-wallet-page="mobile"] .wallet-nav__mobile-meta')).toContainText('0x9999...9999');
   });
 
@@ -715,9 +740,10 @@ test.describe('Wallet navigation mobile', () => {
   });
 });
 
-test.describe('Wallet page', () => {
-  test('disconnected wallet page renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
-    await page.goto('/account/wallet.html');
+test.describe('Wallet workspace', () => {
+  test('disconnected wallet workspace renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
 
     await expect(page.locator('#walletSectionNav')).toBeVisible();
     await expect(page.locator('#walletSectionNav [data-wallet-tab-button]')).toHaveText([
@@ -750,9 +776,10 @@ test.describe('Wallet page', () => {
     await expect(page.locator('#walletModal')).toContainText('Connect a wallet');
   });
 
-  test('connected wallet page renders details, receive QR, and validates the native send flow', async ({ page }) => {
+  test('connected wallet workspace renders details, receive QR, and validates the native send flow', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
-    await page.goto('/account/wallet.html');
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
     await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
@@ -822,10 +849,11 @@ test.describe('Wallet page', () => {
     });
   });
 
-  test('mobile send success stays within the viewport after returning to the wallet page state', async ({ page }) => {
+  test('mobile send success stays within the viewport after returning to the wallet workspace state', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await injectPersistentMockInjectedWallet(page);
-    await page.goto('/account/wallet.html');
+    await page.goto('/');
+    await openMobileWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
     await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
@@ -857,7 +885,8 @@ test.describe('Wallet page', () => {
 
   test('transient empty-account and refresh failures do not disconnect the connected wallet', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
-    await page.goto('/account/wallet.html');
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
     await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
@@ -885,7 +914,8 @@ test.describe('Wallet page', () => {
 
   test('focus/pageshow-style lifecycle resume preserves a still-valid wallet session after a disconnect signal', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
-    await page.goto('/account/wallet.html');
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
 
     await page.locator('#walletPageConnectBtn').click();
     await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();

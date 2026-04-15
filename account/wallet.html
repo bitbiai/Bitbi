@@ -5,245 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Wallet | BITBI</title>
     <meta name="robots" content="noindex, nofollow">
-    <meta name="theme-color" content="#0A0A0A">
-    <meta name="referrer" content="strict-origin-when-cross-origin">
-    <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
-    <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
-    <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
-    <link rel="icon" href="/assets/favicons/android-chrome-512x512.png" sizes="512x512" type="image/png">
-    <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
-    <link rel="manifest" href="/assets/favicons/site.webmanifest">
-    <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
-    <style>@layer tokens, reset, base, components, pages, utilities;</style>
-    <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/account/wallet.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
-    <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
+    <meta http-equiv="refresh" content="0;url=/#wallet-workspace">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            background: #0a0a0a;
+            color: rgba(255, 255, 255, 0.92);
+            font-family: Inter, system-ui, sans-serif;
+        }
+
+        main {
+            max-width: 32rem;
+            text-align: center;
+        }
+
+        a {
+            color: #00f0ff;
+        }
+    </style>
 </head>
 <body>
-
-<a href="#main-content" class="skip-link">Skip to main content</a>
-
-<header>
-<nav class="site-nav glass-nav" aria-label="Main navigation">
-    <div class="container">
-        <div class="site-nav__bar">
-            <a href="/" class="site-nav__logo">
-                <span class="site-nav__logo-text gt-hero">BITBI</span>
-                <span class="site-nav__logo-glow" aria-hidden="true"></span>
-            </a>
-        </div>
-    </div>
-</nav>
-</header>
-
-<main id="main-content">
-
-<section id="walletHero" class="hero hero--compact" aria-label="Wallet">
-    <canvas id="heroCanvas" aria-hidden="true"></canvas>
-    <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.42) 48%,#0A0A0A 100%)" aria-hidden="true"></div>
-    <div class="hero__glow hero__glow--cyan-sm" style="top:24%;left:16%;width:320px;height:320px" aria-hidden="true"></div>
-    <div class="hero__glow hero__glow--gold-sm" style="bottom:18%;right:18%;width:260px;height:260px" aria-hidden="true"></div>
-    <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
-
-    <div class="hero__content hero__content--narrow">
-        <span class="legal-hero__label">Wallet Workspace</span>
-        <h1 class="legal-hero__title gt-gold-cyan">Wallet</h1>
-        <p class="legal-hero__desc">Review your connected wallet, receive funds with a local QR code, and send ETH through the wallet you already trust.</p>
-    </div>
-</section>
-
-<div class="section-divider" aria-hidden="true"></div>
-<section class="section" aria-label="Wallet content">
-    <div class="section__inner--narrow wallet-page-shell">
-        <div id="walletPageBanner" class="wallet-page__banner" role="status" hidden></div>
-        <div id="walletSectionNav" class="profile-tab-bar wallet-page__section-nav" role="tablist" aria-label="Wallet sections">
-            <button type="button" id="walletOverviewTab" class="profile-tab-btn wallet-page__section-link active" data-wallet-tab-button="overview" role="tab" aria-selected="true" aria-controls="wallet-overview">Overview</button>
-            <button type="button" id="walletSendTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="send" role="tab" aria-selected="false" aria-controls="wallet-send">Send</button>
-            <button type="button" id="walletReceiveTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="receive" role="tab" aria-selected="false" aria-controls="wallet-receive">Receive</button>
-            <button type="button" id="walletAccountTab" class="profile-tab-btn wallet-page__section-link" data-wallet-tab-button="account" role="tab" aria-selected="false" aria-controls="wallet-account">Bitbi Account</button>
-        </div>
-
-        <section id="walletPageEmpty" class="wallet-page__empty reveal visible" aria-labelledby="walletEmptyTitle">
-            <div class="wallet-page__empty-visual" aria-hidden="true">
-                <span class="wallet-page__empty-orb"></span>
-                <span class="wallet-page__empty-ring wallet-page__empty-ring--outer"></span>
-                <span class="wallet-page__empty-ring wallet-page__empty-ring--inner"></span>
-            </div>
-            <div class="wallet-page__empty-copy">
-                <span class="wallet-page__eyebrow">Disconnected</span>
-                <h2 id="walletEmptyTitle" class="wallet-page__title">Connect a wallet to unlock your wallet workspace.</h2>
-                <p id="walletPageEmptyText" class="wallet-page__copy">Your wallet dashboard, receive QR, send form, and BITBI wallet linking state appear here after you connect.</p>
-                <div class="wallet-page__empty-actions">
-                    <button type="button" id="walletPageConnectBtn" class="wallet-page__button">Connect Wallet</button>
-                    <button type="button" id="walletPageOpenPanelBtn" class="wallet-page__button wallet-page__button--ghost">Open Wallet Panel</button>
-                </div>
-                <div class="wallet-page__empty-features" aria-hidden="true">
-                    <span>Receive QR</span>
-                    <span>Native ETH send</span>
-                    <span>Explorer shortcuts</span>
-                </div>
-            </div>
-        </section>
-
-        <div id="walletPageDashboard" class="wallet-page__grid" data-active-tab="overview" hidden>
-            <section id="wallet-overview" class="wallet-page__card wallet-page__card--summary wallet-page__section-card reveal visible" data-wallet-tab="overview" role="tabpanel" aria-labelledby="walletOverviewTab">
-                <div class="wallet-page__card-head">
-                    <div>
-                        <span class="wallet-page__eyebrow">Overview</span>
-                        <h2 id="walletOverviewTitle" class="wallet-page__title">Connected wallet</h2>
-                    </div>
-                    <div class="wallet-page__status-group">
-                        <span id="walletPageConnectionPill" class="wallet-page__pill">Disconnected</span>
-                        <span id="walletPageNetworkPill" class="wallet-page__pill wallet-page__pill--ghost">Ethereum</span>
-                    </div>
-                </div>
-
-                <div class="wallet-page__provider-strip">
-                    <div class="wallet-page__provider-badge" aria-hidden="true" id="walletPageProviderBadge">W</div>
-                    <div class="wallet-page__provider-copy">
-                        <span id="walletPageProviderLabel" class="wallet-page__provider-label">Wallet</span>
-                        <span id="walletPageProviderMeta" class="wallet-page__provider-meta">Waiting for a connection</span>
-                    </div>
-                </div>
-
-                <div class="wallet-page__balance-block">
-                    <span class="wallet-page__balance-label">Native balance</span>
-                    <strong id="walletPageBalanceValue" class="wallet-page__balance-value">—</strong>
-                    <span id="walletPageUpdated" class="wallet-page__updated">Updated when connected</span>
-                </div>
-
-                <dl class="wallet-page__detail-grid">
-                    <div class="wallet-page__detail-card">
-                        <dt>Full address</dt>
-                        <dd id="walletPageAddressFull">—</dd>
-                    </div>
-                    <div class="wallet-page__detail-card">
-                        <dt>Compact address</dt>
-                        <dd id="walletPageAddressShort">—</dd>
-                    </div>
-                    <div class="wallet-page__detail-card">
-                        <dt>Network</dt>
-                        <dd id="walletPageNetworkName">—</dd>
-                    </div>
-                    <div class="wallet-page__detail-card">
-                        <dt>Chain ID</dt>
-                        <dd id="walletPageChainId">—</dd>
-                    </div>
-                </dl>
-
-                <div class="wallet-page__actions">
-                    <button type="button" id="walletPageRefreshBtn" class="wallet-page__button wallet-page__button--ghost">Refresh</button>
-                    <button type="button" id="walletPageCopyBtn" class="wallet-page__button wallet-page__button--ghost">Copy Address</button>
-                    <a id="walletPageExplorerLink" class="wallet-page__button" href="#" target="_blank" rel="noopener noreferrer">View Activity</a>
-                    <button type="button" id="walletPageSwitchBtn" class="wallet-page__button" hidden>Switch to Ethereum</button>
-                </div>
-            </section>
-
-            <section id="wallet-receive" class="wallet-page__card wallet-page__card--receive wallet-page__section-card reveal visible" data-wallet-tab="receive" role="tabpanel" aria-labelledby="walletReceiveTab" hidden>
-                <div class="wallet-page__card-head">
-                    <div>
-                        <span class="wallet-page__eyebrow">Receive</span>
-                        <h2 id="walletReceiveTitle" class="wallet-page__title">Receive to this address</h2>
-                    </div>
-                </div>
-
-                <div id="walletPageQrFrame" class="wallet-page__qr-frame" data-wallet-receive-qr="idle" role="img" aria-label="Wallet receive QR code"></div>
-                <p id="walletPageQrHint" class="wallet-page__qr-hint">A local QR code appears here for the connected wallet address.</p>
-
-                <div class="wallet-page__receive-address">
-                    <span class="wallet-page__receive-label">Address</span>
-                    <code id="walletPageReceiveAddress" class="wallet-page__receive-code">—</code>
-                </div>
-
-                <div class="wallet-page__actions wallet-page__actions--stack">
-                    <button type="button" id="walletPageReceiveCopyBtn" class="wallet-page__button wallet-page__button--ghost">Copy Address</button>
-                    <a id="walletPageReceiveExplorerLink" class="wallet-page__button" href="#" target="_blank" rel="noopener noreferrer">Open on Explorer</a>
-                </div>
-            </section>
-
-            <section id="wallet-send" class="wallet-page__card wallet-page__card--send wallet-page__section-card reveal visible" data-wallet-tab="send" role="tabpanel" aria-labelledby="walletSendTab" hidden>
-                <div class="wallet-page__card-head">
-                    <div>
-                        <span class="wallet-page__eyebrow">Send</span>
-                        <h2 id="walletSendTitle" class="wallet-page__title">Send ETH with your wallet</h2>
-                    </div>
-                </div>
-
-                <p class="wallet-page__copy">Transactions are prepared in BITBI and confirmed inside your connected wallet. BITBI never handles private keys or custody.</p>
-                <div id="walletSendMsg" class="wallet-page__msg" role="status" aria-live="polite"></div>
-
-                <form id="walletSendForm" class="wallet-page__form" novalidate>
-                    <label class="wallet-page__field" for="walletSendRecipient">
-                        <span>Recipient address</span>
-                        <input type="text" id="walletSendRecipient" class="wallet-page__input" placeholder="0x…" autocomplete="off" spellcheck="false" inputmode="text">
-                    </label>
-
-                    <div class="wallet-page__field">
-                        <div class="wallet-page__field-head">
-                            <label for="walletSendAmount">Amount (ETH)</label>
-                            <button type="button" id="walletSendMaxBtn" class="wallet-page__field-action">Use Max</button>
-                        </div>
-                        <input type="text" id="walletSendAmount" class="wallet-page__input" placeholder="0.00" autocomplete="off" spellcheck="false" inputmode="decimal">
-                    </div>
-
-                    <p id="walletSendHint" class="wallet-page__hint">Available only while an Ethereum Mainnet wallet is actively connected.</p>
-
-                    <div class="wallet-page__actions">
-                        <button type="submit" id="walletSendSubmit" class="wallet-page__button">Send ETH</button>
-                        <button type="button" id="walletSendPanelBtn" class="wallet-page__button wallet-page__button--ghost">Open Wallet Panel</button>
-                    </div>
-                </form>
-            </section>
-
-            <section id="wallet-account" class="wallet-page__card wallet-page__card--identity wallet-page__section-card reveal visible" data-wallet-tab="account" role="tabpanel" aria-labelledby="walletAccountTab" hidden>
-                <div class="wallet-page__card-head">
-                    <div>
-                        <span class="wallet-page__eyebrow">BITBI Account</span>
-                        <h2 id="walletIdentityTitle" class="wallet-page__title">Wallet identity</h2>
-                    </div>
-                </div>
-
-                <p id="walletPageIdentityCopy" class="wallet-page__copy">Wallet connection and BITBI account authentication stay modeled separately.</p>
-                <dl id="walletPageIdentityRows" class="wallet-page__identity-grid"></dl>
-                <div id="walletPageIdentityActions" class="wallet-page__actions wallet-page__actions--stack"></div>
-            </section>
-        </div>
-    </div>
-</section>
-
+<main>
+    <h1>Opening wallet workspace…</h1>
+    <p>The BITBI wallet workspace now opens in-document to preserve the live wallet session.</p>
+    <p><a href="/#wallet-workspace">Continue to Wallet</a></p>
 </main>
-
-<div class="section-divider" aria-hidden="true"></div>
-<footer class="site-footer">
-    <div class="site-footer__inner">
-        <div class="site-footer__top">
-            <div class="site-footer__brand">
-                <a href="/" class="site-footer__brand-name gt-hero">BITBI</a>
-                <p class="site-footer__tagline">My Digital Playground</p>
-            </div>
-            <div class="site-footer__social">
-                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
-                <a href="https://www.youtube.com/@bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link site-footer__social-link--yt" aria-label="YouTube"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></a>
-            </div>
-        </div>
-        <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
-        <div class="site-footer__links">
-            <a href="../legal/imprint.html" class="site-footer__link">Imprint / Impressum</a>
-            <span class="site-footer__dot">&bull;</span>
-            <a href="../legal/privacy.html" class="site-footer__link">Privacy Policy</a> / <a href="../legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
-            <span class="site-footer__dot">&bull;</span>
-            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie Settings</a>
-        </div>
-        <p class="site-footer__copy">BITBI Studio &bull; All experiments are mine &bull; Built with love &amp; code &bull; &copy; 2026</p>
-    </div>
-</footer>
-
 <script type="module" src="../js/pages/wallet/main.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

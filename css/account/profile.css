@@ -616,6 +616,7 @@
             align-items: center;
             justify-content: center;
             padding: var(--space-2) var(--space-5);
+            appearance: none;
             border-radius: var(--radius-full);
             font-family: var(--font-mono);
             font-size: 0.75rem;
@@ -627,6 +628,7 @@
             transition: all 0.3s var(--ease-default);
             -webkit-tap-highlight-color: transparent;
             white-space: nowrap;
+            cursor: pointer;
         }
 
         .profile-tab-link:hover {
