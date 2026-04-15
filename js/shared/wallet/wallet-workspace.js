@@ -62,11 +62,10 @@ function ensureStyles() {
 function createWorkspaceMarkup() {
     return `
         <button type="button" class="wallet-workspace__backdrop" aria-label="Close wallet workspace" data-wallet-workspace-close="backdrop"></button>
-        <section class="wallet-workspace__panel" role="dialog" aria-modal="true" aria-labelledby="walletWorkspaceTitle" tabindex="-1" data-wallet-workspace-panel="true">
+        <section class="wallet-workspace__panel" role="dialog" aria-modal="true" aria-label="Wallet workspace" tabindex="-1" data-wallet-workspace-panel="true">
             <div class="wallet-workspace__hero">
                 <div class="wallet-workspace__hero-copy">
                     <span class="wallet-workspace__eyebrow">Wallet Workspace</span>
-                    <h2 id="walletWorkspaceTitle" class="wallet-workspace__title">Wallet</h2>
                 </div>
                 <button type="button" class="wallet-workspace__close" aria-label="Close wallet workspace" data-wallet-workspace-close="panel">×</button>
             </div>
