@@ -19,6 +19,7 @@ let injectedDiscoveryStarted = false;
 let walletConnectLibraryPromise = null;
 let walletConnectProvider = null;
 let walletConnectProviderUsesModal = false;
+let walletConnectInitPromise = null;
 
 const WALLETCONNECT_PASSIVE_RESTORE_COOLDOWN_MS = 8000;
 const WALLETCONNECT_PASSIVE_RESTORE_KEY = 'bitbi_walletconnect_passive_restore_at';
@@ -324,20 +325,28 @@ async function initWalletConnectProvider(showQrModal) {
         walletConnectProviderUsesModal = false;
     }
 
-    const EthereumProvider = await loadWalletConnectLibrary();
-    walletConnectProvider = await EthereumProvider.init({
-        projectId: walletConfig.walletConnectProjectId,
-        chains: [MAINNET_CHAIN_ID],
-        optionalChains: [MAINNET_CHAIN_ID],
-        methods: walletConfig.walletConnect.methods,
-        optionalMethods: walletConfig.walletConnect.optionalMethods,
-        optionalEvents: walletConfig.walletConnect.optionalEvents,
-        showQrModal,
-        metadata: walletConfig.walletConnect.metadata,
-    });
-    walletConnectProviderUsesModal = !!showQrModal;
+    if (!walletConnectInitPromise) {
+        walletConnectInitPromise = (async () => {
+            const EthereumProvider = await loadWalletConnectLibrary();
+            const provider = await EthereumProvider.init({
+                projectId: walletConfig.walletConnectProjectId,
+                chains: [MAINNET_CHAIN_ID],
+                optionalChains: [MAINNET_CHAIN_ID],
+                methods: walletConfig.walletConnect.methods,
+                optionalMethods: walletConfig.walletConnect.optionalMethods,
+                optionalEvents: walletConfig.walletConnect.optionalEvents,
+                showQrModal,
+                metadata: walletConfig.walletConnect.metadata,
+            });
+            walletConnectProvider = provider;
+            walletConnectProviderUsesModal = !!showQrModal;
+            return provider;
+        })().finally(() => {
+            walletConnectInitPromise = null;
+        });
+    }
 
-    return walletConnectProvider;
+    return walletConnectInitPromise;
 }
 
 function readWalletConnectMetadata(provider) {
@@ -382,6 +391,9 @@ export async function restoreWalletConnect() {
 
     let provider = walletConnectProvider;
     if (!provider) {
+        if (isLikelyMobileWalletEnvironment()) {
+            return { connection: null, reason: 'passive-deferred' };
+        }
         if (!shouldAttemptWalletConnectPassiveRestore()) {
             return { connection: null, reason: 'passive-deferred' };
         }

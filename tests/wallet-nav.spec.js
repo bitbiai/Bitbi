@@ -582,31 +582,57 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('h1')).toContainText('Wallet');
   });
 
-  test('mobile wallet page load and reload restore a persisted WalletConnect session without enabling or showing QR', async ({ page }) => {
+  test('mobile WalletConnect reload and lifecycle resume stay deferred without passive init', async ({ page }) => {
     await injectMockWalletConnect(page, { persisted: true });
     await page.goto('/account/wallet.html');
     await page.waitForTimeout(700);
 
     let stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
-    expect(stats.init).toBe(1);
+    expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
-    expect(stats.lastShowQrModal).toBe(false);
-    await expect(page.locator('#walletPageDashboard')).toBeVisible();
-    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Mock WalletConnect');
+    expect(stats.lastShowQrModal).toBe(null);
+    await expect(page.locator('#walletPageEmpty')).toBeVisible();
+    await expect(page.locator('#walletPageDashboard')).toBeHidden();
+    await expect(page.locator('#walletPageEmptyText')).toContainText('preserved the previous wallet selection');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('pageshow'));
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(700);
+
+    stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(0);
+    expect(stats.enable).toBe(0);
+    expect(stats.lastShowQrModal).toBe(null);
 
     await page.reload();
     await page.waitForTimeout(700);
 
     stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
-    expect(stats.init).toBe(2);
+    expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
-    expect(stats.lastShowQrModal).toBe(false);
-    await expect(page.locator('#walletPageDashboard')).toBeVisible();
-    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Mock WalletConnect');
+    expect(stats.lastShowQrModal).toBe(null);
+    await expect(page.locator('#walletPageEmpty')).toBeVisible();
+    await expect(page.locator('#walletPageDashboard')).toBeHidden();
+    await expect(page.locator('#walletPageEmptyText')).toContainText('preserved the previous wallet selection');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('pageshow'));
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(700);
+
+    stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(0);
+    expect(stats.enable).toBe(0);
+    expect(stats.lastShowQrModal).toBe(null);
   });
 
   test('mobile WalletConnect handoff only starts from an explicit wallet action', async ({ page }) => {
