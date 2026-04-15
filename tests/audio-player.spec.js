@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const ONE_PX_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a1sAAAAASUVORK5CYII=';
 
 async function installAudioMock(page) {
   await page.addInitScript(() => {
@@ -89,6 +90,13 @@ async function installAudioMock(page) {
   });
 }
 
+async function openGlobalAudioDrawer(page) {
+  const handle = page.locator('#globalAudioHandle');
+  await expect(handle).toBeVisible();
+  await handle.hover();
+  await expect(page.locator('#globalAudioPanel')).toBeVisible();
+}
+
 test.describe('Global audio player', () => {
   test('persists track state across hard navigation and reload', async ({ page }) => {
     await installAudioMock(page);
@@ -99,15 +107,20 @@ test.describe('Global audio player', () => {
     await firstPlay.click();
 
     await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await expect(page.locator('#globalAudioHandle')).toBeVisible();
+    await expect(page.locator('#globalAudioPanel')).not.toBeVisible();
+    await openGlobalAudioDrawer(page);
     await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
     await expect(page.locator('#globalAudioStatus')).toContainText('Playing');
 
     await page.goto('/legal/imprint.html');
     await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await openGlobalAudioDrawer(page);
     await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
 
     await page.reload();
     await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await openGlobalAudioDrawer(page);
     await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
 
     const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('bitbi_audio_state_v1')));
@@ -124,6 +137,7 @@ test.describe('Global audio player', () => {
     await firstPlay.click();
 
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
+    await openGlobalAudioDrawer(page);
 
     await page.locator('#globalAudioToggle').click();
     await expect(page.locator('.snd-card').first().locator('.pi')).toBeVisible();
@@ -133,5 +147,40 @@ test.describe('Global audio player', () => {
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
     await expect(page.locator('#globalAudioStatus')).toContainText('Playing');
   });
-});
 
+  test('exclusive Sound Lab tracks still render artwork thumbs from the shared catalog', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'audio-thumb-user',
+            email: 'audio@example.com',
+            role: 'user',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/soundlab-thumbs/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+    });
+
+    await page.goto('/');
+    await expect
+      .poll(async () => page.locator('#soundLabTracks .excl-thumb').evaluateAll((elements) => (
+        elements.some((element) => {
+          const src = element.getAttribute('src') || '';
+          const display = window.getComputedStyle(element).display;
+          return /\/api\/soundlab-thumbs\/thumb-bitbi$/.test(src) && display !== 'none';
+        })
+      )))
+      .toBe(true);
+  });
+});

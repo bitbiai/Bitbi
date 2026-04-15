@@ -435,12 +435,13 @@ function setupSoundLabCard(revealObserver) {
             img.crossOrigin = 'use-credentials';
             const thumbEl = wrappers[idx].querySelector('.excl-thumb');
             const placeholderEl = wrappers[idx].querySelector('.excl-thumb-placeholder');
+            const thumbUrl = typeof tr.artwork === 'string' ? tr.artwork : '';
             img.onload = () => {
                 thumbEl.src = img.src;
                 thumbEl.style.display = 'block';
                 placeholderEl.style.display = 'none';
             };
-            img.src = `/api/soundlab-thumbs/${tr.thumb}`;
+            if (thumbUrl) img.src = thumbUrl;
         });
     }
 
