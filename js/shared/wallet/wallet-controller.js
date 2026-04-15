@@ -11,18 +11,14 @@ import {
     getAddressExplorerUrl,
     getChainLabel,
     getTransactionExplorerUrl,
-    isWalletConnectConfigured,
     normalizeChainId,
     toChainHex,
     walletConfig,
 } from './wallet-config.js?v=__ASSET_VERSION__';
 import {
     connectInjectedWallet,
-    connectWalletConnect,
-    disconnectWalletConnect,
     hasInjectedWalletProvider,
     restoreInjectedWallet,
-    restoreWalletConnect,
     startInjectedDiscovery,
 } from './wallet-connectors.js?v=__ASSET_VERSION__';
 import { buildSiweMessage, utf8ToHex } from './siwe-message.js?v=__ASSET_VERSION__';
@@ -191,14 +187,8 @@ function normalizeWalletError(error, fallback) {
     if (code === -32002 || lower.includes('already pending')) {
         return 'A wallet request is already pending. Finish it in your wallet first.';
     }
-    if (lower.includes('not configured')) {
-        return 'WalletConnect is unavailable until a Reown project ID is configured.';
-    }
     if (lower.includes('no longer available')) {
         return 'That browser wallet is no longer available. Refresh and try again.';
-    }
-    if (lower.includes('walletconnect bundle failed')) {
-        return 'WalletConnect could not be loaded right now.';
     }
     if (lower.includes('did not return an account')) {
         return 'The connected wallet did not expose an account.';
@@ -230,9 +220,6 @@ function formatEthBalance(hexValue) {
 }
 
 function getPersistedProviderName(persisted = {}) {
-    if (persisted?.type === 'walletconnect') {
-        return 'WalletConnect';
-    }
     if (persisted?.type === 'injected') {
         return 'Browser Wallet';
     }
@@ -311,21 +298,8 @@ function markWalletRestoring() {
     });
 }
 
-function markWalletResumable() {
-    const state = getWalletState();
-    if (state.status === 'connected' || state.status === 'connecting') return;
-    patchWalletState({
-        status: 'resumable',
-        connectingConnectorId: null,
-    });
-}
-
 function isPendingRestoreReason(reason) {
-    return reason === 'waiting-for-provider' || reason === 'passive-deferred';
-}
-
-function isResumableRestoreReason(reason) {
-    return reason === 'no-session' || reason === 'no-account' || reason === 'passive-deferred';
+    return reason === 'waiting-for-provider';
 }
 
 function getWalletAuthView(state = getWalletState()) {
@@ -646,10 +620,6 @@ async function restorePersistedConnection(persisted = readPersistedSelection()) 
         };
     }
 
-    if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
-        return restoreWalletConnect();
-    }
-
     return { connection: null, reason: 'unsupported' };
 }
 
@@ -720,11 +690,7 @@ async function reconcileConnectionState(options = {}) {
 
         if (persisted && isPendingRestoreReason(restoreOutcome.reason)) {
             clearDisconnectConfirmation();
-            if (restoreOutcome.reason === 'waiting-for-provider') {
-                markWalletRestoring();
-            } else {
-                markWalletResumable();
-            }
+            markWalletRestoring();
             return null;
         }
 
@@ -734,11 +700,10 @@ async function reconcileConnectionState(options = {}) {
                 `${providerReportedNoAccount ? 'provider-empty' : 'no-provider'}:${restoreOutcome.reason || 'unknown'}`,
             );
             if (attemptCount >= 2) {
-                finalizeDisconnectedState(disconnectMessage, { clearPersisted: false });
+                const shouldClearPersisted = restoreOutcome.reason === 'no-account' || restoreOutcome.reason === 'unsupported';
+                finalizeDisconnectedState(disconnectMessage, { clearPersisted: shouldClearPersisted });
             } else {
-                if (persisted && isResumableRestoreReason(restoreOutcome.reason)) {
-                    markWalletResumable();
-                } else if (persisted) {
+                if (persisted) {
                     markWalletRestoring();
                 }
                 scheduleTransientConnectionVerification(provider, base, 'disconnect-reconfirm');
@@ -751,21 +716,17 @@ async function reconcileConnectionState(options = {}) {
                 connectionFingerprint,
                 `restore:${restoreOutcome.reason || 'unknown'}`,
             );
-            if (isResumableRestoreReason(restoreOutcome.reason)) {
-                markWalletResumable();
-                return null;
-            }
             if (restoreOutcome.reason === 'waiting-for-provider') {
                 markWalletRestoring();
                 return null;
             }
         }
 
-        if (persisted && isPersistedSelectionClearlyStale(persisted)) {
+        if (persisted && (isPersistedSelectionClearlyStale(persisted) || restoreOutcome.reason === 'unsupported' || restoreOutcome.reason === 'no-account')) {
             clearPersistedSelection();
         }
 
-        if (getWalletState().status === 'restoring' || getWalletState().status === 'resumable') {
+        if (getWalletState().status === 'restoring') {
             clearDisconnectConfirmation();
             const { isOpen, workspaceOpen } = getWalletState();
             resetWalletConnection({ isOpen, workspaceOpen });
@@ -893,9 +854,7 @@ async function restorePreviousConnection() {
     if (!persisted) return;
 
     hydratePersistedConnectionPreview(persisted);
-    if (persisted.type !== 'walletconnect') {
-        markWalletRestoring();
-    }
+    markWalletRestoring();
 
     try {
         const outcome = await restorePersistedConnection(persisted);
@@ -919,12 +878,7 @@ async function restorePreviousConnection() {
             return;
         }
 
-        if (isResumableRestoreReason(outcome?.reason)) {
-            noteDisconnectConfirmation(buildConnectionFingerprint(getWalletState().active, persisted), `restore:${outcome.reason || 'unknown'}`);
-            markWalletResumable();
-            return;
-        }
-
+        clearPersistedSelection();
         clearDisconnectConfirmation();
         {
             const { isOpen, workspaceOpen } = getWalletState();
@@ -939,7 +893,7 @@ async function restorePreviousConnection() {
             resetWalletConnection({ isOpen, workspaceOpen });
             return;
         }
-        markWalletResumable();
+        markWalletRestoring();
     }
 }
 
@@ -1129,41 +1083,8 @@ async function connectInjected(id) {
     }
 }
 
-async function connectExternalWallet() {
-    if (!isWalletConnectConfigured()) {
-        flashMessage('warning', 'WalletConnect needs a Reown project ID before it can be used.');
-        return;
-    }
-
-    const shouldReopen = getWalletState().isOpen;
-    clearDisconnectConfirmation();
-    clearTransientDisconnectTimer();
-    clearLifecycleReconcileTimer();
-    patchWalletState({
-        status: 'connecting',
-        connectingConnectorId: 'walletconnect',
-        message: null,
-        isOpen: false,
-    });
-
-    try {
-        const connection = await connectWalletConnect();
-        await activateConnection(connection, {
-            message: `${connection.providerName || 'WalletConnect'} connected.`,
-        });
-        if (shouldReopen) {
-            patchWalletState({ isOpen: true });
-        }
-    } catch (error) {
-        resetWalletConnection({ isOpen: shouldReopen, workspaceOpen: getWalletState().workspaceOpen });
-        flashMessage('error', normalizeWalletError(error, 'WalletConnect could not complete the connection.'));
-    }
-}
-
 async function disconnectActiveWallet() {
     const currentState = getWalletState();
-    const currentProvider = activeProvider;
-    const currentType = currentState.active.type;
     const isOpen = currentState.isOpen;
     const workspaceOpen = currentState.workspaceOpen;
 
@@ -1176,14 +1097,6 @@ async function disconnectActiveWallet() {
         identityAction: 'idle',
         pendingAuthIntent: null,
     });
-
-    try {
-        if (currentType === 'walletconnect') {
-            await disconnectWalletConnect(currentProvider);
-        }
-    } catch (error) {
-        console.warn('walletDisconnect:', error);
-    }
 
     flashMessage('info', 'Wallet disconnected.');
 }
@@ -1360,8 +1273,6 @@ export function initWalletController() {
 
     initialized = true;
     patchWalletState({
-        walletConnectConfigured: isWalletConnectConfigured(),
-        walletConnectProjectId: walletConfig.walletConnectProjectId,
         authReady: !!getAuthState().ready,
         authLoggedIn: !!getAuthState().loggedIn,
     });
@@ -1371,7 +1282,6 @@ export function initWalletController() {
         openPanel: openWalletPanel,
         closePanel: closeWalletPanel,
         connectInjected,
-        connectWalletConnect: connectExternalWallet,
         disconnectWallet: disconnectActiveWallet,
         switchToMainnet: switchToEthereumMainnet,
         copyAddress: copyConnectedAddress,

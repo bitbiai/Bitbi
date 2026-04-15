@@ -310,10 +310,6 @@ function syncTrigger(trigger, state, isMobile = false) {
             metaText = state.active.shortAddress || state.active.address
                 ? `Restoring ${state.active.shortAddress || state.active.address}`
                 : 'Restoring wallet';
-        } else if (state.status === 'resumable') {
-            metaText = state.active.shortAddress || state.active.address
-                ? `${state.active.shortAddress || state.active.address} · Resume`
-                : 'Resume wallet';
         } else if (state.identityAction === 'signing') {
             metaText = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
@@ -487,7 +483,7 @@ function renderDisconnectedState(state) {
     const fragment = document.createDocumentFragment();
     fragment.appendChild(createSectionTitle(
         'Connect a wallet',
-        'Ethereum Mainnet is the only supported network in this release.',
+        'Ethereum Mainnet is the only supported network in this release. Use an injected browser wallet or a compatible wallet in-app browser.',
     ));
 
     const walletsWrap = createElement('div', 'wallet-modal__stack');
@@ -525,35 +521,6 @@ function renderDisconnectedState(state) {
 
     fragment.appendChild(walletsWrap);
 
-    const externalWrap = createElement('div', 'wallet-modal__stack');
-    externalWrap.appendChild(createElement('h4', 'wallet-modal__mini-title', 'External wallet'));
-
-    const walletConnectButton = createElement('button', 'wallet-modal__option');
-    walletConnectButton.type = 'button';
-    walletConnectButton.dataset.walletConnect = 'true';
-    walletConnectButton.disabled = !state.walletConnectConfigured || state.status === 'connecting' || state.status === 'restoring';
-    walletConnectButton.append(
-        createProviderVisual('WalletConnect', '', 'sm'),
-        (() => {
-            const copy = createElement('span', 'wallet-modal__option-copy');
-            copy.append(
-                createElement('span', 'wallet-modal__option-title', 'WalletConnect'),
-                createElement('span', 'wallet-modal__option-meta', state.walletConnectConfigured
-                    ? 'Open the QR or mobile deep-link flow'
-                    : 'Unavailable until a Reown project ID is configured'),
-            );
-            return copy;
-        })(),
-    );
-    walletConnectButton.addEventListener('click', () => actionsRef?.connectWalletConnect?.());
-    externalWrap.appendChild(walletConnectButton);
-
-    const note = createElement('p', 'wallet-modal__footnote', state.walletConnectConfigured
-        ? 'WalletConnect uses the upstream WalletConnect/Reown browser flow for QR and mobile handoff.'
-        : 'Set `walletConfig.walletConnectProjectId` in `js/shared/wallet/wallet-config.js` to enable WalletConnect.');
-    externalWrap.appendChild(note);
-    fragment.appendChild(externalWrap);
-
     const linkedState = renderDisconnectedIdentityState(state);
     if (linkedState) {
         fragment.appendChild(linkedState);
@@ -564,9 +531,7 @@ function renderDisconnectedState(state) {
 
 function renderConnectingState(state) {
     const wrap = createElement('div', 'wallet-modal__connecting');
-    const connectorName = state.connectingConnectorId === 'walletconnect'
-        ? 'WalletConnect'
-        : state.injectedWallets.find(wallet => wallet.id === state.connectingConnectorId)?.name || 'Browser wallet';
+    const connectorName = state.injectedWallets.find(wallet => wallet.id === state.connectingConnectorId)?.name || 'Browser wallet';
 
     wrap.append(
         createElement('div', 'wallet-modal__spinner'),
@@ -581,21 +546,9 @@ function renderRestoringState() {
     wrap.append(
         createElement('div', 'wallet-modal__spinner'),
         createElement('h3', 'wallet-modal__connecting-title', 'Restoring…'),
-        createElement('p', 'wallet-modal__connecting-copy', 'Reattaching the previous wallet session without opening a new wallet prompt.'),
+        createElement('p', 'wallet-modal__connecting-copy', 'Reattaching the previous browser-wallet session without opening a new connection request.'),
     );
     return wrap;
-}
-
-function renderResumableState(state) {
-    const fragment = document.createDocumentFragment();
-    const banner = createElement('div', 'wallet-modal__banner wallet-modal__banner--info');
-    banner.textContent = 'BITBI kept the last wallet selection. Resume it manually or wait for the wallet provider to become available again.';
-    fragment.appendChild(banner);
-    fragment.appendChild(renderDisconnectedState({
-        ...state,
-        status: 'disconnected',
-    }));
-    return fragment;
 }
 
 function renderConnectedState(state) {
@@ -684,11 +637,6 @@ function renderBody(state) {
 
     if (state.status === 'restoring') {
         modalBody.appendChild(renderRestoringState());
-        return;
-    }
-
-    if (state.status === 'resumable') {
-        modalBody.appendChild(renderResumableState(state));
         return;
     }
 

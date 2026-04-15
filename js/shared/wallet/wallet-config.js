@@ -11,42 +11,12 @@ export const WALLET_PAGE_URL = '/account/wallet.html';
 export const WALLET_WORKSPACE_HASH = '#wallet-workspace';
 
 export const walletConfig = Object.freeze({
-    walletConnectProjectId: '0d0d325bb6cb9f63b7b98fe58fcd0492',
     storageKeys: {
         connectorType: 'bitbi_wallet_connector_type',
         connectorId: 'bitbi_wallet_connector_id',
         address: 'bitbi_wallet_address',
         chainId: 'bitbi_wallet_chain_id',
         updatedAt: 'bitbi_wallet_updated_at',
-    },
-    walletConnect: {
-        bundleUrl: new URL('../../vendor/walletconnect-ethereum-provider-2.23.8.umd.js?v=__ASSET_VERSION__', import.meta.url).toString(),
-        metadata: Object.freeze({
-            name: 'BITBI',
-            description: 'BITBI wallet connection',
-            url: 'https://bitbi.ai',
-            icons: ['https://bitbi.ai/assets/favicons/android-chrome-192x192.png'],
-        }),
-        methods: Object.freeze([
-            'eth_sendTransaction',
-            'personal_sign',
-            'eth_signTypedData',
-            'eth_signTypedData_v4',
-        ]),
-        optionalMethods: Object.freeze([
-            'eth_accounts',
-            'eth_requestAccounts',
-            'eth_chainId',
-            'eth_getBalance',
-            'eth_estimateGas',
-            'eth_gasPrice',
-            'wallet_switchEthereumChain',
-        ]),
-        optionalEvents: Object.freeze([
-            'accountsChanged',
-            'chainChanged',
-            'disconnect',
-        ]),
     },
     stylesUrl: new URL('../../../css/components/wallet.css?v=__ASSET_VERSION__', import.meta.url).toString(),
     workspaceStylesUrl: new URL('../../../css/account/wallet.css?v=__ASSET_VERSION__', import.meta.url).toString(),
@@ -93,14 +63,6 @@ const KNOWN_CHAIN_EXPLORERS = new Map([
         txBase: 'https://sepolia.etherscan.io/tx/',
     }],
 ]);
-
-export function isWalletConnectConfigured() {
-    return (
-        typeof walletConfig.walletConnectProjectId === 'string'
-        && walletConfig.walletConnectProjectId.trim()
-        && walletConfig.walletConnectProjectId !== 'REPLACE_WITH_REOWN_PROJECT_ID'
-    );
-}
 
 export function getChainLabel(chainId) {
     if (chainId == null || Number.isNaN(Number(chainId))) return 'Not connected';

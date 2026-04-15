@@ -6,8 +6,6 @@
 import {
     MAINNET_CHAIN_HEX,
     getChainLabel,
-    isWalletConnectConfigured,
-    walletConfig,
 } from './wallet-config.js?v=__ASSET_VERSION__';
 
 function createEmptyConnection() {
@@ -39,8 +37,6 @@ let state = {
     status: 'disconnected',
     connectingConnectorId: null,
     injectedWallets: [],
-    walletConnectConfigured: isWalletConnectConfigured(),
-    walletConnectProjectId: walletConfig.walletConnectProjectId,
     message: null,
     active: createEmptyConnection(),
     authReady: false,

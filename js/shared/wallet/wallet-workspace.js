@@ -560,18 +560,9 @@ function renderEmptyState(state) {
     }
 
     if (state.status === 'restoring') {
-        refs.emptyText.textContent = 'Restoring the previous wallet session without opening a new wallet prompt. BITBI keeps the workspace ready while the provider settles.';
+        refs.emptyText.textContent = 'Restoring the previous browser-wallet session without opening a new connection request. BITBI keeps the workspace ready while the provider settles.';
         refs.emptyConnectBtn.disabled = true;
         refs.emptyConnectBtn.textContent = 'Restoring…';
-        refs.emptyOpenPanelBtn.disabled = false;
-        refs.emptyOpenPanelBtn.textContent = 'Open Wallet Panel';
-        return;
-    }
-
-    if (state.status === 'resumable') {
-        refs.emptyText.textContent = 'BITBI preserved the previous wallet selection. Open the wallet panel to resume it manually, or wait for the provider session to become available again.';
-        refs.emptyConnectBtn.disabled = false;
-        refs.emptyConnectBtn.textContent = 'Reconnect Wallet';
         refs.emptyOpenPanelBtn.disabled = false;
         refs.emptyOpenPanelBtn.textContent = 'Open Wallet Panel';
         return;
@@ -587,7 +578,6 @@ function renderEmptyState(state) {
 function renderSummary(state) {
     const active = state.active;
     const connected = state.status === 'connected' && !!active.address;
-    const resumable = state.status === 'resumable' && !!active.address;
     const restoring = state.status === 'restoring' && !!active.address;
     const chainExplorer = getChainExplorer(active.chainId);
     const explorerUrl = getAddressExplorerUrl(active.chainId, active.address);
@@ -596,10 +586,7 @@ function renderSummary(state) {
 
     if (!refs.connectionPill) return;
 
-    if (resumable) {
-        refs.connectionPill.textContent = 'Resume needed';
-        refs.connectionPill.className = 'wallet-page__pill wallet-page__pill--warning';
-    } else if (restoring) {
+    if (restoring) {
         refs.connectionPill.textContent = 'Restoring';
         refs.connectionPill.className = 'wallet-page__pill wallet-page__pill--ghost';
     } else {
@@ -611,14 +598,12 @@ function renderSummary(state) {
 
     refs.providerBadge.textContent = (active.providerName || 'Wallet').slice(0, 1).toUpperCase();
     refs.providerLabel.textContent = active.providerName || 'Connected wallet';
-    refs.providerMeta.textContent = active.type === 'walletconnect'
-        ? (connected ? 'Connected through WalletConnect' : 'Last active wallet session came through WalletConnect')
-        : (active.type === 'injected'
-            ? (connected ? 'Connected through an installed browser wallet' : 'Last active browser-wallet session in this browser')
-            : 'Connected wallet session');
+    refs.providerMeta.textContent = active.type === 'injected'
+        ? (connected ? 'Connected through an installed browser wallet' : 'Restoring the last browser-wallet session seen in this browser')
+        : 'Connected wallet session';
 
     refs.balanceValue.textContent = !connected && active.address
-        ? 'Resume to refresh'
+        ? 'Restoring…'
         : active.balanceStatus === 'loading'
             ? 'Loading…'
             : active.balanceStatus === 'loaded'
@@ -636,7 +621,7 @@ function renderSummary(state) {
     refs.chainId.textContent = active.chainId != null ? String(active.chainId) : '—';
 
     refs.refreshBtn.disabled = pageUiState.refreshing || !connected;
-    refs.refreshBtn.textContent = pageUiState.refreshing ? 'Refreshing…' : (connected ? 'Refresh' : 'Resume to Refresh');
+    refs.refreshBtn.textContent = pageUiState.refreshing ? 'Refreshing…' : (connected ? 'Refresh' : 'Restore in Progress');
 
     if (explorerUrl) {
         refs.explorerLink.hidden = false;
@@ -702,7 +687,7 @@ function renderReceive(state) {
         refs.qrFrame.dataset.walletReceiveQr = 'ready';
         refs.qrFrame.innerHTML = svgMarkup;
         if (!connected) {
-            refs.qrHint.textContent = 'This QR uses the last wallet address seen in this browser. Resume the wallet session to refresh live data.';
+            refs.qrHint.textContent = 'This QR uses the last wallet address seen in this browser while BITBI restores the live session.';
             return;
         }
         refs.qrHint.textContent = active.isMainnet
@@ -812,7 +797,6 @@ function renderIdentity(state) {
 
 function renderSendState(state) {
     const connected = state.status === 'connected' && !!state.active.address;
-    const resumable = state.status === 'resumable' && !!state.active.address;
     const sendEnabled = connected && state.active.isMainnet;
 
     refs.sendRecipient.disabled = !sendEnabled || pageUiState.send.submitting;
@@ -821,8 +805,8 @@ function renderSendState(state) {
     refs.sendMaxBtn.disabled = !sendEnabled || pageUiState.send.submitting || pageUiState.maxLoading || state.active.balanceStatus !== 'loaded';
 
     if (!connected) {
-        refs.sendHint.textContent = resumable
-            ? 'Resume the wallet session in the panel before preparing a native ETH transfer from this address.'
+        refs.sendHint.textContent = state.status === 'restoring' && !!state.active.address
+            ? 'Wait for the browser wallet to finish restoring before preparing a native ETH transfer from this address.'
             : 'Connect an Ethereum Mainnet wallet to prepare a native ETH transfer.';
     } else if (!state.active.isMainnet) {
         refs.sendHint.textContent = 'Switch the connected wallet to Ethereum Mainnet before sending from BITBI.';
@@ -854,8 +838,8 @@ function render(state) {
     renderBanner(state);
 
     const connected = state.status === 'connected' && !!state.active.address;
-    const resumablePreview = (state.status === 'resumable' || state.status === 'restoring') && !!state.active.address;
-    const visibleWallet = connected || resumablePreview;
+    const restoringPreview = state.status === 'restoring' && !!state.active.address;
+    const visibleWallet = connected || restoringPreview;
     const activeTab = getActiveWalletTab();
     if (previousAddress && previousAddress !== (state.active.address || '')) {
         setSendMessage('', '', '');
