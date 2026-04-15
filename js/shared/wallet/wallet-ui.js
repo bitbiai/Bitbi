@@ -298,6 +298,8 @@ function syncTrigger(trigger, state, isMobile = false) {
             metaText = 'Connection pending';
         } else if (state.status === 'restoring') {
             metaText = 'Restoring wallet';
+        } else if (state.status === 'resumable') {
+            metaText = 'Resume wallet';
         } else if (state.identityAction === 'signing') {
             metaText = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
@@ -579,6 +581,18 @@ function renderRestoringState() {
     return wrap;
 }
 
+function renderResumableState(state) {
+    const fragment = document.createDocumentFragment();
+    const banner = createElement('div', 'wallet-modal__banner wallet-modal__banner--info');
+    banner.textContent = 'BITBI kept the last wallet selection. Resume it manually or wait for the wallet provider to become available again.';
+    fragment.appendChild(banner);
+    fragment.appendChild(renderDisconnectedState({
+        ...state,
+        status: 'disconnected',
+    }));
+    return fragment;
+}
+
 function renderConnectedState(state) {
     const fragment = document.createDocumentFragment();
 
@@ -665,6 +679,11 @@ function renderBody(state) {
 
     if (state.status === 'restoring') {
         modalBody.appendChild(renderRestoringState());
+        return;
+    }
+
+    if (state.status === 'resumable') {
+        modalBody.appendChild(renderResumableState(state));
         return;
     }
 

@@ -19,6 +19,7 @@ import {
     connectInjectedWallet,
     connectWalletConnect,
     disconnectWalletConnect,
+    hasInjectedWalletProvider,
     restoreInjectedWallet,
     restoreWalletConnect,
     startInjectedDiscovery,
@@ -43,6 +44,9 @@ let walletStatusRequestToken = 0;
 let transientDisconnectTimer = null;
 let lifecycleReconcileTimer = null;
 let reconcilePromise = null;
+let disconnectConfirmationFingerprint = '';
+let disconnectConfirmationReason = '';
+let disconnectConfirmationCount = 0;
 
 const PERSISTED_SELECTION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSIENT_DISCONNECT_GRACE_MS = 1800;
@@ -129,6 +133,35 @@ function clearMessageTimer() {
     messageTimer = null;
 }
 
+function buildConnectionFingerprint(base = getWalletState().active, persisted = readPersistedSelection()) {
+    const type = persisted?.type || base?.type || '';
+    if (!type) return '';
+
+    const id = persisted?.id || base?.id || '';
+    const address = persisted?.address || base?.address || '';
+    return `${type}:${id}:${String(address || '').trim().toLowerCase()}`;
+}
+
+function clearDisconnectConfirmation() {
+    disconnectConfirmationFingerprint = '';
+    disconnectConfirmationReason = '';
+    disconnectConfirmationCount = 0;
+}
+
+function noteDisconnectConfirmation(fingerprint, reason = '') {
+    if (!fingerprint) return 0;
+
+    if (disconnectConfirmationFingerprint === fingerprint && disconnectConfirmationReason === reason) {
+        disconnectConfirmationCount += 1;
+    } else {
+        disconnectConfirmationFingerprint = fingerprint;
+        disconnectConfirmationReason = reason;
+        disconnectConfirmationCount = 1;
+    }
+
+    return disconnectConfirmationCount;
+}
+
 function flashMessage(type, text, duration = 4200) {
     clearMessageTimer();
     setWalletMessage(type, text);
@@ -203,11 +236,28 @@ function normalizeLinkedWallet(raw) {
 
 function markWalletRestoring() {
     const state = getWalletState();
-    if (state.status === 'connected' || state.status === 'connecting') return;
+    if (state.status === 'connecting') return;
     patchWalletState({
         status: 'restoring',
         connectingConnectorId: null,
     });
+}
+
+function markWalletResumable() {
+    const state = getWalletState();
+    if (state.status === 'connected' || state.status === 'connecting') return;
+    patchWalletState({
+        status: 'resumable',
+        connectingConnectorId: null,
+    });
+}
+
+function isPendingRestoreReason(reason) {
+    return reason === 'waiting-for-provider' || reason === 'passive-deferred';
+}
+
+function isResumableRestoreReason(reason) {
+    return reason === 'no-session' || reason === 'no-account' || reason === 'passive-deferred';
 }
 
 function getWalletAuthView(state = getWalletState()) {
@@ -268,6 +318,7 @@ function finalizeDisconnectedState(message = 'The wallet disconnected from this 
     const { clearPersisted = true } = options;
     const isOpen = getWalletState().isOpen;
 
+    clearDisconnectConfirmation();
     cleanupProviderListeners();
     if (clearPersisted) {
         clearPersistedSelection();
@@ -497,6 +548,7 @@ async function syncConnectionFromProvider(provider, base = {}, options = {}) {
         return null;
     }
 
+    clearDisconnectConfirmation();
     clearTransientDisconnectTimer();
     updateWalletConnection({
         ...snapshot,
@@ -510,17 +562,27 @@ async function syncConnectionFromProvider(provider, base = {}, options = {}) {
 }
 
 async function restorePersistedConnection(persisted = readPersistedSelection()) {
-    if (!persisted?.type) return null;
+    if (!persisted?.type) {
+        return { connection: null, reason: 'none' };
+    }
 
     if (persisted.type === 'injected' && persisted.id) {
-        return restoreInjectedWallet(persisted.id);
+        if (!hasInjectedWalletProvider(persisted.id)) {
+            return { connection: null, reason: 'waiting-for-provider' };
+        }
+
+        const connection = await restoreInjectedWallet(persisted.id);
+        return {
+            connection,
+            reason: connection ? 'restored' : 'no-account',
+        };
     }
 
     if (persisted.type === 'walletconnect' && isWalletConnectConfigured()) {
         return restoreWalletConnect();
     }
 
-    return null;
+    return { connection: null, reason: 'unsupported' };
 }
 
 async function reconcileConnectionState(options = {}) {
@@ -541,16 +603,21 @@ async function reconcileConnectionState(options = {}) {
 
     reconcilePromise = (async () => {
         const persisted = allowPersistedRestore ? readPersistedSelection() : null;
+        const connectionFingerprint = buildConnectionFingerprint(base, persisted);
         let providerReadFailed = false;
         let providerReportedNoAccount = false;
         let restoreFailed = false;
+        let restoreOutcome = { connection: null, reason: persisted ? 'unavailable' : 'none' };
 
         if (provider?.request) {
             try {
                 const synced = await syncConnectionFromProvider(provider, base, {
                     disconnectOnMissingAddress: false,
                 });
-                if (synced) return synced;
+                if (synced) {
+                    clearDisconnectConfirmation();
+                    return synced;
+                }
                 providerReportedNoAccount = true;
             } catch (error) {
                 providerReadFailed = true;
@@ -560,10 +627,11 @@ async function reconcileConnectionState(options = {}) {
 
         if (persisted) {
             try {
-                const restored = await restorePersistedConnection(persisted);
-                if (restored) {
-                    await activateConnection(restored, { message: null, persist: true });
-                    return restored;
+                restoreOutcome = await restorePersistedConnection(persisted);
+                if (restoreOutcome?.connection) {
+                    clearDisconnectConfirmation();
+                    await activateConnection(restoreOutcome.connection, { message: null, persist: true });
+                    return restoreOutcome.connection;
                 }
             } catch (error) {
                 restoreFailed = true;
@@ -571,21 +639,64 @@ async function reconcileConnectionState(options = {}) {
             }
         }
 
-        if (clearOnConfirmedDisconnect && providerReportedNoAccount && !providerReadFailed && !restoreFailed) {
-            finalizeDisconnectedState(disconnectMessage, { clearPersisted: true });
+        if (providerReadFailed || restoreFailed) {
+            if (persisted) {
+                markWalletRestoring();
+            }
+            scheduleLifecycleReconcile('reconcile-retry');
             return null;
         }
 
-        if (providerReadFailed || restoreFailed) {
-            scheduleLifecycleReconcile('reconcile-retry');
+        if (persisted && isPendingRestoreReason(restoreOutcome.reason)) {
+            clearDisconnectConfirmation();
+            if (restoreOutcome.reason === 'waiting-for-provider') {
+                markWalletRestoring();
+            } else {
+                markWalletResumable();
+            }
+            return null;
         }
 
-        if (getWalletState().status === 'restoring') {
-            resetWalletConnection({ isOpen: getWalletState().isOpen });
+        if (clearOnConfirmedDisconnect) {
+            const attemptCount = noteDisconnectConfirmation(
+                connectionFingerprint,
+                `${providerReportedNoAccount ? 'provider-empty' : 'no-provider'}:${restoreOutcome.reason || 'unknown'}`,
+            );
+            if (attemptCount >= 2) {
+                finalizeDisconnectedState(disconnectMessage, { clearPersisted: false });
+            } else {
+                if (persisted && isResumableRestoreReason(restoreOutcome.reason)) {
+                    markWalletResumable();
+                } else if (persisted) {
+                    markWalletRestoring();
+                }
+                scheduleTransientConnectionVerification(provider, base, 'disconnect-reconfirm');
+            }
+            return null;
+        }
+
+        if (persisted) {
+            noteDisconnectConfirmation(
+                connectionFingerprint,
+                `restore:${restoreOutcome.reason || 'unknown'}`,
+            );
+            if (isResumableRestoreReason(restoreOutcome.reason)) {
+                markWalletResumable();
+                return null;
+            }
+            if (restoreOutcome.reason === 'waiting-for-provider') {
+                markWalletRestoring();
+                return null;
+            }
         }
 
         if (persisted && isPersistedSelectionClearlyStale(persisted)) {
             clearPersistedSelection();
+        }
+
+        if (getWalletState().status === 'restoring' || getWalletState().status === 'resumable') {
+            clearDisconnectConfirmation();
+            resetWalletConnection({ isOpen: getWalletState().isOpen });
         }
 
         return null;
@@ -674,6 +785,7 @@ function bindProviderEvents(connection) {
 }
 
 async function activateConnection(connection, options = {}) {
+    clearDisconnectConfirmation();
     clearTransientDisconnectTimer();
     const snapshot = baseConnectionSnapshot(connection);
     bindProviderEvents(connection);
@@ -698,6 +810,11 @@ async function activateConnection(connection, options = {}) {
 
 async function restorePreviousConnection() {
     if (restoreAttempted) return;
+    const currentState = getWalletState();
+    if (currentState.status === 'connected' && currentState.active.address) {
+        restoreAttempted = true;
+        return;
+    }
     restoreAttempted = true;
 
     const persisted = readPersistedSelection();
@@ -706,23 +823,43 @@ async function restorePreviousConnection() {
     markWalletRestoring();
 
     try {
-        const connection = await restorePersistedConnection(persisted);
+        const outcome = await restorePersistedConnection(persisted);
 
-        if (!connection) {
-            if (isPersistedSelectionClearlyStale(persisted)) {
-                clearPersistedSelection();
-            }
+        if (outcome?.connection) {
+            clearDisconnectConfirmation();
+            await activateConnection(outcome.connection, { message: null, persist: true });
+            return;
+        }
+
+        if (isPersistedSelectionClearlyStale(persisted)) {
+            clearPersistedSelection();
+            clearDisconnectConfirmation();
             resetWalletConnection({ isOpen: getWalletState().isOpen });
             return;
         }
 
-        await activateConnection(connection, { message: null, persist: true });
+        if (outcome?.reason === 'waiting-for-provider') {
+            markWalletRestoring();
+            return;
+        }
+
+        if (isResumableRestoreReason(outcome?.reason)) {
+            noteDisconnectConfirmation(buildConnectionFingerprint(getWalletState().active, persisted), `restore:${outcome.reason || 'unknown'}`);
+            markWalletResumable();
+            return;
+        }
+
+        clearDisconnectConfirmation();
+        resetWalletConnection({ isOpen: getWalletState().isOpen });
     } catch (error) {
         console.warn('walletRestore:', error);
         if (isPersistedSelectionClearlyStale(persisted)) {
             clearPersistedSelection();
+            clearDisconnectConfirmation();
+            resetWalletConnection({ isOpen: getWalletState().isOpen });
+            return;
         }
-        resetWalletConnection({ isOpen: getWalletState().isOpen });
+        markWalletResumable();
     }
 }
 
@@ -891,6 +1028,7 @@ async function performSiweIntent(intent) {
 async function connectInjected(id) {
     if (!id) return;
 
+    clearDisconnectConfirmation();
     clearTransientDisconnectTimer();
     clearLifecycleReconcileTimer();
     patchWalletState({
@@ -917,6 +1055,7 @@ async function connectExternalWallet() {
     }
 
     const shouldReopen = getWalletState().isOpen;
+    clearDisconnectConfirmation();
     clearTransientDisconnectTimer();
     clearLifecycleReconcileTimer();
     patchWalletState({
@@ -946,6 +1085,7 @@ async function disconnectActiveWallet() {
     const currentType = currentState.active.type;
     const isOpen = currentState.isOpen;
 
+    clearDisconnectConfirmation();
     clearLifecycleReconcileTimer();
     cleanupProviderListeners();
     clearPersistedSelection();
@@ -1119,6 +1259,20 @@ export function initWalletController() {
 
     startInjectedDiscovery((wallets) => {
         patchWalletState({ injectedWallets: wallets });
+
+        const persisted = readPersistedSelection();
+        const matchingInjectedWallet = persisted?.type === 'injected'
+            && persisted.id
+            && wallets.some(wallet => wallet.id === persisted.id);
+        const currentState = getWalletState();
+        const alreadyRestored = currentState.status === 'connected'
+            && currentState.active.type === 'injected'
+            && currentState.active.id === persisted?.id
+            && !!currentState.active.address;
+
+        if (matchingInjectedWallet && !alreadyRestored) {
+            scheduleLifecycleReconcile('injected-discovery');
+        }
     });
 
     document.addEventListener('bitbi:auth-change', (event) => {

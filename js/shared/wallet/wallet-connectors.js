@@ -20,6 +20,9 @@ let walletConnectLibraryPromise = null;
 let walletConnectProvider = null;
 let walletConnectProviderUsesModal = false;
 
+const WALLETCONNECT_PASSIVE_RESTORE_COOLDOWN_MS = 8000;
+const WALLETCONNECT_PASSIVE_RESTORE_KEY = 'bitbi_walletconnect_passive_restore_at';
+
 function isLikelyMobileWalletEnvironment() {
     if (typeof window === 'undefined') return false;
 
@@ -33,6 +36,44 @@ function isLikelyMobileWalletEnvironment() {
         : false;
 
     return isMobileUserAgent || isNarrowViewport || isCoarsePointer;
+}
+
+function readSessionValue(key) {
+    try {
+        return sessionStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+function writeSessionValue(key, value) {
+    try {
+        if (value == null || value === '') {
+            sessionStorage.removeItem(key);
+        } else {
+            sessionStorage.setItem(key, value);
+        }
+    } catch {
+        /* session storage unavailable */
+    }
+}
+
+function noteWalletConnectPassiveRestoreAttempt() {
+    writeSessionValue(WALLETCONNECT_PASSIVE_RESTORE_KEY, String(Date.now()));
+}
+
+function clearWalletConnectPassiveRestoreAttempt() {
+    writeSessionValue(WALLETCONNECT_PASSIVE_RESTORE_KEY, null);
+}
+
+function shouldAttemptWalletConnectPassiveRestore() {
+    if (!isLikelyMobileWalletEnvironment()) return true;
+
+    const rawValue = readSessionValue(WALLETCONNECT_PASSIVE_RESTORE_KEY);
+    const lastAttempt = Number(rawValue);
+    if (!Number.isFinite(lastAttempt) || lastAttempt <= 0) return true;
+
+    return (Date.now() - lastAttempt) > WALLETCONNECT_PASSIVE_RESTORE_COOLDOWN_MS;
 }
 
 function notifyInjectedDiscovery() {
@@ -141,6 +182,10 @@ export function listInjectedWallets() {
             isFallback: wallet.isFallback,
         }))
         .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function hasInjectedWalletProvider(id) {
+    return !!(id && injectedProviders.has(id));
 }
 
 export function startInjectedDiscovery(listener) {
@@ -317,6 +362,7 @@ export async function connectWalletConnect() {
 
     const chainId = await getChainId(provider);
     const metadata = readWalletConnectMetadata(provider);
+    clearWalletConnectPassiveRestoreAttempt();
 
     return buildConnectionPayload({
         provider,
@@ -330,41 +376,49 @@ export async function connectWalletConnect() {
 }
 
 export async function restoreWalletConnect() {
-    if (!isWalletConnectConfigured()) return null;
-
-    // A fresh WalletConnect init on mobile can trigger unsolicited "open in wallet"
-    // prompts during passive restore. Only reuse an in-memory provider there; a new
-    // mobile handoff must come from an explicit connect action.
-    if (!walletConnectProvider && isLikelyMobileWalletEnvironment()) {
-        return null;
+    if (!isWalletConnectConfigured()) {
+        return { connection: null, reason: 'unconfigured' };
     }
 
-    const provider = await initWalletConnectProvider(false);
+    let provider = walletConnectProvider;
+    if (!provider) {
+        if (!shouldAttemptWalletConnectPassiveRestore()) {
+            return { connection: null, reason: 'passive-deferred' };
+        }
+        noteWalletConnectPassiveRestoreAttempt();
+        provider = await initWalletConnectProvider(false);
+    }
+
     const accounts = provider?.accounts?.length
         ? provider.accounts
         : await getAccounts(provider, 'eth_accounts');
     const address = accounts[0];
     if (!address) {
         clearWalletConnectProvider(provider);
-        return null;
+        return { connection: null, reason: 'no-session' };
     }
 
     const chainId = await getChainId(provider);
     const metadata = readWalletConnectMetadata(provider);
+    clearWalletConnectPassiveRestoreAttempt();
 
-    return buildConnectionPayload({
-        provider,
-        type: 'walletconnect',
-        id: 'walletconnect',
-        providerName: metadata.name,
-        providerIcon: metadata.icon,
-        address,
-        chainId,
-    });
+    return {
+        connection: buildConnectionPayload({
+            provider,
+            type: 'walletconnect',
+            id: 'walletconnect',
+            providerName: metadata.name,
+            providerIcon: metadata.icon,
+            address,
+            chainId,
+        }),
+        reason: 'restored',
+    };
 }
 
 export async function disconnectWalletConnect(provider = walletConnectProvider) {
     if (!provider?.disconnect) {
+        clearWalletConnectPassiveRestoreAttempt();
         clearWalletConnectProvider(provider);
         return;
     }
@@ -372,6 +426,7 @@ export async function disconnectWalletConnect(provider = walletConnectProvider) 
     try {
         await provider.disconnect();
     } finally {
+        clearWalletConnectPassiveRestoreAttempt();
         clearWalletConnectProvider(provider);
     }
 }

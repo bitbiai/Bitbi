@@ -75,8 +75,8 @@ function injectMockInjectedWallet(page) {
   });
 }
 
-function injectPersistentMockInjectedWallet(page) {
-  return page.addInitScript(() => {
+function injectPersistentMockInjectedWallet(page, options = {}) {
+  return page.addInitScript(({ announceDelayMs = 0, persistedSelection = false }) => {
     const listeners = new Map();
     const storageKey = 'bitbi_mock_wallet_connected';
     const statsKey = 'bitbi_mock_wallet_stats';
@@ -219,9 +219,29 @@ function injectPersistentMockInjectedWallet(page) {
       }),
     };
 
-    window.addEventListener('eip6963:requestProvider', announce);
-    announce();
-  });
+    if (persistedSelection) {
+      localStorage.setItem(storageKey, '1');
+      localStorage.setItem('bitbi_wallet_connector_type', 'injected');
+      localStorage.setItem('bitbi_wallet_connector_id', 'persistent-mock-wallet');
+      localStorage.setItem('bitbi_wallet_address', state.account);
+      localStorage.setItem('bitbi_wallet_chain_id', '1');
+      localStorage.setItem('bitbi_wallet_updated_at', new Date().toISOString());
+    }
+
+    window.addEventListener('eip6963:requestProvider', () => {
+      if (announceDelayMs > 0) {
+        window.setTimeout(announce, announceDelayMs);
+        return;
+      }
+      announce();
+    });
+
+    if (announceDelayMs > 0) {
+      window.setTimeout(announce, announceDelayMs);
+    } else {
+      announce();
+    }
+  }, options);
 }
 
 function injectMockWalletConnect(page, { persisted = false } = {}) {
@@ -419,6 +439,23 @@ test.describe('Wallet navigation', () => {
     expect(stats.accounts).toBeGreaterThanOrEqual(1);
   });
 
+  test('restores a persisted injected wallet after a late EIP-6963 provider announcement', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page, {
+      announceDelayMs: 900,
+      persistedSelection: true,
+    });
+    await page.goto('/');
+    await page.waitForTimeout(1500);
+
+    await page.locator('[data-wallet-open="desktop"]').click();
+    await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
+    await expect(page.locator('#walletModal')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+
+    const stats = await page.evaluate(() => window.__bitbiMockWalletStats.read());
+    expect(stats.requestAccounts).toBe(0);
+    expect(stats.accounts).toBeGreaterThanOrEqual(1);
+  });
+
   test('wallet page navigation preserves the injected wallet connection without a new connect request', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
     await page.goto('/');
@@ -545,15 +582,17 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('h1')).toContainText('Wallet');
   });
 
-  test('mobile wallet page load and reload do not passively initialize WalletConnect', async ({ page }) => {
+  test('mobile wallet page load and reload restore a persisted WalletConnect session without enabling or showing QR', async ({ page }) => {
     await injectMockWalletConnect(page, { persisted: true });
     await page.goto('/account/wallet.html');
     await page.waitForTimeout(700);
 
     let stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
-    expect(stats.init).toBe(0);
+    expect(stats.init).toBe(1);
     expect(stats.enable).toBe(0);
-    await expect(page.locator('#walletPageEmpty')).toBeVisible();
+    expect(stats.lastShowQrModal).toBe(false);
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Mock WalletConnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
 
@@ -561,8 +600,11 @@ test.describe('Wallet navigation mobile', () => {
     await page.waitForTimeout(700);
 
     stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
-    expect(stats.init).toBe(0);
+    expect(stats.init).toBe(2);
     expect(stats.enable).toBe(0);
+    expect(stats.lastShowQrModal).toBe(false);
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Mock WalletConnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
   });
@@ -773,6 +815,29 @@ test.describe('Wallet page', () => {
     await expect(page.locator('#walletPageBanner')).toContainText('The connected wallet could not be refreshed right now.');
     await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
     await expect(page.locator('#walletPageAddressFull')).toHaveText('0x1234567890abcdef1234567890abcdef12345678');
+  });
+
+  test('focus/pageshow-style lifecycle resume preserves a still-valid wallet session after a disconnect signal', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/account/wallet.html');
+
+    await page.locator('#walletPageConnectBtn').click();
+    await page.locator('[data-wallet-provider-id="persistent-mock-wallet"]').click();
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
+    await page.evaluate(() => {
+      window.__bitbiMockWalletControl.emitDisconnect();
+    });
+    await page.waitForTimeout(800);
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('Persistent Mock Wallet');
+    expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('injected');
+    expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x1234567890abcdef1234567890abcdef12345678');
   });
 });
 

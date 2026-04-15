@@ -332,6 +332,15 @@ function renderEmptyState(state) {
         return;
     }
 
+    if (state.status === 'resumable') {
+        $emptyText.textContent = 'BITBI preserved the previous wallet selection. Open the wallet panel to resume it manually, or wait for the provider session to become available again.';
+        $emptyConnectBtn.disabled = false;
+        $emptyConnectBtn.textContent = 'Reconnect Wallet';
+        $emptyOpenPanelBtn.disabled = false;
+        $emptyOpenPanelBtn.textContent = 'Open Wallet Panel';
+        return;
+    }
+
     $emptyText.textContent = connectedLinkedWallet;
     $emptyConnectBtn.disabled = false;
     $emptyConnectBtn.textContent = state.authLoggedIn && state.linkedWallet ? 'Reconnect Wallet' : 'Connect Wallet';
