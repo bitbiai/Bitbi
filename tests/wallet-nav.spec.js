@@ -582,7 +582,7 @@ test.describe('Wallet navigation mobile', () => {
     await expect(page.locator('h1')).toContainText('Wallet');
   });
 
-  test('mobile WalletConnect reload and lifecycle resume stay deferred without passive init', async ({ page }) => {
+  test('mobile WalletConnect reload and lifecycle resume keep the wallet visible without passive init', async ({ page }) => {
     await injectMockWalletConnect(page, { persisted: true });
     await page.goto('/account/wallet.html');
     await page.waitForTimeout(700);
@@ -591,9 +591,11 @@ test.describe('Wallet navigation mobile', () => {
     expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
     expect(stats.lastShowQrModal).toBe(null);
-    await expect(page.locator('#walletPageEmpty')).toBeVisible();
-    await expect(page.locator('#walletPageDashboard')).toBeHidden();
-    await expect(page.locator('#walletPageEmptyText')).toContainText('preserved the previous wallet selection');
+    await expect(page.locator('#walletPageEmpty')).toBeHidden();
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('WalletConnect');
+    await expect(page.locator('#walletPageAddressFull')).toHaveText('0x9999999999999999999999999999999999999999');
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
 
@@ -608,6 +610,8 @@ test.describe('Wallet navigation mobile', () => {
     expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
     expect(stats.lastShowQrModal).toBe(null);
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
 
     await page.reload();
     await page.waitForTimeout(700);
@@ -616,9 +620,11 @@ test.describe('Wallet navigation mobile', () => {
     expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
     expect(stats.lastShowQrModal).toBe(null);
-    await expect(page.locator('#walletPageEmpty')).toBeVisible();
-    await expect(page.locator('#walletPageDashboard')).toBeHidden();
-    await expect(page.locator('#walletPageEmptyText')).toContainText('preserved the previous wallet selection');
+    await expect(page.locator('#walletPageEmpty')).toBeHidden();
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('WalletConnect');
+    await expect(page.locator('#walletPageAddressFull')).toHaveText('0x9999999999999999999999999999999999999999');
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_connector_type'))).toBe('walletconnect');
     expect(await page.evaluate(() => localStorage.getItem('bitbi_wallet_address'))).toBe('0x9999999999999999999999999999999999999999');
 
@@ -633,6 +639,40 @@ test.describe('Wallet navigation mobile', () => {
     expect(stats.init).toBe(0);
     expect(stats.enable).toBe(0);
     expect(stats.lastShowQrModal).toBe(null);
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
+  });
+
+  test('mobile WalletConnect header navigation keeps the wallet visibly available on the wallet page without passive re-init', async ({ page }) => {
+    await injectMockWalletConnect(page);
+    await page.goto('/');
+
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('.mobile-nav__section--wallet [data-wallet-open="mobile"]').click();
+
+    const modal = page.locator('#walletModal');
+    await modal.locator('[data-wallet-connect="true"]').first().click();
+    await expect(modal).toContainText('Mock WalletConnect');
+    await page.locator('[data-wallet-close="panel"]').click();
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"] .wallet-nav__mobile-meta')).toHaveText('0x9999...9999');
+
+    await page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]').click();
+    await expect(page).toHaveURL(/\/account\/wallet(?:\.html)?$/);
+    await page.waitForTimeout(700);
+
+    const stats = await page.evaluate(() => window.__bitbiMockWalletConnectStats.read());
+    expect(stats.init).toBe(1);
+    expect(stats.enable).toBe(1);
+    expect(stats.lastShowQrModal).toBe(true);
+
+    await expect(page.locator('#walletPageEmpty')).toBeHidden();
+    await expect(page.locator('#walletPageDashboard')).toBeVisible();
+    await expect(page.locator('#walletPageProviderLabel')).toHaveText('WalletConnect');
+    await expect(page.locator('#walletPageAddressFull')).toHaveText('0x9999999999999999999999999999999999999999');
+    await expect(page.locator('#walletPageConnectionPill')).toHaveText('Resume needed');
+    await expect(page.locator('[data-wallet-page="mobile"] .wallet-nav__mobile-meta')).toContainText('0x9999...9999');
   });
 
   test('mobile WalletConnect handoff only starts from an explicit wallet action', async ({ page }) => {

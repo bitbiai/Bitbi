@@ -351,23 +351,37 @@ function renderEmptyState(state) {
 function renderSummary(state) {
     const active = state.active;
     const connected = state.status === 'connected' && !!active.address;
+    const resumable = state.status === 'resumable' && !!active.address;
+    const restoring = state.status === 'restoring' && !!active.address;
     const chainExplorer = getChainExplorer(active.chainId);
     const explorerUrl = getAddressExplorerUrl(active.chainId, active.address);
     const explorerLabel = chainExplorer?.label || 'Explorer';
     const wrongNetwork = connected && !active.isMainnet;
 
-    $connectionPill.textContent = wrongNetwork ? 'Wrong network' : 'Connected';
-    $connectionPill.className = `wallet-page__pill ${wrongNetwork ? 'wallet-page__pill--warning' : 'wallet-page__pill--success'}`;
+    if (resumable) {
+        $connectionPill.textContent = 'Resume needed';
+        $connectionPill.className = 'wallet-page__pill wallet-page__pill--warning';
+    } else if (restoring) {
+        $connectionPill.textContent = 'Restoring';
+        $connectionPill.className = 'wallet-page__pill wallet-page__pill--ghost';
+    } else {
+        $connectionPill.textContent = wrongNetwork ? 'Wrong network' : 'Connected';
+        $connectionPill.className = `wallet-page__pill ${wrongNetwork ? 'wallet-page__pill--warning' : 'wallet-page__pill--success'}`;
+    }
     $networkPill.textContent = active.chainLabel || 'Unknown network';
     $networkPill.className = `wallet-page__pill ${wrongNetwork ? 'wallet-page__pill--warning' : 'wallet-page__pill--ghost'}`;
 
     $providerBadge.textContent = (active.providerName || 'Wallet').slice(0, 1).toUpperCase();
     $providerLabel.textContent = active.providerName || 'Connected wallet';
     $providerMeta.textContent = active.type === 'walletconnect'
-        ? 'Connected through WalletConnect'
-        : (active.type === 'injected' ? 'Connected through an installed browser wallet' : 'Connected wallet session');
+        ? (connected ? 'Connected through WalletConnect' : 'Last active wallet session came through WalletConnect')
+        : (active.type === 'injected'
+            ? (connected ? 'Connected through an installed browser wallet' : 'Last active browser-wallet session in this browser')
+            : 'Connected wallet session');
 
-    $balanceValue.textContent = active.balanceStatus === 'loading'
+    $balanceValue.textContent = !connected && active.address
+        ? 'Resume to refresh'
+        : active.balanceStatus === 'loading'
         ? 'Loading…'
         : active.balanceStatus === 'loaded'
             ? (active.balanceFormatted || '0 ETH')
@@ -383,8 +397,8 @@ function renderSummary(state) {
     $networkName.textContent = active.chainLabel || '—';
     $chainId.textContent = active.chainId != null ? String(active.chainId) : '—';
 
-    $refreshBtn.disabled = pageUiState.refreshing;
-    $refreshBtn.textContent = pageUiState.refreshing ? 'Refreshing…' : 'Refresh';
+    $refreshBtn.disabled = pageUiState.refreshing || !connected;
+    $refreshBtn.textContent = pageUiState.refreshing ? 'Refreshing…' : (connected ? 'Refresh' : 'Resume to Refresh');
 
     if (explorerUrl) {
         $explorerLink.hidden = false;
@@ -400,6 +414,7 @@ function renderSummary(state) {
 
 function renderReceive(state) {
     const active = state.active;
+    const connected = state.status === 'connected' && !!active.address;
     const explorer = getAddressExplorerUrl(active.chainId, active.address);
     const receiveUri = buildReceiveUri(state);
     const explorerLabel = getChainExplorer(active.chainId)?.label || 'Explorer';
@@ -446,6 +461,10 @@ function renderReceive(state) {
         if (currentToken !== qrToken) return;
         $qrFrame.dataset.walletReceiveQr = 'ready';
         $qrFrame.innerHTML = svgMarkup;
+        if (!connected) {
+            $qrHint.textContent = 'This QR uses the last wallet address seen in this browser. Resume the wallet session to refresh live data.';
+            return;
+        }
         $qrHint.textContent = active.isMainnet
             ? 'Scan to copy the connected Ethereum Mainnet address into another wallet.'
             : `Connected on ${active.chainLabel || 'another chain'}. BITBI wallet actions still target Ethereum Mainnet.`;
@@ -551,6 +570,7 @@ function renderIdentity(state) {
 
 function renderSendState(state) {
     const connected = state.status === 'connected' && !!state.active.address;
+    const resumable = state.status === 'resumable' && !!state.active.address;
     const sendEnabled = connected && state.active.isMainnet;
 
     $sendRecipient.disabled = !sendEnabled || pageUiState.send.submitting;
@@ -559,7 +579,9 @@ function renderSendState(state) {
     $sendMaxBtn.disabled = !sendEnabled || pageUiState.send.submitting || pageUiState.maxLoading || state.active.balanceStatus !== 'loaded';
 
     if (!connected) {
-        $sendHint.textContent = 'Connect an Ethereum Mainnet wallet to prepare a native ETH transfer.';
+        $sendHint.textContent = resumable
+            ? 'Resume the wallet session in the panel before preparing a native ETH transfer from this address.'
+            : 'Connect an Ethereum Mainnet wallet to prepare a native ETH transfer.';
     } else if (!state.active.isMainnet) {
         $sendHint.textContent = 'Switch the connected wallet to Ethereum Mainnet before sending from BITBI.';
     } else if (state.active.balanceStatus === 'loaded') {
@@ -588,16 +610,18 @@ function render(state) {
     renderBanner(state);
 
     const connected = state.status === 'connected' && !!state.active.address;
+    const resumablePreview = (state.status === 'resumable' || state.status === 'restoring') && !!state.active.address;
+    const visibleWallet = connected || resumablePreview;
     const activeTab = getActiveWalletTab();
     if (previousAddress && previousAddress !== (state.active.address || '')) {
         setSendMessage('', '', '');
     }
     previousAddress = state.active.address || '';
 
-    $empty.hidden = connected || activeTab !== 'overview';
-    $dashboard.hidden = !connected && activeTab === 'overview';
+    $empty.hidden = visibleWallet || activeTab !== 'overview';
+    $dashboard.hidden = !visibleWallet && activeTab === 'overview';
 
-    if (!connected) {
+    if (!visibleWallet) {
         qrToken += 1;
         pageUiState.qr.requestKey = '';
         pageUiState.qr.error = '';

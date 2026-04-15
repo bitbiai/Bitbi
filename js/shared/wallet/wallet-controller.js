@@ -222,6 +222,67 @@ function formatEthBalance(hexValue) {
     return fractionText ? `${wholeText}.${fractionText} ETH` : `${wholeText} ETH`;
 }
 
+function getPersistedProviderName(persisted = {}) {
+    if (persisted?.type === 'walletconnect') {
+        return 'WalletConnect';
+    }
+    if (persisted?.type === 'injected') {
+        return 'Browser Wallet';
+    }
+    return 'Wallet';
+}
+
+function buildPersistedConnectionPreview(persisted = readPersistedSelection()) {
+    if (!persisted?.type || !persisted?.address) return null;
+
+    const chainId = normalizeChainId(persisted.chainId);
+    return baseConnectionSnapshot({
+        type: persisted.type,
+        id: persisted.id || null,
+        providerName: getPersistedProviderName(persisted),
+        providerIcon: '',
+        address: persisted.address,
+        shortAddress: shortenAddress(persisted.address),
+        chainId,
+        chainHex: chainId != null ? toChainHex(chainId) : null,
+        chainLabel: getChainLabel(chainId),
+        refreshedAt: persisted.updatedAt || new Date().toISOString(),
+    });
+}
+
+function hydratePersistedConnectionPreview(persisted = readPersistedSelection()) {
+    const preview = buildPersistedConnectionPreview(persisted);
+    if (!preview) return;
+
+    const currentState = getWalletState();
+    if (currentState.status === 'connected' && currentState.active.address) return;
+    if (addressesEqual(currentState.active.address, preview.address)
+        && currentState.active.type === preview.type
+        && currentState.active.chainId === preview.chainId
+        && currentState.active.providerName === preview.providerName) {
+        return;
+    }
+
+    patchWalletState({
+        active: {
+            type: preview.type,
+            id: preview.id,
+            providerName: preview.providerName,
+            providerIcon: preview.providerIcon,
+            address: preview.address,
+            shortAddress: preview.shortAddress,
+            chainId: preview.chainId,
+            chainHex: preview.chainHex,
+            chainLabel: preview.chainLabel,
+            isMainnet: preview.isMainnet,
+            balanceFormatted: '',
+            balanceStatus: 'idle',
+            balanceError: '',
+            refreshedAt: preview.refreshedAt,
+        },
+    });
+}
+
 function normalizeLinkedWallet(raw) {
     if (!raw || typeof raw !== 'object' || !raw.address) return null;
     return {
@@ -603,6 +664,9 @@ async function reconcileConnectionState(options = {}) {
 
     reconcilePromise = (async () => {
         const persisted = allowPersistedRestore ? readPersistedSelection() : null;
+        if (persisted) {
+            hydratePersistedConnectionPreview(persisted);
+        }
         const connectionFingerprint = buildConnectionFingerprint(base, persisted);
         let providerReadFailed = false;
         let providerReportedNoAccount = false;
@@ -820,7 +884,10 @@ async function restorePreviousConnection() {
     const persisted = readPersistedSelection();
     if (!persisted) return;
 
-    markWalletRestoring();
+    hydratePersistedConnectionPreview(persisted);
+    if (persisted.type !== 'walletconnect') {
+        markWalletRestoring();
+    }
 
     try {
         const outcome = await restorePersistedConnection(persisted);

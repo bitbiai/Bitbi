@@ -297,9 +297,13 @@ function syncTrigger(trigger, state, isMobile = false) {
         if (state.status === 'connecting') {
             metaText = 'Connection pending';
         } else if (state.status === 'restoring') {
-            metaText = 'Restoring wallet';
+            metaText = state.active.shortAddress || state.active.address
+                ? `Restoring ${state.active.shortAddress || state.active.address}`
+                : 'Restoring wallet';
         } else if (state.status === 'resumable') {
-            metaText = 'Resume wallet';
+            metaText = state.active.shortAddress || state.active.address
+                ? `${state.active.shortAddress || state.active.address} · Resume`
+                : 'Resume wallet';
         } else if (state.identityAction === 'signing') {
             metaText = 'Check wallet';
         } else if (state.identityAction === 'verifying') {
