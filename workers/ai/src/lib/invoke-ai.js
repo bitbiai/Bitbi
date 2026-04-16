@@ -703,9 +703,23 @@ export async function invokeMusic(env, model, input) {
     payload.lyrics = input.lyrics;
   }
 
+  const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
+
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-music",
+    event: "workers_ai_music_invoke",
+    level: "info",
+    correlationId: input.correlationId || null,
+    model: model.id,
+    has_gateway_option: !!runOptions,
+    gateway_id: runOptions?.gateway?.id || null,
+    provider_payload: summarizeMusicPayload(payload),
+  });
+
   let raw;
   try {
-    raw = await env.AI.run(model.id, payload);
+    raw = await env.AI.run(model.id, payload, runOptions);
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -714,6 +728,8 @@ export async function invokeMusic(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
+      has_gateway_option: !!runOptions,
+      gateway_id: runOptions?.gateway?.id || null,
       provider_payload: summarizeMusicPayload(payload),
       ...getUpstreamErrorDetails(error),
       ...getErrorFields(error),

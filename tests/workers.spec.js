@@ -2007,10 +2007,12 @@ test.describe('Worker routes', () => {
     test('POST /api/admin/ai/test-music returns the music response contract used by the UI', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
+      let capturedOptions = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
-        aiRun: async (modelId, payload) => {
+        aiRun: async (modelId, payload, options) => {
           capturedModelId = modelId;
           capturedPayload = payload;
+          capturedOptions = options;
           return {
             data: {
               audio: '494433040000000000',
@@ -2090,6 +2092,36 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.prompt).toContain('Tempo target: 118 BPM.');
       expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
       expect(capturedPayload.prompt).toContain('Lead vocals should remain present.');
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-music passes AI Gateway options for the proxied minimax model', async () => {
+      let capturedOptions = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, _payload, options) => {
+          capturedOptions = options;
+          return {
+            data: {
+              audio: '494433040000000000',
+              status: 2,
+            },
+            trace_id: 'gateway-test-trace',
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Gateway routing test.',
+          mode: 'instrumental',
+          lyricsMode: 'auto',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
     });
 
     test('POST /api/admin/ai/test-music forwards only supported provider fields for instrumental auto mode', async () => {

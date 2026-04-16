@@ -244,6 +244,7 @@ const MUSIC_MODELS = {
     label: "Music 2.6",
     vendor: "MiniMax",
     inputFormat: "json",
+    proxied: true,
     supportsInstrumental: true,
     supportsLyricsOptimizer: true,
     description: "Prompt-driven music generation with vocal, instrumental, and auto-lyrics support.",
