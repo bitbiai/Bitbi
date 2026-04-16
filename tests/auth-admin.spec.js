@@ -2585,7 +2585,7 @@ test.describe('Admin AI Lab', () => {
       'It feels agile and technical.',
     );
 
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await page.getByRole('button', { name: 'Music AI' }).click();
     await expect(page.locator('#aiMusicTitle')).toHaveText('Music AI');
     await page.locator('#aiMusicPrompt').fill('Dark synthwave with a slow pulse and distant vocals.');
     await page.locator('#aiMusicLyrics').fill('[Verse]\nDrive through the static night\n\n[Chorus]\nKeep the signal in sight');
@@ -2660,10 +2660,9 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Live Agent' }).click();
-    await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+    await page.getByRole('button', { name: 'Music AI' }).click();
+    await expect(page.locator('#aiLabPanelMusic')).toBeVisible();
     await expect(page.locator('#aiMusicTitle')).toBeVisible();
-    await expect(page.locator('#aiLiveAgentInput')).toBeVisible();
 
     await page.locator('#aiMusicRun').click();
     await expect(page.locator('#aiMusicInlineError')).toContainText('Prompt is required');
@@ -3393,25 +3392,33 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    // Mode button exists after Compare
+    // Mode buttons: Live Agent after Compare, Music AI after Live Agent
     const modes = page.locator('[data-ai-mode]');
     const labels = await modes.allTextContents();
     const compareIdx = labels.indexOf('Compare');
     const liveAgentIdx = labels.indexOf('Live Agent');
+    const musicIdx = labels.indexOf('Music AI');
     expect(compareIdx).toBeGreaterThanOrEqual(0);
     expect(liveAgentIdx).toBe(compareIdx + 1);
+    expect(musicIdx).toBe(liveAgentIdx + 1);
 
-    // Switch to Live Agent
+    // Switch to Live Agent — only Live Agent card visible
     await page.getByRole('button', { name: 'Live Agent' }).click();
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+    await expect(page.locator('#aiLabPanelMusic')).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Live Agent' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Music AI' })).toBeVisible();
     await expect(page.locator('#aiLiveAgentSystem')).toBeVisible();
     await expect(page.locator('#aiLiveAgentInput')).toBeVisible();
     await expect(page.locator('#aiLiveAgentSend')).toBeVisible();
     await expect(page.locator('#aiLiveAgentSend')).toBeEnabled();
     await expect(page.locator('#aiLiveAgentCancel')).toBeDisabled();
     await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
+
+    // Switch to Music AI — only Music AI card visible
+    await page.getByRole('button', { name: 'Music AI' }).click();
+    await expect(page.locator('#aiLabPanelMusic')).toBeVisible();
+    await expect(page.locator('#aiLabPanelLiveAgent')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Music AI' })).toBeVisible();
     await expect(page.locator('#aiMusicPrompt')).toBeVisible();
     await expect(page.locator('#aiMusicRun')).toBeVisible();
   });

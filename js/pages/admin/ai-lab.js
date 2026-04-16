@@ -30,7 +30,7 @@ import {
 } from './ai-lab-save-intents.mjs?v=__ASSET_VERSION__';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
-const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent'];
+const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent', 'music'];
 const HISTORY_LIMIT = 6;
 const ADMIN_AI_UI_VERSION = '__ASSET_VERSION__';
 const DEFAULT_REQUEST_TIMEOUTS = {
@@ -678,6 +678,7 @@ export function createAdminAiLab({ showToast } = {}) {
             embeddings: document.getElementById('aiLabPanelEmbeddings'),
             compare: document.getElementById('aiLabPanelCompare'),
             'live-agent': document.getElementById('aiLabPanelLiveAgent'),
+            music: document.getElementById('aiLabPanelMusic'),
         },
         models: {
             presets: document.getElementById('aiModelsPresets'),
@@ -2046,6 +2047,7 @@ export function createAdminAiLab({ showToast } = {}) {
         let label;
         if (state.activeMode === 'models') label = 'Refresh View';
         else if (state.activeMode === 'live-agent') label = 'Reset Chat';
+        else if (state.activeMode === 'music') label = 'Reset Music Form';
         else label = 'Reset Current Form';
         refs.resetBtn.textContent = label;
     }
@@ -3523,6 +3525,12 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.liveAgent.system.value = 'You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.';
             liveAgentUpdateSystemCount();
             setStatus('Live Agent chat reset.', 'success');
+            return;
+        }
+
+        if (state.activeMode === 'music') {
+            resetMusicForm(true);
+            setStatus('Music form reset.', 'success');
             return;
         }
 

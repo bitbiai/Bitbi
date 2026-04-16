@@ -309,6 +309,7 @@
                         <button type="button" class="admin-ai__mode" data-ai-mode="embeddings" aria-selected="false">Embeddings</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="live-agent" aria-selected="false">Live Agent</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="music" aria-selected="false">Music AI</button>
                     </div>
                 </div>
 
@@ -815,148 +816,149 @@
 
                 <!-- Live Agent panel -->
                 <div id="aiLabPanelLiveAgent" class="admin-ai__panel glass glass-card reveal visible" hidden>
-                    <div class="admin-ai__studio-grid">
-                        <section class="admin-ai__surface admin-ai__surface--spaced admin-ai__studio-card admin-ai__studio-card--live">
-                            <div class="admin-ai__studio-head">
-                                <div>
-                                    <h3 class="admin-section-title">Live Agent</h3>
-                                    <p class="admin-shell__desc">Multi-turn chat testing surface. Model: <strong>Gemma 4 26B A4B</strong></p>
-                                </div>
-                                <div class="admin-ai__panel-actions">
-                                    <button type="button" id="aiLiveAgentSave" class="btn-action" disabled>Save Transcript</button>
-                                    <button type="button" id="aiLiveAgentClear" class="btn-action">Clear Chat</button>
-                                </div>
+                    <section class="admin-ai__surface admin-ai__surface--spaced">
+                        <div class="admin-ai__studio-head">
+                            <div>
+                                <h3 class="admin-section-title">Live Agent</h3>
+                                <p class="admin-shell__desc">Multi-turn chat testing surface. Model: <strong>Gemma 4 26B A4B</strong></p>
                             </div>
+                            <div class="admin-ai__panel-actions">
+                                <button type="button" id="aiLiveAgentSave" class="btn-action" disabled>Save Transcript</button>
+                                <button type="button" id="aiLiveAgentClear" class="btn-action">Clear Chat</button>
+                            </div>
+                        </div>
 
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">System Prompt</span>
+                                <span id="aiLiveAgentSystemCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiLiveAgentSystem" class="admin-ai__textarea admin-ai__textarea--autosize" rows="1" maxlength="1200">You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.</textarea>
+                        </label>
+
+                        <div id="aiLiveAgentTranscript" class="admin-ai__chat-transcript" aria-live="polite" aria-label="Chat transcript"></div>
+
+                        <div class="admin-ai__chat-input-row">
+                            <label class="sr-only" for="aiLiveAgentInput">Message</label>
+                            <textarea id="aiLiveAgentInput" class="admin-ai__textarea admin-ai__textarea--autosize admin-ai__chat-input" rows="1" maxlength="4000" placeholder="Type a message..."></textarea>
+                            <button type="button" id="aiLiveAgentSend" class="admin-ai__run">Send</button>
+                            <button type="button" id="aiLiveAgentCancel" class="btn-action" disabled>Cancel</button>
+                        </div>
+
+                        <div id="aiLiveAgentState" class="admin-ai__result-state admin-ai__result-state--neutral">Ready.</div>
+                    </section>
+                </div>
+
+                <!-- Music AI panel -->
+                <div id="aiLabPanelMusic" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <section class="admin-ai__surface admin-ai__surface--spaced admin-ai__studio-card--music" aria-labelledby="aiMusicTitle">
+                        <div class="admin-ai__studio-head">
+                            <div>
+                                <div class="admin-ai__label-row admin-ai__label-row--wrap">
+                                    <h3 id="aiMusicTitle" class="admin-section-title">Music AI</h3>
+                                    <code class="admin-ai__model-badge">minimax/music-2.6</code>
+                                </div>
+                                <p class="admin-shell__desc">Admin-only studio console for prompt-based music generation, lyric shaping, and audio result inspection.</p>
+                            </div>
+                            <div class="admin-ai__panel-actions">
+                                <button type="button" id="aiMusicReset" class="btn-action">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="admin-ai__music-signal" aria-hidden="true">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">Prompt</span>
+                                <span id="aiMusicPromptCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiMusicPrompt" class="admin-ai__textarea" rows="5" maxlength="2000" placeholder="Describe the track direction, energy, arrangement, and scene."></textarea>
+                        </label>
+
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
                             <label class="admin-ai__field">
-                                <span class="admin-ai__label-row">
-                                    <span class="admin-ai__label">System Prompt</span>
-                                    <span id="aiLiveAgentSystemCount" class="admin-ai__count"></span>
-                                </span>
-                                <textarea id="aiLiveAgentSystem" class="admin-ai__textarea admin-ai__textarea--autosize" rows="1" maxlength="1200">You are a helpful, concise assistant for an admin testing surface. Answer clearly and stay on topic.</textarea>
+                                <span class="admin-ai__label">Mode</span>
+                                <select id="aiMusicMode" class="admin-ai__input">
+                                    <option value="vocals">Song / Vocals</option>
+                                    <option value="instrumental">Instrumental</option>
+                                </select>
                             </label>
+                            <label class="admin-ai__field" id="aiMusicLyricsModeField">
+                                <span class="admin-ai__label">Lyrics Mode</span>
+                                <select id="aiMusicLyricsMode" class="admin-ai__input">
+                                    <option value="custom">Custom Lyrics</option>
+                                    <option value="auto">Auto Lyrics</option>
+                                </select>
+                            </label>
+                        </div>
 
-                            <div id="aiLiveAgentTranscript" class="admin-ai__chat-transcript" aria-live="polite" aria-label="Chat transcript"></div>
+                        <label id="aiMusicLyricsField" class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">Lyrics</span>
+                                <span id="aiMusicLyricsCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiMusicLyrics" class="admin-ai__textarea admin-ai__textarea--code" rows="7" maxlength="3500" placeholder="[Verse]\nNight traffic glowing under glass...\n\n[Chorus]\nCarry the pulse into the skyline..."></textarea>
+                            <span id="aiMusicLyricsHint" class="admin-ai__hint">Use section tags if you want a stronger structure.</span>
+                        </label>
 
-                            <div class="admin-ai__chat-input-row">
-                                <label class="sr-only" for="aiLiveAgentInput">Message</label>
-                                <textarea id="aiLiveAgentInput" class="admin-ai__textarea admin-ai__textarea--autosize admin-ai__chat-input" rows="1" maxlength="4000" placeholder="Type a message..."></textarea>
-                                <button type="button" id="aiLiveAgentSend" class="admin-ai__run">Send</button>
-                                <button type="button" id="aiLiveAgentCancel" class="btn-action" disabled>Cancel</button>
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">BPM</span>
+                                <input id="aiMusicBpm" class="admin-ai__input" type="number" min="40" max="240" step="1" placeholder="Optional">
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Key</span>
+                                <select id="aiMusicKey" class="admin-ai__input">
+                                    <option value="">No preference</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <p class="admin-ai__music-helper">Tempo and key are passed as structured guidance inside the generation prompt because the music model exposes prompt-first control plus lyric and instrumental flags.</p>
+                        <span id="aiMusicInlineError" class="admin-ai__inline-error" hidden></span>
+
+                        <div class="admin-ai__actions">
+                            <button type="button" id="aiMusicRun" class="admin-ai__run">Generate Music</button>
+                            <button type="button" id="aiMusicCancel" class="btn-action" disabled>Cancel</button>
+                        </div>
+
+                        <div id="aiMusicState" class="admin-ai__result-state">No music generation yet.</div>
+                        <div class="admin-ai__result-actions">
+                            <button type="button" id="aiMusicDownload" class="btn-action" hidden>Download Audio</button>
+                        </div>
+
+                        <div id="aiMusicPreview" class="admin-ai__music-preview">
+                            <div class="admin-ai__music-empty">
+                                <div class="admin-ai__music-empty-icon" aria-hidden="true"></div>
+                                <div class="admin-ai__music-empty-copy">
+                                    <strong>Studio standing by.</strong>
+                                    <span>Generate a vocal or instrumental track to inspect the audio, metadata, and lyric output here.</span>
+                                </div>
                             </div>
+                        </div>
 
-                            <div id="aiLiveAgentState" class="admin-ai__result-state admin-ai__result-state--neutral">Ready.</div>
+                        <div id="aiMusicMeta" class="admin-ai__meta"></div>
+                        <div id="aiMusicWarnings" class="admin-ai__warnings" hidden></div>
+                        <section id="aiMusicLyricsPanel" class="admin-ai__music-lyrics" hidden aria-live="polite">
+                            <div class="admin-ai__mini-title">Lyrics Preview</div>
+                            <pre id="aiMusicLyricsOutput" class="admin-ai__music-lyrics-copy"></pre>
                         </section>
 
-                        <section class="admin-ai__surface admin-ai__surface--spaced admin-ai__studio-card admin-ai__studio-card--music" aria-labelledby="aiMusicTitle">
-                            <div class="admin-ai__studio-head">
-                                <div>
-                                    <div class="admin-ai__label-row admin-ai__label-row--wrap">
-                                        <h3 id="aiMusicTitle" class="admin-section-title">Music AI</h3>
-                                        <code class="admin-ai__model-badge">minimax/music-2.6</code>
-                                    </div>
-                                    <p class="admin-shell__desc">Admin-only studio console for prompt-based music generation, lyric shaping, and audio result inspection.</p>
-                                </div>
-                                <div class="admin-ai__panel-actions">
-                                    <button type="button" id="aiMusicReset" class="btn-action">Clear</button>
-                                </div>
+                        <details id="aiMusicDebug" class="admin-ai__debug" hidden>
+                            <summary>Raw JSON</summary>
+                            <div class="admin-ai__debug-actions">
+                                <button type="button" id="aiMusicCopyRaw" class="btn-action">Copy Raw JSON</button>
                             </div>
-
-                            <div class="admin-ai__music-signal" aria-hidden="true">
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                            </div>
-
-                            <label class="admin-ai__field">
-                                <span class="admin-ai__label-row">
-                                    <span class="admin-ai__label">Prompt</span>
-                                    <span id="aiMusicPromptCount" class="admin-ai__count"></span>
-                                </span>
-                                <textarea id="aiMusicPrompt" class="admin-ai__textarea" rows="5" maxlength="2000" placeholder="Describe the track direction, energy, arrangement, and scene."></textarea>
-                            </label>
-
-                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                                <label class="admin-ai__field">
-                                    <span class="admin-ai__label">Mode</span>
-                                    <select id="aiMusicMode" class="admin-ai__input">
-                                        <option value="vocals">Song / Vocals</option>
-                                        <option value="instrumental">Instrumental</option>
-                                    </select>
-                                </label>
-                                <label class="admin-ai__field" id="aiMusicLyricsModeField">
-                                    <span class="admin-ai__label">Lyrics Mode</span>
-                                    <select id="aiMusicLyricsMode" class="admin-ai__input">
-                                        <option value="custom">Custom Lyrics</option>
-                                        <option value="auto">Auto Lyrics</option>
-                                    </select>
-                                </label>
-                            </div>
-
-                            <label id="aiMusicLyricsField" class="admin-ai__field">
-                                <span class="admin-ai__label-row">
-                                    <span class="admin-ai__label">Lyrics</span>
-                                    <span id="aiMusicLyricsCount" class="admin-ai__count"></span>
-                                </span>
-                                <textarea id="aiMusicLyrics" class="admin-ai__textarea admin-ai__textarea--code" rows="7" maxlength="3500" placeholder="[Verse]\nNight traffic glowing under glass...\n\n[Chorus]\nCarry the pulse into the skyline..."></textarea>
-                                <span id="aiMusicLyricsHint" class="admin-ai__hint">Use section tags if you want a stronger structure.</span>
-                            </label>
-
-                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                                <label class="admin-ai__field">
-                                    <span class="admin-ai__label">BPM</span>
-                                    <input id="aiMusicBpm" class="admin-ai__input" type="number" min="40" max="240" step="1" placeholder="Optional">
-                                </label>
-                                <label class="admin-ai__field">
-                                    <span class="admin-ai__label">Key</span>
-                                    <select id="aiMusicKey" class="admin-ai__input">
-                                        <option value="">No preference</option>
-                                    </select>
-                                </label>
-                            </div>
-
-                            <p class="admin-ai__music-helper">Tempo and key are passed as structured guidance inside the generation prompt because the music model exposes prompt-first control plus lyric and instrumental flags.</p>
-                            <span id="aiMusicInlineError" class="admin-ai__inline-error" hidden></span>
-
-                            <div class="admin-ai__actions">
-                                <button type="button" id="aiMusicRun" class="admin-ai__run">Generate Music</button>
-                                <button type="button" id="aiMusicCancel" class="btn-action" disabled>Cancel</button>
-                            </div>
-
-                            <div id="aiMusicState" class="admin-ai__result-state">No music generation yet.</div>
-                            <div class="admin-ai__result-actions">
-                                <button type="button" id="aiMusicDownload" class="btn-action" hidden>Download Audio</button>
-                            </div>
-
-                            <div id="aiMusicPreview" class="admin-ai__music-preview">
-                                <div class="admin-ai__music-empty">
-                                    <div class="admin-ai__music-empty-icon" aria-hidden="true"></div>
-                                    <div class="admin-ai__music-empty-copy">
-                                        <strong>Studio standing by.</strong>
-                                        <span>Generate a vocal or instrumental track to inspect the audio, metadata, and lyric output here.</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div id="aiMusicMeta" class="admin-ai__meta"></div>
-                            <div id="aiMusicWarnings" class="admin-ai__warnings" hidden></div>
-                            <section id="aiMusicLyricsPanel" class="admin-ai__music-lyrics" hidden aria-live="polite">
-                                <div class="admin-ai__mini-title">Lyrics Preview</div>
-                                <pre id="aiMusicLyricsOutput" class="admin-ai__music-lyrics-copy"></pre>
-                            </section>
-
-                            <details id="aiMusicDebug" class="admin-ai__debug" hidden>
-                                <summary>Raw JSON</summary>
-                                <div class="admin-ai__debug-actions">
-                                    <button type="button" id="aiMusicCopyRaw" class="btn-action">Copy Raw JSON</button>
-                                </div>
-                                <pre id="aiMusicRaw" class="admin-ai__raw"></pre>
-                            </details>
-                        </section>
-                    </div>
+                            <pre id="aiMusicRaw" class="admin-ai__raw"></pre>
+                        </details>
+                    </section>
                 </div>
 
                 <div id="aiLabSaveModal" class="admin-ai__save-modal" hidden aria-hidden="true">
