@@ -37,7 +37,7 @@ const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 180_000,
     embeddings: 15_000,
-    music: 180_000,
+    music: 320_000,
     compare: 30_000,
 };
 const TASK_UI = {
