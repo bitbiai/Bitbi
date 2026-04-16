@@ -14,7 +14,7 @@ const SOUNDLAB_TRACKS = [
         artwork: `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-cosmic.webp`,
         access: 'public',
         collection: 'soundlab',
-        crossOrigin: 'anonymous',
+        crossOrigin: '',
     },
     {
         id: 'soundlab:zufall-und-notwendigkeit',
@@ -24,7 +24,7 @@ const SOUNDLAB_TRACKS = [
         artwork: `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-zufall.webp`,
         access: 'public',
         collection: 'soundlab',
-        crossOrigin: 'anonymous',
+        crossOrigin: '',
     },
     {
         id: 'soundlab:relativity',
@@ -34,7 +34,7 @@ const SOUNDLAB_TRACKS = [
         artwork: `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-relativity.webp`,
         access: 'public',
         collection: 'soundlab',
-        crossOrigin: 'anonymous',
+        crossOrigin: '',
     },
     {
         id: 'soundlab:tiny-hearts',
@@ -44,7 +44,7 @@ const SOUNDLAB_TRACKS = [
         artwork: `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-tiny.webp`,
         access: 'public',
         collection: 'soundlab',
-        crossOrigin: 'anonymous',
+        crossOrigin: '',
     },
     {
         id: 'soundlab:grok',
@@ -54,7 +54,7 @@ const SOUNDLAB_TRACKS = [
         artwork: `${R2_PUBLIC_BASE}/sound-lab/thumbs/thumb-grok.webp`,
         access: 'public',
         collection: 'soundlab',
-        crossOrigin: 'anonymous',
+        crossOrigin: '',
     },
     {
         id: 'soundlab:exclusive-track-01',
@@ -157,4 +157,3 @@ export function buildSoundLabTrack(slug, overrides = {}) {
 export function isSoundLabTrackId(trackId) {
     return TRACKS_BY_ID.has(trackId);
 }
-

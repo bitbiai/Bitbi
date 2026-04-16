@@ -279,6 +279,11 @@
         line-height: 1;
     }
 
+    .site-audio__mobile-bar {
+        display: none;
+        pointer-events: none;
+    }
+
     .site-audio__btn {
         position: relative;
         z-index: 1;
@@ -416,6 +421,107 @@
         border-color: rgba(255, 179, 0, 0.18);
     }
 
+    .site-audio--mobile-home {
+        inset-block-start: auto;
+        inset-block-end: 0;
+        justify-content: stretch;
+        padding-block-end: 0;
+    }
+
+    .site-audio--mobile-home .site-audio__drawer {
+        display: none;
+    }
+
+    .site-audio--mobile-home .site-audio__mobile-bar {
+        display: grid;
+        gap: 0.55rem;
+        inline-size: 100%;
+        padding: 0.7rem 0.9rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+        border-block-start: 1px solid rgba(0, 240, 255, 0.12);
+        background:
+            linear-gradient(180deg, rgba(13, 27, 42, 0.98), rgba(6, 14, 24, 0.98)),
+            rgba(6, 14, 24, 0.98);
+        box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.22);
+        pointer-events: auto;
+    }
+
+    .site-audio__mobile-main {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        min-inline-size: 0;
+    }
+
+    .site-audio__mobile-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-shrink: 0;
+    }
+
+    .site-audio__mobile-bar .site-audio__btn {
+        inline-size: 2rem;
+        block-size: 2rem;
+    }
+
+    .site-audio__mobile-bar .site-audio__btn--play {
+        inline-size: 2.2rem;
+        block-size: 2.2rem;
+    }
+
+    .site-audio__mobile-meta {
+        min-inline-size: 0;
+        display: grid;
+        gap: 0.08rem;
+        flex: 1;
+    }
+
+    .site-audio__mobile-title {
+        font-family: var(--font-display);
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.92);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .site-audio__mobile-status {
+        font-family: var(--font-mono);
+        font-size: 0.62rem;
+        color: rgba(255, 255, 255, 0.5);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .site-audio__mobile-progress {
+        position: relative;
+        inline-size: 100%;
+        block-size: 0.24rem;
+        border: 0;
+        padding: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+        cursor: pointer;
+        appearance: none;
+    }
+
+    .site-audio__mobile-progress:disabled {
+        cursor: default;
+    }
+
+    .site-audio__mobile-progress-fill {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        inline-size: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(0, 240, 255, 0.88), rgba(255, 179, 0, 0.88));
+        transition: inline-size 0.18s linear;
+    }
+
     @media (max-width: 1023px) {
         .site-audio {
             --site-audio-panel-width: calc(100vw - 1rem);
@@ -485,6 +591,10 @@
             inset-inline: 0.85rem;
             inset-block-end: 0.45rem;
         }
+
+        .site-audio--mobile-home {
+            padding-block-end: 0;
+        }
     }
 
     /* ── Mobile Menu Button ── */
@@ -500,6 +610,37 @@
         z-index: 60;
         background: none;
         border: none;
+    }
+
+    .site-nav__audio-indicator[hidden] {
+        display: none !important;
+    }
+
+    @keyframes siteAudioMenuDrift {
+        0%, 100% { transform: translateX(-1px); }
+        50% { transform: translateX(1.5px); }
+    }
+
+    .site-nav__audio-indicator {
+        position: absolute;
+        inset-inline-start: -0.45rem;
+        inset-block-end: -0.2rem;
+        inline-size: 0.92rem;
+        block-size: 0.92rem;
+        color: rgba(0, 240, 255, 0.95);
+        filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.35));
+        pointer-events: none;
+        transform: translateX(0);
+    }
+
+    .site-nav__audio-indicator.is-active {
+        animation: siteAudioMenuDrift 1.8s ease-in-out infinite;
+    }
+
+    .site-nav__audio-indicator-icon {
+        inline-size: 100%;
+        block-size: 100%;
+        display: block;
     }
 
     @media (min-width: 1024px) {
@@ -1931,6 +2072,10 @@
         .float-anim,
         .pulse-glow,
         .hero__title-img { animation: none; }
+
+        .site-nav__audio-indicator.is-active {
+            animation: none;
+        }
 
         .mobile-nav__inner::before,
         .mobile-nav__inner::after {

@@ -85,6 +85,23 @@ function normalizeAssetUrl(value) {
     }
 }
 
+function normalizeCrossOrigin(sourceUrl, crossOrigin = '') {
+    const resolvedSourceUrl = normalizeAssetUrl(sourceUrl);
+    if (!resolvedSourceUrl) return '';
+
+    try {
+        const url = new URL(resolvedSourceUrl);
+        const isPublicSoundLabTrack = url.hostname === 'pub.bitbi.ai' && url.pathname.startsWith('/audio/sound-lab/');
+        if (isPublicSoundLabTrack) return '';
+    } catch {
+        return '';
+    }
+
+    return crossOrigin === 'use-credentials' || crossOrigin === 'anonymous'
+        ? crossOrigin
+        : '';
+}
+
 function buildPersistedSnapshot() {
     if (!state.sourceUrl) return null;
     return {
@@ -164,6 +181,8 @@ function parsePersistedSnapshot() {
             return null;
         }
 
+        const crossOrigin = normalizeCrossOrigin(sourceUrl, parsed.crossOrigin);
+
         return {
             schemaVersion: SCHEMA_VERSION,
             trackId: typeof parsed.trackId === 'string' ? parsed.trackId : '',
@@ -175,9 +194,7 @@ function parsePersistedSnapshot() {
             collection: typeof parsed.collection === 'string' ? parsed.collection : '',
             originPage: typeof parsed.originPage === 'string' ? parsed.originPage : '',
             originLabel: typeof parsed.originLabel === 'string' ? parsed.originLabel : '',
-            crossOrigin: parsed.crossOrigin === 'use-credentials' || parsed.crossOrigin === 'anonymous'
-                ? parsed.crossOrigin
-                : '',
+            crossOrigin,
             playIntent: !!parsed.playIntent,
             currentTime: Math.max(0, safeNumber(parsed.currentTime, 0)),
             duration: Math.max(0, safeNumber(parsed.duration, 0)),
@@ -341,6 +358,7 @@ function trackMatchesState(track = {}) {
 
 function applyTrackToState(track = {}, status = 'paused') {
     const sourceUrl = normalizeAssetUrl(track.sourceUrl || track.src);
+    const crossOrigin = normalizeCrossOrigin(sourceUrl, track.crossOrigin);
     patchState({
         trackId: typeof track.trackId === 'string' ? track.trackId : (typeof track.id === 'string' ? track.id : ''),
         trackSlug: typeof track.trackSlug === 'string' ? track.trackSlug : (typeof track.slug === 'string' ? track.slug : ''),
@@ -351,9 +369,7 @@ function applyTrackToState(track = {}, status = 'paused') {
         collection: typeof track.collection === 'string' ? track.collection : '',
         originPage: typeof track.originPage === 'string' ? track.originPage : window.location.pathname,
         originLabel: typeof track.originLabel === 'string' ? track.originLabel : '',
-        crossOrigin: track.crossOrigin === 'use-credentials' || track.crossOrigin === 'anonymous'
-            ? track.crossOrigin
-            : '',
+        crossOrigin,
         status,
         error: '',
     });
