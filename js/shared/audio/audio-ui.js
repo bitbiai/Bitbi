@@ -21,6 +21,7 @@ let initialized = false;
 let unsubscribe = null;
 let removeOutsidePointerListener = null;
 let removeViewportListener = null;
+let removeMobileNavToggleListener = null;
 
 function formatTime(value) {
     const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
@@ -29,17 +30,12 @@ function formatTime(value) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function isHomepagePath() {
-    const pathname = window.location.pathname || '/';
-    return pathname === '/' || pathname === '/index.html';
-}
-
 function isMobileViewport() {
     return window.matchMedia('(max-width: 1023px)').matches;
 }
 
-function useMobileHomepageMiniPlayer() {
-    return isHomepagePath() && isMobileViewport();
+function isMobileMenuOpen() {
+    return !!document.getElementById('mobileNav')?.classList.contains('open');
 }
 
 function buildStatusText(nextState, options = {}) {
@@ -103,6 +99,52 @@ function ensureMobileMenuPlaybackIndicator() {
     return indicator;
 }
 
+function buildMobilePlayerMarkup() {
+    return `
+        <div class="site-audio__mobile-main">
+            <div class="site-audio__mobile-controls">
+                <button type="button" id="globalAudioMobilePrev" class="site-audio__btn site-audio__btn--skip" aria-label="Previous track" disabled>
+                    <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+                </button>
+                <button type="button" id="globalAudioMobileToggle" class="site-audio__btn site-audio__btn--play" aria-label="Pause audio">
+                    <svg class="site-audio__icon site-audio__icon--play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+                    <svg class="site-audio__icon site-audio__icon--pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                </button>
+                <button type="button" id="globalAudioMobileNext" class="site-audio__btn site-audio__btn--skip" aria-label="Next track" disabled>
+                    <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z"></path></svg>
+                </button>
+            </div>
+            <div class="site-audio__mobile-meta">
+                <div id="globalAudioMobileTitle" class="site-audio__mobile-title">Audio player</div>
+                <div id="globalAudioMobileStatus" class="site-audio__mobile-status" aria-live="polite"></div>
+            </div>
+        </div>
+        <button type="button" id="globalAudioMobileProgress" class="site-audio__mobile-progress" aria-label="Seek within track">
+            <span id="globalAudioMobileProgressFill" class="site-audio__mobile-progress-fill"></span>
+        </button>
+    `;
+}
+
+function ensureMobileMenuPlayer() {
+    let mobileBar = document.getElementById('globalAudioMobileBar');
+    if (mobileBar) return mobileBar;
+
+    const footer = document.querySelector('.mobile-nav__footer');
+    if (!footer) return null;
+
+    mobileBar = document.createElement('section');
+    mobileBar.id = 'globalAudioMobileBar';
+    mobileBar.className = 'site-audio__mobile-bar glass';
+    mobileBar.hidden = true;
+    mobileBar.setAttribute('aria-label', 'Mobile audio player');
+    mobileBar.setAttribute('aria-hidden', 'true');
+    mobileBar.innerHTML = buildMobilePlayerMarkup();
+
+    const legal = footer.querySelector('.mobile-nav__legal');
+    footer.insertBefore(mobileBar, legal || null);
+    return mobileBar;
+}
+
 function ensureAudioShell() {
     let shell = document.getElementById('globalAudioShell');
     if (shell) return shell;
@@ -148,29 +190,6 @@ function ensureAudioShell() {
                 <span class="site-audio__handle-text">Sound</span>
             </button>
         </div>
-        <section id="globalAudioMobileBar" class="site-audio__mobile-bar glass" aria-label="Mobile audio player" aria-hidden="true">
-            <div class="site-audio__mobile-main">
-                <div class="site-audio__mobile-controls">
-                    <button type="button" id="globalAudioMobilePrev" class="site-audio__btn site-audio__btn--skip" aria-label="Previous track" disabled>
-                        <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
-                    </button>
-                    <button type="button" id="globalAudioMobileToggle" class="site-audio__btn site-audio__btn--play" aria-label="Pause audio">
-                        <svg class="site-audio__icon site-audio__icon--play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
-                        <svg class="site-audio__icon site-audio__icon--pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
-                    </button>
-                    <button type="button" id="globalAudioMobileNext" class="site-audio__btn site-audio__btn--skip" aria-label="Next track" disabled>
-                        <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z"></path></svg>
-                    </button>
-                </div>
-                <div class="site-audio__mobile-meta">
-                    <div id="globalAudioMobileTitle" class="site-audio__mobile-title">Audio player</div>
-                    <div id="globalAudioMobileStatus" class="site-audio__mobile-status" aria-live="polite"></div>
-                </div>
-            </div>
-            <button type="button" id="globalAudioMobileProgress" class="site-audio__mobile-progress" aria-label="Seek within track">
-                <span id="globalAudioMobileProgressFill" class="site-audio__mobile-progress-fill"></span>
-            </button>
-        </section>
     `;
 
     main.parentNode.insertBefore(shell, main);
@@ -194,6 +213,7 @@ function skipTrack(direction) {
 function renderAudioShell(nextState) {
     const shell = document.getElementById('globalAudioShell');
     if (!shell) return;
+    const mobileBar = ensureMobileMenuPlayer();
 
     const title = shell.querySelector('#globalAudioTitle');
     const status = shell.querySelector('#globalAudioStatus');
@@ -203,36 +223,37 @@ function renderAudioShell(nextState) {
     const progressFill = shell.querySelector('#globalAudioProgressFill');
     const handle = shell.querySelector('#globalAudioHandle');
     const panel = shell.querySelector('#globalAudioPanel');
-    const mobileBar = shell.querySelector('#globalAudioMobileBar');
-    const mobileTitle = shell.querySelector('#globalAudioMobileTitle');
-    const mobileStatus = shell.querySelector('#globalAudioMobileStatus');
-    const mobilePlayBtn = shell.querySelector('#globalAudioMobileToggle');
-    const mobileProgress = shell.querySelector('#globalAudioMobileProgress');
-    const mobileProgressFill = shell.querySelector('#globalAudioMobileProgressFill');
+    const mobileTitle = document.getElementById('globalAudioMobileTitle');
+    const mobileStatus = document.getElementById('globalAudioMobileStatus');
+    const mobilePlayBtn = document.getElementById('globalAudioMobileToggle');
+    const mobileProgress = document.getElementById('globalAudioMobileProgress');
+    const mobileProgressFill = document.getElementById('globalAudioMobileProgressFill');
 
     const prevBtn = shell.querySelector('#globalAudioPrev');
     const nextBtn = shell.querySelector('#globalAudioNext');
-    const mobilePrevBtn = shell.querySelector('#globalAudioMobilePrev');
-    const mobileNextBtn = shell.querySelector('#globalAudioMobileNext');
+    const mobilePrevBtn = document.getElementById('globalAudioMobilePrev');
+    const mobileNextBtn = document.getElementById('globalAudioMobileNext');
     const menuIndicator = ensureMobileMenuPlaybackIndicator();
 
     const hasTrack = !!nextState.sourceUrl;
     const isPlaying = nextState.status === 'playing';
     const isBlocked = nextState.status === 'blocked';
-    const isMobileHome = useMobileHomepageMiniPlayer();
-    const showMobileMiniPlayer = isMobileHome && hasTrack && isPlaying;
+    const isMobile = isMobileViewport();
+    const showMobileMenuPlayer = isMobile && isMobileMenuOpen() && hasTrack && isPlaying;
     const duration = Number(nextState.duration) || 0;
     const currentTime = Number(nextState.currentTime) || 0;
     const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
     const desktopStatusText = buildStatusText(nextState);
     const mobileStatusText = buildStatusText(nextState, { includeOrigin: false });
 
-    shell.hidden = !hasTrack || (isMobileHome && !showMobileMiniPlayer);
+    shell.hidden = !hasTrack || isMobile;
     shell.classList.toggle('site-audio--playing', isPlaying);
     shell.classList.toggle('site-audio--blocked', isBlocked);
     shell.classList.toggle('site-audio--muted', !!nextState.muted);
-    shell.classList.toggle('site-audio--mobile-home', isMobileHome);
-    mobileBar?.setAttribute('aria-hidden', showMobileMiniPlayer ? 'false' : 'true');
+    if (mobileBar) {
+        mobileBar.hidden = !showMobileMenuPlayer;
+        mobileBar.setAttribute('aria-hidden', showMobileMenuPlayer ? 'false' : 'true');
+    }
 
     if (menuIndicator) {
         menuIndicator.hidden = !(hasTrack && isPlaying);
@@ -266,7 +287,7 @@ function renderAudioShell(nextState) {
     if (handle) {
         handle.setAttribute('aria-label', shell.classList.contains('is-open') ? 'Hide audio player' : 'Show audio player');
     }
-    if (isMobileHome) {
+    if (isMobile) {
         setDrawerExpanded(shell, false);
         return;
     }
@@ -289,10 +310,10 @@ function bindAudioShellEvents() {
     const dismissBtn = shell.querySelector('#globalAudioDismiss');
     const progress = shell.querySelector('#globalAudioProgress');
     const handle = shell.querySelector('#globalAudioHandle');
-    const mobilePrevBtn = shell.querySelector('#globalAudioMobilePrev');
-    const mobilePlayBtn = shell.querySelector('#globalAudioMobileToggle');
-    const mobileNextBtn = shell.querySelector('#globalAudioMobileNext');
-    const mobileProgress = shell.querySelector('#globalAudioMobileProgress');
+    const mobilePrevBtn = document.getElementById('globalAudioMobilePrev');
+    const mobilePlayBtn = document.getElementById('globalAudioMobileToggle');
+    const mobileNextBtn = document.getElementById('globalAudioMobileNext');
+    const mobileProgress = document.getElementById('globalAudioMobileProgress');
 
     const canUseHoverDrawer = () => window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
@@ -349,12 +370,12 @@ function bindAudioShellEvents() {
     });
 
     shell.addEventListener('focusin', () => {
-        if (shell.hidden || useMobileHomepageMiniPlayer()) return;
+        if (shell.hidden || isMobileViewport()) return;
         setDrawerExpanded(shell, true);
     });
 
     shell.addEventListener('focusout', () => {
-        if (useMobileHomepageMiniPlayer()) return;
+        if (isMobileViewport()) return;
         window.requestAnimationFrame(() => {
             if (shell.contains(document.activeElement)) return;
             closeDrawer();
@@ -417,6 +438,7 @@ export function initGlobalAudioUI() {
     initGlobalAudioManager();
     const shell = ensureAudioShell();
     if (!shell) return;
+    ensureMobileMenuPlayer();
 
     bindAudioShellEvents();
 
@@ -428,6 +450,11 @@ export function initGlobalAudioUI() {
     removeViewportListener = () => {
         mobileViewportMql.removeEventListener('change', rerender);
         removeViewportListener = null;
+    };
+    document.addEventListener('bitbi:mobile-nav-toggle', rerender);
+    removeMobileNavToggleListener = () => {
+        document.removeEventListener('bitbi:mobile-nav-toggle', rerender);
+        removeMobileNavToggleListener = null;
     };
 }
 
@@ -441,6 +468,9 @@ export function destroyGlobalAudioUI() {
     }
     if (removeViewportListener) {
         removeViewportListener();
+    }
+    if (removeMobileNavToggleListener) {
+        removeMobileNavToggleListener();
     }
     initialized = false;
 }

@@ -147,6 +147,9 @@ export function initMobileNav() {
             if (!authModal) document.body.style.overflow = '';
         }
         document.documentElement.classList.toggle('menu-open', open);
+        document.dispatchEvent(new CustomEvent('bitbi:mobile-nav-toggle', {
+            detail: { open },
+        }));
 
         if (open) {
             panel.setAttribute('aria-hidden', 'false');

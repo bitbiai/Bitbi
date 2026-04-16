@@ -261,11 +261,35 @@ test.describe('Global audio player on mobile homepage', () => {
     await firstPlay.scrollIntoViewIfNeeded();
     await firstPlay.click();
 
-    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
     await expect(page.locator('#globalAudioHandle')).toBeHidden();
-    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Cosmic Sea');
     await expect(page.locator('#globalAudioMenuIndicator')).toBeVisible();
     await expect(page.locator('#globalAudioMenuIndicator')).toHaveClass(/is-active/);
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Cosmic Sea');
+
+    const placement = await page.evaluate(() => {
+      const mobileNav = document.getElementById('mobileNav');
+      const footer = mobileNav.querySelector('.mobile-nav__footer');
+      const bar = document.getElementById('globalAudioMobileBar');
+      const legal = footer.querySelector('.mobile-nav__legal');
+      return {
+        insideMobileNav: mobileNav.contains(bar),
+        insideFooter: footer.contains(bar),
+        directlyAboveLegal: bar.nextElementSibling === legal,
+        outsideGlobalShell: !document.getElementById('globalAudioShell').contains(bar),
+      };
+    });
+    expect(placement).toEqual({
+      insideMobileNav: true,
+      insideFooter: true,
+      directlyAboveLegal: true,
+      outsideGlobalShell: true,
+    });
 
     await page.locator('#globalAudioMobileNext').click();
     await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Zufall und Notwendigkeit');
