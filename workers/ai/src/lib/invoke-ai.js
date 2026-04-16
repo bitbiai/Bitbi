@@ -211,10 +211,19 @@ function isUrlLike(value) {
   return /^https?:\/\//i.test(value.trim());
 }
 
+function isLikelyBase64(value) {
+  if (typeof value !== "string") return false;
+  const compact = value.replace(/\s+/g, "");
+  if (!compact || compact.length < 16 || compact.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+}
+
 function parseBase64Audio(value) {
   if (typeof value !== "string" || value.length === 0) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
 
-  const dataUriMatch = value.match(/^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i);
+  const dataUriMatch = trimmed.match(/^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i);
   if (dataUriMatch) {
     return {
       audioBase64: dataUriMatch[2],
@@ -222,7 +231,169 @@ function parseBase64Audio(value) {
     };
   }
 
-  return null;
+  const compact = trimmed.replace(/\s+/g, "");
+  if (!isLikelyBase64(compact)) {
+    return null;
+  }
+
+  return {
+    audioBase64: compact,
+    mimeType: "audio/mpeg",
+  };
+}
+
+function parseBinaryAudioString(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const sample = value.slice(0, Math.min(value.length, 128));
+  const codes = [...sample].map((char) => char.charCodeAt(0));
+  if (codes.some((code) => code > 255)) {
+    return null;
+  }
+  const hasBinaryishByte = codes.some((code) => code === 0 || code < 9 || (code > 13 && code < 32));
+  if (!hasBinaryishByte) {
+    return null;
+  }
+
+  try {
+    return {
+      audioBase64: btoa(value),
+      mimeType: "audio/mpeg",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function summarizeMusicPayload(payload) {
+  return {
+    stream: payload?.stream === true,
+    output_format: payload?.output_format || null,
+    has_prompt: typeof payload?.prompt === "string" && payload.prompt.trim().length > 0,
+    prompt_length: typeof payload?.prompt === "string" ? payload.prompt.length : 0,
+    has_lyrics: typeof payload?.lyrics === "string" && payload.lyrics.trim().length > 0,
+    lyrics_length: typeof payload?.lyrics === "string" ? payload.lyrics.length : 0,
+    lyrics_optimizer: payload?.lyrics_optimizer === true,
+    is_instrumental: payload?.is_instrumental === true,
+    audio_setting: {
+      sample_rate: payload?.audio_setting?.sample_rate ?? null,
+      bitrate: payload?.audio_setting?.bitrate ?? null,
+      format: payload?.audio_setting?.format ?? null,
+    },
+  };
+}
+
+function summarizeResultShape(result) {
+  if (result == null) {
+    return { type: null };
+  }
+
+  if (typeof result === "string") {
+    const trimmed = result.trim();
+    let hint = "text";
+    if (isUrlLike(trimmed)) hint = "url";
+    else if (/^data:/i.test(trimmed)) hint = "data_uri";
+    else if (/^[a-f0-9\s]+$/i.test(trimmed)) hint = "hex_like";
+    else if (isLikelyBase64(trimmed)) hint = "base64_like";
+
+    return {
+      type: "string",
+      length: result.length,
+      hint,
+    };
+  }
+
+  if (result instanceof ArrayBuffer) {
+    return {
+      type: "ArrayBuffer",
+      byte_length: result.byteLength,
+    };
+  }
+
+  if (ArrayBuffer.isView(result)) {
+    return {
+      type: result.constructor?.name || "TypedArray",
+      byte_length: result.byteLength,
+    };
+  }
+
+  if (typeof result === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(result).slice(0, 12),
+      data_keys:
+        result?.data && typeof result.data === "object" && !Array.isArray(result.data)
+          ? Object.keys(result.data).slice(0, 12)
+          : undefined,
+      result_keys:
+        result?.result && typeof result.result === "object" && !Array.isArray(result.result)
+          ? Object.keys(result.result).slice(0, 12)
+          : undefined,
+    };
+  }
+
+  return {
+    type: typeof result,
+  };
+}
+
+function sanitizeErrorValue(value, depth = 0) {
+  if (value == null) return value;
+  if (depth >= 2) {
+    if (typeof value === "string") return value.slice(0, 400);
+    return typeof value;
+  }
+
+  if (typeof value === "string") {
+    return value.slice(0, 400);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 6).map((entry) => sanitizeErrorValue(entry, depth + 1));
+  }
+
+  if (typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).slice(0, 12)) {
+      out[key] = sanitizeErrorValue(value[key], depth + 1);
+    }
+    return out;
+  }
+
+  return String(value).slice(0, 400);
+}
+
+function getUpstreamErrorDetails(error) {
+  if (!error || typeof error !== "object") return {};
+
+  return {
+    upstream_status: error?.response?.status ?? error?.status ?? null,
+    upstream_status_text: error?.response?.statusText || null,
+    upstream_body: sanitizeErrorValue(
+      error?.response?.body ?? error?.response?.data ?? error?.body ?? error?.data ?? error?.details ?? null
+    ),
+    upstream_cause: sanitizeErrorValue(error?.cause ?? null),
+  };
+}
+
+function buildMusicProviderError(raw) {
+  const providerCode = Number(raw?.base_resp?.status_code);
+  if (!Number.isFinite(providerCode) || providerCode === 0) {
+    return null;
+  }
+
+  const statusMessage = String(raw?.base_resp?.status_msg || "Music provider returned an error.").trim();
+  const error = new Error(statusMessage || "Music provider returned an error.");
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_status_code = providerCode;
+  error.provider_status_message = statusMessage || null;
+  error.traceId = raw?.trace_id || null;
+  error.provider_body = sanitizeErrorValue(raw?.data ?? raw ?? null);
+  return error;
 }
 
 function parseHexAudio(value) {
@@ -268,43 +439,42 @@ function extractMusicLyrics(result) {
   return null;
 }
 
-function extractMusicResponse(result) {
-  const urlCandidates = [
-    result?.audio_url,
-    result?.url,
-    result?.data?.audio_url,
-    result?.data?.url,
-    result?.result?.audio_url,
-    result?.result?.url,
-  ];
+async function extractAudioCandidate(value) {
+  if (value == null) return null;
 
-  for (const candidate of urlCandidates) {
-    if (isUrlLike(candidate)) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (isUrlLike(trimmed)) {
       return {
-        audioUrl: String(candidate).trim(),
-        audioBase64: null,
-        mimeType: "audio/mpeg",
-      };
-    }
-  }
-
-  const audioCandidates = [
-    result?.audio,
-    result?.data?.audio,
-    result?.result?.audio,
-    result?.result?.data?.audio,
-  ];
-
-  for (const candidate of audioCandidates) {
-    if (isUrlLike(candidate)) {
-      return {
-        audioUrl: String(candidate).trim(),
+        audioUrl: trimmed,
         audioBase64: null,
         mimeType: "audio/mpeg",
       };
     }
 
-    const base64Audio = parseBase64Audio(candidate);
+    const dataUriAudio = trimmed.startsWith("data:")
+      ? parseBase64Audio(trimmed)
+      : null;
+    if (dataUriAudio) {
+      return {
+        audioUrl: null,
+        ...dataUriAudio,
+      };
+    }
+
+    const hexAudio = /^[a-f0-9\s]+$/i.test(trimmed)
+      ? parseHexAudio(trimmed)
+      : null;
+    if (hexAudio) {
+      return {
+        audioUrl: null,
+        ...hexAudio,
+      };
+    }
+
+    const base64Audio = parseBase64Audio(trimmed);
     if (base64Audio) {
       return {
         audioUrl: null,
@@ -312,12 +482,55 @@ function extractMusicResponse(result) {
       };
     }
 
-    const hexAudio = parseHexAudio(candidate);
-    if (hexAudio) {
+    const binaryAudio = parseBinaryAudioString(value);
+    if (binaryAudio) {
       return {
         audioUrl: null,
-        ...hexAudio,
+        ...binaryAudio,
       };
+    }
+
+    return null;
+  }
+
+  const buffer = await toArrayBuffer(value);
+  if (!buffer || buffer.byteLength === 0) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return {
+    audioUrl: null,
+    audioBase64: btoa(binary),
+    mimeType: "audio/mpeg",
+  };
+}
+
+async function extractMusicResponse(result) {
+  const candidates = [
+    result,
+    result?.audio_url,
+    result?.url,
+    result?.audio,
+    result?.data?.audio_url,
+    result?.data?.url,
+    result?.data?.audio,
+    result?.result?.audio_url,
+    result?.result?.url,
+    result?.result?.audio,
+    result?.result?.data?.audio,
+  ];
+
+  for (const candidate of candidates) {
+    const audio = await extractAudioCandidate(candidate);
+    if (audio && (audio.audioUrl || audio.audioBase64)) {
+      return audio;
     }
   }
 
@@ -485,12 +698,12 @@ export async function invokeMusic(env, model, input) {
     prompt: composeMusicPrompt(input),
     stream: false,
     output_format: "url",
+    lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
+    is_instrumental: input.mode === "instrumental",
     audio_setting: {
       sample_rate: 44100,
       bitrate: 256000,
       format: "mp3",
-      lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
-      is_instrumental: input.mode === "instrumental",
     },
   };
 
@@ -509,14 +722,53 @@ export async function invokeMusic(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
+      provider_payload: summarizeMusicPayload(payload),
+      ...getUpstreamErrorDetails(error),
       ...getErrorFields(error),
     });
     throw error;
   }
 
-  const music = extractMusicResponse(raw);
+  const providerError = buildMusicProviderError(raw);
+  if (providerError) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-music",
+      event: "workers_ai_music_provider_error",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      provider_payload: summarizeMusicPayload(payload),
+      provider_trace_id: raw?.trace_id || null,
+      provider_status_code: providerError.provider_status_code,
+      provider_status_message: providerError.provider_status_message,
+      provider_status: raw?.data?.status ?? raw?.status ?? null,
+      raw_shape: summarizeResultShape(raw),
+      provider_body: providerError.provider_body,
+    });
+    throw providerError;
+  }
+
+  const music = await extractMusicResponse(raw);
   if (!music || (!music.audioUrl && !music.audioBase64)) {
-    throw new Error("Model returned no audio output.");
+    const error = new Error("Model returned no audio output.");
+    error.status = 502;
+    error.code = "upstream_error";
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-music",
+      event: "workers_ai_music_parse_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      provider_payload: summarizeMusicPayload(payload),
+      provider_trace_id: raw?.trace_id || null,
+      provider_status: raw?.data?.status ?? raw?.status ?? null,
+      provider_base_status_code: raw?.base_resp?.status_code ?? null,
+      provider_base_status_message: raw?.base_resp?.status_msg ?? null,
+      raw_shape: summarizeResultShape(raw),
+    });
+    throw error;
   }
 
   return {

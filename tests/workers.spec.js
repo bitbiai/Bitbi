@@ -2079,18 +2079,136 @@ test.describe('Worker routes', () => {
         stream: false,
         output_format: 'url',
         lyrics: '[Verse]\nHold the skyline in tune',
+        lyrics_optimizer: false,
+        is_instrumental: false,
         audio_setting: expect.objectContaining({
           sample_rate: 44100,
           bitrate: 256000,
           format: 'mp3',
-          lyrics_optimizer: false,
-          is_instrumental: false,
         }),
       }));
+      expect(capturedPayload.audio_setting.lyrics_optimizer).toBeUndefined();
+      expect(capturedPayload.audio_setting.is_instrumental).toBeUndefined();
       expect(capturedPayload.prompt).toContain('Dark synthwave pulse with cinematic tension.');
       expect(capturedPayload.prompt).toContain('Tempo target: 118 BPM.');
       expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
       expect(capturedPayload.prompt).toContain('Lead vocals should remain present.');
+    });
+
+    test('POST /api/admin/ai/test-music forwards only supported provider fields for instrumental auto mode', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return {
+            data: {
+              audio: 'https://example.com/generated-track.mp3',
+              status: 2,
+            },
+            trace_id: 'music-url-trace',
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Cinematic ambient score with wide synth pads.',
+          mode: 'instrumental',
+          lyricsMode: 'auto',
+          bpm: 92,
+          key: 'E Minor',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: true,
+        result: expect.objectContaining({
+          audioUrl: 'https://example.com/generated-track.mp3',
+          audioBase64: null,
+        }),
+      }));
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        stream: false,
+        output_format: 'url',
+        lyrics_optimizer: false,
+        is_instrumental: true,
+        audio_setting: expect.objectContaining({
+          sample_rate: 44100,
+          bitrate: 256000,
+          format: 'mp3',
+        }),
+      }));
+      expect(capturedPayload.lyrics).toBeUndefined();
+      expect(capturedPayload.bpm).toBeUndefined();
+      expect(capturedPayload.key).toBeUndefined();
+      expect(capturedPayload.audio_setting.lyrics_optimizer).toBeUndefined();
+      expect(capturedPayload.audio_setting.is_instrumental).toBeUndefined();
+      expect(capturedPayload.prompt).toContain('Tempo target: 92 BPM.');
+      expect(capturedPayload.prompt).toContain('Preferred key center: E Minor.');
+      expect(capturedPayload.prompt).toContain('Instrumental only. No vocals.');
+    });
+
+    test('POST /api/admin/ai/test-music accepts Cloudflare-style inline base64 audio output', async () => {
+      const inlineAudio = 'UklGRiQAAABXQVZFZm10AA==';
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => ({
+          audio: inlineAudio,
+        }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Warm electronic anthem.',
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          lyrics: '[Verse]\nWe hold the line',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: true,
+        result: expect.objectContaining({
+          audioBase64: inlineAudio,
+          audioUrl: null,
+          lyricsPreview: '[Verse]\nWe hold the line',
+        }),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-music maps provider-declared failures to the upstream error contract', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => ({
+          trace_id: 'music-provider-error-trace',
+          base_resp: {
+            status_code: 40013,
+            status_msg: 'lyrics_optimizer is invalid in this position',
+          },
+        }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Minimal house groove.',
+          mode: 'vocals',
+          lyricsMode: 'auto',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      expect(res.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'upstream_error',
+        error: 'Music generation failed',
+      }));
     });
 
     test('POST /api/admin/ai/test-music validates vocal custom mode lyrics', async () => {

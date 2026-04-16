@@ -8,14 +8,16 @@ import {
 } from "../../../../js/shared/worker-observability.mjs";
 
 export async function handleMusic({ request, env, correlationId }) {
+  let input = null;
+  let selection = null;
   try {
     const body = await readJsonBody(request);
     if (!body) {
       return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }
 
-    const input = validateMusicBody(body);
-    const selection = resolveModelSelection("music", input);
+    input = validateMusicBody(body);
+    selection = resolveModelSelection("music", input);
     const output = await invokeMusic(env, selection.model, { ...input, correlationId });
     const lyricsPreview =
       output.lyrics ||
@@ -52,6 +54,9 @@ export async function handleMusic({ request, env, correlationId }) {
       event: "admin_ai_music_failed",
       level: "error",
       correlationId,
+      model: selection?.model?.id || null,
+      request_mode: input?.mode || null,
+      lyrics_mode: input?.lyricsMode || null,
       ...getErrorFields(error),
     });
     return fromError(error, "Music generation failed");
