@@ -7,6 +7,7 @@ import {
   validateAdminAiEmbeddingsBody as validateEmbeddingsPayload,
   validateAdminAiImageBody as validateImagePayload,
   validateAdminAiLiveAgentBody as validateLiveAgentPayload,
+  validateAdminAiMusicBody as validateMusicPayload,
   validateAdminAiTextBody as validateTextPayload,
   validateFlux2DevReferenceImageDimensions,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -124,6 +125,27 @@ export async function handleAdminAI(ctx) {
         env,
         "/internal/ai/test-embeddings",
         { method: "POST", body: validateEmbeddingsPayload(body) },
+        result.user,
+        correlationId
+      );
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/test-music" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-music-ip", 8, 600_000, correlationId);
+    if (limited) return limited;
+
+    const body = await readJsonBody(request);
+    if (!body) return badJsonResponse(correlationId);
+
+    try {
+      return proxyToAiLab(
+        env,
+        "/internal/ai/test-music",
+        { method: "POST", body: validateMusicPayload(body) },
         result.user,
         correlationId
       );

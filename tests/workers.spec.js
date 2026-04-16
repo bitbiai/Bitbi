@@ -121,6 +121,23 @@ function createAiLabRunStub() {
       };
     }
 
+    if (modelId === '@cf/minimax/music-2.6') {
+      return {
+        data: {
+          audio: '494433040000000000',
+          status: 2,
+        },
+        trace_id: 'stub-music-trace',
+        extra_info: {
+          music_duration: 24000,
+          music_sample_rate: 44100,
+          music_channel: 2,
+          bitrate: 256000,
+          music_size: 4096,
+        },
+      };
+    }
+
     if (modelId === '@cf/google/gemma-4-26b-a4b-it' && payload.stream) {
       const sseBody = 'data: {"response":"Live "}\n\ndata: {"response":"agent "}\n\ndata: {"response":"response."}\n\ndata: [DONE]\n\n';
       return new ReadableStream({
@@ -1474,6 +1491,7 @@ test.describe('Worker routes', () => {
           text: expect.any(Array),
           image: expect.any(Array),
           embeddings: expect.any(Array),
+          music: expect.any(Array),
         },
         presets: expect.any(Array),
       });
@@ -1490,6 +1508,9 @@ test.describe('Worker routes', () => {
         '@cf/black-forest-labs/flux-1-schnell',
         '@cf/black-forest-labs/flux-2-klein-9b',
         '@cf/black-forest-labs/flux-2-dev',
+      ]));
+      expect(body.models.music.map((model) => model.id)).toEqual(expect.arrayContaining([
+        '@cf/minimax/music-2.6',
       ]));
       expect(body.presets[0]).toEqual(expect.objectContaining({
         name: expect.any(String),
@@ -1981,6 +2002,116 @@ test.describe('Worker routes', () => {
         elapsedMs: expect.any(Number),
       }));
       expect(body.result.vectors[0]).toEqual(expect.any(Array));
+    });
+
+    test('POST /api/admin/ai/test-music returns the music response contract used by the UI', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return {
+            data: {
+              audio: '494433040000000000',
+              status: 2,
+            },
+            trace_id: 'music-contract-trace',
+            extra_info: {
+              music_duration: 25364,
+              music_sample_rate: 44100,
+              music_channel: 2,
+              bitrate: 256000,
+              music_size: 813651,
+            },
+            analysis_info: {
+              lyrics: '[Verse]\nHold the skyline in tune',
+            },
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Dark synthwave pulse with cinematic tension.',
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          lyrics: '[Verse]\nHold the skyline in tune',
+          bpm: 118,
+          key: 'A Minor',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'music',
+        model: expect.objectContaining({
+          id: '@cf/minimax/music-2.6',
+          task: 'music',
+          label: 'Music 2.6',
+          vendor: 'MiniMax',
+        }),
+        preset: 'music_studio',
+        traceId: 'music-contract-trace',
+        result: expect.objectContaining({
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          bpm: 118,
+          key: 'A Minor',
+          mimeType: 'audio/mpeg',
+          audioBase64: expect.any(String),
+          providerStatus: 2,
+          durationMs: 25364,
+          sampleRate: 44100,
+          channels: 2,
+          bitrate: 256000,
+          sizeBytes: 813651,
+          lyricsPreview: '[Verse]\nHold the skyline in tune',
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+      expect(capturedModelId).toBe('@cf/minimax/music-2.6');
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        stream: false,
+        output_format: 'url',
+        lyrics: '[Verse]\nHold the skyline in tune',
+        audio_setting: expect.objectContaining({
+          sample_rate: 44100,
+          bitrate: 256000,
+          format: 'mp3',
+          lyrics_optimizer: false,
+          is_instrumental: false,
+        }),
+      }));
+      expect(capturedPayload.prompt).toContain('Dark synthwave pulse with cinematic tension.');
+      expect(capturedPayload.prompt).toContain('Tempo target: 118 BPM.');
+      expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
+      expect(capturedPayload.prompt).toContain('Lead vocals should remain present.');
+    });
+
+    test('POST /api/admin/ai/test-music validates vocal custom mode lyrics', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          prompt: 'Need a lyrical song.',
+          mode: 'vocals',
+          lyricsMode: 'custom',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('lyrics are required'),
+      }));
     });
 
     test('POST /api/admin/ai/compare returns the compare response contract used by the UI', async () => {

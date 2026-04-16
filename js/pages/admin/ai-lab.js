@@ -7,6 +7,7 @@ import {
     apiAdminAiSaveTextAsset,
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
+    apiAdminAiTestMusic,
     apiAdminAiTestText,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
@@ -15,6 +16,7 @@ import {
     ADMIN_AI_IMAGE_CAPABILITY_FALLBACK,
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
+    ADMIN_AI_MUSIC_KEYS,
     FLUX_2_DEV_MODEL_ID,
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
@@ -35,6 +37,7 @@ const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 180_000,
     embeddings: 15_000,
+    music: 180_000,
     compare: 30_000,
 };
 const TASK_UI = {
@@ -52,6 +55,11 @@ const TASK_UI = {
         label: 'Embeddings',
         busyText: 'Running...',
         idleText: 'Run Embeddings',
+    },
+    music: {
+        label: 'Music',
+        busyText: 'Generating...',
+        idleText: 'Generate Music',
     },
     compare: {
         label: 'Compare',
@@ -101,6 +109,16 @@ const DEFAULT_FORMS = {
         preset: ADMIN_AI_DEFAULT_PRESETS.embeddings,
         model: '',
         input: '',
+    },
+    music: {
+        preset: ADMIN_AI_DEFAULT_PRESETS.music,
+        model: '',
+        prompt: '',
+        mode: 'vocals',
+        lyricsMode: 'custom',
+        lyrics: '',
+        bpm: '',
+        key: '',
     },
     compare: {
         modelA: ADMIN_AI_DEFAULT_COMPARE_MODELS.modelA,
@@ -303,6 +321,22 @@ function formatElapsed(elapsedMs) {
     return `${(elapsedMs / 1000).toFixed(2)} s`;
 }
 
+function formatDuration(durationMs) {
+    if (typeof durationMs !== 'number' || Number.isNaN(durationMs) || durationMs <= 0) return '—';
+    const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatBytes(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function formatTimeoutDuration(timeoutMs) {
     if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return 'the configured limit';
     if (timeoutMs < 1000) return `${timeoutMs} ms`;
@@ -474,6 +508,10 @@ function mimeToExtension(mimeType) {
     if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
     if (mimeType.includes('webp')) return 'webp';
     if (mimeType.includes('gif')) return 'gif';
+    if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
+    if (mimeType.includes('wav')) return 'wav';
+    if (mimeType.includes('flac')) return 'flac';
+    if (mimeType.includes('ogg')) return 'ogg';
     return 'bin';
 }
 
@@ -585,6 +623,7 @@ export function createAdminAiLab({ showToast } = {}) {
             text: null,
             image: null,
             embeddings: null,
+            music: null,
             compare: null,
         },
         controllers: {
@@ -592,12 +631,14 @@ export function createAdminAiLab({ showToast } = {}) {
             text: null,
             image: null,
             embeddings: null,
+            music: null,
             compare: null,
         },
         timers: {
             text: null,
             image: null,
             embeddings: null,
+            music: null,
             compare: null,
         },
         requestSeq: {
@@ -605,6 +646,7 @@ export function createAdminAiLab({ showToast } = {}) {
             text: 0,
             image: 0,
             embeddings: 0,
+            music: 0,
             compare: 0,
         },
         save: {
@@ -642,6 +684,7 @@ export function createAdminAiLab({ showToast } = {}) {
             text: document.getElementById('aiModelsText'),
             image: document.getElementById('aiModelsImage'),
             embeddings: document.getElementById('aiModelsEmbeddings'),
+            music: document.getElementById('aiModelsMusic'),
             future: document.getElementById('aiModelsFuture'),
         },
         text: {
@@ -765,6 +808,33 @@ export function createAdminAiLab({ showToast } = {}) {
             debug: document.getElementById('aiEmbeddingsDebug'),
             raw: document.getElementById('aiEmbeddingsRaw'),
             copyRaw: document.getElementById('aiEmbeddingsCopyRaw'),
+        },
+        music: {
+            prompt: document.getElementById('aiMusicPrompt'),
+            promptCount: document.getElementById('aiMusicPromptCount'),
+            mode: document.getElementById('aiMusicMode'),
+            lyricsMode: document.getElementById('aiMusicLyricsMode'),
+            lyricsModeField: document.getElementById('aiMusicLyricsModeField'),
+            lyricsField: document.getElementById('aiMusicLyricsField'),
+            lyrics: document.getElementById('aiMusicLyrics'),
+            lyricsCount: document.getElementById('aiMusicLyricsCount'),
+            lyricsHint: document.getElementById('aiMusicLyricsHint'),
+            bpm: document.getElementById('aiMusicBpm'),
+            key: document.getElementById('aiMusicKey'),
+            inlineError: document.getElementById('aiMusicInlineError'),
+            run: document.getElementById('aiMusicRun'),
+            cancel: document.getElementById('aiMusicCancel'),
+            reset: document.getElementById('aiMusicReset'),
+            state: document.getElementById('aiMusicState'),
+            preview: document.getElementById('aiMusicPreview'),
+            meta: document.getElementById('aiMusicMeta'),
+            warnings: document.getElementById('aiMusicWarnings'),
+            download: document.getElementById('aiMusicDownload'),
+            lyricsPanel: document.getElementById('aiMusicLyricsPanel'),
+            lyricsOutput: document.getElementById('aiMusicLyricsOutput'),
+            debug: document.getElementById('aiMusicDebug'),
+            raw: document.getElementById('aiMusicRaw'),
+            copyRaw: document.getElementById('aiMusicCopyRaw'),
         },
         compare: {
             modelA: document.getElementById('aiCompareModelA'),
@@ -893,6 +963,9 @@ export function createAdminAiLab({ showToast } = {}) {
         buttonRefs.run.disabled = !!isBusy;
         buttonRefs.run.textContent = isBusy ? busyText : idleText;
         buttonRefs.cancel.disabled = !isBusy;
+        if (task === 'music') {
+            syncMusicFieldState();
+        }
     }
 
     function clearTaskTimer(task, controller = null) {
@@ -1032,6 +1105,52 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         detailsEl.hidden = false;
         preEl.textContent = safeJson(rawData);
+    }
+
+    function populateMusicKeySelect() {
+        setOptions(
+            refs.music.key,
+            [{ value: '', label: 'No preference' }].concat(
+                ADMIN_AI_MUSIC_KEYS.map((entry) => ({
+                    value: entry,
+                    label: entry,
+                }))
+            )
+        );
+        refs.music.key.value = state.forms.music.key || '';
+    }
+
+    function setMusicInlineError(message = '') {
+        refs.music.inlineError.textContent = message;
+        refs.music.inlineError.hidden = !message;
+    }
+
+    function syncMusicFieldState() {
+        const isBusy = state.results.music?.status === 'loading';
+        const isInstrumental = state.forms.music.mode === 'instrumental';
+        const usesCustomLyrics = !isInstrumental && state.forms.music.lyricsMode === 'custom';
+
+        refs.music.prompt.disabled = isBusy;
+        refs.music.mode.disabled = isBusy;
+        refs.music.bpm.disabled = isBusy;
+        refs.music.key.disabled = isBusy;
+        refs.music.reset.disabled = isBusy;
+
+        refs.music.lyricsMode.disabled = isBusy || isInstrumental;
+        refs.music.lyricsModeField.classList.toggle('admin-ai__field--disabled', isInstrumental);
+        refs.music.lyricsField.hidden = !usesCustomLyrics;
+        refs.music.lyrics.disabled = isBusy || !usesCustomLyrics;
+    }
+
+    function getMusicAudioSource(payload) {
+        if (!payload) return '';
+        if (payload.audioBase64) {
+            return `data:${payload.mimeType || 'audio/mpeg'};base64,${payload.audioBase64}`;
+        }
+        if (payload.audioUrl) {
+            return payload.audioUrl;
+        }
+        return '';
     }
 
     function populateSampleSelect(selectEl, task) {
@@ -1712,21 +1831,29 @@ export function createAdminAiLab({ showToast } = {}) {
         const textPresets = getCatalogPresets(state.catalog.data, 'text').map((item) => item.name);
         const imagePresets = getCatalogPresets(state.catalog.data, 'image').map((item) => item.name);
         const embeddingPresets = getCatalogPresets(state.catalog.data, 'embeddings').map((item) => item.name);
+        const musicPresets = getCatalogPresets(state.catalog.data, 'music').map((item) => item.name);
 
         if (!textPresets.includes(state.forms.text.preset)) state.forms.text.preset = textPresets[0] || ADMIN_AI_DEFAULT_PRESETS.text;
         if (!imagePresets.includes(state.forms.image.preset)) state.forms.image.preset = imagePresets[0] || ADMIN_AI_DEFAULT_PRESETS.image;
         if (!embeddingPresets.includes(state.forms.embeddings.preset)) {
             state.forms.embeddings.preset = embeddingPresets[0] || ADMIN_AI_DEFAULT_PRESETS.embeddings;
         }
+        if (!musicPresets.includes(state.forms.music.preset)) {
+            state.forms.music.preset = musicPresets[0] || ADMIN_AI_DEFAULT_PRESETS.music;
+        }
 
         const textIds = getCatalogModels(state.catalog.data, 'text').map((item) => item.id);
         const imageIds = getCatalogModels(state.catalog.data, 'image').map((item) => item.id);
         const embeddingIds = getCatalogModels(state.catalog.data, 'embeddings').map((item) => item.id);
+        const musicIds = getCatalogModels(state.catalog.data, 'music').map((item) => item.id);
 
         if (state.forms.text.model && !textIds.includes(state.forms.text.model)) state.forms.text.model = '';
         if (state.forms.image.model && !imageIds.includes(state.forms.image.model)) state.forms.image.model = '';
         if (state.forms.embeddings.model && !embeddingIds.includes(state.forms.embeddings.model)) {
             state.forms.embeddings.model = '';
+        }
+        if (state.forms.music.model && !musicIds.includes(state.forms.music.model)) {
+            state.forms.music.model = '';
         }
 
         if (!textIds.includes(state.forms.compare.modelA)) state.forms.compare.modelA = textIds[0] || '';
@@ -1754,6 +1881,7 @@ export function createAdminAiLab({ showToast } = {}) {
             setOptions(refs.embeddings.model, loadingModel);
             setOptions(refs.compare.modelA, loadingModel);
             setOptions(refs.compare.modelB, loadingModel);
+            populateMusicKeySelect();
             return;
         }
 
@@ -1827,6 +1955,7 @@ export function createAdminAiLab({ showToast } = {}) {
         setOptions(refs.compare.modelB, textModelOptions);
         refs.compare.modelA.value = state.forms.compare.modelA;
         refs.compare.modelB.value = state.forms.compare.modelB;
+        populateMusicKeySelect();
     }
 
     function syncFormInputs() {
@@ -1851,6 +1980,12 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.embeddings.input.value = state.forms.embeddings.input;
 
+        refs.music.prompt.value = state.forms.music.prompt;
+        refs.music.mode.value = state.forms.music.mode;
+        refs.music.lyricsMode.value = state.forms.music.lyricsMode;
+        refs.music.lyrics.value = state.forms.music.lyrics;
+        refs.music.bpm.value = state.forms.music.bpm;
+
         refs.compare.system.value = state.forms.compare.system;
         refs.compare.prompt.value = state.forms.compare.prompt;
         refs.compare.maxTokens.value = state.forms.compare.maxTokens;
@@ -1860,6 +1995,7 @@ export function createAdminAiLab({ showToast } = {}) {
         populateSelects();
         updateCounters();
         updateImageCapabilityControls();
+        syncMusicFieldState();
         renderHistories();
     }
 
@@ -1879,6 +2015,8 @@ export function createAdminAiLab({ showToast } = {}) {
                 .filter(Boolean).length;
             return `${lines} item${lines === 1 ? '' : 's'} / ${value.length} chars`;
         });
+        updateCounter(refs.music.prompt, refs.music.promptCount, ADMIN_AI_LIMITS.music.maxPromptLength);
+        updateCounter(refs.music.lyrics, refs.music.lyricsCount, ADMIN_AI_LIMITS.music.maxLyricsLength);
         updateCounter(refs.compare.system, refs.compare.systemCount, 1200);
         updateCounter(refs.compare.prompt, refs.compare.promptCount, 4000);
     }
@@ -1922,8 +2060,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const textCount = getCatalogModels(state.catalog.data, 'text').length;
         const imageCount = getCatalogModels(state.catalog.data, 'image').length;
         const embeddingCount = getCatalogModels(state.catalog.data, 'embeddings').length;
+        const musicCount = getCatalogModels(state.catalog.data, 'music').length;
         setText(refs.catalogStamp, `Catalog loaded: ${formatTime(state.catalog.loadedAt)}`);
-        setText(refs.catalogSummary, `${textCount} text · ${imageCount} image · ${embeddingCount} embeddings`);
+        setText(refs.catalogSummary, `${textCount} text · ${imageCount} image · ${embeddingCount} embeddings · ${musicCount} music`);
     }
 
     function renderModelsPanel() {
@@ -1936,6 +2075,7 @@ export function createAdminAiLab({ showToast } = {}) {
             renderCatalogList(refs.models.text, [], loadingMessage);
             renderCatalogList(refs.models.image, [], loadingMessage);
             renderCatalogList(refs.models.embeddings, [], loadingMessage);
+            renderCatalogList(refs.models.music, [], loadingMessage);
             renderCatalogList(refs.models.future, [], 'Speech scaffolding not loaded.');
             return;
         }
@@ -1959,6 +2099,11 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.models.embeddings,
             getCatalogModels(state.catalog.data, 'embeddings'),
             'No embeddings models allowlisted.'
+        );
+        renderCatalogList(
+            refs.models.music,
+            getCatalogModels(state.catalog.data, 'music'),
+            'No music models allowlisted.'
         );
 
         const futureItems = [];
@@ -2233,6 +2378,232 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!preview) {
             refs.embeddings.preview.textContent = 'No vector preview available.';
         }
+    }
+
+    function renderMusicEmptyState() {
+        refs.music.preview.innerHTML = `
+            <div class="admin-ai__music-empty">
+                <div class="admin-ai__music-empty-icon" aria-hidden="true"></div>
+                <div class="admin-ai__music-empty-copy">
+                    <strong>Studio standing by.</strong>
+                    <span>Generate a vocal or instrumental track to inspect the audio, metadata, and lyric output here.</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderMusicPreview(payload, result) {
+        const audioSource = getMusicAudioSource(payload);
+        refs.music.download.hidden = !audioSource;
+
+        if (!audioSource) {
+            if (result?.status === 'loading' && !payload) {
+                refs.music.preview.innerHTML = '<div class="admin-ai__loading"><div class="admin-ai__spinner"></div><span>Waiting for music output...</span></div>';
+            } else if (result?.status === 'error' && !payload) {
+                refs.music.preview.innerHTML = '<div class="admin-ai__empty">Music generation failed before any audio result was returned.</div>';
+            } else if (payload) {
+                refs.music.preview.innerHTML = '<div class="admin-ai__empty">The worker completed, but no playable audio payload was returned.</div>';
+            } else {
+                renderMusicEmptyState();
+            }
+            return;
+        }
+
+        refs.music.preview.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'admin-ai__music-player';
+
+        const head = document.createElement('div');
+        head.className = 'admin-ai__music-player-head';
+
+        const title = document.createElement('h4');
+        title.className = 'admin-ai__music-player-title';
+        title.textContent = payload.mode === 'instrumental' ? 'Generated Instrumental' : 'Generated Song';
+
+        const note = document.createElement('div');
+        note.className = 'admin-ai__music-player-note';
+        note.textContent = payload.audioUrl
+            ? 'Streaming from a temporary provider URL. Download while it is still available.'
+            : 'Inline audio buffer ready for preview and download.';
+
+        head.append(title, note);
+
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.preload = 'metadata';
+        audio.src = audioSource;
+
+        wrapper.append(head, audio);
+        refs.music.preview.appendChild(wrapper);
+    }
+
+    function renderMusicResult() {
+        const result = state.results.music;
+        const response = result?.raw || null;
+        const payload = response?.result || null;
+        const resultCode = getResultCode(result);
+
+        renderMusicPreview(payload, result);
+        renderMeta(refs.music.meta, response ? [
+            { label: 'Preset', value: response.preset || 'Preset default' },
+            { label: 'Model Label', value: response.model?.label },
+            { label: 'Model ID', value: response.model?.id },
+            { label: 'Vendor', value: response.model?.vendor },
+            { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
+            { label: 'Received', value: formatTime(result?.receivedAt) },
+            { label: 'Mode', value: payload?.mode === 'instrumental' ? 'Instrumental' : 'Song / Vocals' },
+            {
+                label: 'Lyrics',
+                value: payload?.mode === 'instrumental'
+                    ? 'Not used'
+                    : payload?.lyricsMode === 'auto'
+                        ? 'Auto lyrics'
+                        : 'Custom lyrics',
+            },
+            { label: 'BPM', value: payload?.bpm },
+            { label: 'Key', value: payload?.key },
+            { label: 'Duration', value: payload?.durationMs ? formatDuration(payload.durationMs) : null },
+            { label: 'Sample Rate', value: payload?.sampleRate ? `${payload.sampleRate} Hz` : null },
+            { label: 'Channels', value: payload?.channels },
+            { label: 'Bitrate', value: payload?.bitrate ? `${payload.bitrate} bps` : null },
+            { label: 'Size', value: payload?.sizeBytes ? formatBytes(payload.sizeBytes) : null },
+            {
+                label: 'Output',
+                value: payload?.audioBase64 ? 'Inline audio buffer' : payload?.audioUrl ? 'Provider URL' : null,
+            },
+            { label: 'Provider Status', value: payload?.providerStatus },
+            { label: 'Trace ID', value: response.traceId },
+        ] : []);
+        renderWarnings(refs.music.warnings, response ? getWarnings(response) : []);
+        renderDebug(refs.music.debug, refs.music.raw, result?.debugRaw || response);
+
+        refs.music.lyricsPanel.hidden = !payload?.lyricsPreview;
+        refs.music.lyricsOutput.textContent = payload?.lyricsPreview || '';
+
+        if (!result) {
+            setResultState(refs.music.state, 'neutral', 'No music generation yet.');
+            syncMusicFieldState();
+            return;
+        }
+
+        if (result.status === 'loading') {
+            setResultState(
+                refs.music.state,
+                'loading',
+                response ? 'Generating music. Previous result shown below.' : 'Generating music...'
+            );
+            syncMusicFieldState();
+            return;
+        }
+
+        if (result.status === 'aborted') {
+            setResultState(
+                refs.music.state,
+                'aborted',
+                response ? 'Music request cancelled. Previous result preserved.' : 'Music request cancelled.'
+            );
+            syncMusicFieldState();
+            return;
+        }
+
+        if (result.status === 'timeout') {
+            setResultState(
+                refs.music.state,
+                'timeout',
+                response
+                    ? `${result.error || 'Music request timed out.'} Previous result preserved.`
+                    : result.error || 'Music request timed out.'
+            );
+            syncMusicFieldState();
+            return;
+        }
+
+        if (result.status === 'error') {
+            setResultState(
+                refs.music.state,
+                'error',
+                response
+                    ? `${describeAdminAiError('music', result.error, resultCode)} Previous result preserved.`
+                    : describeAdminAiError('music', result.error, resultCode)
+            );
+            syncMusicFieldState();
+            return;
+        }
+
+        setResultState(refs.music.state, 'success', 'Music response ready.');
+        syncMusicFieldState();
+    }
+
+    function validateMusicForm() {
+        const prompt = (state.forms.music.prompt || '').trim();
+        if (!prompt) {
+            return 'Prompt is required before generating music.';
+        }
+
+        if (state.forms.music.mode !== 'instrumental' && state.forms.music.lyricsMode === 'custom' && !(state.forms.music.lyrics || '').trim()) {
+            return 'Custom lyrics are required when vocal mode uses custom lyrics.';
+        }
+
+        return '';
+    }
+
+    function resetMusicForm(showSuccess = true) {
+        if (state.results.music?.status === 'loading') {
+            cancelTask('music', 'Music');
+        }
+
+        state.forms.music = cloneDefaultForms().music;
+        state.results.music = null;
+        setMusicInlineError('');
+        syncFormInputs();
+        renderMusicResult();
+        persistState();
+        if (showSuccess) {
+            setStatus('Music AI console cleared.', 'success');
+        }
+    }
+
+    function downloadMusicResult() {
+        const response = state.results.music?.raw;
+        const payload = response?.result;
+        const audioSource = getMusicAudioSource(payload);
+        if (!audioSource) {
+            if (showToast) showToast('No audio available to download.', 'error');
+            return;
+        }
+
+        const extension = mimeToExtension(payload?.mimeType || 'audio/mpeg');
+        const dateStamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = [
+            'ai-lab',
+            'music',
+            slugify(payload?.mode || 'track'),
+            slugify(state.forms.music.prompt || 'prompt'),
+            dateStamp,
+        ].join('-') + `.${extension}`;
+
+        const link = document.createElement('a');
+        if (payload?.audioBase64) {
+            const bytes = Uint8Array.from(atob(payload.audioBase64), (char) => char.charCodeAt(0));
+            const blob = new Blob([bytes], { type: payload.mimeType || 'audio/mpeg' });
+            const href = URL.createObjectURL(blob);
+            link.href = href;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(href), 1000);
+        } else {
+            link.href = payload.audioUrl;
+            link.download = filename;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        if (showToast) showToast('Music download started.');
     }
 
     function getCompareCardText(entry, diff, side) {
@@ -2587,6 +2958,7 @@ export function createAdminAiLab({ showToast } = {}) {
         renderTextResult();
         renderImageResult();
         renderEmbeddingsResult();
+        renderMusicResult();
         renderCompareResult();
         renderSaveModal();
     }
@@ -2599,8 +2971,11 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.cancel.disabled = state.results.image?.status !== 'loading';
         refs.embeddings.run.disabled = noCatalog || state.results.embeddings?.status === 'loading';
         refs.embeddings.cancel.disabled = state.results.embeddings?.status !== 'loading';
+        refs.music.run.disabled = noCatalog || state.results.music?.status === 'loading';
+        refs.music.cancel.disabled = state.results.music?.status !== 'loading';
         refs.compare.run.disabled = noCatalog || state.results.compare?.status === 'loading';
         refs.compare.cancel.disabled = state.results.compare?.status !== 'loading';
+        syncMusicFieldState();
     }
 
     function cancelTask(task, label) {
@@ -2944,6 +3319,109 @@ export function createAdminAiLab({ showToast } = {}) {
         };
         setStatus('Embeddings test completed.', 'success');
         renderEmbeddingsResult();
+    }
+
+    async function runMusic() {
+        if (!hasCatalog()) {
+            setStatus('Load the model catalog before generating music.', 'error');
+            return;
+        }
+
+        const validationError = validateMusicForm();
+        if (validationError) {
+            const previous = getRetainedResult('music');
+            state.results.music = previous.raw ? {
+                status: 'error',
+                error: validationError,
+                errorCode: 'validation_error',
+                raw: previous.raw,
+                debugRaw: previous.raw,
+                receivedAt: previous.receivedAt,
+            } : {
+                status: 'error',
+                error: validationError,
+                errorCode: 'validation_error',
+                raw: null,
+                debugRaw: null,
+                receivedAt: null,
+            };
+            setMusicInlineError(validationError);
+            setStatus(validationError, 'error');
+            renderMusicResult();
+            return;
+        }
+
+        setMusicInlineError('');
+        const seq = ++state.requestSeq.music;
+        clearTaskTimer('music');
+        state.controllers.music?.abort();
+        const controller = new AbortController();
+        const previous = getRetainedResult('music');
+        state.controllers.music = controller;
+        state.results.music = {
+            status: 'loading',
+            errorCode: null,
+            raw: previous.raw,
+            debugRaw: previous.raw,
+            receivedAt: previous.receivedAt,
+        };
+        setTaskBusy('music', true, TASK_UI.music.busyText, TASK_UI.music.idleText);
+        setStatus('Generating music...', 'loading');
+        renderMusicResult();
+        startTaskTimer('music', controller);
+
+        const payload = {
+            preset: state.forms.music.preset || undefined,
+            model: state.forms.music.model || undefined,
+            prompt: (state.forms.music.prompt || '').trim(),
+            mode: state.forms.music.mode,
+            lyricsMode: state.forms.music.mode === 'instrumental' ? 'auto' : state.forms.music.lyricsMode,
+        };
+        if (state.forms.music.mode !== 'instrumental' && state.forms.music.lyricsMode === 'custom') {
+            payload.lyrics = (state.forms.music.lyrics || '').trim();
+        }
+        if (state.forms.music.bpm !== '') {
+            payload.bpm = Number(state.forms.music.bpm);
+        }
+        if (state.forms.music.key) {
+            payload.key = state.forms.music.key;
+        }
+
+        const res = await apiAdminAiTestMusic(payload, {
+            signal: controller.signal,
+        });
+        if (seq !== state.requestSeq.music) return;
+        if (state.controllers.music === controller) {
+            state.controllers.music = null;
+        }
+        clearTaskTimer('music', controller);
+        setTaskBusy('music', false, TASK_UI.music.busyText, TASK_UI.music.idleText);
+
+        if (res.aborted) return;
+        if (!res.ok) {
+            const errorCode = getApiCode(res);
+            state.results.music = {
+                status: 'error',
+                error: res.error,
+                errorCode,
+                raw: previous.raw,
+                debugRaw: res.data || previous.raw,
+                receivedAt: previous.receivedAt,
+            };
+            setStatus(describeAdminAiError('music', res.error, errorCode), 'error');
+            renderMusicResult();
+            return;
+        }
+
+        state.results.music = {
+            status: 'success',
+            errorCode: getApiCode(res),
+            raw: res.data,
+            debugRaw: res.data,
+            receivedAt: new Date(),
+        };
+        setStatus('Music generation completed.', 'success');
+        renderMusicResult();
     }
 
     async function runCompare() {
@@ -3348,6 +3826,24 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.embeddings.model, 'embeddings', 'model');
         attachFieldSync(refs.embeddings.input, 'embeddings', 'input');
 
+        attachFieldSync(refs.music.prompt, 'music', 'prompt');
+        attachFieldSync(refs.music.mode, 'music', 'mode');
+        attachFieldSync(refs.music.lyricsMode, 'music', 'lyricsMode');
+        attachFieldSync(refs.music.lyrics, 'music', 'lyrics');
+        attachFieldSync(refs.music.bpm, 'music', 'bpm', (value) => value === '' ? '' : Number(value));
+        attachFieldSync(refs.music.key, 'music', 'key');
+
+        refs.music.prompt.addEventListener('input', () => setMusicInlineError(''));
+        refs.music.mode.addEventListener('change', () => {
+            setMusicInlineError('');
+            syncMusicFieldState();
+        });
+        refs.music.lyricsMode.addEventListener('change', () => {
+            setMusicInlineError('');
+            syncMusicFieldState();
+        });
+        refs.music.lyrics.addEventListener('input', () => setMusicInlineError(''));
+
         attachFieldSync(refs.compare.modelA, 'compare', 'modelA');
         attachFieldSync(refs.compare.modelB, 'compare', 'modelB');
         attachFieldSync(refs.compare.system, 'compare', 'system');
@@ -3404,6 +3900,9 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.cancel.addEventListener('click', () => cancelTask('image', 'Image'));
         refs.embeddings.run.addEventListener('click', runEmbeddings);
         refs.embeddings.cancel.addEventListener('click', () => cancelTask('embeddings', 'Embeddings'));
+        refs.music.run.addEventListener('click', runMusic);
+        refs.music.cancel.addEventListener('click', () => cancelTask('music', 'Music'));
+        refs.music.reset.addEventListener('click', () => resetMusicForm());
         refs.compare.run.addEventListener('click', runCompare);
         refs.compare.cancel.addEventListener('click', () => cancelTask('compare', 'Compare'));
 
@@ -3427,6 +3926,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.embeddings.save.addEventListener('click', () => openSaveModal('embeddings'));
         refs.embeddings.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.embeddings?.debugRaw || state.results.embeddings?.raw), showToast, 'Raw JSON copied.');
+        });
+        refs.music.download.addEventListener('click', downloadMusicResult);
+        refs.music.copyRaw.addEventListener('click', () => {
+            copyText(safeJson(state.results.music?.debugRaw || state.results.music?.raw), showToast, 'Raw JSON copied.');
         });
         refs.compare.save.addEventListener('click', () => openSaveModal('compare'));
         refs.compare.copyRaw.addEventListener('click', () => {

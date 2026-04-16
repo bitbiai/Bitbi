@@ -9,6 +9,33 @@ export class AdminAiValidationError extends Error {
 
 export const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
 export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
+export const ADMIN_AI_MUSIC_MODEL_ID = "@cf/minimax/music-2.6";
+export const ADMIN_AI_MUSIC_KEYS = [
+  "C Major",
+  "C# Major",
+  "D Major",
+  "Eb Major",
+  "E Major",
+  "F Major",
+  "F# Major",
+  "G Major",
+  "Ab Major",
+  "A Major",
+  "Bb Major",
+  "B Major",
+  "C Minor",
+  "C# Minor",
+  "D Minor",
+  "Eb Minor",
+  "E Minor",
+  "F Minor",
+  "F# Minor",
+  "G Minor",
+  "Ab Minor",
+  "A Minor",
+  "Bb Minor",
+  "B Minor",
+];
 
 export const ADMIN_AI_LIMITS = {
   text: {
@@ -49,6 +76,12 @@ export const ADMIN_AI_LIMITS = {
     defaultTemperature: 0.7,
     minTemperature: 0,
     maxTemperature: 2,
+  },
+  music: {
+    maxPromptLength: 2000,
+    maxLyricsLength: 3500,
+    minBpm: 40,
+    maxBpm: 240,
   },
 };
 
@@ -204,6 +237,19 @@ const EMBEDDING_MODELS = {
   },
 };
 
+const MUSIC_MODELS = {
+  [ADMIN_AI_MUSIC_MODEL_ID]: {
+    id: ADMIN_AI_MUSIC_MODEL_ID,
+    task: "music",
+    label: "Music 2.6",
+    vendor: "MiniMax",
+    inputFormat: "json",
+    supportsInstrumental: true,
+    supportsLyricsOptimizer: true,
+    description: "Prompt-driven music generation with vocal, instrumental, and auto-lyrics support.",
+  },
+};
+
 const PRESETS = {
   fast: {
     name: "fast",
@@ -240,12 +286,20 @@ const PRESETS = {
     model: "@cf/baai/bge-m3",
     description: "Default multilingual embeddings preset.",
   },
+  music_studio: {
+    name: "music_studio",
+    task: "music",
+    label: "Music Studio",
+    model: ADMIN_AI_MUSIC_MODEL_ID,
+    description: "MiniMax Music 2.6 preset for admin-only studio generation.",
+  },
 };
 
 export const ADMIN_AI_DEFAULT_PRESETS = {
   text: "balanced",
   image: "image_fast",
   embeddings: "embedding_default",
+  music: "music_studio",
 };
 
 export const ADMIN_AI_DEFAULT_COMPARE_MODELS = {
@@ -257,6 +311,7 @@ const REGISTRY = {
   text: TEXT_MODELS,
   image: IMAGE_MODELS,
   embeddings: EMBEDDING_MODELS,
+  music: MUSIC_MODELS,
 };
 
 function invalidSelection(message, code = "validation_error") {
@@ -335,6 +390,23 @@ function optionalNumber(value, field, min, max, defaultValue = null) {
     );
   }
   return parsed;
+}
+
+function optionalEnum(value, field, allowed, defaultValue = null) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (typeof value !== "string") {
+    throw new AdminAiValidationError(`${field} must be a string.`, 400, "validation_error");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return defaultValue;
+  if (!allowed.includes(trimmed)) {
+    throw new AdminAiValidationError(
+      `${field} must be one of ${allowed.join(", ")}.`,
+      400,
+      "validation_error"
+    );
+  }
+  return trimmed;
 }
 
 function optionalDimension(value, field) {
@@ -520,6 +592,7 @@ export function listAdminAiCatalog() {
       text: Object.values(TEXT_MODELS).map(toPublicModel),
       image: Object.values(IMAGE_MODELS).map(toPublicModel),
       embeddings: Object.values(EMBEDDING_MODELS).map(toPublicModel),
+      music: Object.values(MUSIC_MODELS).map(toPublicModel),
     },
     future: {
       speech: {
@@ -731,6 +804,41 @@ export function validateAdminAiCompareBody(body) {
       ADMIN_AI_LIMITS.compare.maxTemperature,
       ADMIN_AI_LIMITS.compare.defaultTemperature
     ),
+  };
+}
+
+export function validateAdminAiMusicBody(body) {
+  const input = ensureObject(body);
+  const mode = optionalEnum(input.mode, "mode", ["vocals", "instrumental"], "vocals");
+  const lyricsMode = optionalEnum(input.lyricsMode, "lyricsMode", ["custom", "auto"], "custom");
+  const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.music.maxPromptLength);
+  const lyrics = optionalString(input.lyrics, "lyrics", ADMIN_AI_LIMITS.music.maxLyricsLength);
+  const bpm = optionalInteger(
+    input.bpm,
+    "bpm",
+    ADMIN_AI_LIMITS.music.minBpm,
+    ADMIN_AI_LIMITS.music.maxBpm,
+    null
+  );
+  const key = optionalEnum(input.key, "key", ADMIN_AI_MUSIC_KEYS, null);
+
+  if (mode === "vocals" && lyricsMode === "custom" && !lyrics) {
+    throw new AdminAiValidationError(
+      "lyrics are required when using custom lyrics mode.",
+      400,
+      "validation_error"
+    );
+  }
+
+  return {
+    preset: optionalString(input.preset, "preset", 64),
+    model: optionalString(input.model, "model", 120),
+    prompt,
+    mode,
+    lyricsMode,
+    lyrics: mode === "instrumental" || lyricsMode === "auto" ? null : lyrics,
+    bpm,
+    key,
   };
 }
 

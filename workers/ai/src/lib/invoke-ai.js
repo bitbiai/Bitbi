@@ -186,6 +186,144 @@ function extractEmbeddingsResponse(result) {
   return null;
 }
 
+function composeMusicPrompt(input) {
+  const promptParts = [String(input.prompt || "").trim()];
+
+  if (input.bpm) {
+    promptParts.push(`Tempo target: ${input.bpm} BPM.`);
+  }
+
+  if (input.key) {
+    promptParts.push(`Preferred key center: ${input.key}.`);
+  }
+
+  if (input.mode === "instrumental") {
+    promptParts.push("Instrumental only. No vocals.");
+  } else {
+    promptParts.push("Lead vocals should remain present.");
+  }
+
+  return promptParts.filter(Boolean).join(" ");
+}
+
+function isUrlLike(value) {
+  if (typeof value !== "string") return false;
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function parseBase64Audio(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+
+  const dataUriMatch = value.match(/^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i);
+  if (dataUriMatch) {
+    return {
+      audioBase64: dataUriMatch[2],
+      mimeType: dataUriMatch[1],
+    };
+  }
+
+  return null;
+}
+
+function parseHexAudio(value) {
+  if (typeof value !== "string") return null;
+  const compact = value.replace(/\s+/g, "");
+  if (!compact || compact.length % 2 !== 0 || !/^[a-f0-9]+$/i.test(compact)) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(compact.length / 2);
+  for (let i = 0; i < compact.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(compact.slice(i, i + 2), 16);
+  }
+
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return {
+    audioBase64: btoa(binary),
+    mimeType: "audio/mpeg",
+  };
+}
+
+function extractMusicLyrics(result) {
+  const candidates = [
+    result?.analysis_info?.lyrics,
+    result?.analysis_info?.generated_lyrics,
+    result?.analysis_info?.final_lyrics,
+    result?.lyrics,
+    result?.data?.lyrics,
+    result?.result?.lyrics,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function extractMusicResponse(result) {
+  const urlCandidates = [
+    result?.audio_url,
+    result?.url,
+    result?.data?.audio_url,
+    result?.data?.url,
+    result?.result?.audio_url,
+    result?.result?.url,
+  ];
+
+  for (const candidate of urlCandidates) {
+    if (isUrlLike(candidate)) {
+      return {
+        audioUrl: String(candidate).trim(),
+        audioBase64: null,
+        mimeType: "audio/mpeg",
+      };
+    }
+  }
+
+  const audioCandidates = [
+    result?.audio,
+    result?.data?.audio,
+    result?.result?.audio,
+    result?.result?.data?.audio,
+  ];
+
+  for (const candidate of audioCandidates) {
+    if (isUrlLike(candidate)) {
+      return {
+        audioUrl: String(candidate).trim(),
+        audioBase64: null,
+        mimeType: "audio/mpeg",
+      };
+    }
+
+    const base64Audio = parseBase64Audio(candidate);
+    if (base64Audio) {
+      return {
+        audioUrl: null,
+        ...base64Audio,
+      };
+    }
+
+    const hexAudio = parseHexAudio(candidate);
+    if (hexAudio) {
+      return {
+        audioUrl: null,
+        ...hexAudio,
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function invokeText(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
@@ -336,6 +474,62 @@ export async function invokeEmbeddings(env, model, input) {
 
   return {
     ...embeddings,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
+export async function invokeMusic(env, model, input) {
+  ensureAI(env);
+  const startedAt = Date.now();
+  const payload = {
+    prompt: composeMusicPrompt(input),
+    stream: false,
+    output_format: "url",
+    audio_setting: {
+      sample_rate: 44100,
+      bitrate: 256000,
+      format: "mp3",
+      lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
+      is_instrumental: input.mode === "instrumental",
+    },
+  };
+
+  if (input.mode !== "instrumental" && input.lyricsMode === "custom" && input.lyrics) {
+    payload.lyrics = input.lyrics;
+  }
+
+  let raw;
+  try {
+    raw = await env.AI.run(model.id, payload);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-music",
+      event: "workers_ai_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      ...getErrorFields(error),
+    });
+    throw error;
+  }
+
+  const music = extractMusicResponse(raw);
+  if (!music || (!music.audioUrl && !music.audioBase64)) {
+    throw new Error("Model returned no audio output.");
+  }
+
+  return {
+    ...music,
+    prompt: payload.prompt,
+    providerStatus: raw?.data?.status ?? raw?.status ?? null,
+    durationMs: raw?.extra_info?.music_duration ?? null,
+    sampleRate: raw?.extra_info?.music_sample_rate ?? null,
+    channels: raw?.extra_info?.music_channel ?? null,
+    bitrate: raw?.extra_info?.bitrate ?? payload.audio_setting.bitrate,
+    sizeBytes: raw?.extra_info?.music_size ?? null,
+    lyrics: extractMusicLyrics(raw),
+    traceId: raw?.trace_id || null,
     elapsedMs: Date.now() - startedAt,
   };
 }

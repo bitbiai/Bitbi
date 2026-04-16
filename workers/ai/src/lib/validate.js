@@ -4,6 +4,7 @@ export {
   validateAdminAiEmbeddingsBody as validateEmbeddingsBody,
   validateAdminAiImageBody as validateImageBody,
   validateAdminAiLiveAgentBody as validateLiveAgentBody,
+  validateAdminAiMusicBody as validateMusicBody,
   validateAdminAiTextBody as validateTextBody,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 

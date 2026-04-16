@@ -136,6 +136,13 @@ function createMockAiCatalog() {
         model: '@cf/baai/bge-m3',
         description: 'Default embeddings preset',
       },
+      {
+        name: 'music_studio',
+        task: 'music',
+        label: 'Music Studio',
+        model: '@cf/minimax/music-2.6',
+        description: 'Admin music preset',
+      },
     ],
     models: {
       text: [
@@ -233,6 +240,15 @@ function createMockAiCatalog() {
           label: 'BGE M3',
           vendor: 'BAAI',
           description: 'Default embeddings model',
+        },
+      ],
+      music: [
+        {
+          id: '@cf/minimax/music-2.6',
+          task: 'music',
+          label: 'Music 2.6',
+          vendor: 'MiniMax',
+          description: 'Prompt-based music generation with vocal and instrumental controls.',
         },
       ],
     },
@@ -491,6 +507,56 @@ async function mockAdminAiLab(page, captures = {}) {
           pooling: null,
         },
         elapsedMs: 88,
+      }),
+    });
+  });
+
+  await page.route('**/api/admin/ai/test-music', async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.prompt === 'force music error') {
+      await route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'upstream_error',
+          error: 'Music generation failed',
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        task: 'music',
+        model: catalog.models.music[0],
+        preset: body.preset || 'music_studio',
+        result: {
+          prompt: body.prompt,
+          mode: body.mode || 'vocals',
+          lyricsMode: body.lyricsMode || 'custom',
+          bpm: body.bpm ?? null,
+          key: body.key || null,
+          mimeType: 'audio/mpeg',
+          audioUrl: 'https://example.com/generated-track.mp3',
+          audioBase64: null,
+          durationMs: 25364,
+          sampleRate: 44100,
+          channels: 2,
+          bitrate: 256000,
+          sizeBytes: 813651,
+          providerStatus: 2,
+          lyricsPreview: body.mode === 'instrumental'
+            ? null
+            : (body.lyricsMode === 'auto'
+              ? '[Verse]\nGenerated automatic lyrics for the test harness.'
+              : body.lyrics),
+        },
+        traceId: 'mock-music-trace',
+        elapsedMs: 512,
       }),
     });
   });
@@ -2241,6 +2307,8 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.admin-quick-link[data-nav="ai-lab"]')).toHaveCount(0);
     await expect(page.locator('#summaryName')).toBeHidden();
 
+    await page.locator('#aiLabRefreshModels').click();
+    await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
     await page.getByRole('button', { name: 'Text' }).click();
     await expect(page.locator('#aiTextPreset option')).toHaveCount(2);
     await page.locator('#aiTextPrompt').fill('profile ai lab smoke');
@@ -2435,6 +2503,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
+    await expect(page.locator('#aiModelsMusic')).toContainText('Music 2.6');
 
     await page.getByRole('button', { name: 'Text', exact: true }).click();
     await page.selectOption('#aiTextSampleSelect', 'release-notes');
@@ -2516,9 +2585,119 @@ test.describe('Admin AI Lab', () => {
       'It feels agile and technical.',
     );
 
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await expect(page.locator('#aiMusicTitle')).toHaveText('Music AI');
+    await page.locator('#aiMusicPrompt').fill('Dark synthwave with a slow pulse and distant vocals.');
+    await page.locator('#aiMusicLyrics').fill('[Verse]\nDrive through the static night\n\n[Chorus]\nKeep the signal in sight');
+    await page.locator('#aiMusicBpm').fill('118');
+    await page.selectOption('#aiMusicKey', 'A Minor');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#aiMusicMeta')).toContainText('Music 2.6');
+    await expect(page.locator('#aiMusicMeta')).toContainText('A Minor');
+    await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Drive through the static night');
+    await expect(page.locator('#aiMusicDownload')).toBeVisible();
+
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
     await expect(page.locator('#statTotal')).toHaveText('12');
+  });
+
+  test('Music AI card validates, posts the expected payload, and renders success plus error states beside Live Agent', async ({
+    page,
+  }) => {
+    const musicRequests = [];
+    await page.unroute('**/api/admin/ai/test-music');
+    await page.route('**/api/admin/ai/test-music', async (route) => {
+      const body = route.request().postDataJSON();
+      musicRequests.push(body);
+      if (body.prompt === 'force music error') {
+        await route.fulfill({
+          status: 502,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'upstream_error',
+            error: 'Music generation failed',
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'music',
+          model: createMockAiCatalog().models.music[0],
+          preset: body.preset || 'music_studio',
+          result: {
+            prompt: body.prompt,
+            mode: body.mode,
+            lyricsMode: body.lyricsMode,
+            bpm: body.bpm ?? null,
+            key: body.key || null,
+            mimeType: 'audio/mpeg',
+            audioUrl: 'https://example.com/music-admin-test.mp3',
+            audioBase64: null,
+            durationMs: 22400,
+            sampleRate: 44100,
+            channels: 2,
+            bitrate: 256000,
+            sizeBytes: 702144,
+            providerStatus: 2,
+            lyricsPreview: body.lyricsMode === 'auto'
+              ? '[Chorus]\nGenerated lyrics from the mock route.'
+              : body.lyrics,
+          },
+          traceId: 'music-ui-trace',
+          elapsedMs: 600,
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
+    await expect(page.locator('#aiMusicTitle')).toBeVisible();
+    await expect(page.locator('#aiLiveAgentInput')).toBeVisible();
+
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicInlineError')).toContainText('Prompt is required');
+    expect(musicRequests).toHaveLength(0);
+
+    await page.locator('#aiMusicPrompt').fill('Warm electronic pop with a wide chorus.');
+    await page.locator('#aiMusicLyrics').fill('[Verse]\nHold the light inside the circuit');
+    await page.locator('#aiMusicBpm').fill('124');
+    await page.selectOption('#aiMusicKey', 'C Major');
+    await page.locator('#aiMusicRun').click();
+
+    await expect(page.locator('#aiMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Hold the light inside the circuit');
+    expect(musicRequests[0]).toEqual(expect.objectContaining({
+      preset: 'music_studio',
+      prompt: 'Warm electronic pop with a wide chorus.',
+      mode: 'vocals',
+      lyricsMode: 'custom',
+      lyrics: '[Verse]\nHold the light inside the circuit',
+      bpm: 124,
+      key: 'C Major',
+    }));
+
+    await page.selectOption('#aiMusicLyricsMode', 'auto');
+    await expect(page.locator('#aiMusicLyricsField')).toBeHidden();
+    await page.locator('#aiMusicPrompt').fill('force music error');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiLabStatus')).toContainText('Music generation failed');
+    await expect(page.locator('#aiMusicState')).toContainText('Previous result preserved.');
+
+    await page.selectOption('#aiMusicMode', 'instrumental');
+    await expect(page.locator('#aiMusicLyricsMode')).toBeDisabled();
+    await expect(page.locator('#aiMusicLyricsField')).toBeHidden();
   });
 
   test('accepts sub-512 FLUX.2 Dev reference images and rejects 512x512 images before submit', async ({
@@ -3225,15 +3404,16 @@ test.describe('Admin AI Lab', () => {
     // Switch to Live Agent
     await page.getByRole('button', { name: 'Live Agent' }).click();
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
-    await expect(
-      page.locator('#aiLabPanelLiveAgent .admin-section-title'),
-    ).toHaveText('Live Agent');
+    await expect(page.getByRole('heading', { name: 'Live Agent' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Music AI' })).toBeVisible();
     await expect(page.locator('#aiLiveAgentSystem')).toBeVisible();
     await expect(page.locator('#aiLiveAgentInput')).toBeVisible();
     await expect(page.locator('#aiLiveAgentSend')).toBeVisible();
     await expect(page.locator('#aiLiveAgentSend')).toBeEnabled();
     await expect(page.locator('#aiLiveAgentCancel')).toBeDisabled();
     await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
+    await expect(page.locator('#aiMusicPrompt')).toBeVisible();
+    await expect(page.locator('#aiMusicRun')).toBeVisible();
   });
 
   test('Live Agent system and input fields start single-line and autosize with content', async ({

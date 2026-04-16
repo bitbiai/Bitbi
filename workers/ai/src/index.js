@@ -3,6 +3,7 @@ import { handleCompare } from "./routes/compare.js";
 import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleImage } from "./routes/image.js";
 import { handleLiveAgent } from "./routes/live-agent.js";
+import { handleMusic } from "./routes/music.js";
 import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
 import {
@@ -39,6 +40,12 @@ export default {
     if (pathname === "/internal/ai/test-embeddings") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleEmbeddings(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/test-music") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleMusic(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

@@ -570,6 +570,50 @@
         margin-block-start: var(--space-5);
     }
 
+    .admin-ai__studio-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--space-5);
+    }
+
+    .admin-ai__studio-grid > .admin-ai__surface--spaced {
+        margin-block-start: 0;
+    }
+
+    .admin-ai__studio-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        min-width: 0;
+        min-height: 100%;
+    }
+
+    .admin-ai__studio-card--music {
+        position: relative;
+        overflow: hidden;
+        background:
+            radial-gradient(circle at top right, rgba(0, 240, 255, 0.08), transparent 42%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+    }
+
+    .admin-ai__studio-card--music::after {
+        content: "";
+        position: absolute;
+        inset: auto 1.5rem 1.25rem auto;
+        width: 6rem;
+        height: 6rem;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(0, 240, 255, 0.08), transparent 68%);
+        pointer-events: none;
+        opacity: 0.65;
+    }
+
+    .admin-ai__studio-head {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+
     .admin-ai__saved-assets {
         margin-block-start: var(--space-5);
         padding: var(--space-5);
@@ -626,6 +670,11 @@
         align-items: center;
         justify-content: space-between;
         gap: var(--space-3);
+    }
+
+    .admin-ai__label-row--wrap {
+        flex-wrap: wrap;
+        justify-content: flex-start;
     }
 
     .admin-ai__count {
@@ -687,6 +736,21 @@
         font-size: 11px;
         color: rgba(255, 140, 140, 0.9);
         margin-block-start: var(--space-1);
+    }
+
+    .admin-ai__model-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.75rem;
+        padding: 0.25rem 0.65rem;
+        border-radius: var(--radius-full);
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        background: rgba(0, 240, 255, 0.06);
+        color: rgba(180, 245, 255, 0.92);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
     }
 
     .admin-ai__field--disabled .admin-ai__input,
@@ -866,6 +930,42 @@
         transform: none;
     }
 
+    .admin-ai__music-signal {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        align-items: end;
+        gap: 6px;
+        min-block-size: 2.75rem;
+        padding: var(--space-3) var(--space-4);
+        margin-block-start: calc(var(--space-1) * -1);
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+    }
+
+    .admin-ai__music-signal span {
+        display: block;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(0, 240, 255, 0.88), rgba(0, 240, 255, 0.14));
+        box-shadow: 0 0 20px rgba(0, 240, 255, 0.08);
+    }
+
+    .admin-ai__music-signal span:nth-child(1) { block-size: 38%; opacity: 0.52; }
+    .admin-ai__music-signal span:nth-child(2) { block-size: 70%; opacity: 0.84; }
+    .admin-ai__music-signal span:nth-child(3) { block-size: 100%; }
+    .admin-ai__music-signal span:nth-child(4) { block-size: 62%; opacity: 0.72; }
+    .admin-ai__music-signal span:nth-child(5) { block-size: 86%; opacity: 0.92; }
+    .admin-ai__music-signal span:nth-child(6) { block-size: 46%; opacity: 0.58; }
+
+    .admin-ai__music-helper {
+        margin: calc(var(--space-2) * -1) 0 0;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.42);
+    }
+
     .admin-ai__result-state,
     .admin-ai__summary {
         font-size: 13px;
@@ -945,6 +1045,144 @@
 
     @keyframes admin-ai-spin {
         to { transform: rotate(360deg); }
+    }
+
+    .admin-ai__music-preview {
+        position: relative;
+        padding: var(--space-4);
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(7, 12, 18, 0.68);
+        overflow: hidden;
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__music-preview::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(135deg, rgba(0, 240, 255, 0.05), transparent 45%),
+            radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.04), transparent 55%);
+        pointer-events: none;
+    }
+
+    .admin-ai__music-player {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        min-width: 0;
+    }
+
+    .admin-ai__music-player-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+    }
+
+    .admin-ai__music-player-title {
+        margin: 0;
+        font-size: 1rem;
+        color: var(--color-text);
+    }
+
+    .admin-ai__music-player-note {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.42);
+    }
+
+    .admin-ai__music-player audio {
+        width: 100%;
+    }
+
+    .admin-ai__music-empty {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-4);
+        min-block-size: 14rem;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.42);
+    }
+
+    .admin-ai__music-empty-icon {
+        position: relative;
+        inline-size: 3.5rem;
+        block-size: 3.5rem;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        background:
+            radial-gradient(circle at 32% 30%, rgba(0, 240, 255, 0.16), transparent 42%),
+            rgba(255, 255, 255, 0.03);
+    }
+
+    .admin-ai__music-empty-icon::before,
+    .admin-ai__music-empty-icon::after {
+        content: "";
+        position: absolute;
+        border-radius: 999px;
+        background: rgba(188, 245, 255, 0.82);
+    }
+
+    .admin-ai__music-empty-icon::before {
+        inset-inline-start: 1rem;
+        inset-block-start: 0.92rem;
+        width: 7px;
+        height: 18px;
+        box-shadow:
+            10px -8px 0 -2px rgba(188, 245, 255, 0.22),
+            10px 8px 0 -2px rgba(188, 245, 255, 0.18),
+            20px -10px 0 -4px rgba(188, 245, 255, 0.16),
+            20px 10px 0 -4px rgba(188, 245, 255, 0.12);
+    }
+
+    .admin-ai__music-empty-icon::after {
+        inset-inline-start: 1.45rem;
+        inset-block-start: 1.35rem;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .admin-ai__music-empty-copy {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        max-inline-size: 28rem;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.7;
+    }
+
+    .admin-ai__music-empty-copy strong {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+    }
+
+    .admin-ai__music-lyrics {
+        padding: var(--space-4);
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.02);
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__music-lyrics-copy {
+        margin: var(--space-3) 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.76);
     }
 
     .admin-ai__preview {
@@ -1426,7 +1664,8 @@
 
     @media (min-width: 720px) {
         .admin-ai__header,
-        .admin-ai__panel-header {
+        .admin-ai__panel-header,
+        .admin-ai__studio-head {
             flex-direction: row;
             justify-content: space-between;
             align-items: flex-start;
@@ -1480,6 +1719,13 @@
 
         .admin-ai__form-grid--5 {
             grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+    }
+
+    @media (min-width: 1100px) {
+        .admin-ai__studio-grid {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr);
+            align-items: stretch;
         }
     }
 
