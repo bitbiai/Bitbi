@@ -157,6 +157,8 @@
     @media (min-width: 1024px) {
         .site-audio {
             --site-audio-nav-height: calc(5rem + env(safe-area-inset-top, 0px));
+            --site-audio-panel-width: min(32rem, 50vw);
+            justify-content: flex-start;
         }
     }
 
@@ -179,7 +181,7 @@
     .site-audio__panel {
         position: relative;
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        grid-template-columns: auto auto auto minmax(0, 1fr) auto auto;
         align-items: center;
         gap: 0.75rem;
         inline-size: 100%;
@@ -318,6 +320,16 @@
         box-shadow: 0 0 22px rgba(0, 240, 255, 0.16);
     }
 
+    .site-audio__btn--skip {
+        inline-size: 2rem;
+        block-size: 2rem;
+    }
+
+    .site-audio__btn--skip:disabled {
+        opacity: 0.25;
+        pointer-events: none;
+    }
+
     .site-audio__btn--dismiss {
         inline-size: 2rem;
         block-size: 2rem;
@@ -408,12 +420,33 @@
         .site-audio {
             --site-audio-panel-width: calc(100vw - 1rem);
             --site-audio-handle-height: 1.55rem;
+            inset-block-start: auto;
+            inset-block-end: 0;
+            padding-block-end: env(safe-area-inset-bottom, 0px);
+        }
+
+        .site-audio__drawer {
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: center;
+            transform: translateY(calc(100% - var(--site-audio-handle-height)));
+        }
+
+        .site-audio.is-open .site-audio__drawer,
+        .site-audio:focus-within .site-audio__drawer {
+            transform: translateY(0);
         }
 
         .site-audio__panel {
-            grid-template-columns: auto minmax(0, 1fr) auto auto;
+            grid-template-columns: auto auto auto minmax(0, 1fr) auto auto;
             gap: 0.625rem;
             padding: 0.75rem 0.85rem;
+            transform: translateY(0.4rem);
+        }
+
+        .site-audio.is-open .site-audio__panel,
+        .site-audio:focus-within .site-audio__panel {
+            transform: translateY(0);
         }
 
         .site-audio__title {
@@ -429,9 +462,19 @@
             block-size: 2.25rem;
         }
 
+        .site-audio__btn--skip {
+            inline-size: 1.75rem;
+            block-size: 1.75rem;
+        }
+
         .site-audio__handle {
             min-inline-size: 6.35rem;
             padding-inline: 0.82rem;
+            border-radius: 999px 999px 0 0;
+            border: 1px solid rgba(0, 240, 255, 0.14);
+            border-block-end: 0;
+            margin-block-start: 0;
+            margin-block-end: -1px;
         }
 
         .site-audio__handle-text {

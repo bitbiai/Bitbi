@@ -12,7 +12,10 @@ import {
     seekGlobalAudio,
     toggleGlobalAudioMute,
     clearGlobalAudio,
+    playGlobalTrack,
 } from './audio-manager.js?v=__ASSET_VERSION__';
+
+import { getSoundLabTracks, isSoundLabTrackId, buildSoundLabTrack } from './audio-library.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let unsubscribe = null;
@@ -40,9 +43,15 @@ function ensureAudioShell() {
     shell.innerHTML = `
         <div class="site-audio__drawer">
             <div id="globalAudioPanel" class="site-audio__panel glass" aria-hidden="true">
+                <button type="button" id="globalAudioPrev" class="site-audio__btn site-audio__btn--skip" aria-label="Previous track" disabled>
+                    <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+                </button>
                 <button type="button" id="globalAudioToggle" class="site-audio__btn site-audio__btn--play" aria-label="Play audio">
                     <svg class="site-audio__icon site-audio__icon--play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
                     <svg class="site-audio__icon site-audio__icon--pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                </button>
+                <button type="button" id="globalAudioNext" class="site-audio__btn site-audio__btn--skip" aria-label="Next track" disabled>
+                    <svg class="site-audio__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z"></path></svg>
                 </button>
                 <div class="site-audio__meta">
                     <div id="globalAudioTitle" class="site-audio__title">Audio player</div>
@@ -70,6 +79,20 @@ function ensureAudioShell() {
     return shell;
 }
 
+function skipTrack(direction) {
+    const state = getGlobalAudioState();
+    if (!state.trackId || !isSoundLabTrackId(state.trackId)) return;
+
+    const tracks = getSoundLabTracks();
+    const currentIndex = tracks.findIndex(t => t.id === state.trackId);
+    if (currentIndex === -1) return;
+
+    const nextIndex = (currentIndex + direction + tracks.length) % tracks.length;
+    const nextTrack = tracks[nextIndex];
+    const playReady = buildSoundLabTrack(nextTrack.slug, { originLabel: 'Sound Lab' });
+    if (playReady) playGlobalTrack(playReady);
+}
+
 function renderAudioShell(nextState) {
     const shell = document.getElementById('globalAudioShell');
     if (!shell) return;
@@ -83,11 +106,18 @@ function renderAudioShell(nextState) {
     const handle = shell.querySelector('#globalAudioHandle');
     const panel = shell.querySelector('#globalAudioPanel');
 
+    const prevBtn = shell.querySelector('#globalAudioPrev');
+    const nextBtn = shell.querySelector('#globalAudioNext');
+
     const hasTrack = !!nextState.sourceUrl;
     shell.hidden = !hasTrack;
     shell.classList.toggle('site-audio--playing', nextState.status === 'playing');
     shell.classList.toggle('site-audio--blocked', nextState.status === 'blocked');
     shell.classList.toggle('site-audio--muted', !!nextState.muted);
+
+    const canSkip = hasTrack && isSoundLabTrackId(nextState.trackId);
+    if (prevBtn) prevBtn.disabled = !canSkip;
+    if (nextBtn) nextBtn.disabled = !canSkip;
 
     if (!hasTrack) {
         setDrawerExpanded(shell, false);
@@ -146,7 +176,9 @@ function bindAudioShellEvents() {
 
     const drawer = shell.querySelector('.site-audio__drawer');
     const panel = shell.querySelector('#globalAudioPanel');
+    const prevBtn = shell.querySelector('#globalAudioPrev');
     const playBtn = shell.querySelector('#globalAudioToggle');
+    const nextBtn = shell.querySelector('#globalAudioNext');
     const muteBtn = shell.querySelector('#globalAudioMute');
     const dismissBtn = shell.querySelector('#globalAudioDismiss');
     const progress = shell.querySelector('#globalAudioProgress');
@@ -158,6 +190,9 @@ function bindAudioShellEvents() {
         if (shell.hidden) return;
         setDrawerExpanded(shell, false);
     };
+
+    prevBtn?.addEventListener('click', () => skipTrack(-1));
+    nextBtn?.addEventListener('click', () => skipTrack(1));
 
     playBtn?.addEventListener('click', async () => {
         const nextState = getGlobalAudioState();
