@@ -9,7 +9,7 @@ export class AdminAiValidationError extends Error {
 
 export const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
 export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
-export const ADMIN_AI_MUSIC_MODEL_ID = "@cf/minimax/music-2.6";
+export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",

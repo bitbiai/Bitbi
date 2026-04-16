@@ -140,7 +140,7 @@ function createMockAiCatalog() {
         name: 'music_studio',
         task: 'music',
         label: 'Music Studio',
-        model: '@cf/minimax/music-2.6',
+        model: 'minimax/music-2.6',
         description: 'Admin music preset',
       },
     ],
@@ -244,7 +244,7 @@ function createMockAiCatalog() {
       ],
       music: [
         {
-          id: '@cf/minimax/music-2.6',
+          id: 'minimax/music-2.6',
           task: 'music',
           label: 'Music 2.6',
           vendor: 'MiniMax',

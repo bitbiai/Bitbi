@@ -121,7 +121,7 @@ function createAiLabRunStub() {
       };
     }
 
-    if (modelId === '@cf/minimax/music-2.6') {
+    if (modelId === 'minimax/music-2.6') {
       return {
         data: {
           audio: '494433040000000000',
@@ -1510,7 +1510,7 @@ test.describe('Worker routes', () => {
         '@cf/black-forest-labs/flux-2-dev',
       ]));
       expect(body.models.music.map((model) => model.id)).toEqual(expect.arrayContaining([
-        '@cf/minimax/music-2.6',
+        'minimax/music-2.6',
       ]));
       expect(body.presets[0]).toEqual(expect.objectContaining({
         name: expect.any(String),
@@ -2050,7 +2050,7 @@ test.describe('Worker routes', () => {
         ok: true,
         task: 'music',
         model: expect.objectContaining({
-          id: '@cf/minimax/music-2.6',
+          id: 'minimax/music-2.6',
           task: 'music',
           label: 'Music 2.6',
           vendor: 'MiniMax',
@@ -2074,21 +2074,18 @@ test.describe('Worker routes', () => {
         }),
         elapsedMs: expect.any(Number),
       }));
-      expect(capturedModelId).toBe('@cf/minimax/music-2.6');
+      expect(capturedModelId).toBe('minimax/music-2.6');
       expect(capturedPayload).toEqual(expect.objectContaining({
-        stream: false,
-        output_format: 'url',
         lyrics: '[Verse]\nHold the skyline in tune',
         lyrics_optimizer: false,
         is_instrumental: false,
-        audio_setting: expect.objectContaining({
-          sample_rate: 44100,
-          bitrate: 256000,
-          format: 'mp3',
-        }),
+        sample_rate: 44100,
+        bitrate: 256000,
+        format: 'mp3',
       }));
-      expect(capturedPayload.audio_setting.lyrics_optimizer).toBeUndefined();
-      expect(capturedPayload.audio_setting.is_instrumental).toBeUndefined();
+      expect(capturedPayload.stream).toBeUndefined();
+      expect(capturedPayload.output_format).toBeUndefined();
+      expect(capturedPayload.audio_setting).toBeUndefined();
       expect(capturedPayload.prompt).toContain('Dark synthwave pulse with cinematic tension.');
       expect(capturedPayload.prompt).toContain('Tempo target: 118 BPM.');
       expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
@@ -2131,21 +2128,18 @@ test.describe('Worker routes', () => {
         }),
       }));
       expect(capturedPayload).toEqual(expect.objectContaining({
-        stream: false,
-        output_format: 'url',
         lyrics_optimizer: false,
         is_instrumental: true,
-        audio_setting: expect.objectContaining({
-          sample_rate: 44100,
-          bitrate: 256000,
-          format: 'mp3',
-        }),
+        sample_rate: 44100,
+        bitrate: 256000,
+        format: 'mp3',
       }));
       expect(capturedPayload.lyrics).toBeUndefined();
       expect(capturedPayload.bpm).toBeUndefined();
       expect(capturedPayload.key).toBeUndefined();
-      expect(capturedPayload.audio_setting.lyrics_optimizer).toBeUndefined();
-      expect(capturedPayload.audio_setting.is_instrumental).toBeUndefined();
+      expect(capturedPayload.stream).toBeUndefined();
+      expect(capturedPayload.output_format).toBeUndefined();
+      expect(capturedPayload.audio_setting).toBeUndefined();
       expect(capturedPayload.prompt).toContain('Tempo target: 92 BPM.');
       expect(capturedPayload.prompt).toContain('Preferred key center: E Minor.');
       expect(capturedPayload.prompt).toContain('Instrumental only. No vocals.');

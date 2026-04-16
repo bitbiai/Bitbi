@@ -266,19 +266,15 @@ function parseBinaryAudioString(value) {
 
 function summarizeMusicPayload(payload) {
   return {
-    stream: payload?.stream === true,
-    output_format: payload?.output_format || null,
     has_prompt: typeof payload?.prompt === "string" && payload.prompt.trim().length > 0,
     prompt_length: typeof payload?.prompt === "string" ? payload.prompt.length : 0,
     has_lyrics: typeof payload?.lyrics === "string" && payload.lyrics.trim().length > 0,
     lyrics_length: typeof payload?.lyrics === "string" ? payload.lyrics.length : 0,
     lyrics_optimizer: payload?.lyrics_optimizer === true,
     is_instrumental: payload?.is_instrumental === true,
-    audio_setting: {
-      sample_rate: payload?.audio_setting?.sample_rate ?? null,
-      bitrate: payload?.audio_setting?.bitrate ?? null,
-      format: payload?.audio_setting?.format ?? null,
-    },
+    sample_rate: payload?.sample_rate ?? null,
+    bitrate: payload?.bitrate ?? null,
+    format: payload?.format ?? null,
   };
 }
 
@@ -696,15 +692,11 @@ export async function invokeMusic(env, model, input) {
   const startedAt = Date.now();
   const payload = {
     prompt: composeMusicPrompt(input),
-    stream: false,
-    output_format: "url",
+    sample_rate: 44100,
+    bitrate: 256000,
+    format: "mp3",
     lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
     is_instrumental: input.mode === "instrumental",
-    audio_setting: {
-      sample_rate: 44100,
-      bitrate: 256000,
-      format: "mp3",
-    },
   };
 
   if (input.mode !== "instrumental" && input.lyricsMode === "custom" && input.lyrics) {
@@ -778,7 +770,7 @@ export async function invokeMusic(env, model, input) {
     durationMs: raw?.extra_info?.music_duration ?? null,
     sampleRate: raw?.extra_info?.music_sample_rate ?? null,
     channels: raw?.extra_info?.music_channel ?? null,
-    bitrate: raw?.extra_info?.bitrate ?? payload.audio_setting.bitrate,
+    bitrate: raw?.extra_info?.bitrate ?? payload.bitrate,
     sizeBytes: raw?.extra_info?.music_size ?? null,
     lyrics: extractMusicLyrics(raw),
     traceId: raw?.trace_id || null,
