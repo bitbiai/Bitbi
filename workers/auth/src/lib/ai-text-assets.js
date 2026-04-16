@@ -267,6 +267,31 @@ function serializeLiveAgentPayload(title, payload, savedAt) {
   };
 }
 
+function buildMusicMetadata(payload, savedAt) {
+  return {
+    source_module: "music",
+    saved_at: savedAt,
+    model: payload.model || null,
+    prompt: payload.prompt || null,
+    mode: payload.mode || null,
+    lyrics_mode: payload.lyricsMode || null,
+    bpm: payload.bpm ?? null,
+    key: payload.key || null,
+    lyrics_preview: payload.lyricsPreview || null,
+    audio: {
+      duration_ms: payload.durationMs ?? null,
+      sample_rate: payload.sampleRate ?? null,
+      channels: payload.channels ?? null,
+      bitrate: payload.bitrate ?? null,
+      size_bytes: payload.sizeBytes ?? null,
+    },
+    trace_id: payload.traceId || null,
+    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    elapsed_ms: payload.elapsedMs ?? null,
+    received_at: payload.receivedAt || null,
+  };
+}
+
 export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedAt = nowIso() }) {
   const safeTitle = cleanInlineText(title);
   const normalizedPayload = {
@@ -301,25 +326,62 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
   }
 }
 
-export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {
-  const safeTitle = cleanInlineText(title).slice(0, 120) || "AI Lab Asset";
-  const now = nowIso();
-  const serialization = serializeAdminAiTextAsset({
-    title: safeTitle,
-    sourceModule,
-    payload,
-    savedAt: now,
-  });
+export const AI_MUSIC_ASSET_MAX_BYTES = 12_000_000;
 
-  const content = serialization.content.endsWith("\n")
-    ? serialization.content
-    : `${serialization.content}\n`;
-  const bytes = new TextEncoder().encode(content);
-  if (bytes.byteLength > AI_TEXT_ASSET_MAX_BYTES) {
-    const error = new Error(`Saved text asset exceeds the ${AI_TEXT_ASSET_MAX_BYTES} byte limit.`);
+function buildMusicAssetFields(safeTitle, payload, now) {
+  const raw = payload.audioBase64;
+  const bytes = Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
+  if (bytes.byteLength > AI_MUSIC_ASSET_MAX_BYTES) {
+    const error = new Error(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
     error.status = 400;
     error.code = "validation_error";
     throw error;
+  }
+  const mimeType = payload.mimeType || "audio/mpeg";
+  const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("flac") ? "flac" : "mp3";
+  const previewText = truncatePreview(payload.prompt || "Music generation");
+  const metadata = buildMusicMetadata(payload, now);
+  return { bytes, mimeType, ext, previewText, metadata };
+}
+
+export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {
+  const safeTitle = cleanInlineText(title).slice(0, 120) || "AI Lab Asset";
+  const now = nowIso();
+
+  let bytes;
+  let mimeType;
+  let fileExt;
+  let previewText;
+  let metadataRaw;
+
+  if (sourceModule === "music") {
+    const music = buildMusicAssetFields(safeTitle, payload, now);
+    bytes = music.bytes;
+    mimeType = music.mimeType;
+    fileExt = music.ext;
+    previewText = music.previewText;
+    metadataRaw = music.metadata;
+  } else {
+    const serialization = serializeAdminAiTextAsset({
+      title: safeTitle,
+      sourceModule,
+      payload,
+      savedAt: now,
+    });
+    const content = serialization.content.endsWith("\n")
+      ? serialization.content
+      : `${serialization.content}\n`;
+    bytes = new TextEncoder().encode(content);
+    if (bytes.byteLength > AI_TEXT_ASSET_MAX_BYTES) {
+      const error = new Error(`Saved text asset exceeds the ${AI_TEXT_ASSET_MAX_BYTES} byte limit.`);
+      error.status = 400;
+      error.code = "validation_error";
+      throw error;
+    }
+    mimeType = AI_TEXT_ASSET_MIME_TYPE;
+    fileExt = "txt";
+    previewText = serialization.previewText;
+    metadataRaw = serialization.metadata;
   }
 
   let resolvedFolderId = null;
@@ -341,12 +403,13 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   }
 
   const fileStem = slugifyFileName(safeTitle, sourceModule);
-  const fileName = `${fileStem}.txt`;
+  const fileName = `${fileStem}.${fileExt}`;
   const assetId = randomTokenHex(16);
   const timestamp = Date.now();
-  const r2Key = `users/${userId}/folders/${folderSlug}/text/${timestamp}-${randomTokenHex(4)}-${fileName}`;
+  const subDir = sourceModule === "music" ? "audio" : "text";
+  const r2Key = `users/${userId}/folders/${folderSlug}/${subDir}/${timestamp}-${randomTokenHex(4)}-${fileName}`;
   const metadataJson = JSON.stringify(
-    sanitizeAssetMetadata(serialization.metadata, {
+    sanitizeAssetMetadata(metadataRaw, {
       field: "metadata",
       ...METADATA_JSON_LIMITS,
       stringifyNested: true,
@@ -355,7 +418,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
 
   await env.USER_IMAGES.put(r2Key, bytes, {
     httpMetadata: {
-      contentType: AI_TEXT_ASSET_MIME_TYPE,
+      contentType: mimeType,
       contentDisposition: `inline; filename="${fileName}"`,
     },
   });
@@ -375,9 +438,9 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
         safeTitle,
         fileName,
         sourceModule,
-        AI_TEXT_ASSET_MIME_TYPE,
+        mimeType,
         bytes.byteLength,
-        serialization.previewText,
+        previewText,
         metadataJson,
         now,
         resolvedFolderId,
@@ -395,9 +458,9 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
         safeTitle,
         fileName,
         sourceModule,
-        AI_TEXT_ASSET_MIME_TYPE,
+        mimeType,
         bytes.byteLength,
-        serialization.previewText,
+        previewText,
         metadataJson,
         now
       ).run();
@@ -432,9 +495,9 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     title: safeTitle,
     file_name: fileName,
     source_module: sourceModule,
-    mime_type: AI_TEXT_ASSET_MIME_TYPE,
+    mime_type: mimeType,
     size_bytes: bytes.byteLength,
-    preview_text: serialization.previewText,
+    preview_text: previewText,
     created_at: now,
   };
 }

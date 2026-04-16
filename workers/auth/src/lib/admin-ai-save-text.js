@@ -29,7 +29,7 @@ const SAVE_TEXT_ASSET_LIMITS = {
   maxTranscriptMessages: 60,
 };
 
-const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent"]);
+const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent", "music"]);
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -442,6 +442,35 @@ function validateSavedLiveAgentData(data) {
   };
 }
 
+function validateSavedMusicData(data) {
+  const input = ensurePlainObject(data, "data");
+  const audioBase64 = requiredString(input.audioBase64, "data.audioBase64", 16_000_000);
+  const mimeType = optionalString(input.mimeType, "data.mimeType", 80) || "audio/mpeg";
+  if (!mimeType.startsWith("audio/")) {
+    throw new InputError("data.mimeType must be an audio MIME type.", 400, "validation_error");
+  }
+  return {
+    audioBase64,
+    mimeType,
+    prompt: optionalString(input.prompt, "data.prompt", LIMITS.music.maxPromptLength),
+    model: optionalModelSummary(input.model, "data.model"),
+    mode: optionalString(input.mode, "data.mode", 32),
+    lyricsMode: optionalString(input.lyricsMode, "data.lyricsMode", 32),
+    bpm: optionalInteger(input.bpm, "data.bpm", LIMITS.music.minBpm, LIMITS.music.maxBpm, null),
+    key: optionalString(input.key, "data.key", 32),
+    lyricsPreview: optionalString(input.lyricsPreview, "data.lyricsPreview", 4000),
+    durationMs: optionalInteger(input.durationMs, "data.durationMs", 0, 600_000, null),
+    sampleRate: optionalInteger(input.sampleRate, "data.sampleRate", 1, 192_000, null),
+    channels: optionalInteger(input.channels, "data.channels", 1, 8, null),
+    bitrate: optionalInteger(input.bitrate, "data.bitrate", 1, 1_000_000, null),
+    sizeBytes: optionalInteger(input.sizeBytes, "data.sizeBytes", 0, 100_000_000, null),
+    traceId: optionalString(input.traceId, "data.traceId", 128),
+    warnings: optionalWarnings(input.warnings),
+    elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
+    receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),
+  };
+}
+
 function validateSaveTextAssetPayload(body) {
   const input = ensureObject(body);
   const title = requiredString(input.title, "title", SAVE_TEXT_ASSET_LIMITS.titleMax);
@@ -465,6 +494,9 @@ function validateSaveTextAssetPayload(body) {
       break;
     case "live_agent":
       payload = validateSavedLiveAgentData(input.data);
+      break;
+    case "music":
+      payload = validateSavedMusicData(input.data);
       break;
     default:
       throw new InputError("sourceModule is invalid.", 400, "validation_error");

@@ -531,61 +531,6 @@
                             </details>
                         </div>
                     </div>
-                    <section id="aiLabSavedAssets" class="admin-ai__saved-assets" aria-label="Saved assets browser">
-                        <div class="studio__gallery-header">
-                            <h4 class="studio__card-title">Saved Assets</h4>
-                            <div class="studio__folder-bar">
-                                <select id="aiLabAssetsGalleryFilter" class="studio__folder-filter">
-                                    <option value="">All Folders</option>
-                                </select>
-                                <button type="button" id="aiLabAssetsNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
-                                <button type="button" id="aiLabAssetsDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
-                                <button type="button" id="aiLabAssetsSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
-                                <div class="studio__mobile-actions" id="aiLabAssetsMobileActions">
-                                    <button type="button" class="studio__mobile-actions-toggle" id="aiLabAssetsMobileActionsToggle" aria-label="Saved asset actions" aria-expanded="false">&#x22EE;</button>
-                                    <div class="studio__mobile-actions-menu" id="aiLabAssetsMobileActionsMenu">
-                                        <button type="button" data-action="new-folder">+ Folder</button>
-                                        <button type="button" data-action="delete-folder">&minus; Folder</button>
-                                        <button type="button" data-action="select">Select</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="aiLabAssetsNewFolderForm" class="studio__new-folder-form">
-                            <input type="text" id="aiLabAssetsNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
-                            <button type="button" id="aiLabAssetsNewFolderSave" class="studio__new-folder-save">Create</button>
-                            <button type="button" id="aiLabAssetsNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
-                        </div>
-
-                        <div id="aiLabAssetsDeleteFolderForm" class="studio__delete-folder-form">
-                            <select id="aiLabAssetsDeleteFolderSelect" class="studio__delete-folder-select"></select>
-                            <button type="button" id="aiLabAssetsDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
-                            <button type="button" id="aiLabAssetsDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
-                        </div>
-
-                        <div id="aiLabAssetsBulkBar" class="studio__bulk-bar">
-                            <span id="aiLabAssetsBulkCount" class="studio__bulk-count">0 selected</span>
-                            <button type="button" id="aiLabAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
-                            <button type="button" id="aiLabAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
-                            <button type="button" id="aiLabAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
-                        </div>
-
-                        <div id="aiLabAssetsBulkMoveForm" class="studio__bulk-move-form">
-                            <select id="aiLabAssetsBulkMoveSelect" class="studio__bulk-move-select"></select>
-                            <button type="button" id="aiLabAssetsBulkMoveConfirm" class="studio__new-folder-save">Move</button>
-                            <button type="button" id="aiLabAssetsBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
-                        </div>
-
-                        <div id="aiLabAssetsMsg" class="studio__msg" role="status"></div>
-                        <div id="aiLabAssetsFolderGrid" class="studio__folder-grid"></div>
-                        <div id="aiLabAssetsFolderBack" class="studio__folder-back">
-                            <button type="button" id="aiLabAssetsFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
-                        </div>
-                        <div id="aiLabAssetsGrid" class="studio__image-grid">
-                            <div class="studio__gallery-empty">Loading saved assets...</div>
-                        </div>
-                    </section>
                 </div>
 
                 <div id="aiLabPanelEmbeddings" class="admin-ai__panel glass glass-card reveal visible" hidden>
@@ -886,6 +831,7 @@
                         <div id="aiMusicState" class="admin-ai__result-state">No music generation yet.</div>
                         <div class="admin-ai__result-actions">
                             <button type="button" id="aiMusicDownload" class="btn-action" hidden>Download Audio</button>
+                            <button type="button" id="aiMusicSave" class="btn-action" hidden>Save to Folder</button>
                         </div>
 
                         <div id="aiMusicPreview" class="admin-ai__music-preview">
@@ -914,6 +860,62 @@
                         </details>
                     </section>
                 </div>
+
+                <section id="aiLabSavedAssets" class="admin-ai__saved-assets" hidden aria-label="Saved assets browser">
+                    <div class="studio__gallery-header">
+                        <h4 class="studio__card-title">Saved Assets</h4>
+                        <div class="studio__folder-bar">
+                            <select id="aiLabAssetsGalleryFilter" class="studio__folder-filter">
+                                <option value="">All Folders</option>
+                            </select>
+                            <button type="button" id="aiLabAssetsNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
+                            <button type="button" id="aiLabAssetsDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
+                            <button type="button" id="aiLabAssetsSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
+                            <div class="studio__mobile-actions" id="aiLabAssetsMobileActions">
+                                <button type="button" class="studio__mobile-actions-toggle" id="aiLabAssetsMobileActionsToggle" aria-label="Saved asset actions" aria-expanded="false">&#x22EE;</button>
+                                <div class="studio__mobile-actions-menu" id="aiLabAssetsMobileActionsMenu">
+                                    <button type="button" data-action="new-folder">+ Folder</button>
+                                    <button type="button" data-action="delete-folder">&minus; Folder</button>
+                                    <button type="button" data-action="select">Select</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="aiLabAssetsNewFolderForm" class="studio__new-folder-form">
+                        <input type="text" id="aiLabAssetsNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
+                        <button type="button" id="aiLabAssetsNewFolderSave" class="studio__new-folder-save">Create</button>
+                        <button type="button" id="aiLabAssetsNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="aiLabAssetsDeleteFolderForm" class="studio__delete-folder-form">
+                        <select id="aiLabAssetsDeleteFolderSelect" class="studio__delete-folder-select"></select>
+                        <button type="button" id="aiLabAssetsDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
+                        <button type="button" id="aiLabAssetsDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="aiLabAssetsBulkBar" class="studio__bulk-bar">
+                        <span id="aiLabAssetsBulkCount" class="studio__bulk-count">0 selected</span>
+                        <button type="button" id="aiLabAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
+                        <button type="button" id="aiLabAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
+                        <button type="button" id="aiLabAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                    </div>
+
+                    <div id="aiLabAssetsBulkMoveForm" class="studio__bulk-move-form">
+                        <select id="aiLabAssetsBulkMoveSelect" class="studio__bulk-move-select"></select>
+                        <button type="button" id="aiLabAssetsBulkMoveConfirm" class="studio__new-folder-save">Move</button>
+                        <button type="button" id="aiLabAssetsBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="aiLabAssetsMsg" class="studio__msg" role="status"></div>
+                    <div id="aiLabAssetsFolderGrid" class="studio__folder-grid"></div>
+                    <div id="aiLabAssetsFolderBack" class="studio__folder-back">
+                        <button type="button" id="aiLabAssetsFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
+                    </div>
+                    <div id="aiLabAssetsGrid" class="studio__image-grid">
+                        <div class="studio__gallery-empty">Loading saved assets...</div>
+                    </div>
+                </section>
 
                 <div id="aiLabSaveModal" class="admin-ai__save-modal" hidden aria-hidden="true">
                     <div class="admin-ai__save-backdrop" data-ai-save-close></div>

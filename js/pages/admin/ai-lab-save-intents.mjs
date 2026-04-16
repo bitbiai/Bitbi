@@ -133,6 +133,45 @@ export function buildCompareSaveIntent({
     };
 }
 
+export function buildMusicSaveIntent({
+    response,
+    prompt,
+    warnings,
+    receivedAt,
+}) {
+    const result = response?.result;
+    if (!result?.audioBase64) return null;
+    return {
+        type: 'text',
+        sourceModule: 'music',
+        modalTitle: 'Save Music Result',
+        description: 'Save the generated MP3 audio into your existing folder structure.',
+        confirmLabel: 'Save Audio',
+        defaultTitle: buildSaveTitle(prompt, 'AI Lab Music'),
+        note: 'The audio file is stored as an MP3 alongside your existing saved assets.',
+        payload: {
+            audioBase64: result.audioBase64,
+            mimeType: result.mimeType || 'audio/mpeg',
+            prompt: result.prompt || prompt || '',
+            model: response?.model || null,
+            mode: result.mode,
+            lyricsMode: result.lyricsMode,
+            bpm: result.bpm,
+            key: result.key,
+            lyricsPreview: result.lyricsPreview,
+            durationMs: result.durationMs,
+            sampleRate: result.sampleRate,
+            channels: result.channels,
+            bitrate: result.bitrate,
+            sizeBytes: result.sizeBytes,
+            traceId: response?.traceId || null,
+            warnings,
+            elapsedMs: response?.elapsedMs || null,
+            receivedAt,
+        },
+    };
+}
+
 function deriveTranscriptFromDom(transcriptRoot) {
     if (!transcriptRoot) return [];
     const bubbles = Array.from(transcriptRoot.querySelectorAll('.admin-ai__chat-msg'));

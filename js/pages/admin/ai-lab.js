@@ -26,6 +26,7 @@ import {
     buildEmbeddingsSaveIntent,
     buildImageSaveIntent,
     buildLiveAgentSaveIntent,
+    buildMusicSaveIntent,
     buildTextSaveIntent,
 } from './ai-lab-save-intents.mjs?v=__ASSET_VERSION__';
 
@@ -830,6 +831,7 @@ export function createAdminAiLab({ showToast } = {}) {
             preview: document.getElementById('aiMusicPreview'),
             meta: document.getElementById('aiMusicMeta'),
             warnings: document.getElementById('aiMusicWarnings'),
+            save: document.getElementById('aiMusicSave'),
             download: document.getElementById('aiMusicDownload'),
             lyricsPanel: document.getElementById('aiMusicLyricsPanel'),
             lyricsOutput: document.getElementById('aiMusicLyricsOutput'),
@@ -1385,6 +1387,18 @@ export function createAdminAiLab({ showToast } = {}) {
         });
     }
 
+    function getMusicSaveIntent() {
+        const response = state.results.music?.raw;
+        return buildMusicSaveIntent({
+            response,
+            prompt: state.forms.music.prompt,
+            warnings: getWarnings(response),
+            receivedAt: state.results.music?.receivedAt instanceof Date
+                ? state.results.music.receivedAt.toISOString()
+                : null,
+        });
+    }
+
     function getSaveIntent(task) {
         switch (task) {
         case 'text':
@@ -1397,6 +1411,8 @@ export function createAdminAiLab({ showToast } = {}) {
             return getCompareSaveIntent();
         case 'live-agent':
             return getLiveAgentSaveIntent();
+        case 'music':
+            return getMusicSaveIntent();
         default:
             return null;
         }
@@ -1494,8 +1510,9 @@ export function createAdminAiLab({ showToast } = {}) {
             state.save.saving = false;
             closeSaveModal();
             await refreshSavedAssetsBrowser();
-            setStatus('Text asset saved to the shared folder structure.', 'success');
-            if (showToast) showToast('Text asset saved.');
+            const isMusic = intent.sourceModule === 'music';
+            setStatus(isMusic ? 'Audio saved to the shared folder structure.' : 'Text asset saved to the shared folder structure.', 'success');
+            if (showToast) showToast(isMusic ? 'Audio saved.' : 'Text asset saved.');
         } catch {
             setSaveState('error', 'Save failed. Please try again.');
             state.save.saving = false;
@@ -2038,7 +2055,11 @@ export function createAdminAiLab({ showToast } = {}) {
         persistState();
         renderResetLabel();
 
-        if (mode === 'image') {
+        const showAssets = mode === 'image' || mode === 'music';
+        if (refs.savedAssets.root) {
+            refs.savedAssets.root.hidden = !showAssets;
+        }
+        if (showAssets) {
             showSavedAssetsBrowser();
         }
     }
@@ -2397,6 +2418,7 @@ export function createAdminAiLab({ showToast } = {}) {
     function renderMusicPreview(payload, result) {
         const audioSource = getMusicAudioSource(payload);
         refs.music.download.hidden = !audioSource;
+        refs.music.save.hidden = !payload?.audioBase64;
 
         if (!audioSource) {
             if (result?.status === 'loading' && !payload) {
@@ -3935,6 +3957,7 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.embeddings.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.embeddings?.debugRaw || state.results.embeddings?.raw), showToast, 'Raw JSON copied.');
         });
+        refs.music.save.addEventListener('click', () => openSaveModal('music'));
         refs.music.download.addEventListener('click', downloadMusicResult);
         refs.music.copyRaw.addEventListener('click', () => {
             copyText(safeJson(state.results.music?.debugRaw || state.results.music?.raw), showToast, 'Raw JSON copied.');

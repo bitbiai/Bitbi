@@ -4282,6 +4282,86 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('admin AI save-text-asset saves music output as a binary MP3 in the audio subdirectory', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-music')],
+      aiFolders: [
+        {
+          id: 'feed5678',
+          user_id: 'admin-save-music',
+          name: 'Tracks',
+          slug: 'tracks',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const fakeAudioBase64 = btoa('fake-mp3-binary-data');
+    const token = await seedSession(env, 'admin-save-music');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+        title: 'Sunset Groove',
+        folderId: 'feed5678',
+        sourceModule: 'music',
+        data: {
+          audioBase64: fakeAudioBase64,
+          mimeType: 'audio/mpeg',
+          prompt: 'A chill lo-fi sunset groove.',
+          model: { id: 'minimax/music-2.6', label: 'MiniMax Music' },
+          mode: 'instrumental',
+          bpm: 85,
+          durationMs: 30000,
+          sampleRate: 44100,
+          channels: 2,
+          bitrate: 128000,
+          sizeBytes: 480000,
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.40',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      ok: true,
+      data: {
+        folder_id: 'feed5678',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        file_name: expect.stringMatching(/\.mp3$/),
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(row.folder_id).toBe('feed5678');
+    expect(row.source_module).toBe('music');
+    expect(row.mime_type).toBe('audio/mpeg');
+    expect(row.r2_key).toContain('/audio/');
+    expect(row.r2_key).toMatch(/\.mp3$/);
+
+    expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+    const object = env.USER_IMAGES.objects.get(row.r2_key);
+    expect(object.httpMetadata.contentType).toBe('audio/mpeg');
+
+    const metadata = JSON.parse(row.metadata_json);
+    expect(metadata.prompt).toBe('A chill lo-fi sunset groove.');
+    expect(metadata.mode).toBe('instrumental');
+    expect(metadata.bpm).toBe(85);
+    expect(JSON.parse(metadata.audio)).toMatchObject({
+      duration_ms: 30000,
+      sample_rate: 44100,
+      channels: 2,
+    });
+  });
+
   test('admin AI save-text-asset accepts nested usage details and flattens stored metadata safely', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

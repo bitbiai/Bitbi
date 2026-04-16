@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0020_add_wallet_siwe.sql",
+    "currentSchemaMigration": "0021_add_music_source_module.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",
