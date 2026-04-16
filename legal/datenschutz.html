@@ -434,6 +434,8 @@
     </article>
 </section>
 
+<p style="text-align:center;font-size:0.9rem;"><em>English version: <a href="/legal/privacy.html">Privacy Policy</a></em></p>
+
 </main>
 
 <!-- FOOTER -->
@@ -462,8 +464,6 @@
     </div>
 </footer>
 
-<p style="text-align:center;font-size:0.9rem;"><em>English version: <a href="/legal/privacy.html">Privacy Policy</a></em></p>
-
 <script type="module">
     import { initSiteHeader } from '/js/shared/site-header.js?v=__ASSET_VERSION__';
     import { initParticles } from '/js/shared/particles.js?v=__ASSET_VERSION__';
@@ -471,13 +471,28 @@
     import { initBinaryFooter } from '/js/shared/binary-footer.js?v=__ASSET_VERSION__';
     import { initScrollReveal } from '/js/shared/scroll-reveal.js?v=__ASSET_VERSION__';
     import { initCookieConsent } from '/js/shared/cookie-consent.js?v=__ASSET_VERSION__';
+    import { initSoftNav } from '/js/shared/soft-nav.js?v=__ASSET_VERSION__';
 
     try { initSiteHeader(); } catch(e) { console.warn(e); }
-    try { initParticles('heroCanvas'); } catch(e) { console.warn(e); }
-    try { initBinaryRain('binaryRain'); } catch(e) { console.warn(e); }
+
+    let particlesHandle = null;
+    let revealObserver = null;
+
+    function initPageVisuals() {
+        try { particlesHandle = initParticles('heroCanvas'); } catch(e) { console.warn(e); }
+        try { initBinaryRain('binaryRain'); } catch(e) { console.warn(e); }
+        try { revealObserver = initScrollReveal(); } catch(e) { console.warn(e); }
+    }
+
+    function cleanupPageVisuals() {
+        if (particlesHandle) { particlesHandle.destroy(); particlesHandle = null; }
+        if (revealObserver) { revealObserver.disconnect(); revealObserver = null; }
+    }
+
+    initPageVisuals();
     try { initBinaryFooter('binaryFooter'); } catch(e) { console.warn(e); }
-    try { initScrollReveal(); } catch(e) { console.warn(e); }
     try { initCookieConsent(); } catch(e) { console.warn(e); }
+    initSoftNav({ onBeforeSwap: cleanupPageVisuals, onAfterSwap: initPageVisuals });
 </script>
 </body>
 </html>

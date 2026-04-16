@@ -12,12 +12,16 @@ export function initParticles(canvasId, options = {}) {
     const connectionDistance = options.connectionDistance ?? 280;
 
     const c = document.getElementById(canvasId);
-    if (!c) return;
+    if (!c) return null;
     const ctx = c.getContext('2d');
     let W, H;
+    let destroyed = false;
+    let ro = null;
+    let io = null;
 
     /* Prefer ResizeObserver over window resize */
     function resize() {
+        if (destroyed) return;
         const w = c.parentElement.offsetWidth;
         const h = c.parentElement.offsetHeight;
         if (w === W && h === H) return;
@@ -27,7 +31,7 @@ export function initParticles(canvasId, options = {}) {
     resize();
 
     if (typeof ResizeObserver !== 'undefined') {
-        const ro = new ResizeObserver(() => resize());
+        ro = new ResizeObserver(() => resize());
         ro.observe(c.parentElement);
     } else {
         window.addEventListener('resize', resize);
@@ -98,27 +102,38 @@ export function initParticles(canvasId, options = {}) {
     const ns = [];
     for (let i = 0; i < nebulaCount; i++) ns.push(new N());
 
+    const handle = {
+        destroy() {
+            destroyed = true;
+            if (ro) { ro.disconnect(); ro = null; }
+            if (io) { io.disconnect(); io = null; }
+            if (onVisChange) document.removeEventListener('visibilitychange', onVisChange);
+        }
+    };
+    let onVisChange = null;
+
     /* Draw single static frame if reduced motion */
     if (prefersReducedMotion) {
         ctx.clearRect(0, 0, W, H);
         ps.forEach((p) => { p.draw(); });
         ns.forEach((n) => { n.r = n.br; n.draw(); });
-        return;
+        return handle;
     }
 
     let t = 0;
     let visible = true;
 
     if (typeof IntersectionObserver !== 'undefined') {
-        const io = new IntersectionObserver(([entry]) => {
+        io = new IntersectionObserver(([entry]) => {
             const wasVisible = visible;
             visible = entry.isIntersecting;
-            if (visible && !wasVisible) requestAnimationFrame(loop);
+            if (visible && !wasVisible && !destroyed) requestAnimationFrame(loop);
         });
         io.observe(c.parentElement);
     }
 
     function loop() {
+        if (destroyed) return;
         t++;
         ctx.clearRect(0, 0, W, H);
         ps.forEach((p) => { p.update(); p.draw(); });
@@ -142,12 +157,14 @@ export function initParticles(canvasId, options = {}) {
             }
         }
 
-        if (visible && !document.hidden) requestAnimationFrame(loop);
+        if (visible && !document.hidden && !destroyed) requestAnimationFrame(loop);
     }
 
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && visible) requestAnimationFrame(loop);
-    });
+    onVisChange = () => {
+        if (!document.hidden && visible && !destroyed) requestAnimationFrame(loop);
+    };
+    document.addEventListener('visibilitychange', onVisChange);
 
     requestAnimationFrame(loop);
+    return handle;
 }
