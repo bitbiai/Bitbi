@@ -616,6 +616,37 @@
         user-select: auto;
     }
 
+    /* --- Homepage Hero Video --- */
+    .hero--homepage .hero__media {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        pointer-events: none;
+        background: #05080d url('/assets/images/hero/hero-flow-poster.jpg') center center / cover no-repeat;
+    }
+
+    .hero--homepage .hero__media-video {
+        display: block;
+        inline-size: 100%;
+        block-size: 100%;
+        object-fit: cover;
+        object-position: center center;
+        opacity: 0.72;
+    }
+
+    .hero--homepage .hero__media-video[hidden] {
+        display: none;
+    }
+
+    .hero--homepage #heroCanvas {
+        z-index: 0;
+    }
+
+    .hero--homepage .hero__title-wrap {
+        margin-block-end: var(--space-6);
+    }
+
     /* --- Mobile: push scroll hint below the CTA buttons --- */
     @media (max-width: 639px) {
         .hero__scroll-hint {
@@ -662,6 +693,10 @@
 
     /* --- Reduced Motion --- */
     @media (prefers-reduced-motion: reduce) {
+        .hero--homepage .hero__media-video {
+            display: none;
+        }
+
         .tilt-card {
             transition: none;
 

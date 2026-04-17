@@ -23,8 +23,39 @@ test.describe('Homepage', () => {
 
   test('hero section renders', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#hero')).toBeVisible();
-    await expect(page.locator('#hero').getByText('My Digital Playground')).toBeVisible();
+    const hero = page.locator('#hero');
+    const heroVideo = hero.locator('[data-hero-video]');
+
+    await expect(hero).toBeVisible();
+    await expect(heroVideo).toBeVisible();
+    await expect(heroVideo).not.toHaveAttribute('controls', /./);
+    await expect(heroVideo).toHaveAttribute('poster', '/assets/images/hero/hero-flow-poster.jpg');
+    await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
+    await expect(hero.getByText('AI art • YouTube journeys • Sound Lab • Creative playground')).toHaveCount(0);
+    await expect(hero.getByRole('link', { name: 'Explore Gallery' })).toBeVisible();
+    await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
+  });
+
+  test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+
+    const hero = page.locator('#hero');
+    const heroVideo = hero.locator('[data-hero-video]');
+
+    await expect(hero).toBeVisible();
+    await expect(heroVideo).toBeHidden();
+    await expect(hero.getByRole('link', { name: 'Explore Gallery' })).toBeVisible();
+    await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
+  });
+
+  test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    await expect
+      .poll(() => page.locator('[data-hero-video]').evaluate((el) => el.currentSrc))
+      .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
   test('YouTube section has consent-gate infrastructure', async ({ page }) => {

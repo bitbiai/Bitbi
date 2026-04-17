@@ -22,8 +22,121 @@ import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
 
+function initHeroBackgroundVideo() {
+    const video = document.querySelector('[data-hero-video]');
+    if (!video) return;
+
+    const mobileQuery = window.matchMedia('(max-width: 639px)');
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let activeSource = '';
+    let pausedByMenu = false;
+
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+
+    function clearVideoSource() {
+        if (!activeSource && !video.getAttribute('src')) return;
+        video.pause();
+        video.removeAttribute('src');
+        activeSource = '';
+        video.load();
+    }
+
+    function supportsWebmPlayback() {
+        if (typeof video.canPlayType !== 'function') return false;
+        return Boolean(
+            video.canPlayType('video/webm; codecs="vp9, vorbis"')
+            || video.canPlayType('video/webm'),
+        );
+    }
+
+    function resolveVideoSource() {
+        if (reducedMotionQuery.matches) return '';
+        if (mobileQuery.matches) {
+            return video.dataset.srcMobileMp4 || video.dataset.srcDesktopMp4 || '';
+        }
+        if (supportsWebmPlayback()) {
+            return video.dataset.srcDesktopWebm || video.dataset.srcDesktopMp4 || '';
+        }
+        return video.dataset.srcDesktopMp4 || video.dataset.srcDesktopWebm || '';
+    }
+
+    function playVideo() {
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {});
+        }
+    }
+
+    function syncHeroBackgroundVideo() {
+        const nextSource = resolveVideoSource();
+
+        if (!nextSource) {
+            video.hidden = true;
+            clearVideoSource();
+            return;
+        }
+
+        video.hidden = false;
+
+        if (activeSource !== nextSource) {
+            activeSource = nextSource;
+            video.src = nextSource;
+            video.load();
+        }
+
+        if (!pausedByMenu && document.visibilityState === 'visible') {
+            playVideo();
+        }
+    }
+
+    function resumeVideoIfPossible() {
+        if (!activeSource || pausedByMenu || reducedMotionQuery.matches) return;
+        if (document.visibilityState !== 'visible') return;
+        playVideo();
+    }
+
+    function bindMediaQueryChange(query, listener) {
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', listener);
+            return;
+        }
+        if (typeof query.addListener === 'function') {
+            query.addListener(listener);
+        }
+    }
+
+    const handleQueryChange = () => {
+        syncHeroBackgroundVideo();
+    };
+
+    bindMediaQueryChange(reducedMotionQuery, handleQueryChange);
+    bindMediaQueryChange(mobileQuery, handleQueryChange);
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            video.pause();
+            return;
+        }
+        resumeVideoIfPossible();
+    });
+
+    document.addEventListener('bitbi:mobile-nav-toggle', (event) => {
+        pausedByMenu = !!event.detail?.open;
+        if (pausedByMenu) {
+            video.pause();
+            return;
+        }
+        resumeVideoIfPossible();
+    });
+
+    syncHeroBackgroundVideo();
+}
 
 const authReady = initAuth().catch(e => console.warn('auth:', e));
+
+try { initHeroBackgroundVideo(); } catch (e) { console.warn('heroVideo:', e); }
 
 /* Hero particles (index uses more particles, nebulae, connections) */
 try { initParticles('heroCanvas', {

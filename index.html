@@ -130,7 +130,25 @@
 <main id="main-content">
 
 <!-- HERO -->
-<section id="hero" class="hero" aria-label="Hero">
+<section id="hero" class="hero hero--homepage" aria-label="Hero">
+    <div class="hero__media" aria-hidden="true">
+        <video
+            class="hero__media-video"
+            data-hero-video
+            data-src-mobile-mp4="/assets/images/hero/hero-flow-mobile.mp4"
+            data-src-desktop-webm="/assets/images/hero/hero-flow-desktop.webm"
+            data-src-desktop-mp4="/assets/images/hero/hero-flow-desktop.mp4"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            poster="/assets/images/hero/hero-flow-poster.jpg"
+            disablepictureinpicture
+            disableremoteplayback
+            tabindex="-1"
+        ></video>
+    </div>
     <canvas id="heroCanvas" aria-hidden="true"></canvas>
     <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.5) 40%,rgba(13,27,42,0.3) 60%,#0A0A0A 100%)" aria-hidden="true"></div>
     <div class="hero__glow hero__glow--cyan" style="top:20%;left:15%;width:400px;height:400px" aria-hidden="true"></div>
@@ -145,8 +163,6 @@
                      width="600" height="391" fetchpriority="high">
             </h1>
         </div>
-        <p class="hero__subtitle">My Digital Playground</p>
-        <p class="hero__desc">AI art &bull; YouTube journeys &bull; Sound Lab &bull; Creative playground</p>
         <div class="hero__actions">
             <a href="#gallery" class="btn-primary">
                 <svg class="btn-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
