@@ -55,7 +55,7 @@ export function getAllFavorites() {
 
 /**
  * Create a star button element for a content item.
- * @param {string} type  - 'gallery' | 'soundlab' | 'experiments'
+ * @param {string} type  - 'gallery' | 'soundlab'
  * @param {string} id    - stable item identifier
  * @param {{title:string, thumb_url:string}} meta - render metadata
  * @returns {HTMLButtonElement}

@@ -4,10 +4,8 @@
    ============================================================ */
 
 import { initMobileNav } from './navbar.js';
-import { initExperiments } from './experiments.js';
 import { initGallery } from './gallery.js';
 import { initSoundLab } from './soundlab.js';
-import { initMarkets } from './markets.js';
 import { initSmoothScroll } from './smooth-scroll.js';
 import { initScrollReveal } from '../../shared/scroll-reveal.js';
 import { initParticles } from '../../shared/particles.js';
@@ -55,10 +53,8 @@ let revealObserver = null;
 try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollReveal:', e); }
 
 /* Sections */
-try { initExperiments(revealObserver); } catch (e) { console.warn('experiments:', e); }
 try { initGallery(); } catch (e) { console.warn('gallery:', e); }
 try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }
-try { initMarkets(); } catch (e) { console.warn('markets:', e); }
 
 /* Binary footer */
 try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn('binaryFooter:', e); }

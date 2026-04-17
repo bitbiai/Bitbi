@@ -940,15 +940,6 @@ function createFavoriteViewerImage(url, alt) {
     return img;
 }
 
-/* Map experiment item_ids to URLs */
-const EXPERIMENT_URLS = {
-    'cosmic-vr': '/experiments/cosmic.html',
-    'sound-color': null,
-    'sky-fall': '/experiments/skyfall.html',
-    'the-gate': '/experiments/king.html',
-    'youtube-exclusives': null,
-};
-
 /* ── Viewer overlay ── */
 const $viewer = document.getElementById('favViewer');
 const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
@@ -1097,50 +1088,6 @@ function openGalleryInViewer(fav) {
     openViewer('');
 }
 
-/* ── Open experiment in viewer ── */
-function openExperimentInViewer(fav) {
-    const url = EXPERIMENT_URLS[fav.item_id];
-    const title = String(fav.title || '');
-    if (!url) {
-        /* Experiments without iframeable content (sound-color, youtube-exclusives) — show info card */
-        const { card, image, info } = createFavoriteViewerCard();
-        image.style.display = 'flex';
-        image.style.alignItems = 'center';
-        image.style.justifyContent = 'center';
-        image.style.background = 'radial-gradient(ellipse at center,#0d1b3e,#050a15)';
-        image.innerHTML = '<svg width="48" height="48" fill="rgba(0,240,255,0.2)" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
-
-        const heading = document.createElement('h3');
-        heading.className = 'fav-viewer__title';
-        heading.textContent = title;
-        info.appendChild(heading);
-
-        const captionEl = document.createElement('p');
-        captionEl.className = 'fav-viewer__caption';
-        captionEl.textContent = 'This experiment is available on the main page.';
-        info.appendChild(captionEl);
-
-        const link = document.createElement('a');
-        link.className = 'fav-viewer__full-link';
-        link.href = '/#experiments';
-        link.textContent = 'View on main page →';
-        info.appendChild(link);
-
-        $viewerBody.innerHTML = '';
-        $viewerBody.appendChild(card);
-        openViewer('');
-        return;
-    }
-    const iframe = document.createElement('iframe');
-    iframe.className = 'fav-viewer__frame';
-    iframe.src = url;
-    iframe.allow = 'accelerometer;gyroscope';
-    iframe.title = title;
-    $viewerBody.innerHTML = '';
-    $viewerBody.appendChild(iframe);
-    openViewer('fav-viewer--experiment');
-}
-
 /* ── Open soundlab track in viewer ── */
 function openSoundlabInViewer(fav) {
     const title = String(fav.title || '');
@@ -1263,7 +1210,7 @@ function openSoundlabInViewer(fav) {
 
 /* ── Build favorite tiles ── */
 function renderFavorites(favorites) {
-    const groups = { experiments: [], gallery: [], soundlab: [] };
+    const groups = { gallery: [], soundlab: [] };
     for (const f of favorites) {
         if (groups[f.item_type]) groups[f.item_type].push(f);
     }
@@ -1378,7 +1325,6 @@ function handleTileClick(fav) {
 
     switch (fav.item_type) {
         case 'gallery': openGalleryInViewer(fav); break;
-        case 'experiments': openExperimentInViewer(fav); break;
         case 'soundlab': openSoundlabInViewer(fav); break;
     }
 }

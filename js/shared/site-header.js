@@ -19,11 +19,9 @@ const NAV_HTML = `
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
             <div class="site-nav__links">
-                <a href="/#experiments" class="site-nav__link nav-link">Experiments</a>
                 <a href="/#gallery" class="site-nav__link nav-link">Gallery</a>
                 <a href="/#soundlab" class="site-nav__link nav-link">Sound Lab</a>
                 <a href="/#youtube" class="site-nav__link nav-link">YouTube</a>
-                <a href="/#markets" class="site-nav__link nav-link">Live Markets</a>
                 <a href="/#contact" class="site-nav__link nav-link">Contact</a>
             </div>
             <div class="site-nav__actions">
@@ -48,7 +46,6 @@ const MOBILE_NAV_HTML = `
 
         <nav class="mobile-nav__section" aria-label="Explore">
             <span class="mobile-nav__label">Explore</span>
-            <a href="/#experiments" class="mobile-nav__link mobile-nav__link--primary">Experiments</a>
             <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary">Gallery</a>
             <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary">Sound Lab</a>
         </nav>
@@ -56,7 +53,6 @@ const MOBILE_NAV_HTML = `
         <nav class="mobile-nav__section" aria-label="Connect">
             <span class="mobile-nav__label">Connect</span>
             <a href="/#youtube" class="mobile-nav__link">YouTube</a>
-            <a href="/#markets" class="mobile-nav__link">Live Markets</a>
             <a href="/#contact" class="mobile-nav__link">Contact</a>
         </nav>
 

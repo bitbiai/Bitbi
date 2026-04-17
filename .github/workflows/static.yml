@@ -156,7 +156,7 @@ jobs:
       - name: Validate page metadata
         run: |
           errors=0
-          for f in index.html experiments/*.html; do
+          for f in index.html; do
             [ ! -f "$f" ] && continue
             if ! grep -q '<meta name="description"' "$f"; then
               echo "ERROR: Missing meta description in $f"

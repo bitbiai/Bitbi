@@ -585,23 +585,6 @@ function injectRefNote(sectionId) {
    ═══════════════════════════════════════════════════════════ */
 function loadContent() {
     injectRefNote('sectionContent');
-    // Experiments
-    const expEl = document.getElementById('contentExperiments');
-    if (expEl) {
-        const experiments = [
-            { name: 'Cosmic Dreamscape VR', meta: 'WebXR, A-Frame' },
-            { name: 'Sound & Color',        meta: 'Audio API, Canvas' },
-            { name: "King's Quest",          meta: 'Three.js, WebGL' },
-            { name: 'Skyfall',               meta: 'Canvas' },
-            { name: 'YouTube Exclusives',    meta: 'Exclusive' },
-        ];
-        let html = '<div class="admin-inventory">';
-        for (const e of experiments) {
-            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${e.name}</span><span class="admin-inventory__meta">${e.meta}</span></div>`;
-        }
-        html += `</div><div class="admin-inventory__total">${experiments.length} experiments</div>`;
-        expEl.innerHTML = html;
-    }
 
     // Gallery (from imported gallery-data.js)
     const galEl = document.getElementById('contentGallery');
@@ -682,17 +665,15 @@ function loadAccess() {
     const gatingEl = document.getElementById('accessGating');
     if (gatingEl) {
         const gates = [
-            'YouTube Exclusives experiment card',
             'Gallery "Exclusive" filter category',
             'Little Monster gallery folder (15 images)',
             'Exclusive Sound Lab track',
-            'Markets portfolio card',
         ];
         let html = '<div class="admin-inventory">';
         for (const g of gates) {
             html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${g}</span><span class="admin-inventory__meta">Auth required</span></div>`;
         }
-        html += `</div><div class="admin-inventory__total">5 gated placements</div>`;
+        html += `</div><div class="admin-inventory__total">3 gated placements</div>`;
         gatingEl.innerHTML = html;
     }
 

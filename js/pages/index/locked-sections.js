@@ -1,11 +1,10 @@
 /* ============================================================
-   BITBI — Locked sections: 5 member-only placements
+   BITBI — Locked sections: 3 member-only placements
    ============================================================ */
 
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { formatTime } from '../../shared/format-time.js';
-import { makeTags } from '../../shared/make-tags.js';
 import { createStarButton } from '../../shared/favorites.js';
 import { getSoundLabTracks, buildSoundLabTrack } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
 import {
@@ -24,11 +23,9 @@ const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor"
 const lockedAreas = [];
 
 export function initLockedSections(revealObserver) {
-    setupExperimentCard(revealObserver);
     setupGalleryFilter();
     setupGalleryExclusiveCard();
     setupSoundLabCard(revealObserver);
-    setupMarketsCard();
 
     updateAll();
     document.addEventListener('bitbi:auth-change', updateAll);
@@ -56,36 +53,8 @@ function makeOverlay() {
     return overlay;
 }
 
-/* ── Placement 1: Experiments Grid — YouTube Exclusives card ── */
-function setupExperimentCard(revealObserver) {
-    const grid = document.getElementById('experimentsGrid');
-    if (!grid) return;
+/* ── Placement 1: Gallery — Exclusive filter button ── */
 
-    const TAG_COLORS = { YouTube: '239,68,68', Video: '255,179,0' };
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'locked-area locked-area--card tilt-card rounded-2xl overflow-hidden reveal';
-    wrapper.setAttribute('data-locked', 'true');
-    wrapper.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06)';
-
-    const content = document.createElement('div');
-    content.className = 'locked-area__content';
-    content.innerHTML = `<div style="height:180px;position:relative;overflow:hidden;background:radial-gradient(ellipse at center,#1a0510,#0a0205)"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(239,68,68,0.3)" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></div><div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.7),transparent)"></div></div><div style="padding:20px"><div style="display:flex;gap:6px;margin-bottom:10px">${makeTags(['YouTube', 'Video'], TAG_COLORS)}</div><h3 style="font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:rgba(255,255,255,0.9);margin-bottom:8px">YouTube Exclusives</h3><p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;margin-bottom:14px">Behind-the-scenes footage, extended cuts, and exclusive video content only available to registered members.</p><span style="color:#00F0FF;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px">View Content <span style="font-size:14px">\u2192</span></span></div>`;
-
-    const ytStar = createStarButton('experiments', 'youtube-exclusives', { title: 'YouTube Exclusives', thumb_url: '' });
-    ytStar.style.cssText = 'position:absolute;top:8px;right:8px;z-index:3';
-    const ytContent = content.querySelector('div[style*="padding:20px"]');
-    if (ytContent) { ytContent.style.position = 'relative'; ytContent.appendChild(ytStar); }
-
-    wrapper.appendChild(content);
-    wrapper.appendChild(makeOverlay());
-    grid.appendChild(wrapper);
-    lockedAreas.push(wrapper);
-
-    if (revealObserver) revealObserver.observe(wrapper);
-}
-
-/* ── Placement 2: Gallery — Exclusive filter button ── */
 function setupGalleryFilter() {
     const filterBar = document.querySelector('.filter-bar');
     if (!filterBar) return;
@@ -130,7 +99,7 @@ function setupGalleryFilter() {
     filterBar.appendChild(btn);
 }
 
-/* ── Placement 2b: Gallery — Exclusive folder + Little Monster subcategory ── */
+/* ── Placement 2: Gallery — Exclusive folder + Little Monster subcategory ── */
 function setupGalleryExclusiveCard() {
     const grid = document.getElementById('galleryGrid');
     const modal = document.getElementById('galleryModal');
@@ -332,7 +301,7 @@ function setupGalleryExclusiveCard() {
     });
 }
 
-/* ── Placement 3: Sound Lab — 5 Exclusive Track cards ── */
+/* ── Placement 3: Sound Lab — Exclusive Track cards ── */
 function setupSoundLabCard(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
     if (!ctn) return;
@@ -498,29 +467,3 @@ function setupSoundLabCard(revealObserver) {
     });
 }
 
-/* ── Placement 4: Markets — Portfolio Tracker card ── */
-function setupMarketsCard() {
-    const note = document.querySelector('#markets .section__note');
-    if (!note) return;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'locked-area locked-area--glass';
-    wrapper.setAttribute('data-locked', 'true');
-
-    const content = document.createElement('div');
-    content.className = 'locked-area__content';
-    content.style.cssText = 'padding:20px;min-height:80px;display:flex;align-items:center;gap:14px';
-    content.innerHTML = `
-        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,rgba(255,179,0,0.12),rgba(0,240,255,0.08));border:1px solid rgba(255,179,0,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <svg width="16" height="16" fill="rgba(255,179,0,0.8)" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
-        </div>
-        <div>
-            <h4 style="font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85)">Portfolio Tracker</h4>
-            <p style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:2px">Track your portfolio and access advanced analytics — members only</p>
-        </div>`;
-
-    wrapper.appendChild(content);
-    wrapper.appendChild(makeOverlay());
-    note.after(wrapper);
-    lockedAreas.push(wrapper);
-}

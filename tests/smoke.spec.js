@@ -15,11 +15,9 @@ test.describe('Homepage', () => {
     await page.goto('/');
     const nav = page.locator('#navbar .site-nav__links');
 
-    await expect(nav.getByRole('link', { name: 'Experiments' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'YouTube' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Live Markets' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contact' })).toBeVisible();
   });
 
@@ -181,56 +179,6 @@ test.describe('Homepage', () => {
     expect(freeCards).toBeGreaterThan(0);
   });
 
-  test('markets render malicious upstream text inertly', async ({ page }) => {
-    await page.route('https://api.bitbi.ai', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            symbol: 'btc<script data-market-xss="1">x</script>',
-            name: 'Bad <b class="xss-market-payload">Owned</b>',
-            current_price: 42000,
-            price_change_percentage_24h: 1.25,
-            sparkline_in_7d: { price: [40000, 41000, 42000, 43000] },
-          },
-          {
-            symbol: 'eth',
-            name: 'Ethereum',
-            current_price: 3200,
-            price_change_percentage_24h: -0.75,
-            sparkline_in_7d: { price: [3300, 3250, 3225, 3200] },
-          },
-          {
-            symbol: 'sol',
-            name: 'Solana',
-            current_price: 160,
-            price_change_percentage_24h: 2.1,
-            sparkline_in_7d: { price: [150, 155, 158, 160] },
-          },
-          {
-            symbol: 'ada',
-            name: 'Cardano',
-            current_price: 0.75,
-            price_change_percentage_24h: 0.4,
-            sparkline_in_7d: { price: [0.7, 0.71, 0.73, 0.75] },
-          },
-        ]),
-      });
-    });
-
-    await page.goto('/');
-
-    await expect(page.locator('#marketCards > div')).toHaveCount(4);
-    await expect(page.locator('#marketCards .xss-market-payload')).toHaveCount(0);
-    await expect(page.locator('#marketCards script[data-market-xss]')).toHaveCount(0);
-    await expect(page.locator('#marketCards h4').first()).toHaveText(
-      'Bad <b class="xss-market-payload">Owned</b>',
-    );
-    await expect(page.locator('#marketCards span').first()).toHaveText(
-      'BTC<SCRIPT DATA-MARKET-XSS="1">X</SCRIPT>',
-    );
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -252,19 +200,6 @@ test.describe('Legal pages', () => {
     const response = await page.goto('/legal/datenschutz.html');
     expect(response.status()).toBe(200);
   });
-});
-
-// ---------------------------------------------------------------------------
-// Experiment pages
-// ---------------------------------------------------------------------------
-
-test.describe('Experiment pages', () => {
-  for (const page_name of ['cosmic', 'king', 'skyfall']) {
-    test(`${page_name}.html loads successfully`, async ({ page }) => {
-      const response = await page.goto(`/experiments/${page_name}.html`);
-      expect(response.status()).toBe(200);
-    });
-  }
 });
 
 // ---------------------------------------------------------------------------

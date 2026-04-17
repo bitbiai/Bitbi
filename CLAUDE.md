@@ -36,10 +36,6 @@ cd workers/ai && npx wrangler deploy                                         # d
 # Contact worker (workers/contact/)
 cd workers/contact && npx wrangler dev                                       # local dev
 cd workers/contact && npx wrangler deploy                                    # deploy to Cloudflare
-
-# Crypto worker (workers/crypto/)
-cd workers/crypto && npx wrangler dev                                        # local dev
-cd workers/crypto && npx wrangler deploy                                     # deploy to Cloudflare
 ```
 
 ### Testing
@@ -60,7 +56,7 @@ npx playwright test -c playwright.config.js tests/smoke.spec.js       # run a si
 npx playwright test -c playwright.config.js -g "hero section renders" # run a single test by name
 ```
 
-**Static tests** (`playwright.config.js`): `tests/smoke.spec.js` (page loads, nav, assets, legal, experiments), `tests/auth-admin.spec.js` (auth modal, admin page). Chromium only, `baseURL: http://localhost:3000`, auto-starts `npx serve -l 3000`.
+**Static tests** (`playwright.config.js`): `tests/smoke.spec.js` (page loads, nav, assets, legal), `tests/auth-admin.spec.js` (auth modal, admin page). Chromium only, `baseURL: http://localhost:3000`, auto-starts `npx serve -l 3000`.
 
 **Worker contract tests** (`playwright.workers.config.js`): `tests/workers.spec.js` validates auth worker route handlers against a mock D1/R2/AI harness (`tests/helpers/auth-worker-harness.js`) — no network, no Wrangler required. Tests run sequentially (`workers: 1`) with no webServer.
 
@@ -68,14 +64,14 @@ Contact worker secret: `RESEND_API_KEY` (set via `wrangler secret put RESEND_API
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `experiments/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
+GitHub Actions (`.github/workflows/static.yml`) deploys to Pages on push to `main`. Copied to `_site/`: `index.html` (homepage), `robots.txt`, `sitemap.xml`, `assets/`, `css/`, `fonts/`, `js/`, `account/`, `admin/`, `legal/`. The `workers/` directory is **not** deployed to Pages.
 
 **CI validates before deploy** (`.github/workflows/static.yml`). Two jobs run: `worker-validation` (worker contract tests) and `deploy` (static checks + smoke tests + Pages deploy). All checks must pass or the build fails:
 1. **Worker route contract tests** — `npm run test:workers` runs auth worker handler tests against the mock harness (separate job, runs before deploy).
 2. **JS import paths** — all `from '...'` imports in JS/HTML are resolved to files on disk. Broken imports fail the build.
 3. **`target="_blank"` links** — every `target="_blank"` in HTML/JS (excluding `*.min.js`) must include `rel="noopener"` (or `noopener noreferrer`).
 4. **Local CSS/JS references** — all `href="*.css"` and `src="*.js"` in HTML must point to existing files (external URLs excluded).
-5. **Page metadata** — `index.html` and `experiments/*.html` must each contain `<meta name="description">`, `<link rel="canonical">`, and `og:title`.
+5. **Page metadata** — `index.html` must contain `<meta name="description">`, `<link rel="canonical">`, and `og:title`.
 6. **Playwright smoke tests** — runs `npm run test:static` (Chromium) against a local `serve` instance. Validates page loads, navigation, static asset responses, auth modal, and admin page structure.
 
 ### Worker Deploy Order
@@ -106,7 +102,6 @@ Some paths degrade gracefully if a table is missing, but the intended production
 | `workers/auth/` | D1 `DB`; AI `AI`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron also cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, and pending R2 cleanup jobs; `/api/admin/ai/*` now proxies admin-only lab traffic into `workers/ai/` |
 | `workers/ai/` | AI `AI` | Internal service-only worker for admin AI experiments; deploy this before auth when changing the lab proxy flow |
 | `workers/contact/` | D1 `DB`; secret `RESEND_API_KEY` | Uses the shared `rate_limit_counters` table for durable contact abuse limiting |
-| `workers/crypto/` | secret `COINGECKO_API_KEY` | No D1 or R2 bindings |
 
 ### Post-Deploy Checks
 
@@ -143,10 +138,7 @@ Two R2 buckets serve media — one public, one private:
 Public content loads directly from `pub.bitbi.ai`. Private content routes through the auth worker (`/api/images/*`, `/api/thumbnails/*`, `/api/music/*`) which enforces authentication before proxying from R2.
 
 ### Pages
-- `index.html` — Main landing page (particle effects, gallery, experiments, soundlab, markets, auth-gated sections)
-- `experiments/cosmic.html` — A-Frame WebXR/VR art gallery
-- `experiments/king.html` — Medieval-themed 3D puzzle game (Canvas + Three.js)
-- `experiments/skyfall.html` — Arcade falling objects game (Canvas)
+- `index.html` — Main landing page (particle effects, gallery, soundlab, auth-gated sections)
 - `account/profile.html` — User profile page (avatar upload, account settings, requires auth)
 - `account/image-studio.html` — AI image generation studio (prompt-to-image, folder management, requires auth)
 - `admin/index.html` — Admin dashboard (user management, requires admin role)
@@ -157,11 +149,11 @@ Public content loads directly from `pub.bitbi.ai`. Private content routes throug
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, image-studio, forgot-password, reset-password, verify-email each have one). Game pages (`experiments/king.html`, `experiments/skyfall.html`) and `experiments/cosmic.html` use inline `<script>` blocks instead of the module system — they are CSS-isolated too, loading only `cookie-banner.css` (no tokens.css or design system) and declaring their own `@font-face` rules inline (king: Cinzel/MedievalSharp, skyfall: Orbitron/Exo 2). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, image-studio, forgot-password, reset-password, verify-email each have one). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
 **Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `ai-image-models.mjs` (shared AI image model config used by both gallery studio and image-studio page), `studio-deck.js` (saved-images deck with touch-swipe and modal/lightbox for studio pages).
 
-**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `soundlab.js`, `markets.js`, `experiments.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`, `studio.js` (inline gallery studio — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
+**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `soundlab.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`, `studio.js` (inline gallery studio — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
@@ -170,9 +162,7 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Index page initialization** (`js/pages/index/main.js`): Auth is started as a non-blocking promise, visual content (particles, binary rain, navbar) renders first, then `await authReady` gates the auth UI. This ordering is intentional for perceived performance.
 
-**Locked sections** (`js/pages/index/locked-sections.js`): Injects auth-gated placements into the index page — an experiment card, a gallery filter button, an exclusive gallery folder (Little Monster, 15 images), a soundlab track, and a markets portfolio card. All listen to `'bitbi:auth-change'` and toggle `data-locked` attribute.
-
-**Vendor libraries** (`js/vendor/`): Self-hosted `aframe-1.5.0.min.js`, `aframe-extras-7.2.0.min.js` (cosmic.html), `three-r128.min.js` (king.html).
+**Locked sections** (`js/pages/index/locked-sections.js`): Injects auth-gated placements into the index page — a gallery filter button, an exclusive gallery folder (Little Monster, 15 images), and exclusive soundlab tracks. All listen to `'bitbi:auth-change'` and toggle `data-locked` attribute.
 
 **Shared module defaults pattern**: `particles.js` and `binary-rain.js` define conservative default configs (e.g. `maxParticles: 35`, `maxCols: 16`). The index page overrides these with heavier settings via its `main.js` (e.g. `maxParticles: 100`, `maxCols: 30`). Subpages use the lighter defaults. Changing defaults only affects subpages; changing index overrides only affects the homepage.
 
@@ -226,9 +216,8 @@ Four workers, deployed separately from the static site:
 | `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. **Read `workers/auth/CLAUDE.md` before modifying** — it has full route docs, handler signatures, DB schema, and rate limits |
 | `workers/ai/src/index.js` | internal service binding only | Admin-only AI lab worker — model routing, text/image/embedding experiments, and compare flows via `workers/auth` |
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
-| `workers/crypto/src/index.js` | `api.bitbi.ai` | CoinGecko proxy for crypto market data |
 
-All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`. Crypto worker secret: `COINGECKO_API_KEY`.
+All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
 
 ## Key Conventions
 

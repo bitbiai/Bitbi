@@ -1245,23 +1245,6 @@
         .grid-gallery { grid-template-columns: repeat(3, 1fr); }
     }
 
-    .grid-markets {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: var(--space-3);
-    }
-
-    @media (min-width: 640px) {
-        .grid-markets {
-            grid-template-columns: repeat(2, 1fr);
-            gap: var(--space-4);
-        }
-    }
-
-    @media (min-width: 1024px) {
-        .grid-markets { grid-template-columns: repeat(4, 1fr); }
-    }
-
     .grid-form {
         display: grid;
         grid-template-columns: 1fr;
@@ -1806,51 +1789,6 @@
         line-height: 1.625;
     }
 
-    /* ── Fullscreen Game Overlay ── */
-    .game-overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        flex-direction: column;
-    }
-
-    .game-overlay__close-wrap {
-        position: absolute;
-        inset-block-start: var(--space-3);
-        inset-inline-end: var(--space-3);
-        z-index: 10000;
-    }
-
-    .game-overlay__close {
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        font-family: var(--font-mono);
-        font-size: 11px;
-        padding: var(--space-2) var(--space-4);
-        border-radius: var(--radius-2xl);
-        cursor: pointer;
-        letter-spacing: 1px;
-    }
-
-    .game-overlay__close--light {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        color: var(--color-white);
-    }
-
-    .game-overlay__close--warm {
-        background: rgba(212, 168, 87, 0.12);
-        border: 1px solid rgba(212, 168, 87, 0.25);
-        color: #d4a857;
-    }
-
-    .game-overlay__frame {
-        inline-size: 100%;
-        block-size: 100%;
-        border: none;
-        flex: 1;
-    }
 
     /* ── Cookie Banner ── */
     .cookie-banner {

@@ -1,8 +1,8 @@
 # BITBI
 
-**Experimental web experiences, AI visuals, and creative coding projects.**
+**AI visuals, sound explorations, and creative coding projects.**
 
-BITBI is a static creative portfolio and digital playground that brings together interactive web experiments, AI-generated visuals, immersive concepts, sound explorations, and live market data into one branded experience.
+BITBI is a static creative portfolio and digital playground that brings together AI-generated visuals, sound explorations, and creative coding into one branded experience.
 
 ## Live Site
 
@@ -10,10 +10,9 @@ BITBI is a static creative portfolio and digital playground that brings together
 
 ## What this project includes
 
-- **Experiments** — interactive websites, visual concepts, and creative web ideas
-- **AI Creations Gallery** — curated generative visuals and experimental imagery
-- **Sound Lab** — ambient textures, sonic sketches, and audio experiments
-- **Live Markets** — real-time crypto market data integrated into the experience
+- **AI Creations Gallery** — curated generative visuals and creative imagery
+- **Sound Lab** — ambient textures, sonic sketches, and audio compositions
+- **Image Studio** — AI image generation with folder management
 - **Contact flow** — privacy-aware contact form setup
 - **Account-related pages** — profile, password reset, email verification, and admin-related flows
 
@@ -48,10 +47,9 @@ BITBI is intentionally lightweight and direct:
 ├── docs/                # Supporting documentation
 ├── fonts/               # Self-hosted fonts
 ├── js/                  # Frontend JavaScript
-├── experiments/         # Interactive experiments (cosmic, king, skyfall)
-├── account/             # Auth flow pages (profile, forgot-password, reset-password, verify-email)
+├── account/             # Auth flow pages (profile, image-studio, forgot-password, reset-password, verify-email)
 ├── admin/               # Admin dashboard
 ├── legal/               # Legal pages (privacy, imprint, datenschutz)
-├── workers/             # Cloudflare Workers (auth, ai, contact, crypto)
+├── workers/             # Cloudflare Workers (auth, ai, contact)
 ├── index.html           # Main landing page
 └── sitemap.xml          # Search engine sitemap
