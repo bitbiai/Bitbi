@@ -29,7 +29,10 @@ test.describe('Homepage', () => {
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeVisible();
     await expect(heroVideo).not.toHaveAttribute('controls', /./);
-    await expect(heroVideo).toHaveAttribute('poster', '/assets/images/hero/hero-flow-poster.jpg');
+    await expect(heroVideo).not.toHaveAttribute('poster', /./);
+    await expect
+      .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
+      .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
     await expect(hero.getByText('AI art • YouTube journeys • Sound Lab • Creative playground')).toHaveCount(0);
     await expect(hero.getByRole('link', { name: 'Explore Gallery' })).toBeVisible();

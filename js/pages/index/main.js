@@ -35,11 +35,16 @@ function initHeroBackgroundVideo() {
     video.defaultMuted = true;
     video.playsInline = true;
 
+    function setVideoActive(active) {
+        video.classList.toggle('is-active', !!active);
+    }
+
     function clearVideoSource() {
         if (!activeSource && !video.getAttribute('src')) return;
         video.pause();
         video.removeAttribute('src');
         activeSource = '';
+        setVideoActive(false);
         video.load();
     }
 
@@ -65,7 +70,9 @@ function initHeroBackgroundVideo() {
     function playVideo() {
         const playPromise = video.play();
         if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.catch(() => {});
+            playPromise.catch(() => {
+                setVideoActive(false);
+            });
         }
     }
 
@@ -82,6 +89,7 @@ function initHeroBackgroundVideo() {
 
         if (activeSource !== nextSource) {
             activeSource = nextSource;
+            setVideoActive(false);
             video.src = nextSource;
             video.load();
         }
@@ -129,6 +137,14 @@ function initHeroBackgroundVideo() {
             return;
         }
         resumeVideoIfPossible();
+    });
+
+    video.addEventListener('playing', () => {
+        setVideoActive(true);
+    });
+
+    video.addEventListener('error', () => {
+        setVideoActive(false);
     });
 
     syncHeroBackgroundVideo();

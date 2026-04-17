@@ -623,7 +623,16 @@
         z-index: 0;
         overflow: hidden;
         pointer-events: none;
-        background: #05080d url('/assets/images/hero/hero-flow-poster.jpg') center center / cover no-repeat;
+        background:
+            radial-gradient(120% 88% at 50% 16%, rgba(13, 27, 42, 0.44) 0%, rgba(5, 8, 13, 0.18) 48%, transparent 72%),
+            linear-gradient(180deg, #05080d 0%, #07111a 52%, #04060a 100%);
+    }
+
+    .hero--homepage .hero__media::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(4, 6, 10, 0.12) 0%, rgba(5, 8, 13, 0.18) 48%, rgba(4, 6, 10, 0.22) 100%);
     }
 
     .hero--homepage .hero__media-video {
@@ -632,7 +641,12 @@
         block-size: 100%;
         object-fit: cover;
         object-position: center center;
-        opacity: 0.72;
+        opacity: 0;
+        transition: opacity 220ms ease-out;
+    }
+
+    .hero--homepage .hero__media-video.is-active {
+        opacity: 0.63;
     }
 
     .hero--homepage .hero__media-video[hidden] {
@@ -645,6 +659,16 @@
 
     .hero--homepage .hero__title-wrap {
         margin-block-end: var(--space-6);
+    }
+
+    .hero--homepage .hero__title {
+        filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.14)) drop-shadow(0 0 28px rgba(255, 255, 255, 0.08));
+    }
+
+    @media (min-width: 768px) {
+        .hero--homepage .hero__title {
+            filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.16)) drop-shadow(0 0 34px rgba(255, 255, 255, 0.1));
+        }
     }
 
     /* --- Mobile: push scroll hint below the CTA buttons --- */
