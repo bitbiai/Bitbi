@@ -253,11 +253,9 @@ function injectPersistentMockInjectedWallet(page, options = {}) {
 }
 
 async function openDesktopWalletWorkspace(page) {
-  const beforeUrl = page.url();
-  await page.locator('[data-wallet-page="desktop"]').click();
+  await page.evaluate(() => window.location.hash = '#wallet-workspace');
   await expect(page.locator('#walletWorkspace')).toBeVisible();
   await dismissCookieBanner(page);
-  expect(page.url()).toBe(beforeUrl);
 }
 
 async function openMobileWalletWorkspace(page) {
@@ -593,29 +591,20 @@ test.describe('Wallet navigation', () => {
   test('wallet trigger is available on shared subpage headers', async ({ page }) => {
     await page.goto('/legal/privacy.html');
     await expect(page.locator('[data-wallet-open="desktop"]')).toBeVisible();
-    await expect(page.locator('[data-wallet-page="desktop"]')).toBeVisible();
+    await expect(page.locator('[data-wallet-open="desktop"] .wallet-nav__status-dot')).toBeAttached();
   });
 
-  test('desktop wallet header link opens the same-document wallet workspace', async ({ page }) => {
+  test('desktop panel trigger contains status dot and opens wallet panel', async ({ page }) => {
     await page.goto('/');
 
-    const walletPageLink = page.locator('[data-wallet-page="desktop"]');
-    const walletPanelButton = page.locator('[data-wallet-open="desktop"]');
-    await expect(walletPageLink).toBeVisible();
-    await expect(walletPanelButton).toBeVisible();
+    const panelButton = page.locator('[data-wallet-open="desktop"]');
+    await expect(panelButton).toBeVisible();
+    await expect(panelButton).toContainText('Panel');
+    await expect(panelButton.locator('.wallet-nav__status-dot')).toBeAttached();
 
-    const walletPageBox = await walletPageLink.boundingBox();
-    const walletPanelBox = await walletPanelButton.boundingBox();
-    expect(walletPageBox).toBeTruthy();
-    expect(walletPanelBox).toBeTruthy();
-    expect(Math.abs(walletPageBox.y - walletPanelBox.y)).toBeLessThan(8);
-    expect(walletPanelBox.x).toBeGreaterThan(walletPageBox.x);
-
-    await walletPageLink.click();
-    await expect(page.locator('#walletWorkspace')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Wallet workspace' })).toBeVisible();
-    await expect(page.locator('#walletSectionNav')).toBeVisible();
-    await expect(page).toHaveURL('/');
+    await panelButton.click();
+    const modal = page.locator('#walletModal');
+    await expect(modal).toBeVisible();
   });
 
   test('legacy wallet route redirects into the hash-open wallet workspace instead of remaining the primary flow', async ({ page }) => {

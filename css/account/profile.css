@@ -504,6 +504,21 @@
         --profile-studio-glow: rgba(255, 179, 0, 0.18);
     }
 
+    .profile__studio-card--wallet {
+        --profile-studio-accent: rgba(34, 197, 94, 0.7);
+        --profile-studio-border: rgba(34, 197, 94, 0.16);
+        --profile-studio-glow: rgba(34, 197, 94, 0.18);
+        appearance: none;
+        font: inherit;
+        text-align: start;
+    }
+
+    .profile__studio-emoji--wallet {
+        background: rgba(34, 197, 94, 0.08);
+        border-color: rgba(34, 197, 94, 0.12);
+        filter: drop-shadow(0 0 14px rgba(34, 197, 94, 0.24));
+    }
+
     .profile__studio-emoji {
         display: inline-flex;
         align-items: center;
@@ -535,10 +550,6 @@
         text-wrap: balance;
     }
 
-    .profile__studio-stack[data-has-admin-lab="true"] .profile__studio-card {
-        min-block-size: 104px;
-    }
-
     @media (min-width: 1024px) {
         .profile__top-pair {
             display: grid;
@@ -556,7 +567,7 @@
             min-block-size: 100%;
         }
 
-        .profile__studio-stack[data-has-admin-lab="true"] .profile__studio-card {
+        .profile__studio-stack .profile__studio-card {
             flex: 1 1 0;
             min-block-size: 0;
         }

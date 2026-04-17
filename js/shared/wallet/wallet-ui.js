@@ -10,9 +10,7 @@ import { subscribeWalletState } from './wallet-state.js?v=__ASSET_VERSION__';
 let initialized = false;
 let currentState = null;
 let actionsRef = null;
-let desktopDock = null;
 let desktopTrigger = null;
-let desktopPageLink = null;
 let mobileRow = null;
 let mobileTrigger = null;
 let mobilePageLink = null;
@@ -118,29 +116,10 @@ function handleEscape(event) {
 }
 
 function ensureDesktopTrigger() {
-    if (desktopDock?.isConnected) return desktopDock;
+    if (desktopTrigger?.isConnected) return desktopTrigger;
 
     const actions = document.querySelector('.site-nav__actions');
     if (!actions) return null;
-
-    desktopDock = createElement('div', 'wallet-nav__dock');
-    desktopDock.dataset.walletRow = 'desktop';
-
-    desktopPageLink = document.createElement('button');
-    desktopPageLink.className = 'wallet-nav__page-link';
-    desktopPageLink.type = 'button';
-    desktopPageLink.dataset.walletPage = 'desktop';
-    desktopPageLink.dataset.walletDefaultMeta = 'Open wallet workspace';
-    desktopPageLink.setAttribute('aria-haspopup', 'dialog');
-    desktopPageLink.setAttribute('aria-controls', 'walletWorkspace');
-    desktopPageLink.innerHTML = `
-        <span class="wallet-nav__status-dot" aria-hidden="true"></span>
-        <span class="wallet-nav__text">
-            <span class="wallet-nav__label">Wallet</span>
-            <span class="wallet-nav__meta">Open wallet workspace</span>
-        </span>
-    `;
-    desktopPageLink.addEventListener('click', () => actionsRef?.openWorkspace?.());
 
     desktopTrigger = createElement('button', 'wallet-nav__trigger');
     desktopTrigger.type = 'button';
@@ -148,20 +127,19 @@ function ensureDesktopTrigger() {
     desktopTrigger.setAttribute('aria-haspopup', 'dialog');
     desktopTrigger.setAttribute('aria-controls', 'walletModal');
     desktopTrigger.setAttribute('aria-label', 'Open wallet panel');
-    desktopTrigger.textContent = 'Panel';
+    desktopTrigger.innerHTML = `<span class="wallet-nav__status-dot" aria-hidden="true"></span>Panel`;
     desktopTrigger.addEventListener('click', () => actionsRef?.openPanel?.());
-    desktopDock.append(desktopPageLink, desktopTrigger);
 
     const mood = actions.querySelector('.site-nav__mood');
     if (mood?.nextSibling) {
-        actions.insertBefore(desktopDock, mood.nextSibling);
+        actions.insertBefore(desktopTrigger, mood.nextSibling);
     } else if (mood) {
-        actions.appendChild(desktopDock);
+        actions.appendChild(desktopTrigger);
     } else {
-        actions.prepend(desktopDock);
+        actions.prepend(desktopTrigger);
     }
 
-    return desktopDock;
+    return desktopTrigger;
 }
 
 function ensureMobileTrigger() {
@@ -665,13 +643,25 @@ function renderBody(state) {
     modalBody.appendChild(renderDisconnectedState(state));
 }
 
+function syncDesktopStatusDot(state) {
+    const dot = desktopTrigger?.querySelector('.wallet-nav__status-dot');
+    if (!dot) return;
+    const isConnected = state.status === 'connected' && !!state.active?.address;
+    const isWrongNetwork = isConnected && !state.active?.isMainnet;
+    const isBusy = (state.status === 'connecting' || state.status === 'restoring')
+        || (state.identityAction && state.identityAction !== 'idle');
+    dot.classList.toggle('is-connected', isConnected);
+    dot.classList.toggle('is-warning', isWrongNetwork);
+    dot.classList.toggle('is-busy', isBusy);
+}
+
 function render(state) {
     currentState = state;
     ensureDesktopTrigger();
     ensureMobileTrigger();
     ensureModal();
 
-    syncTrigger(desktopPageLink, state, false);
+    syncDesktopStatusDot(state);
     syncTrigger(mobilePageLink, state, true);
     desktopTrigger?.setAttribute('aria-expanded', String(!!state.isOpen));
     mobileTrigger?.setAttribute('aria-expanded', String(!!state.isOpen));

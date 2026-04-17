@@ -70,6 +70,7 @@ const $walletSectionActions = document.getElementById('walletSectionActions');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
+const $walletCard     = document.getElementById('profileWalletCard');
 const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
 const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
 const $aiLabToast     = document.getElementById('profileAiLabToast');
@@ -219,6 +220,10 @@ if ($tabBar) {
 }
 
 $profileWalletWorkspaceBtn?.addEventListener('click', () => {
+    openWalletWorkspaceView();
+});
+
+$walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
 });
 
@@ -823,6 +828,9 @@ function renderProfile(profile, account) {
     }
     if ($adminAiLabCard) {
         $adminAiLabCard.hidden = !isAdmin;
+    }
+    if ($walletCard) {
+        $walletCard.hidden = false;
     }
     if ($mobileAiLabLink) {
         $mobileAiLabLink.hidden = !isAdmin;
