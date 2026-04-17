@@ -645,32 +645,16 @@ async function restorePersistedConnection(persisted = readPersistedSelection()) 
         return { connection: null, reason: 'none' };
     }
 
-    if (persisted.type === 'injected' && persisted.id) {
+    if (persisted.type === 'injected' && (persisted.id || persisted.address)) {
         const availableInjectedWallets = listInjectedWallets();
-        if (!hasInjectedWalletProvider(persisted.id)) {
-            if (persisted.address) {
-                const matchedByAddress = await restoreInjectedWalletByAddress(persisted.address);
-                if (matchedByAddress) {
-                    return {
-                        connection: matchedByAddress,
-                        reason: 'restored',
-                    };
-                }
+        if (persisted.id && hasInjectedWalletProvider(persisted.id)) {
+            const connection = await restoreInjectedWallet(persisted.id);
+            if (connection) {
+                return {
+                    connection,
+                    reason: 'restored',
+                };
             }
-
-            if (availableInjectedWallets.length === 0) {
-                return { connection: null, reason: 'waiting-for-provider' };
-            }
-
-            return { connection: null, reason: 'no-account' };
-        }
-
-        const connection = await restoreInjectedWallet(persisted.id);
-        if (connection) {
-            return {
-                connection,
-                reason: 'restored',
-            };
         }
 
         if (persisted.address) {
@@ -795,7 +779,7 @@ async function reconcileConnectionState(options = {}) {
             }
         }
 
-        if (persisted && (isPersistedSelectionClearlyStale(persisted) || restoreOutcome.reason === 'unsupported' || restoreOutcome.reason === 'no-account')) {
+        if (persisted && (isPersistedSelectionClearlyStale(persisted) || restoreOutcome.reason === 'unsupported')) {
             clearPersistedSelection();
         }
 
@@ -951,7 +935,9 @@ async function restorePreviousConnection() {
             return;
         }
 
-        clearPersistedSelection();
+        if (outcome?.reason === 'unsupported') {
+            clearPersistedSelection();
+        }
         clearDisconnectConfirmation();
         {
             const { isOpen, workspaceOpen } = getWalletState();

@@ -570,6 +570,53 @@ test.describe('Wallet navigation', () => {
     expect(persistedSelection.connectorId).toBe('com.bitbi.mock.persistent');
   });
 
+  test('restores the persisted wallet after hard navigation even when another injected wallet announces first', async ({ page }) => {
+    await injectMockInjectedWallet(page);
+    await injectPersistentMockInjectedWallet(page, {
+      announceDelayMs: 1400,
+      persistedSelection: true,
+    });
+
+    await page.goto('/');
+    await page.goto('/legal/privacy.html');
+    await page.waitForTimeout(2200);
+
+    await page.locator('[data-wallet-open="desktop"]').click();
+
+    const modal = page.locator('#walletModal');
+    await expect(modal).toContainText('Persistent Mock Wallet');
+    await expect(modal).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+
+    const stats = await page.evaluate(() => window.__bitbiMockWalletStats.read());
+    expect(stats.requestAccounts).toBe(0);
+    expect(stats.accounts).toBeGreaterThanOrEqual(1);
+
+    const persistedSelection = await page.evaluate(() => window.__bitbiMockWalletControl.readPersistedSelection());
+    expect(persistedSelection.connectorType).toBe('injected');
+    expect(persistedSelection.connectorId).toBe('com.bitbi.mock.persistent');
+  });
+
+  test('restores a persisted injected wallet when legacy storage only retains the address', async ({ page }) => {
+    await injectPersistentMockInjectedWallet(page);
+    await page.goto('/');
+
+    await page.evaluate(() => {
+      localStorage.setItem('bitbi_mock_wallet_connected', '1');
+      localStorage.setItem('bitbi_wallet_connector_type', 'injected');
+      localStorage.removeItem('bitbi_wallet_connector_id');
+      localStorage.setItem('bitbi_wallet_address', '0x1234567890abcdef1234567890abcdef12345678');
+      localStorage.setItem('bitbi_wallet_chain_id', '1');
+      localStorage.setItem('bitbi_wallet_updated_at', new Date().toISOString());
+    });
+
+    await page.reload();
+    await page.locator('[data-wallet-open="desktop"]').click();
+
+    const modal = page.locator('#walletModal');
+    await expect(modal).toContainText('Persistent Mock Wallet');
+    await expect(modal).toContainText('0x1234567890abcdef1234567890abcdef12345678');
+  });
+
   test('wallet workspace opening preserves the injected wallet connection without a new connect request', async ({ page }) => {
     await injectPersistentMockInjectedWallet(page);
     await page.goto('/');
