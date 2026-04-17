@@ -140,7 +140,7 @@ export function buildMusicSaveIntent({
     receivedAt,
 }) {
     const result = response?.result;
-    if (!result?.audioBase64) return null;
+    if (!result?.audioBase64 && !result?.audioUrl) return null;
     return {
         type: 'text',
         sourceModule: 'music',
@@ -150,7 +150,8 @@ export function buildMusicSaveIntent({
         defaultTitle: buildSaveTitle(prompt, 'AI Lab Music'),
         note: 'The audio file is stored as an MP3 alongside your existing saved assets.',
         payload: {
-            audioBase64: result.audioBase64,
+            audioBase64: result.audioBase64 || null,
+            audioUrl: result.audioUrl || null,
             mimeType: result.mimeType || 'audio/mpeg',
             prompt: result.prompt || prompt || '',
             model: response?.model || null,
