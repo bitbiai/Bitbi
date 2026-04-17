@@ -4655,6 +4655,104 @@ test.describe('Worker routes', () => {
     expect(json.ok).toBe(false);
   });
 
+  test('member audio save via audioUrl fetches server-side and stores MP3 in R2', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-url', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'af00e001',
+          user_id: 'member-audio-url',
+          name: 'URL Music',
+          slug: 'url-music',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const fakeAudioBytes = new Uint8Array([0xff, 0xfb, 0x90, 0x00, 0x01, 0x02, 0x03]);
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://oss.example.com/')) {
+        return new Response(fakeAudioBytes, {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'member-audio-url');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'URL-based Track',
+          audioUrl: 'https://oss.example.com/music/track.mp3',
+          mimeType: 'audio/mpeg',
+          prompt: 'A chill beat',
+          folder_id: 'af00e001',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.60',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      const json = await res.json();
+      expect(json).toMatchObject({ ok: true });
+      expect(res.status).toBe(201);
+      expect(json.data).toMatchObject({
+          folder_id: 'af00e001',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          file_name: expect.stringMatching(/\.mp3$/),
+      });
+
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const row = env.DB.state.aiTextAssets[0];
+      expect(row.user_id).toBe('member-audio-url');
+      expect(row.source_module).toBe('music');
+      expect(row.r2_key).toContain('/audio/');
+
+      const stored = env.USER_IMAGES.objects.get(row.r2_key);
+      expect(stored).toBeDefined();
+      expect(stored.httpMetadata.contentType).toBe('audio/mpeg');
+      /* Verify the stored size matches the fetched payload */
+      expect(stored.size).toBe(fakeAudioBytes.byteLength);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('member audio save via audioUrl rejects non-HTTP URLs', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-badurl', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-badurl');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Bad URL',
+        audioUrl: 'ftp://evil.example.com/music.mp3',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.61',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error).toMatch(/HTTP/i);
+  });
+
   test('AI assets route returns mixed image, text, and sound assets from the shared folder world', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

@@ -1186,8 +1186,8 @@ async function handleSaveAudio(ctx) {
   if (session instanceof Response) return session;
 
   const body = await readJsonBody(request);
-  if (!body || !body.audioBase64) {
-    return respond({ ok: false, error: "Audio data is required." }, { status: 400 });
+  if (!body || (!body.audioBase64 && !body.audioUrl)) {
+    return respond({ ok: false, error: "Audio data is required (audioBase64 or audioUrl)." }, { status: 400 });
   }
 
   const title = String(body.title || "").trim();
@@ -1198,8 +1198,22 @@ async function handleSaveAudio(ctx) {
     );
   }
 
-  if (typeof body.audioBase64 !== "string" || body.audioBase64.length === 0) {
+  if (body.audioBase64 && (typeof body.audioBase64 !== "string" || body.audioBase64.length === 0)) {
     return respond({ ok: false, error: "audioBase64 must be a non-empty string." }, { status: 400 });
+  }
+
+  if (body.audioUrl) {
+    if (typeof body.audioUrl !== "string") {
+      return respond({ ok: false, error: "audioUrl must be a string." }, { status: 400 });
+    }
+    try {
+      const parsed = new URL(body.audioUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return respond({ ok: false, error: "audioUrl must be an HTTP(S) URL." }, { status: 400 });
+      }
+    } catch {
+      return respond({ ok: false, error: "audioUrl must be a valid URL." }, { status: 400 });
+    }
   }
 
   const mimeType = String(body.mimeType || "audio/mpeg").trim();
@@ -1213,7 +1227,8 @@ async function handleSaveAudio(ctx) {
   }
 
   const payload = {
-    audioBase64: body.audioBase64,
+    audioBase64: body.audioBase64 || null,
+    audioUrl: body.audioUrl || null,
     mimeType,
     prompt: body.prompt ? String(body.prompt).slice(0, MAX_PROMPT_LENGTH) : null,
     model: body.model || null,

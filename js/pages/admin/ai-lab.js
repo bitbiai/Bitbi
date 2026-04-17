@@ -1496,36 +1496,10 @@ export function createAdminAiLab({ showToast } = {}) {
 
             let res;
             if (intent.sourceModule === 'music') {
-                const musicPayload = { ...intent.payload };
-
-                /* If only a URL is available, fetch and convert to base64 */
-                if (!musicPayload.audioBase64 && musicPayload.audioUrl) {
-                    setSaveState('loading', 'Downloading audio for storage...');
-                    renderSaveModal();
-                    try {
-                        const audioRes = await fetch(musicPayload.audioUrl);
-                        if (!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
-                        const buf = await audioRes.arrayBuffer();
-                        const bytes = new Uint8Array(buf);
-                        let binary = '';
-                        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-                        musicPayload.audioBase64 = btoa(binary);
-                        if (!musicPayload.mimeType) {
-                            musicPayload.mimeType = audioRes.headers.get('content-type') || 'audio/mpeg';
-                        }
-                    } catch (fetchErr) {
-                        setSaveState('error', `Failed to download audio: ${fetchErr.message}`);
-                        state.save.saving = false;
-                        renderSaveModal();
-                        return;
-                    }
-                }
-                delete musicPayload.audioUrl;
-
                 res = await apiAiSaveAudio({
                     title: state.save.title,
                     folder_id: state.save.folderId || null,
-                    ...musicPayload,
+                    ...intent.payload,
                 });
             } else {
                 res = await apiAdminAiSaveTextAsset({

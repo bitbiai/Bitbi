@@ -328,16 +328,59 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
 
 export const AI_MUSIC_ASSET_MAX_BYTES = 12_000_000;
 
-function buildMusicAssetFields(safeTitle, payload, now) {
-  const raw = payload.audioBase64;
-  const bytes = Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
+async function buildMusicAssetFields(safeTitle, payload, now) {
+  let bytes;
+  let mimeType = payload.mimeType || "audio/mpeg";
+
+  if (payload.audioBase64) {
+    bytes = Uint8Array.from(atob(payload.audioBase64), (ch) => ch.charCodeAt(0));
+  } else if (payload.audioUrl) {
+    let res;
+    try {
+      res = await fetch(payload.audioUrl, { redirect: "follow" });
+    } catch (fetchErr) {
+      const error = new Error("Failed to fetch audio from the provided URL.");
+      error.status = 502;
+      error.code = "upstream_fetch_error";
+      throw error;
+    }
+    if (!res.ok) {
+      const error = new Error(`Audio URL returned HTTP ${res.status}.`);
+      error.status = 502;
+      error.code = "upstream_fetch_error";
+      throw error;
+    }
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType && !contentType.startsWith("audio/") && !contentType.startsWith("application/octet-stream")) {
+      const error = new Error(`Audio URL returned unexpected content-type: ${contentType}`);
+      error.status = 422;
+      error.code = "validation_error";
+      throw error;
+    }
+    if (contentType && contentType.startsWith("audio/")) {
+      mimeType = contentType.split(";")[0].trim();
+    }
+    bytes = new Uint8Array(await res.arrayBuffer());
+  } else {
+    const error = new Error("Either audioBase64 or audioUrl is required.");
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
   if (bytes.byteLength > AI_MUSIC_ASSET_MAX_BYTES) {
     const error = new Error(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
     error.status = 400;
     error.code = "validation_error";
     throw error;
   }
-  const mimeType = payload.mimeType || "audio/mpeg";
+  if (bytes.byteLength === 0) {
+    const error = new Error("Audio payload is empty.");
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
   const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("flac") ? "flac" : "mp3";
   const previewText = truncatePreview(payload.prompt || "Music generation");
   const metadata = buildMusicMetadata(payload, now);
@@ -355,7 +398,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   let metadataRaw;
 
   if (sourceModule === "music") {
-    const music = buildMusicAssetFields(safeTitle, payload, now);
+    const music = await buildMusicAssetFields(safeTitle, payload, now);
     bytes = music.bytes;
     mimeType = music.mimeType;
     fileExt = music.ext;
