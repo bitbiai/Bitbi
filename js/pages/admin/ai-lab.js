@@ -1,5 +1,6 @@
 import {
     apiAiGetFolders,
+    apiAiSaveAudio,
     apiAiSaveImage,
     apiAdminAiCompare,
     apiAdminAiLiveAgent,
@@ -1493,12 +1494,21 @@ export function createAdminAiLab({ showToast } = {}) {
                 return;
             }
 
-            const res = await apiAdminAiSaveTextAsset({
-                title: state.save.title,
-                folderId: state.save.folderId || null,
-                sourceModule: intent.sourceModule,
-                data: intent.payload,
-            });
+            let res;
+            if (intent.sourceModule === 'music') {
+                res = await apiAiSaveAudio({
+                    title: state.save.title,
+                    folder_id: state.save.folderId || null,
+                    ...intent.payload,
+                });
+            } else {
+                res = await apiAdminAiSaveTextAsset({
+                    title: state.save.title,
+                    folderId: state.save.folderId || null,
+                    sourceModule: intent.sourceModule,
+                    data: intent.payload,
+                });
+            }
 
             if (!res.ok) {
                 setSaveState('error', res.error || 'Save failed.');

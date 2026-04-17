@@ -14,6 +14,7 @@ import {
   shouldAttemptOnDemandAiImageDerivative,
   toAiImageAssetRecord,
 } from "../lib/ai-image-derivatives.js";
+import { saveAdminAiTextAsset } from "../lib/ai-text-assets.js";
 import aiImageModels from "../../../../js/shared/ai-image-models.mjs";
 import {
   getErrorFields,
@@ -1174,6 +1175,107 @@ async function handleGetTextAssetFile(ctx, assetId) {
   return new Response(object.body, { headers });
 }
 
+// ── POST /api/ai/audio/save ──
+const MAX_AUDIO_TITLE_LENGTH = 120;
+
+async function handleSaveAudio(ctx) {
+  const { request, env } = ctx;
+  const correlationId = ctx.correlationId || null;
+  const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  if (!body || !body.audioBase64) {
+    return respond({ ok: false, error: "Audio data is required." }, { status: 400 });
+  }
+
+  const title = String(body.title || "").trim();
+  if (!title || title.length > MAX_AUDIO_TITLE_LENGTH) {
+    return respond(
+      { ok: false, error: `Title is required and must be at most ${MAX_AUDIO_TITLE_LENGTH} characters.` },
+      { status: 400 }
+    );
+  }
+
+  if (typeof body.audioBase64 !== "string" || body.audioBase64.length === 0) {
+    return respond({ ok: false, error: "audioBase64 must be a non-empty string." }, { status: 400 });
+  }
+
+  const mimeType = String(body.mimeType || "audio/mpeg").trim();
+  if (!mimeType.startsWith("audio/")) {
+    return respond({ ok: false, error: "mimeType must be an audio MIME type." }, { status: 400 });
+  }
+
+  const folderId = body.folder_id || null;
+  if (folderId && (typeof folderId !== "string" || !/^[a-f0-9]+$/.test(folderId))) {
+    return respond({ ok: false, error: "Invalid folder ID." }, { status: 400 });
+  }
+
+  const payload = {
+    audioBase64: body.audioBase64,
+    mimeType,
+    prompt: body.prompt ? String(body.prompt).slice(0, MAX_PROMPT_LENGTH) : null,
+    model: body.model || null,
+    mode: body.mode || null,
+    lyricsMode: body.lyricsMode || null,
+    bpm: body.bpm ?? null,
+    key: body.key || null,
+    lyricsPreview: body.lyricsPreview || null,
+    durationMs: body.durationMs ?? null,
+    sampleRate: body.sampleRate ?? null,
+    channels: body.channels ?? null,
+    bitrate: body.bitrate ?? null,
+    sizeBytes: body.sizeBytes ?? null,
+    traceId: body.traceId || null,
+    warnings: Array.isArray(body.warnings) ? body.warnings : [],
+    elapsedMs: body.elapsedMs ?? null,
+    receivedAt: body.receivedAt || null,
+  };
+
+  try {
+    const saved = await saveAdminAiTextAsset(env, {
+      userId: session.user.id,
+      folderId,
+      title,
+      sourceModule: "music",
+      payload,
+    });
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-audio",
+      event: "ai_audio_saved",
+      correlationId,
+      user_id: session.user.id,
+      asset_id: saved.id,
+      folder_id: saved.folder_id,
+      size_bytes: saved.size_bytes,
+    });
+
+    return respond({ ok: true, data: saved }, { status: 201 });
+  } catch (error) {
+    const status = error?.status || 500;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-audio",
+      event: "ai_audio_save_failed",
+      level: "error",
+      correlationId,
+      user_id: session.user.id,
+      ...getErrorFields(error),
+    });
+    return respond(
+      {
+        ok: false,
+        error: error?.message || "Audio save failed.",
+        code: error?.code || (status >= 500 ? "internal_error" : "validation_error"),
+      },
+      { status }
+    );
+  }
+}
+
 // ── DELETE /api/ai/folders/:id ──
 async function handleDeleteFolder(ctx, folderId) {
   const { request, env } = ctx;
@@ -1998,6 +2100,9 @@ export async function handleAI(ctx) {
   }
   if (pathname === "/api/ai/images/save" && method === "POST") {
     return handleSaveImage(ctx);
+  }
+  if (pathname === "/api/ai/audio/save" && method === "POST") {
+    return handleSaveAudio(ctx);
   }
   if (pathname === "/api/ai/images/bulk-move" && method === "PATCH") {
     return handleBulkMove(ctx);

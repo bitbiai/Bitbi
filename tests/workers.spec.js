@@ -4540,6 +4540,121 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.size).toBe(0);
   });
 
+  test('member audio save endpoint stores MP3 in R2 for authenticated non-admin user', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-save', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'af001234',
+          user_id: 'member-audio-save',
+          name: 'My Music',
+          slug: 'my-music',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const fakeAudioBase64 = btoa('fake-mp3-binary-data');
+    const token = await seedSession(env, 'member-audio-save');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'My First Track',
+        audioBase64: fakeAudioBase64,
+        mimeType: 'audio/mpeg',
+        prompt: 'A peaceful piano melody',
+        folder_id: 'af001234',
+        mode: 'instrumental',
+        bpm: 90,
+        durationMs: 25000,
+        sampleRate: 44100,
+        channels: 2,
+        bitrate: 128000,
+        sizeBytes: 400000,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.50',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      ok: true,
+      data: {
+        folder_id: 'af001234',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        file_name: expect.stringMatching(/\.mp3$/),
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(row.folder_id).toBe('af001234');
+    expect(row.user_id).toBe('member-audio-save');
+    expect(row.source_module).toBe('music');
+    expect(row.mime_type).toBe('audio/mpeg');
+    expect(row.r2_key).toContain('/audio/');
+    expect(row.r2_key).toMatch(/\.mp3$/);
+
+    expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+    const object = env.USER_IMAGES.objects.get(row.r2_key);
+    expect(object.httpMetadata.contentType).toBe('audio/mpeg');
+
+    const metadata = JSON.parse(row.metadata_json);
+    expect(metadata.prompt).toBe('A peaceful piano melody');
+    expect(metadata.mode).toBe('instrumental');
+    expect(metadata.bpm).toBe(90);
+  });
+
+  test('member audio save rejects unauthenticated requests', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({});
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'No Auth',
+        audioBase64: btoa('data'),
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.51',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  test('member audio save rejects missing title', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-notitle', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-notitle');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        audioBase64: btoa('data'),
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.52',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
   test('AI assets route returns mixed image, text, and sound assets from the shared folder world', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

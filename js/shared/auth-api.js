@@ -290,6 +290,10 @@ export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) 
     return request('POST', '/ai/images/save', body);
 }
 
+export function apiAiSaveAudio(payload) {
+    return request('POST', '/ai/audio/save', payload);
+}
+
 export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
