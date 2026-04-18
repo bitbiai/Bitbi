@@ -306,6 +306,10 @@ export function apiAiSetImagePublication(imageId, visibility) {
     return request('PATCH', `/ai/images/${imageId}/publication`, { visibility });
 }
 
+export function apiAiSetTextAssetPublication(assetId, visibility) {
+    return request('PATCH', `/ai/text-assets/${assetId}/publication`, { visibility });
+}
+
 export function apiAiDeleteTextAsset(assetId) {
     return request('DELETE', `/ai/text-assets/${assetId}`);
 }

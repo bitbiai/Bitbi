@@ -13,6 +13,7 @@ import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
 import { handleGallery } from "./routes/gallery.js";
+import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
@@ -139,6 +140,8 @@ export default {
     if (pathname.startsWith("/api/gallery/")) {
       const result = await handleGallery(ctx);
       if (result) return result;
+      const videoResult = await handleVideoGallery(ctx);
+      if (videoResult) return videoResult;
     }
 
     // Protected media

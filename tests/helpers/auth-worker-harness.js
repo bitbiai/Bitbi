@@ -1201,7 +1201,7 @@ class MockD1 {
         : null;
     }
 
-    if (query.startsWith('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at FROM ai_text_assets WHERE user_id = ?')) {
+    if (query.includes('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at') && query.includes('FROM ai_text_assets WHERE user_id = ?')) {
       const [userId, maybeFolderId] = bindings;
       let rows = this.state.aiTextAssets.filter((row) => row.user_id === userId);
       if (query.includes('AND folder_id IS NULL')) {
@@ -1221,6 +1221,8 @@ class MockD1 {
           size_bytes: row.size_bytes,
           preview_text: row.preview_text,
           created_at: row.created_at,
+          visibility: row.visibility || 'private',
+          published_at: row.published_at ?? null,
         })),
       };
     }

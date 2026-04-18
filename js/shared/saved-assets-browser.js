@@ -9,6 +9,7 @@ import {
     apiAiGetFolders,
     apiAiGetFoldersForDelete,
     apiAiSetImagePublication,
+    apiAiSetTextAssetPublication,
 } from './auth-api.js?v=__ASSET_VERSION__';
 import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=__ASSET_VERSION__';
 
@@ -314,8 +315,11 @@ async function deleteSingleAsset(asset) {
         return apiAiDeleteTextAsset(asset.id);
     }
 
-    async function updateImagePublication(asset, visibility) {
-        return apiAiSetImagePublication(asset.id, visibility);
+    async function updateAssetPublication(asset, visibility) {
+        if (isImageAsset(asset)) {
+            return apiAiSetImagePublication(asset.id, visibility);
+        }
+        return apiAiSetTextAssetPublication(asset.id, visibility);
     }
 
     async function loadFolders({ preserveFilter = true } = {}) {
@@ -456,7 +460,7 @@ async function deleteSingleAsset(asset) {
             const nextVisibility = isPublishedImageAsset(asset) ? 'private' : 'public';
             publishButton.disabled = true;
             publishButton.textContent = '…';
-            const result = await updateImagePublication(asset, nextVisibility);
+            const result = await updateAssetPublication(asset, nextVisibility);
             if (!result.ok) {
                 publishButton.disabled = false;
                 publishButton.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
@@ -548,8 +552,43 @@ async function deleteSingleAsset(asset) {
         ].filter(Boolean).join(' · ');
         item.appendChild(meta);
 
+        if (isVideo) {
+            const isPublished = isPublishedImageAsset(asset);
+            const visBadge = document.createElement('span');
+            visBadge.className = `studio__image-visibility ${isPublished ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
+            visBadge.textContent = isPublished ? 'Public' : 'Private';
+            item.appendChild(visBadge);
+        }
+
         const actions = document.createElement('div');
         actions.className = 'studio__asset-actions';
+
+        if (isVideo) {
+            const isPublished = isPublishedImageAsset(asset);
+            const pubBtn = document.createElement('button');
+            pubBtn.type = 'button';
+            pubBtn.className = `studio__image-publish studio__image-publish--inline ${isPublished ? 'studio__image-publish--public' : ''}`;
+            pubBtn.textContent = isPublished ? 'Unpublish' : 'Publish';
+            pubBtn.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const nextVis = isPublishedImageAsset(asset) ? 'private' : 'public';
+                pubBtn.disabled = true;
+                pubBtn.textContent = '\u2026';
+                const result = await updateAssetPublication(asset, nextVis);
+                if (!result.ok) {
+                    pubBtn.disabled = false;
+                    pubBtn.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
+                    showMsg(result.error || 'Visibility update failed.', 'error');
+                    return;
+                }
+                await refresh();
+                showMsg(
+                    nextVis === 'public' ? 'Video published to Memvids.' : 'Video removed from Memvids.',
+                    'success',
+                );
+            });
+            actions.appendChild(pubBtn);
+        }
 
         const openLink = document.createElement('a');
         openLink.className = 'studio__asset-open';

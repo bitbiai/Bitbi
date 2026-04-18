@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0022_add_video_source_module.sql",
+    "currentSchemaMigration": "0023_add_text_asset_publication.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",

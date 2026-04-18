@@ -118,6 +118,9 @@ function toAiFileAssetRecord(row) {
     preview_text: row.preview_text,
     created_at: row.created_at,
     file_url: `/api/ai/text-assets/${row.id}/file`,
+    visibility: row.visibility || "private",
+    is_public: (row.visibility || "private") === "public",
+    published_at: row.published_at ?? null,
   };
 }
 
@@ -738,7 +741,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ? AND folder_id IS NULL
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
                  FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id];
@@ -747,7 +750,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ? AND folder_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id, folderId];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
                  FROM ai_text_assets WHERE user_id = ? AND folder_id = ?
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id, folderId];
@@ -756,7 +759,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
                  FROM ai_text_assets WHERE user_id = ?
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id];
@@ -1466,6 +1469,53 @@ async function handleDeleteImage(ctx, imageId) {
   return json({ ok: true });
 }
 
+// ── PATCH /api/ai/text-assets/:id/publication ──
+async function handleUpdateTextAssetPublication(ctx, assetId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const visibility = String(body?.visibility || "").trim().toLowerCase();
+  if (visibility !== "public" && visibility !== "private") {
+    return json({ ok: false, error: "Invalid visibility." }, { status: 400 });
+  }
+
+  let existing;
+  try {
+    existing = await env.DB.prepare(
+      "SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?"
+    ).bind(assetId, session.user.id).first();
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) {
+      return json({ ok: false, error: "Asset service unavailable." }, { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!existing) {
+    return json({ ok: false, error: "Asset not found." }, { status: 404 });
+  }
+
+  const publishedAt = visibility === "public"
+    ? (existing.visibility === "public" && existing.published_at ? existing.published_at : nowIso())
+    : null;
+
+  await env.DB.prepare(
+    "UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?"
+  ).bind(visibility, publishedAt, assetId, session.user.id).run();
+
+  return json({
+    ok: true,
+    data: {
+      id: assetId,
+      visibility,
+      is_public: visibility === "public",
+      published_at: publishedAt,
+    },
+  });
+}
+
 // ── DELETE /api/ai/text-assets/:id ──
 async function handleDeleteTextAsset(ctx, assetId) {
   const { request, env } = ctx;
@@ -2172,6 +2222,11 @@ export async function handleAI(ctx) {
   const publicationMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/publication$/);
   if (publicationMatch && method === "PATCH") {
     return handleUpdateImagePublication(ctx, publicationMatch[1]);
+  }
+
+  const textPublicationMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/publication$/);
+  if (textPublicationMatch && method === "PATCH") {
+    return handleUpdateTextAssetPublication(ctx, textPublicationMatch[1]);
   }
 
   const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);
