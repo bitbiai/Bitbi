@@ -2581,6 +2581,178 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('POST /api/admin/ai/test-video coerces vidu/q3-pro duration from string to integer', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-coerced.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Coercion test — duration as string.',
+          duration: '6',
+          resolution: '720p',
+          audio: false,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result.duration).toBe(6);
+      expect(typeof capturedPayload.duration).toBe('number');
+      expect(capturedPayload.duration).toBe(6);
+    });
+
+    test('POST /api/admin/ai/test-video ensures vidu/q3-pro audio arrives as boolean at env.AI.run()', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-bool-audio.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Audio type assertion.',
+          duration: 4,
+          resolution: '1080p',
+          audio: false,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result.generate_audio).toBe(false);
+      expect(typeof capturedPayload.audio).toBe('boolean');
+      expect(capturedPayload.audio).toBe(false);
+    });
+
+    test('POST /api/admin/ai/test-video ensures vidu/q3-pro audio=true arrives as boolean at env.AI.run()', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-audio-true.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Audio true type assertion.',
+          duration: 4,
+          resolution: '540p',
+          audio: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(typeof capturedPayload.audio).toBe('boolean');
+      expect(capturedPayload.audio).toBe(true);
+    });
+
+    test('POST /api/admin/ai/test-video rejects vidu/q3-pro duration outside 1..16 at invoke layer', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Duration too large.',
+          duration: 20,
+          resolution: '720p',
+          audio: false,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('duration'),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-video rejects vidu/q3-pro invalid resolution at invoke layer', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Bad resolution.',
+          duration: 6,
+          resolution: '4k',
+          audio: false,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('resolution'),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-video only sends allowlisted keys to env.AI.run() for vidu/q3-pro', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-noleak.mp4' };
+        },
+      });
+
+      // Send a valid Vidu request — the buildViduQ3Payload helper should
+      // produce a payload containing ONLY the Vidu allowlist keys.
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Allowlist enforcement check.',
+          duration: 5,
+          resolution: '720p',
+          audio: false,
+          aspect_ratio: '16:9',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const allowedKeys = ['prompt', 'duration', 'resolution', 'audio', 'aspect_ratio'];
+      expect(Object.keys(capturedPayload).sort()).toEqual(allowedKeys.sort());
+      // Verify no Pixverse fields leaked through
+      expect(capturedPayload.quality).toBeUndefined();
+      expect(capturedPayload.generate_audio).toBeUndefined();
+      expect(capturedPayload.seed).toBeUndefined();
+      expect(capturedPayload.negative_prompt).toBeUndefined();
+      expect(capturedPayload.image_input).toBeUndefined();
+      expect(capturedPayload.workflow).toBeUndefined();
+      // Verify runtime types are correct
+      expect(typeof capturedPayload.duration).toBe('number');
+      expect(typeof capturedPayload.audio).toBe('boolean');
+      expect(typeof capturedPayload.resolution).toBe('string');
+      expect(typeof capturedPayload.prompt).toBe('string');
+      expect(typeof capturedPayload.aspect_ratio).toBe('string');
+    });
+
     test('POST /api/admin/ai/test-video validates required prompt', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 

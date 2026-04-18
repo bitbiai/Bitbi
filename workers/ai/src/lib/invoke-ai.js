@@ -820,6 +820,119 @@ function extractVideoUrl(result) {
   return null;
 }
 
+const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
+const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
+
+function viduValidationError(message) {
+  const error = new Error(message);
+  error.name = "ValidationError";
+  error.status = 400;
+  error.code = "validation_error";
+  return error;
+}
+
+function buildViduQ3Payload(input) {
+  // --- duration: coerce to integer, validate range 1..16 ---
+  let duration = input.duration;
+  if (duration !== undefined && duration !== null) {
+    duration = typeof duration === "string" ? parseInt(duration, 10) : Number(duration);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 16) {
+      throw viduValidationError("vidu/q3-pro: duration must be an integer between 1 and 16.");
+    }
+  } else {
+    throw viduValidationError("vidu/q3-pro: duration is required.");
+  }
+
+  // --- resolution: validate enum ---
+  let resolution = input.resolution;
+  if (resolution !== undefined && resolution !== null && resolution !== "") {
+    resolution = String(resolution).trim();
+    if (!VIDU_VALID_RESOLUTIONS.includes(resolution)) {
+      throw viduValidationError(
+        `vidu/q3-pro: resolution must be one of ${VIDU_VALID_RESOLUTIONS.join(", ")}.`
+      );
+    }
+  } else {
+    throw viduValidationError("vidu/q3-pro: resolution is required.");
+  }
+
+  // --- audio: coerce to boolean ---
+  let audio = input.audio;
+  if (audio !== undefined && audio !== null && audio !== "") {
+    if (typeof audio === "string") {
+      audio = audio.trim().toLowerCase() !== "false" && audio.trim() !== "0";
+    } else {
+      audio = Boolean(audio);
+    }
+  } else {
+    audio = false;
+  }
+
+  // --- prompt: trim if present ---
+  let prompt = input.prompt;
+  if (prompt !== undefined && prompt !== null) {
+    prompt = String(prompt).trim();
+    if (!prompt) prompt = undefined;
+  }
+
+  // --- start_image / end_image: include only if non-empty strings ---
+  const startImage =
+    typeof input.start_image === "string" && input.start_image.trim()
+      ? input.start_image.trim()
+      : undefined;
+  const endImage =
+    typeof input.end_image === "string" && input.end_image.trim()
+      ? input.end_image.trim()
+      : undefined;
+
+  if (endImage && !startImage) {
+    throw viduValidationError("vidu/q3-pro: end_image requires start_image.");
+  }
+
+  // --- aspect_ratio: only for text-to-video (no images), validate enum ---
+  let aspectRatio = undefined;
+  if (!startImage && !endImage && input.aspect_ratio) {
+    aspectRatio = String(input.aspect_ratio).trim();
+    if (aspectRatio && !VIDU_VALID_ASPECT_RATIOS.includes(aspectRatio)) {
+      throw viduValidationError(
+        `vidu/q3-pro: aspect_ratio must be one of ${VIDU_VALID_ASPECT_RATIOS.join(", ")}.`
+      );
+    }
+    if (!aspectRatio) aspectRatio = undefined;
+  }
+
+  // --- Build strict payload from allowlist only ---
+  const payload = { duration, resolution, audio };
+  if (prompt) payload.prompt = prompt;
+  if (startImage) payload.start_image = startImage;
+  if (endImage) payload.end_image = endImage;
+  if (aspectRatio) payload.aspect_ratio = aspectRatio;
+
+  const workflow =
+    input.workflow
+    || (endImage
+      ? "start_end_to_video"
+      : startImage
+        ? "image_to_video"
+        : "text_to_video");
+
+  return {
+    payload,
+    normalized: {
+      prompt: prompt || null,
+      duration,
+      aspect_ratio: aspectRatio || null,
+      quality: null,
+      resolution,
+      seed: null,
+      generate_audio: audio,
+      hasImageInput: !!startImage,
+      hasEndImageInput: !!endImage,
+      workflow,
+    },
+  };
+}
+
 function buildVideoPayload(model, input) {
   if (model.id === ADMIN_AI_VIDEO_MODEL_ID) {
     const payload = {
@@ -858,46 +971,7 @@ function buildVideoPayload(model, input) {
   }
 
   if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
-    const payload = {
-      duration: input.duration,
-      resolution: input.resolution,
-      audio: input.audio,
-    };
-
-    if (input.prompt) {
-      payload.prompt = input.prompt;
-    }
-    if (input.start_image) {
-      payload.start_image = input.start_image;
-    }
-    if (input.end_image) {
-      payload.end_image = input.end_image;
-    }
-    if (!input.start_image && !input.end_image && input.aspect_ratio) {
-      payload.aspect_ratio = input.aspect_ratio;
-    }
-
-    return {
-      payload,
-      normalized: {
-        prompt: input.prompt || null,
-        duration: input.duration,
-        aspect_ratio: !input.start_image && !input.end_image ? input.aspect_ratio || null : null,
-        quality: null,
-        resolution: input.resolution,
-        seed: null,
-        generate_audio: input.audio,
-        hasImageInput: !!input.start_image,
-        hasEndImageInput: !!input.end_image,
-        workflow:
-          input.workflow
-          || (input.end_image
-            ? "start_end_to_video"
-            : input.start_image
-              ? "image_to_video"
-              : "text_to_video"),
-      },
-    };
+    return buildViduQ3Payload(input);
   }
 
   const error = new Error(`Unsupported video model "${model.id}".`);
@@ -914,6 +988,11 @@ export async function invokeVideo(env, model, input) {
 
   const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
 
+  const payloadTypeMap = {};
+  for (const [k, v] of Object.entries(payload)) {
+    payloadTypeMap[`pt_${k}`] = `${typeof v}`;
+  }
+
   logDiagnostic({
     service: "bitbi-ai",
     component: "invoke-video",
@@ -925,11 +1004,12 @@ export async function invokeVideo(env, model, input) {
     has_image_input: !!request.normalized.hasImageInput,
     has_end_image_input: !!request.normalized.hasEndImageInput,
     workflow: request.normalized.workflow,
-    duration: input.duration,
-    aspect_ratio: input.aspect_ratio,
-    quality: input.quality || null,
-    resolution: input.resolution || null,
+    duration: payload.duration,
+    aspect_ratio: payload.aspect_ratio || null,
+    quality: payload.quality || null,
+    resolution: payload.resolution || null,
     payload_keys: Object.keys(payload).sort().join(","),
+    ...payloadTypeMap,
   });
 
   let raw;
