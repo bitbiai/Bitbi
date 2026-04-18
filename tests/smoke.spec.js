@@ -44,7 +44,6 @@ test.describe('Homepage', () => {
 
     await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'YouTube' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contact' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Models' })).toBeVisible();
   });
@@ -89,9 +88,7 @@ test.describe('Homepage', () => {
       .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
       .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
-    await expect(hero.getByText('AI art • YouTube journeys • Sound Lab • Creative playground')).toHaveCount(0);
     await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
-    await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
   });
 
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
@@ -104,7 +101,6 @@ test.describe('Homepage', () => {
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeHidden();
     await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
-    await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
   });
 
   test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {
@@ -114,73 +110,6 @@ test.describe('Homepage', () => {
     await expect
       .poll(() => page.locator('[data-hero-video]').evaluate((el) => el.currentSrc))
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
-  });
-
-  test('YouTube section has consent-gate infrastructure', async ({ page }) => {
-    await page.goto('/');
-    // Section exists in the DOM
-    await expect(page.locator('#youtube')).toBeAttached();
-    // Consent-gate elements are wired up
-    await expect(page.locator('#ytPlaceholder')).toBeAttached();
-    await expect(page.locator('#ytEnableBtn')).toBeAttached();
-    await expect(page.locator('.yt-placeholder__text')).toContainText(
-      'marketing cookies',
-    );
-  });
-
-  test('YouTube embed loads only after stored marketing consent with an allowed host', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('bitbi_cookie_consent', JSON.stringify({
-        v: '1',
-        ts: Date.now(),
-        necessary: true,
-        analytics: false,
-        marketing: true,
-      }));
-    });
-
-    await page.goto('/');
-
-    await expect(page.locator('#ytFrame')).toHaveAttribute(
-      'src',
-      'https://www.youtube-nocookie.com/embed/_S2cGC6cOxk',
-    );
-    await expect(page.locator('#ytPlaceholder')).toBeHidden();
-  });
-
-  test('YouTube embed ignores a tampered non-YouTube data-src even with marketing consent', async ({ page }) => {
-    await page.route('**/*', async (route) => {
-      const url = new URL(route.request().url());
-      if (
-        url.origin === 'http://localhost:3000' &&
-        route.request().resourceType() === 'document' &&
-        (url.pathname === '/' || url.pathname === '/index.html')
-      ) {
-        const response = await route.fetch();
-        const body = (await response.text()).replace(
-          'data-src="https://www.youtube-nocookie.com/embed/_S2cGC6cOxk"',
-          'data-src="https://evil.example/embed/_S2cGC6cOxk"',
-        );
-        await route.fulfill({ response, body });
-        return;
-      }
-      await route.continue();
-    });
-
-    await page.addInitScript(() => {
-      localStorage.setItem('bitbi_cookie_consent', JSON.stringify({
-        v: '1',
-        ts: Date.now(),
-        necessary: true,
-        analytics: false,
-        marketing: true,
-      }));
-    });
-
-    await page.goto('/');
-
-    await expect(page.locator('#ytFrame')).not.toHaveAttribute('src', /./);
-    await expect(page.locator('#ytPlaceholder')).toBeVisible();
   });
 
   test('contact form shell is present', async ({ page }) => {

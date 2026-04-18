@@ -4,17 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>BITBI | My Digital Playground</title>
-    <meta name="description" content="BITBI — AI art, YouTube journeys, and a creative digital playground by a creative technologist.">
+    <meta name="description" content="BITBI — AI art, video experiments, sound lab, and a creative digital playground by a creative technologist.">
     <meta name="keywords" content="BITBI, digital art, AI creations, creative coding">
     <meta name="author" content="BITBI Studio">
     <link rel="canonical" href="https://bitbi.ai/">
     <meta property="og:title" content="BITBI | My Digital Playground">
-    <meta property="og:description" content="AI art • YouTube journeys • Sound Lab • A creative digital playground">
+    <meta property="og:description" content="AI art • Video Creations • Sound Lab • A creative digital playground">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://bitbi.ai/">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="BITBI | My Digital Playground">
-    <meta name="twitter:description" content="AI art • YouTube journeys • Sound Lab • A creative digital playground">
+    <meta name="twitter:description" content="AI art • Video Creations • Sound Lab • A creative digital playground">
     <meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -47,7 +47,7 @@
         "@type": "WebSite",
         "name": "BITBI",
         "url": "https://bitbi.ai/",
-        "description": "Experimental websites, AI art, YouTube journeys, VR worlds, and live markets.",
+        "description": "Experimental websites, AI art, video creations, sound lab, and live markets.",
         "sameAs": [
             "https://x.com/bitbi_ai",
             "https://www.youtube.com/@bitbi_ai"
@@ -76,7 +76,6 @@
             <div class="site-nav__links">
                 <a href="#gallery" class="site-nav__link nav-link">Gallery</a>
                 <a href="#soundlab" class="site-nav__link nav-link">Sound Lab</a>
-                <a href="#youtube" class="site-nav__link nav-link">YouTube</a>
                 <a href="#contact" class="site-nav__link nav-link">Contact</a>
                 <button type="button" class="site-nav__link nav-link" data-models-link="desktop">Models</button>
             </div>
@@ -109,7 +108,6 @@
 
         <nav class="mobile-nav__section" aria-label="Connect">
             <span class="mobile-nav__label">Connect</span>
-            <a href="#youtube" class="mobile-nav__link">YouTube</a>
             <a href="#contact" class="mobile-nav__link">Contact</a>
         </nav>
 
@@ -168,10 +166,6 @@
             <a href="#gallery" class="btn-primary">
                 <svg class="btn-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                 Creation Lab
-            </a>
-            <a href="#youtube" class="btn-secondary">
-                <svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                Watch Latest Video
             </a>
         </div>
     </div>
@@ -320,41 +314,34 @@
 <!-- SOUND LAB -->
 <div class="section-divider" aria-hidden="true"></div>
 <section id="soundlab" class="section" aria-label="Sound Lab">
-    <div class="section__inner--text" style="margin-inline:auto">
-        <div class="section__header reveal">
-            <span class="section__label section__label--cyan">Audio</span>
-            <h2 class="section__title gt-gold-cyan">Sound Lab</h2>
-            <p class="section__desc">Sonic experiments, ambient textures, and generative audio compositions.</p>
-        </div>
-        <div class="card-stack" id="soundLabTracks"></div>
-        <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
-    </div>
-</section>
-
-<!-- YOUTUBE -->
-<div class="section-divider" aria-hidden="true"></div>
-<section id="youtube" class="section" aria-label="YouTube videos">
     <div class="section__inner">
-        <div class="section__header reveal">
-            <span class="section__label section__label--gold">Videos</span>
-            <h2 class="section__title gt-gold-cyan">Behind the Pixels</h2>
-            <p class="section__desc">YouTube journeys into creative coding, AI explorations, and tech experiments.</p>
-        </div>
-        <div class="section__inner--wide" style="margin-inline:auto">
-            <div class="tilt-card glass rounded-2xl overflow-hidden reveal">
-                <div class="yt-container" id="ytContainer">
-                    <iframe id="ytFrame" data-src="https://www.youtube-nocookie.com/embed/_S2cGC6cOxk" title="BITBI Video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-                    <div id="ytPlaceholder" class="yt-placeholder" style="display:none">
-                        <svg class="yt-placeholder__icon" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg>
-                        <p class="yt-placeholder__text">YouTube content is blocked because marketing cookies are disabled.</p>
-                        <button type="button" id="ytEnableBtn" class="yt-placeholder__btn">Enable Marketing Cookies</button>
-                    </div>
-                </div>
-                <div class="yt-card__info">
-                    <h3 class="yt-card__title">Latest from BITBI</h3>
-                    <p class="yt-card__label">Featured Video</p>
-                </div>
+        <div class="section__header--sm reveal">
+            <div style="text-align:center">
+                <span class="section__label section__label--cyan">Audio</span>
+                <h2 class="section__title gt-gold-cyan" style="margin-block-start:var(--space-3)">Sound Lab</h2>
+                <p class="section__desc">Sonic experiments, ambient textures, and generative audio compositions.</p>
             </div>
+        </div>
+        <div class="video-mode reveal" role="group" aria-label="Sound Lab actions">
+            <div class="video-mode__item">
+                <button type="button" class="video-mode__btn video-mode__btn--explore active">
+                    <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    <span class="video-mode__label">Explore</span>
+                </button>
+                <span class="video-mode__hint">Browse sonic experiments</span>
+            </div>
+            <div class="video-mode__item">
+                <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--soon" aria-disabled="true" tabindex="-1">
+                    <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
+                    <span class="video-mode__label">Create</span>
+                    <span class="video-mode__badge" aria-label="Coming soon">Soon</span>
+                </button>
+                <span class="video-mode__hint">Audio generation — coming soon</span>
+            </div>
+        </div>
+        <div class="section__inner--text" style="margin-inline:auto">
+            <div class="card-stack" id="soundLabTracks"></div>
+            <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
         </div>
     </div>
 </section>

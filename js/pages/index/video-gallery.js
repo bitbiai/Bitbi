@@ -66,9 +66,21 @@ export function initVideoGallery() {
         const inner = document.createElement('div');
         inner.className = 'video-card__inner rounded-xl overflow-hidden relative';
 
-        /* Poster area — gradient placeholder with play icon */
+        /* Poster area — video element shows first frame as thumbnail */
         const poster = document.createElement('div');
         poster.className = 'video-card__poster';
+
+        const preview = document.createElement('video');
+        preview.className = 'video-card__preview';
+        preview.src = item.file.url;
+        preview.preload = 'metadata';
+        preview.muted = true;
+        preview.playsInline = true;
+        preview.setAttribute('aria-hidden', 'true');
+        preview.setAttribute('tabindex', '-1');
+        preview.disablePictureInPicture = true;
+        preview.disableRemotePlayback = true;
+        poster.appendChild(preview);
 
         const playIcon = document.createElement('div');
         playIcon.className = 'video-card__play';
