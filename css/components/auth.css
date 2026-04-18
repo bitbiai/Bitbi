@@ -32,13 +32,18 @@
     .auth-nav__identity {
         display: inline-flex;
         align-items: center;
+        justify-content: flex-start;
         gap: 0.625rem;
+        inline-size: max-content;
         min-width: 0;
         padding: 0.25rem 0.5rem 0.25rem 0.25rem;
         border: 1px solid transparent;
         border-radius: 999px;
         color: inherit;
         text-decoration: none;
+        cursor: pointer;
+        position: relative;
+        z-index: 1;
         transition:
             transform 0.22s var(--ease-default),
             border-color 0.22s var(--ease-default),
@@ -56,6 +61,7 @@
         border-radius: 999px;
         overflow: hidden;
         background: rgba(255, 255, 255, 0.06);
+        pointer-events: none;
         transition: box-shadow 0.22s var(--ease-default), background-color 0.22s var(--ease-default);
     }
 
@@ -83,9 +89,11 @@
         block-size: 100%;
         object-fit: cover;
         display: block;
+        pointer-events: none;
     }
 
     .auth-nav__identity-label {
+        display: block;
         font-size: 10px;
         font-family: var(--font-mono);
         color: rgba(0, 240, 255, 0.72);
@@ -93,6 +101,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        pointer-events: none;
     }
 
     .auth-nav__identity:hover .auth-nav__identity-label,
@@ -108,11 +117,15 @@
     .auth-nav__email-link {
         display: inline-flex;
         align-items: center;
+        justify-content: flex-start;
         padding: 0.35rem 0.5rem;
         border: 1px solid transparent;
         border-radius: 999px;
         color: rgba(0, 240, 255, 0.6);
         text-decoration: none;
+        cursor: pointer;
+        position: relative;
+        z-index: 1;
         transition:
             transform 0.22s var(--ease-default),
             border-color 0.22s var(--ease-default),

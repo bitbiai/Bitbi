@@ -1555,6 +1555,30 @@ test.describe('Global header auth identity', () => {
     await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toHaveCount(0);
   });
 
+  test('desktop homepage auth pill remains clickable at the far edge of the visible control', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'header@example.com',
+      displayName: 'Header Name',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+
+    const pill = page.locator('.auth-nav__identity');
+    await expect(pill).toBeVisible({ timeout: 10_000 });
+
+    const box = await pill.boundingBox();
+    expect(box).toBeTruthy();
+
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+  });
+
   test('desktop shared header keeps the legacy mood/email/profile layout when no avatar exists', async ({
     page,
   }) => {
@@ -1573,6 +1597,30 @@ test.describe('Global header auth identity', () => {
     await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toBeVisible();
     await expect(page.locator('.auth-nav__avatar-link')).toHaveCount(0);
     await expect(page.locator('.auth-nav__email')).toHaveText('fallback@example.com');
+  });
+
+  test('desktop shared-header auth pill remains clickable at the far edge of the visible control', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      email: 'shared-header@example.com',
+      displayName: 'Shared Header',
+      hasAvatar: true,
+    });
+
+    const response = await page.goto('/legal/imprint.html');
+    expect(response.status()).toBe(200);
+
+    const pill = page.locator('.auth-nav__identity');
+    await expect(pill).toBeVisible({ timeout: 10_000 });
+
+    const box = await pill.boundingBox();
+    expect(box).toBeTruthy();
+
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -2210,7 +2258,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
   });
 
-  test('favorites render malicious metadata inertly and keep valid viewer/remove behavior', async ({
+  test('AI Creations favorites are completely omitted from the member favorites UI', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -2237,23 +2285,10 @@ test.describe('Profile page (authenticated)', () => {
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('[data-favorites-type="gallery"] [data-fav-key="gallery:bad-gallery"] img')).toHaveCount(0);
-    await expect(page.locator('[data-favorites-type="gallery"] [data-fav-key="gallery:good-gallery"] img')).toHaveAttribute('src', /\/assets\/images\/1\.jpg$/);
-
-    await page.locator('[data-fav-key="gallery:bad-gallery"]').click();
-    await expect(page.locator('#favViewer')).toHaveClass(/active/);
-    await expect(page.locator('#favViewer .xss-favorite')).toHaveCount(0);
-    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Bad <b class="xss-favorite">Title</b>');
-    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveCount(0);
-    await page.locator('#favViewerClose').click();
-
-    await page.locator('[data-fav-key="gallery:good-gallery"]').click();
-    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Safe Preview');
-    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', /\/assets\/images\/1\.jpg$/);
-
-    await page.locator('#favViewer .fav-viewer__fav-star').click();
+    await expect(page.locator('[data-favorites-type="gallery"]')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="gallery:bad-gallery"]')).toHaveCount(0);
     await expect(page.locator('[data-fav-key="gallery:good-gallery"]')).toHaveCount(0);
-    await expect(page.locator('[data-fav-key="gallery:bad-gallery"]')).toHaveCount(1);
+    await expect(page.locator('.profile__favorites')).not.toContainText('AI Creations');
   });
 
   test('soundlab favorites keep the tightened thumb_url guard and render viewer metadata inertly', async ({
@@ -2360,6 +2395,8 @@ test.describe('Profile page (authenticated)', () => {
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
+    await expect(page.locator('.profile__favorites')).not.toContainText('AI Creations');
+    await expect(page.locator('[data-favorites-type="video"] .favorites__group-label')).toHaveText('Memvids');
     await expect(page.locator('[data-favorites-type="mempics"] [data-fav-key="mempics:a1b2c3d4"] img')).toHaveAttribute('src', /\/api\/gallery\/mempics\/a1b2c3d4\/thumb$/);
     await expect(page.locator('[data-favorites-type="video"] [data-fav-key="video:bada55e1"] img')).toHaveAttribute('src', /\/api\/gallery\/memvids\/bada55e1\/poster$/);
 

@@ -1300,7 +1300,7 @@ function openVideoInViewer(fav) {
 
 /* ── Build favorite tiles ── */
 function renderFavorites(favorites) {
-    const groups = { gallery: [], mempics: [], video: [], soundlab: [] };
+    const groups = { mempics: [], video: [], soundlab: [] };
     for (const f of favorites) {
         if (groups[f.item_type]) groups[f.item_type].push(f);
     }

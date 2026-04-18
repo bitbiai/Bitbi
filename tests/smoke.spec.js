@@ -43,10 +43,14 @@ test.describe('Homepage', () => {
     const nav = page.locator('#navbar .site-nav__links');
 
     await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'VIDEO' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contact' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Models' })).toBeVisible();
+
+    await expect
+      .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'VIDEO', 'Sound Lab', 'Contact', 'Models']);
   });
 
   test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {
@@ -68,7 +72,11 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     await page.getByRole('button', { name: 'Toggle menu' }).click();
-    await expect(page.locator('#mobileNav').getByRole('link', { name: 'VIDEO' })).toBeVisible();
+    const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
+    await expect(mobileExplore.getByRole('link', { name: 'VIDEO' })).toBeVisible();
+    await expect
+      .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'VIDEO', 'Sound Lab', 'Models']);
 
     const modelsButton = page.locator('#mobileNav').getByRole('button', { name: 'Models' });
     await modelsButton.click();
@@ -439,9 +447,24 @@ test.describe('Shared MODELS overlay', () => {
   test('shared subpage header exposes the VIDEO link', async ({ page }) => {
     await page.goto('/legal/imprint.html');
 
-    const videoLink = page.locator('.site-nav__links').getByRole('link', { name: 'VIDEO' });
+    const nav = page.locator('.site-nav__links');
+    const videoLink = nav.getByRole('link', { name: 'VIDEO' });
     await expect(videoLink).toBeVisible();
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
+    await expect
+      .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'VIDEO', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+  });
+
+  test('shared subpage mobile menu keeps VIDEO before Sound Lab', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/legal/imprint.html');
+
+    await page.getByRole('button', { name: 'Toggle menu' }).click();
+    const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
+    await expect
+      .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'VIDEO', 'Sound Lab', 'Models']);
   });
 
   for (const pathname of MODELS_OVERLAY_PATHS) {
