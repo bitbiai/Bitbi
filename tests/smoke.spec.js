@@ -19,6 +19,33 @@ test.describe('Homepage', () => {
     await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'YouTube' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contact' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Models' })).toBeVisible();
+  });
+
+  test('MODELS opens the homepage models overlay from the top navigation', async ({ page }) => {
+    await page.goto('/');
+
+    const modelsLink = page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Models' });
+    await expect(modelsLink).toHaveAttribute('href', '/#models');
+    await modelsLink.click();
+
+    await expect(page.locator('.models-overlay')).toBeVisible();
+    await expect(page.locator('.models-overlay')).toHaveClass(/is-active/);
+    await expect(page.locator('.models-overlay')).toContainText('Pixverse V6');
+  });
+
+  test('MODELS opens the homepage models overlay from the mobile navigation', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    await page.getByRole('button', { name: 'Toggle menu' }).click();
+
+    const modelsLink = page.locator('#mobileNav').getByRole('link', { name: 'Models' });
+    await expect(modelsLink).toHaveAttribute('href', '/#models');
+    await modelsLink.click();
+
+    await expect(page.locator('.models-overlay')).toBeVisible();
+    await expect(page.locator('.models-overlay')).toHaveClass(/is-active/);
   });
 
   test('hero section renders', async ({ page }) => {
@@ -221,6 +248,18 @@ test.describe('Legal pages', () => {
   test('privacy page loads', async ({ page }) => {
     const response = await page.goto('/legal/privacy.html');
     expect(response.status()).toBe(200);
+  });
+
+  test('shared header MODELS link resolves to the homepage overlay from a nested page', async ({ page }) => {
+    await page.goto('/legal/privacy.html');
+
+    const modelsLink = page.locator('.site-nav__links').getByRole('link', { name: 'Models' });
+    await expect(modelsLink).toHaveAttribute('href', '/#models');
+    await modelsLink.click();
+
+    await expect(page).toHaveURL(/\/#models$/);
+    await expect(page.locator('.models-overlay')).toBeVisible();
+    await expect(page.locator('.models-overlay')).toHaveClass(/is-active/);
   });
 
   test('imprint page loads', async ({ page }) => {

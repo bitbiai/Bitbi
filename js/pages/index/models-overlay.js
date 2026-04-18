@@ -165,6 +165,9 @@ function close() {
         focusTrapCleanup();
         focusTrapCleanup = null;
     }
+    if (window.location.hash === '#models') {
+        history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
 }
 
 function handleKey(e) {
@@ -189,20 +192,26 @@ function handleTrigger(e, isMobile) {
 }
 
 export function initModelsOverlay() {
-    /* Desktop nav triggers */
-    document.querySelectorAll('.site-nav__link--inert').forEach(trigger => {
-        trigger.style.cursor = 'pointer';
-        trigger.addEventListener('click', (e) => handleTrigger(e, false));
-        trigger.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') handleTrigger(e, false);
-        });
+    document.querySelectorAll('[data-models-link]').forEach((trigger) => {
+        const isMobile = trigger.dataset.modelsLink === 'mobile';
+        trigger.addEventListener('click', (e) => handleTrigger(e, isMobile));
     });
 
-    /* Mobile nav triggers */
-    document.querySelectorAll('.mobile-nav__link--inert').forEach(trigger => {
-        trigger.style.cursor = 'pointer';
-        trigger.addEventListener('click', (e) => handleTrigger(e, true));
-    });
+    function syncModelsHash() {
+        if (window.location.hash === '#models') {
+            open();
+        } else if (isOpen) {
+            close();
+        }
+    }
+
+    /* Desktop and mobile nav triggers */
+    window.addEventListener('hashchange', syncModelsHash);
+
+    /* Allow shared subpages to navigate to /#models and open the overlay on arrival. */
+    if (window.location.hash === '#models') {
+        requestAnimationFrame(syncModelsHash);
+    }
 
     document.addEventListener('keydown', handleKey);
 }
