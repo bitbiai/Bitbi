@@ -164,10 +164,14 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
+      const minimalMode = body.minimal_mode === true;
+      const { minimal_mode: _strip, ...validationBody } = body;
+      const validated = validateVideoPayload(validationBody);
+      if (minimalMode) validated.minimal_mode = true;
       return proxyToAiLab(
         env,
         "/internal/ai/test-video",
-        { method: "POST", body: validateVideoPayload(body) },
+        { method: "POST", body: validated },
         result.user,
         correlationId
       );

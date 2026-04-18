@@ -2753,6 +2753,40 @@ test.describe('Worker routes', () => {
       expect(typeof capturedPayload.aspect_ratio).toBe('string');
     });
 
+    test('POST /api/admin/ai/test-video minimal_mode sends only a hardcoded prompt to env.AI.run() for vidu/q3-pro', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-minimal.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'This prompt should be ignored in minimal mode.',
+          duration: 10,
+          resolution: '1080p',
+          audio: true,
+          aspect_ratio: '16:9',
+          minimal_mode: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedModelId).toBe('vidu/q3-pro');
+      // minimal_mode replaces the entire payload with a hardcoded prompt-only object
+      expect(capturedPayload).toEqual({
+        prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+      });
+    });
+
     test('POST /api/admin/ai/test-video validates required prompt', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 

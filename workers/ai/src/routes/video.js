@@ -16,9 +16,11 @@ export async function handleVideo({ request, env, correlationId }) {
       return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }
 
-    input = validateVideoBody(body);
+    const minimal_mode = body.minimal_mode === true;
+    const { minimal_mode: _strip, ...validationBody } = body;
+    input = validateVideoBody(validationBody);
     selection = resolveModelSelection("video", input);
-    const output = await invokeVideo(env, selection.model, { ...input, correlationId });
+    const output = await invokeVideo(env, selection.model, { ...input, correlationId, minimal_mode });
 
     return ok({
       task: "video",

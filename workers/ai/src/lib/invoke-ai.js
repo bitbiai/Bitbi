@@ -993,6 +993,28 @@ export async function invokeVideo(env, model, input) {
     payloadTypeMap[`pt_${k}`] = `${typeof v}`;
   }
 
+  // --- Vidu pre-flight diagnostic: log the exact outgoing payload ---
+  if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+    const promptStr = typeof payload.prompt === "string" ? payload.prompt : "";
+    const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(promptStr);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_preflight_payload",
+      level: "info",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      payload_json: JSON.stringify(payload),
+      prompt_length: promptStr.length,
+      prompt_empty_after_trim: promptStr.trim().length === 0,
+      prompt_has_control_chars: hasControlChars,
+      prompt_preview: promptStr.slice(0, 120),
+      payload_keys: Object.keys(payload).sort().join(","),
+      gateway_options: runOptions ? JSON.stringify(runOptions) : "none",
+      ...payloadTypeMap,
+    });
+  }
+
   logDiagnostic({
     service: "bitbi-ai",
     component: "invoke-video",
@@ -1012,9 +1034,28 @@ export async function invokeVideo(env, model, input) {
     ...payloadTypeMap,
   });
 
+  // --- Vidu minimal_mode: bypass UI params, send hardcoded prompt-only payload ---
+  const effectivePayload =
+    model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode
+      ? { prompt: "A golden retriever running through a sunlit meadow in slow motion" }
+      : payload;
+
+  if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_minimal_mode_active",
+      level: "warn",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      original_payload_keys: Object.keys(payload).sort().join(","),
+      effective_payload_json: JSON.stringify(effectivePayload),
+    });
+  }
+
   let raw;
   try {
-    raw = await env.AI.run(model.id, payload, runOptions);
+    raw = await env.AI.run(model.id, effectivePayload, runOptions);
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
