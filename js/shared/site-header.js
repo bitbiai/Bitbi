@@ -23,6 +23,7 @@ const NAV_HTML = `
                 <a href="/#soundlab" class="site-nav__link nav-link">Sound Lab</a>
                 <a href="/#youtube" class="site-nav__link nav-link">YouTube</a>
                 <a href="/#contact" class="site-nav__link nav-link">Contact</a>
+                <span class="site-nav__link nav-link site-nav__link--inert" role="link" aria-disabled="true" tabindex="0">Models</span>
             </div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
@@ -48,6 +49,7 @@ const MOBILE_NAV_HTML = `
             <span class="mobile-nav__label">Explore</span>
             <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary">Gallery</a>
             <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary">Sound Lab</a>
+            <span class="mobile-nav__link mobile-nav__link--primary mobile-nav__link--inert" role="link" aria-disabled="true">Models</span>
         </nav>
 
         <nav class="mobile-nav__section" aria-label="Connect">

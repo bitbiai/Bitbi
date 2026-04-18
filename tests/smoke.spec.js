@@ -35,7 +35,7 @@ test.describe('Homepage', () => {
       .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
     await expect(hero.getByText('AI art • YouTube journeys • Sound Lab • Creative playground')).toHaveCount(0);
-    await expect(hero.getByRole('link', { name: 'Explore Gallery' })).toBeVisible();
+    await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
     await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
   });
 
@@ -48,7 +48,7 @@ test.describe('Homepage', () => {
 
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeHidden();
-    await expect(hero.getByRole('link', { name: 'Explore Gallery' })).toBeVisible();
+    await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
     await expect(hero.getByRole('link', { name: 'Watch Latest Video' })).toBeVisible();
   });
 
