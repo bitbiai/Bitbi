@@ -305,6 +305,7 @@
                         <button type="button" class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="live-agent" aria-selected="false">Live Agent</button>
                         <button type="button" class="admin-ai__mode" data-ai-mode="music" aria-selected="false">Music AI</button>
+                        <button type="button" class="admin-ai__mode" data-ai-mode="video" aria-selected="false">Video AI</button>
                     </div>
                 </div>
 
@@ -338,6 +339,11 @@
                             <h3 class="admin-section-title">Music Models</h3>
                             <p class="admin-shell__desc">Allowlisted music generation models available inside the admin-only studio surface.</p>
                             <div id="aiModelsMusic"></div>
+                        </div>
+                        <div class="admin-shell">
+                            <h3 class="admin-section-title">Video Models</h3>
+                            <p class="admin-shell__desc">Allowlisted video generation models available inside the admin-only studio surface.</p>
+                            <div id="aiModelsVideo"></div>
                         </div>
                     </div>
                 </div>
@@ -898,6 +904,136 @@
                                 <button type="button" id="aiMusicCopyRaw" class="btn-action">Copy Raw JSON</button>
                             </div>
                             <pre id="aiMusicRaw" class="admin-ai__raw"></pre>
+                        </details>
+                    </section>
+                </div>
+
+                <!-- Video AI panel -->
+                <div id="aiLabPanelVideo" class="admin-ai__panel glass glass-card reveal visible" hidden>
+                    <section class="admin-ai__surface admin-ai__surface--spaced admin-ai__studio-card--video" aria-labelledby="aiVideoTitle">
+                        <div class="admin-ai__studio-head">
+                            <div>
+                                <div class="admin-ai__label-row admin-ai__label-row--wrap">
+                                    <h3 id="aiVideoTitle" class="admin-section-title">Video AI</h3>
+                                    <code class="admin-ai__model-badge">pixverse/v6</code>
+                                </div>
+                                <p class="admin-shell__desc">Admin-only console for text-to-video and image-to-video generation with configurable duration, quality, and aspect ratio.</p>
+                            </div>
+                            <div class="admin-ai__panel-actions">
+                                <button type="button" id="aiVideoReset" class="btn-action">Clear</button>
+                            </div>
+                        </div>
+
+                        <div class="admin-ai__music-signal" aria-hidden="true">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">Prompt</span>
+                                <span id="aiVideoPromptCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiVideoPrompt" class="admin-ai__textarea" rows="5" maxlength="2048" placeholder="Describe the scene, motion, camera movement, and visual style."></textarea>
+                        </label>
+
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label-row">
+                                <span class="admin-ai__label">Negative Prompt</span>
+                                <span id="aiVideoNegativePromptCount" class="admin-ai__count"></span>
+                            </span>
+                            <textarea id="aiVideoNegativePrompt" class="admin-ai__textarea" rows="2" maxlength="1024" placeholder="Optional — describe what to avoid."></textarea>
+                        </label>
+
+                        <div class="admin-ai__field">
+                            <span class="admin-ai__label">Image Input (optional)</span>
+                            <div class="admin-ai__video-image-input">
+                                <input type="file" id="aiVideoImageFile" class="admin-ai__file-input" accept="image/png,image/jpeg,image/webp">
+                                <div id="aiVideoImagePreview" class="admin-ai__video-image-preview" hidden>
+                                    <img id="aiVideoImageThumb" alt="Image input preview">
+                                    <button type="button" id="aiVideoImageClear" class="admin-ai__video-image-clear" aria-label="Remove image">&times;</button>
+                                </div>
+                            </div>
+                            <span class="admin-ai__hint">Upload a reference image for image-to-video generation. Max 10 MB.</span>
+                        </div>
+
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Duration (seconds)</span>
+                                <input id="aiVideoDuration" class="admin-ai__input" type="number" min="1" max="15" step="1" value="5">
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Aspect Ratio</span>
+                                <select id="aiVideoAspectRatio" class="admin-ai__input">
+                                    <option value="16:9" selected>16:9</option>
+                                    <option value="4:3">4:3</option>
+                                    <option value="1:1">1:1</option>
+                                    <option value="3:4">3:4</option>
+                                    <option value="9:16">9:16</option>
+                                    <option value="2:3">2:3</option>
+                                    <option value="3:2">3:2</option>
+                                    <option value="21:9">21:9</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Quality</span>
+                                <select id="aiVideoQuality" class="admin-ai__input">
+                                    <option value="360p">360p</option>
+                                    <option value="540p">540p</option>
+                                    <option value="720p" selected>720p</option>
+                                    <option value="1080p">1080p</option>
+                                </select>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Seed</span>
+                                <input id="aiVideoSeed" class="admin-ai__input" type="number" min="0" max="2147483647" step="1" placeholder="Optional">
+                            </label>
+                        </div>
+
+                        <label class="admin-ai__field admin-ai__field--inline">
+                            <input type="checkbox" id="aiVideoGenerateAudio" checked>
+                            <span class="admin-ai__label">Generate Audio</span>
+                        </label>
+
+                        <span id="aiVideoInlineError" class="admin-ai__inline-error" hidden></span>
+
+                        <div class="admin-ai__actions">
+                            <button type="button" id="aiVideoRun" class="admin-ai__run">Generate Video</button>
+                            <button type="button" id="aiVideoCancel" class="btn-action" disabled>Cancel</button>
+                        </div>
+
+                        <div id="aiVideoState" class="admin-ai__result-state">No video generation yet.</div>
+                        <div class="admin-ai__result-actions">
+                            <button type="button" id="aiVideoDownload" class="btn-action" hidden>Download Video</button>
+                            <button type="button" id="aiVideoSave" class="btn-action" hidden>Save to Folder</button>
+                        </div>
+
+                        <div id="aiVideoPreview" class="admin-ai__video-preview">
+                            <div class="admin-ai__video-empty">
+                                <div class="admin-ai__video-empty-icon" aria-hidden="true"></div>
+                                <div class="admin-ai__video-empty-copy">
+                                    <strong>Studio standing by.</strong>
+                                    <span>Generate a video to inspect the output, metadata, and playback here.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="aiVideoMeta" class="admin-ai__meta"></div>
+                        <div id="aiVideoWarnings" class="admin-ai__warnings" hidden></div>
+
+                        <details id="aiVideoDebug" class="admin-ai__debug" hidden>
+                            <summary>Raw JSON</summary>
+                            <div class="admin-ai__debug-actions">
+                                <button type="button" id="aiVideoCopyRaw" class="btn-action">Copy Raw JSON</button>
+                            </div>
+                            <pre id="aiVideoRaw" class="admin-ai__raw"></pre>
                         </details>
                     </section>
                 </div>

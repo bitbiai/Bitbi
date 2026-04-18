@@ -9,6 +9,7 @@ import {
   validateAdminAiLiveAgentBody as validateLiveAgentPayload,
   validateAdminAiMusicBody as validateMusicPayload,
   validateAdminAiTextBody as validateTextPayload,
+  validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
@@ -146,6 +147,27 @@ export async function handleAdminAI(ctx) {
         env,
         "/internal/ai/test-music",
         { method: "POST", body: validateMusicPayload(body) },
+        result.user,
+        correlationId
+      );
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/test-video" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ip", 8, 600_000, correlationId);
+    if (limited) return limited;
+
+    const body = await readJsonBody(request);
+    if (!body) return badJsonResponse(correlationId);
+
+    try {
+      return proxyToAiLab(
+        env,
+        "/internal/ai/test-video",
+        { method: "POST", body: validateVideoPayload(body) },
         result.user,
         correlationId
       );

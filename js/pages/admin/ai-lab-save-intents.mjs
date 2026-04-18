@@ -173,6 +173,39 @@ export function buildMusicSaveIntent({
     };
 }
 
+export function buildVideoSaveIntent({
+    response,
+    prompt,
+    warnings,
+    receivedAt,
+}) {
+    const result = response?.result;
+    if (!result?.videoUrl) return null;
+    return {
+        type: 'text',
+        sourceModule: 'video',
+        modalTitle: 'Save Video Result',
+        description: 'Save the generated video metadata into your existing folder structure.',
+        confirmLabel: 'Save Video',
+        defaultTitle: buildSaveTitle(prompt, 'AI Lab Video'),
+        note: 'The video URL is temporary. Download the file before saving if you want to keep it.',
+        payload: {
+            videoUrl: result.videoUrl,
+            prompt: result.prompt || prompt || '',
+            model: response?.model || null,
+            duration: result.duration,
+            aspect_ratio: result.aspect_ratio,
+            quality: result.quality,
+            seed: result.seed,
+            generate_audio: result.generate_audio,
+            hasImageInput: result.hasImageInput,
+            warnings,
+            elapsedMs: response?.elapsedMs || null,
+            receivedAt,
+        },
+    };
+}
+
 function deriveTranscriptFromDom(transcriptRoot) {
     if (!transcriptRoot) return [];
     const bubbles = Array.from(transcriptRoot.querySelectorAll('.admin-ai__chat-msg'));

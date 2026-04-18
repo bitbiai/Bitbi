@@ -6,6 +6,7 @@ export {
   validateAdminAiLiveAgentBody as validateLiveAgentBody,
   validateAdminAiMusicBody as validateMusicBody,
   validateAdminAiTextBody as validateTextBody,
+  validateAdminAiVideoBody as validateVideoBody,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 
 export async function readJsonBody(request) {

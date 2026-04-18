@@ -46,6 +46,13 @@ const MODEL_CATALOG = [
             { name: 'Music 2.6', vendor: 'MiniMax' },
         ],
     },
+    {
+        category: 'Video',
+        side: 'right',
+        models: [
+            { name: 'Pixverse V6', vendor: 'Pixverse' },
+        ],
+    },
 ];
 
 let overlayEl = null;

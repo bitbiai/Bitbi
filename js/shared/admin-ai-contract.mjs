@@ -10,6 +10,7 @@ export class AdminAiValidationError extends Error {
 export const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
 export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
+export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",
@@ -82,6 +83,16 @@ export const ADMIN_AI_LIMITS = {
     maxLyricsLength: 3500,
     minBpm: 40,
     maxBpm: 240,
+  },
+  video: {
+    maxPromptLength: 2048,
+    maxNegativePromptLength: 1024,
+    minDuration: 1,
+    maxDuration: 15,
+    allowedAspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "2:3", "3:2", "21:9"],
+    allowedQualities: ["360p", "540p", "720p", "1080p"],
+    maxSeed: 2147483647,
+    maxImageInputBytes: 10 * 1024 * 1024,
   },
 };
 
@@ -251,6 +262,23 @@ const MUSIC_MODELS = {
   },
 };
 
+const VIDEO_MODELS = {
+  [ADMIN_AI_VIDEO_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_MODEL_ID,
+    task: "video",
+    label: "Pixverse V6",
+    vendor: "Pixverse",
+    inputFormat: "json",
+    proxied: true,
+    supportsImageInput: true,
+    defaultDuration: 5,
+    defaultAspectRatio: "16:9",
+    defaultQuality: "720p",
+    defaultGenerateAudio: true,
+    description: "Text-to-video and image-to-video generation with configurable duration, quality, and aspect ratio.",
+  },
+};
+
 const PRESETS = {
   fast: {
     name: "fast",
@@ -294,6 +322,13 @@ const PRESETS = {
     model: ADMIN_AI_MUSIC_MODEL_ID,
     description: "MiniMax Music 2.6 preset for admin-only studio generation.",
   },
+  video_studio: {
+    name: "video_studio",
+    task: "video",
+    label: "Video Studio",
+    model: ADMIN_AI_VIDEO_MODEL_ID,
+    description: "Pixverse V6 preset for admin-only video generation.",
+  },
 };
 
 export const ADMIN_AI_DEFAULT_PRESETS = {
@@ -301,6 +336,7 @@ export const ADMIN_AI_DEFAULT_PRESETS = {
   image: "image_fast",
   embeddings: "embedding_default",
   music: "music_studio",
+  video: "video_studio",
 };
 
 export const ADMIN_AI_DEFAULT_COMPARE_MODELS = {
@@ -313,6 +349,7 @@ const REGISTRY = {
   image: IMAGE_MODELS,
   embeddings: EMBEDDING_MODELS,
   music: MUSIC_MODELS,
+  video: VIDEO_MODELS,
 };
 
 function invalidSelection(message, code = "validation_error") {
@@ -573,6 +610,15 @@ function toPublicModel(model) {
       defaultGuidance: model.defaultGuidance || null,
     };
   }
+  if (model.task === "video") {
+    pub.capabilities = {
+      supportsImageInput: !!model.supportsImageInput,
+      defaultDuration: model.defaultDuration || 5,
+      defaultAspectRatio: model.defaultAspectRatio || "16:9",
+      defaultQuality: model.defaultQuality || "720p",
+      defaultGenerateAudio: model.defaultGenerateAudio !== false,
+    };
+  }
   return pub;
 }
 
@@ -594,6 +640,7 @@ export function listAdminAiCatalog() {
       image: Object.values(IMAGE_MODELS).map(toPublicModel),
       embeddings: Object.values(EMBEDDING_MODELS).map(toPublicModel),
       music: Object.values(MUSIC_MODELS).map(toPublicModel),
+      video: Object.values(VIDEO_MODELS).map(toPublicModel),
     },
     future: {
       speech: {
@@ -840,6 +887,82 @@ export function validateAdminAiMusicBody(body) {
     lyrics: mode === "instrumental" || lyricsMode === "auto" ? null : lyrics,
     bpm,
     key,
+  };
+}
+
+export function validateAdminAiVideoBody(body) {
+  const input = ensureObject(body);
+  const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.video.maxPromptLength);
+  const negative_prompt = optionalString(
+    input.negative_prompt,
+    "negative_prompt",
+    ADMIN_AI_LIMITS.video.maxNegativePromptLength
+  );
+  const duration = optionalInteger(
+    input.duration,
+    "duration",
+    ADMIN_AI_LIMITS.video.minDuration,
+    ADMIN_AI_LIMITS.video.maxDuration,
+    5
+  );
+  const aspect_ratio = optionalEnum(
+    input.aspect_ratio,
+    "aspect_ratio",
+    ADMIN_AI_LIMITS.video.allowedAspectRatios,
+    "16:9"
+  );
+  const quality = optionalEnum(
+    input.quality,
+    "quality",
+    ADMIN_AI_LIMITS.video.allowedQualities,
+    "720p"
+  );
+  const seed = optionalInteger(input.seed, "seed", 0, ADMIN_AI_LIMITS.video.maxSeed, null);
+  const generate_audio =
+    input.generate_audio === undefined || input.generate_audio === null
+      ? true
+      : !!input.generate_audio;
+
+  let image_input = null;
+  if (input.image_input !== undefined && input.image_input !== null && input.image_input !== "") {
+    if (typeof input.image_input !== "string" || !input.image_input.startsWith("data:image/")) {
+      throw new AdminAiValidationError(
+        "image_input must be a data URI starting with data:image/.",
+        400,
+        "validation_error"
+      );
+    }
+    const commaIndex = input.image_input.indexOf(",");
+    if (commaIndex === -1) {
+      throw new AdminAiValidationError(
+        "image_input is not a valid data URI.",
+        400,
+        "validation_error"
+      );
+    }
+    const base64 = input.image_input.slice(commaIndex + 1);
+    const estimatedBytes = Math.ceil(base64.length * 0.75);
+    if (estimatedBytes > ADMIN_AI_LIMITS.video.maxImageInputBytes) {
+      throw new AdminAiValidationError(
+        `image_input exceeds the ${ADMIN_AI_LIMITS.video.maxImageInputBytes} byte size limit.`,
+        400,
+        "validation_error"
+      );
+    }
+    image_input = input.image_input;
+  }
+
+  return {
+    preset: optionalString(input.preset, "preset", 64),
+    model: optionalString(input.model, "model", 120),
+    prompt,
+    negative_prompt,
+    image_input,
+    duration,
+    aspect_ratio,
+    quality,
+    seed,
+    generate_audio,
   };
 }
 

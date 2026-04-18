@@ -793,3 +793,110 @@ export async function invokeMusic(env, model, input) {
     elapsedMs: Date.now() - startedAt,
   };
 }
+
+function extractVideoUrl(result) {
+  const candidates = [
+    result?.video,
+    result?.video_url,
+    result?.url,
+    result?.data?.video,
+    result?.data?.video_url,
+    result?.data?.url,
+    result?.result?.video,
+    result?.result?.video_url,
+    result?.result?.url,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && isUrlLike(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+export async function invokeVideo(env, model, input) {
+  ensureAI(env);
+  const startedAt = Date.now();
+  const payload = {
+    prompt: input.prompt,
+    duration: input.duration,
+    aspect_ratio: input.aspect_ratio,
+    quality: input.quality,
+    generate_audio: input.generate_audio,
+  };
+
+  if (input.negative_prompt) {
+    payload.negative_prompt = input.negative_prompt;
+  }
+  if (input.seed !== null && input.seed !== undefined) {
+    payload.seed = input.seed;
+  }
+  if (input.image_input) {
+    payload.image = input.image_input;
+  }
+
+  const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
+
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-video",
+    event: "workers_ai_video_invoke",
+    level: "info",
+    correlationId: input.correlationId || null,
+    model: model.id,
+    has_gateway_option: !!runOptions,
+    has_image_input: !!input.image_input,
+    duration: input.duration,
+    aspect_ratio: input.aspect_ratio,
+    quality: input.quality,
+  });
+
+  let raw;
+  try {
+    raw = await env.AI.run(model.id, payload, runOptions);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "workers_ai_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      has_gateway_option: !!runOptions,
+      has_image_input: !!input.image_input,
+      ...getErrorFields(error),
+    });
+    throw error;
+  }
+
+  const videoUrl = extractVideoUrl(raw);
+  if (!videoUrl) {
+    const error = new Error("Model returned no video output.");
+    error.status = 502;
+    error.code = "upstream_error";
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "workers_ai_video_parse_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      raw_shape: summarizeResultShape(raw),
+    });
+    throw error;
+  }
+
+  return {
+    videoUrl,
+    prompt: input.prompt,
+    duration: input.duration,
+    aspect_ratio: input.aspect_ratio,
+    quality: input.quality,
+    seed: input.seed ?? null,
+    generate_audio: input.generate_audio,
+    hasImageInput: !!input.image_input,
+    elapsedMs: Date.now() - startedAt,
+  };
+}

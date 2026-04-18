@@ -6,6 +6,7 @@ import { handleLiveAgent } from "./routes/live-agent.js";
 import { handleMusic } from "./routes/music.js";
 import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
+import { handleVideo } from "./routes/video.js";
 import {
   getCorrelationId,
   withCorrelationId,
@@ -52,6 +53,12 @@ export default {
     if (pathname === "/internal/ai/compare") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleCompare(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/test-video") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleVideo(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

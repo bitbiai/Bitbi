@@ -2258,6 +2258,177 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('POST /api/admin/ai/test-video returns the video response contract used by the UI', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      let capturedOptions = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          capturedOptions = options;
+          return {
+            video_url: 'https://cdn.example.com/video/abc123.mp4',
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          prompt: 'A cinematic drone flight over a futuristic city at sunset.',
+          negative_prompt: 'blurry, low quality',
+          duration: 8,
+          aspect_ratio: '16:9',
+          quality: '720p',
+          seed: 42,
+          generate_audio: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'video',
+        model: expect.objectContaining({
+          id: 'pixverse/v6',
+          task: 'video',
+          label: 'Pixverse V6',
+          vendor: 'Pixverse',
+        }),
+        preset: 'video_studio',
+        result: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/video/abc123.mp4',
+          prompt: 'A cinematic drone flight over a futuristic city at sunset.',
+          duration: 8,
+          aspect_ratio: '16:9',
+          quality: '720p',
+          seed: 42,
+          generate_audio: true,
+          hasImageInput: false,
+        }),
+        elapsedMs: expect.any(Number),
+      }));
+      expect(capturedModelId).toBe('pixverse/v6');
+      expect(capturedPayload).toEqual(expect.objectContaining({
+        prompt: 'A cinematic drone flight over a futuristic city at sunset.',
+        negative_prompt: 'blurry, low quality',
+        duration: 8,
+        aspect_ratio: '16:9',
+        quality: '720p',
+        seed: 42,
+        generate_audio: true,
+      }));
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video passes AI Gateway options for the proxied pixverse model', async () => {
+      let capturedOptions = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, _payload, options) => {
+          capturedOptions = options;
+          return { video_url: 'https://cdn.example.com/video/test.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          prompt: 'Gateway routing test.',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video accepts image_input for image-to-video', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video_url: 'https://cdn.example.com/video/i2v.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          prompt: 'Animate this image with smooth camera pan.',
+          image_input: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
+          duration: 5,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result.hasImageInput).toBe(true);
+      expect(capturedPayload.image).toContain('data:image/png;base64,');
+    });
+
+    test('POST /api/admin/ai/test-video validates required prompt', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          duration: 5,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('prompt'),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-video validates duration range', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          prompt: 'Out of range duration.',
+          duration: 99,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('duration'),
+      }));
+    });
+
+    test('POST /api/admin/ai/test-video validates aspect_ratio enum', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          prompt: 'Bad aspect ratio.',
+          aspect_ratio: '99:1',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('aspect_ratio'),
+      }));
+    });
+
     test('POST /api/admin/ai/compare returns the compare response contract used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 

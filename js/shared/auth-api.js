@@ -176,6 +176,10 @@ export function apiAdminAiTestMusic(payload, options) {
     return request('POST', '/admin/ai/test-music', payload, options);
 }
 
+export function apiAdminAiTestVideo(payload, options) {
+    return request('POST', '/admin/ai/test-video', payload, options);
+}
+
 export function apiAdminAiCompare(payload, options) {
     return request('POST', '/admin/ai/compare', payload, options);
 }
