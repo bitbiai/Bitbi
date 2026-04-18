@@ -507,7 +507,7 @@ function validateSavedMusicData(data) {
 
 function validateSavedVideoData(data) {
   const input = ensurePlainObject(data, "data");
-  return {
+  const result = {
     videoUrl: requiredHttpUrl(input.videoUrl, "data.videoUrl", 2048),
     prompt: requiredString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
     model: optionalModelSummary(input.model, "data.model"),
@@ -537,6 +537,13 @@ function validateSavedVideoData(data) {
     elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
     receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),
   };
+  if (typeof input.posterBase64 === "string" && input.posterBase64.length > 0) {
+    if (input.posterBase64.length > 2_800_000) {
+      throw new InputError("data.posterBase64 exceeds the 2 MB limit.", 400, "validation_error");
+    }
+    result.posterBase64 = input.posterBase64;
+  }
+  return result;
 }
 
 function validateSaveTextAssetPayload(body) {

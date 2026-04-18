@@ -106,7 +106,7 @@ function inferAiFileAssetType(mimeType) {
 }
 
 function toAiFileAssetRecord(row) {
-  return {
+  const record = {
     id: row.id,
     asset_type: inferAiFileAssetType(row.mime_type),
     folder_id: row.folder_id,
@@ -122,6 +122,12 @@ function toAiFileAssetRecord(row) {
     is_public: (row.visibility || "private") === "public",
     published_at: row.published_at ?? null,
   };
+  if (row.poster_r2_key) {
+    record.poster_url = `/api/ai/text-assets/${row.id}/poster`;
+    record.poster_width = row.poster_width ?? null;
+    record.poster_height = row.poster_height ?? null;
+  }
+  return record;
 }
 
 function isHexAssetId(value) {
@@ -741,7 +747,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ? AND folder_id IS NULL
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at, poster_r2_key, poster_width, poster_height
                  FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id];
@@ -750,7 +756,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ? AND folder_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id, folderId];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at, poster_r2_key, poster_width, poster_height
                  FROM ai_text_assets WHERE user_id = ? AND folder_id = ?
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id, folderId];
@@ -759,7 +765,7 @@ async function handleGetAssets(ctx) {
                   FROM ai_images WHERE user_id = ?
                   ORDER BY created_at DESC LIMIT 200`;
     imageParams = [session.user.id];
-    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at
+    textQuery = `SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, visibility, published_at, poster_r2_key, poster_width, poster_height
                  FROM ai_text_assets WHERE user_id = ?
                  ORDER BY created_at DESC LIMIT 200`;
     textParams = [session.user.id];
@@ -1188,6 +1194,43 @@ async function handleGetTextAssetFile(ctx, assetId) {
   return new Response(object.body, { headers });
 }
 
+// ── GET /api/ai/text-assets/:id/poster ──
+async function handleGetTextAssetPoster(ctx, assetId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  let row;
+  try {
+    row = await env.DB.prepare(
+      "SELECT poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ? AND poster_r2_key IS NOT NULL"
+    ).bind(assetId, session.user.id).first();
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) {
+      return json({ ok: false, error: "Saved asset service unavailable." }, { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!row?.poster_r2_key) {
+    return json({ ok: false, error: "Poster not found." }, { status: 404 });
+  }
+
+  const object = await env.USER_IMAGES.get(row.poster_r2_key);
+  if (!object) {
+    return json({ ok: false, error: "Poster not found." }, { status: 404 });
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", object.httpMetadata?.contentType || "image/webp");
+  headers.set("Cache-Control", "private, max-age=3600");
+  headers.set("X-Content-Type-Options", "nosniff");
+  if (object.size) {
+    headers.set("Content-Length", String(object.size));
+  }
+  return new Response(object.body, { headers });
+}
+
 // ── POST /api/ai/audio/save ──
 const MAX_AUDIO_TITLE_LENGTH = 120;
 
@@ -1334,9 +1377,12 @@ async function handleDeleteFolder(ctx, folderId) {
 
     try {
       const textAssets = await env.DB.prepare(
-        "SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
+        "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
       ).bind(folderId, session.user.id).all();
-      r2Keys = r2Keys.concat((textAssets.results || []).map((row) => row.r2_key));
+      for (const row of textAssets.results || []) {
+        r2Keys.push(row.r2_key);
+        if (row.poster_r2_key) r2Keys.push(row.poster_r2_key);
+      }
     } catch (error) {
       if (isMissingTextAssetTableError(error)) {
         textAssetsEnabled = false;
@@ -1359,6 +1405,12 @@ async function handleDeleteFolder(ctx, folderId) {
            SELECT r2_key, 'pending', ?
            FROM ai_text_assets
            WHERE folder_id = ? AND user_id = ?`
+        ).bind(ts, folderId, session.user.id),
+        env.DB.prepare(
+          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
+           SELECT poster_r2_key, 'pending', ?
+           FROM ai_text_assets
+           WHERE folder_id = ? AND user_id = ? AND poster_r2_key IS NOT NULL`
         ).bind(ts, folderId, session.user.id)
       );
     }
@@ -1525,7 +1577,7 @@ async function handleDeleteTextAsset(ctx, assetId) {
   let row;
   try {
     row = await env.DB.prepare(
-      "SELECT r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?"
     ).bind(assetId, session.user.id).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
@@ -1541,17 +1593,27 @@ async function handleDeleteTextAsset(ctx, assetId) {
   const ts = nowIso();
   let batchResults;
   try {
-    batchResults = await env.DB.batch([
+    const batchStmts = [
       env.DB.prepare(
         `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
          SELECT r2_key, 'pending', ?
          FROM ai_text_assets
          WHERE id = ? AND user_id = ?`
       ).bind(ts, assetId, session.user.id),
+    ];
+    if (row.poster_r2_key) {
+      batchStmts.push(
+        env.DB.prepare(
+          "INSERT INTO r2_cleanup_queue (r2_key, status, created_at) VALUES (?, 'pending', ?)"
+        ).bind(row.poster_r2_key, ts)
+      );
+    }
+    batchStmts.push(
       env.DB.prepare(
         "DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?"
-      ).bind(assetId, session.user.id),
-    ]);
+      ).bind(assetId, session.user.id)
+    );
+    batchResults = await env.DB.batch(batchStmts);
   } catch (error) {
     const unavailable = String(error).includes("no such table");
     return json(
@@ -1563,7 +1625,8 @@ async function handleDeleteTextAsset(ctx, assetId) {
     );
   }
 
-  const deleted = batchResults[1].meta.changes || 0;
+  const deleteStmtIndex = row.poster_r2_key ? 2 : 1;
+  const deleted = batchResults[deleteStmtIndex].meta.changes || 0;
   if (deleted !== 1) {
     return json(
       { ok: false, error: "Delete failed. Text asset may have already been removed." },
@@ -1573,11 +1636,17 @@ async function handleDeleteTextAsset(ctx, assetId) {
 
   try {
     await env.USER_IMAGES.delete(row.r2_key);
-    await env.DB.prepare(
-      "DELETE FROM r2_cleanup_queue WHERE r2_key IN (?) AND status = 'pending'"
-    ).bind(row.r2_key).run();
+    if (row.poster_r2_key) {
+      await env.USER_IMAGES.delete(row.poster_r2_key);
+    }
+    const keysToClean = [row.r2_key, row.poster_r2_key].filter(Boolean);
+    for (const key of keysToClean) {
+      await env.DB.prepare(
+        "DELETE FROM r2_cleanup_queue WHERE r2_key = ? AND status = 'pending'"
+      ).bind(key).run();
+    }
   } catch {
-    // Leave queue entry for scheduled retry.
+    // Leave queue entries for scheduled retry.
   }
 
   return json({ ok: true });
@@ -1791,7 +1860,7 @@ async function handleBulkDeleteAssets(ctx) {
   let fileSnapshot = { results: [] };
   try {
     fileSnapshot = await env.DB.prepare(
-      `SELECT id, r2_key FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
+      `SELECT id, r2_key, poster_r2_key FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
     ).bind(...assetIds, session.user.id).all();
   } catch (error) {
     if (!isMissingTextAssetTableError(error)) {
@@ -1815,7 +1884,7 @@ async function handleBulkDeleteAssets(ctx) {
   const fileIds = fileRows.map((row) => row.id);
   const cleanupKeys = Array.from(new Set([
     ...imageRows.flatMap((row) => listAiImageObjectKeys(row)),
-    ...fileRows.map((row) => row.r2_key).filter(Boolean),
+    ...fileRows.flatMap((row) => [row.r2_key, row.poster_r2_key]).filter(Boolean),
   ]));
   const ts = nowIso();
   const statements = [];
@@ -2211,6 +2280,11 @@ export async function handleAI(ctx) {
   const textFileMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/file$/);
   if (textFileMatch && method === "GET") {
     return handleGetTextAssetFile(ctx, textFileMatch[1]);
+  }
+
+  const textPosterMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/poster$/);
+  if (textPosterMatch && method === "GET") {
+    return handleGetTextAssetPoster(ctx, textPosterMatch[1]);
   }
 
   // DELETE /api/ai/images/:id

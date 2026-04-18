@@ -533,6 +533,16 @@ async function deleteSingleAsset(asset) {
             audio.preload = 'none';
             audio.src = asset.file_url;
             item.appendChild(audio);
+        } else if (isVideo && asset.poster_url) {
+            const posterImg = document.createElement('img');
+            posterImg.className = 'studio__asset-poster';
+            posterImg.src = asset.poster_url;
+            posterImg.alt = getFileTitle(asset);
+            posterImg.loading = 'lazy';
+            posterImg.decoding = 'async';
+            if (asset.poster_width) posterImg.width = asset.poster_width;
+            if (asset.poster_height) posterImg.height = asset.poster_height;
+            item.appendChild(posterImg);
         } else if (isVideo && asset.file_url) {
             const video = document.createElement('video');
             video.className = 'studio__asset-video';

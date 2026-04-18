@@ -696,6 +696,15 @@
         background: rgba(0, 0, 0, 0.32);
     }
 
+    .studio__asset-poster {
+        inline-size: 100%;
+        margin-block-start: auto;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        border-radius: var(--radius-sm);
+        background: rgba(0, 0, 0, 0.32);
+    }
+
     .studio__asset-actions {
         display: flex;
         align-items: center;

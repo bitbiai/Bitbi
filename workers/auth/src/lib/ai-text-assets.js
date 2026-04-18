@@ -1,10 +1,16 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
+import { logDiagnostic, getErrorFields } from "../../../../js/shared/worker-observability.mjs";
 
 export const AI_TEXT_ASSET_MIME_TYPE = "text/plain; charset=utf-8";
 export const AI_TEXT_ASSET_MAX_BYTES = 220_000;
 export const AI_VIDEO_ASSET_MAX_BYTES = 80_000_000;
 const PREVIEW_MAX_CHARS = 220;
+const POSTER_MAX_WIDTH = 320;
+const POSTER_MAX_HEIGHT = 320;
+const POSTER_QUALITY = 82;
+const POSTER_FORMAT = "image/webp";
+const POSTER_MAX_BYTES = 2_000_000;
 const METADATA_JSON_LIMITS = {
   maxEntries: 16,
   maxKeyLength: 80,
@@ -673,6 +679,15 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     throw error;
   }
 
+  let posterResult = null;
+  if (sourceModule === "video" && payload.posterBase64) {
+    posterResult = await processVideoPoster(env, {
+      userId,
+      assetId,
+      posterBase64: payload.posterBase64,
+    });
+  }
+
   return {
     id: assetId,
     folder_id: resolvedFolderId,
@@ -683,5 +698,121 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     size_bytes: bytes.byteLength,
     preview_text: previewText,
     created_at: now,
+    poster_r2_key: posterResult?.r2Key || null,
+    poster_width: posterResult?.width || null,
+    poster_height: posterResult?.height || null,
   };
+}
+
+async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
+  try {
+    const raw = posterBase64.includes(",")
+      ? posterBase64.split(",")[1]
+      : posterBase64;
+    const posterBytes = Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
+
+    if (posterBytes.byteLength === 0 || posterBytes.byteLength > POSTER_MAX_BYTES) {
+      return null;
+    }
+
+    if (
+      !env.IMAGES ||
+      typeof env.IMAGES.input !== "function" ||
+      typeof env.IMAGES.info !== "function"
+    ) {
+      return null;
+    }
+
+    let originalInfo;
+    try {
+      originalInfo = await env.IMAGES.info(posterBytes);
+    } catch {
+      return null;
+    }
+    if (!originalInfo?.width || !originalInfo?.height) {
+      return null;
+    }
+
+    const transformResult = await env.IMAGES.input(posterBytes)
+      .transform({
+        width: POSTER_MAX_WIDTH,
+        height: POSTER_MAX_HEIGHT,
+        fit: "scale-down",
+      })
+      .output({
+        format: POSTER_FORMAT,
+        quality: POSTER_QUALITY,
+      });
+
+    let response;
+    if (typeof transformResult.response === "function") {
+      response = transformResult.response();
+    } else if (typeof transformResult.arrayBuffer === "function") {
+      response = transformResult;
+    } else if (typeof transformResult.image === "function") {
+      const stream = transformResult.image();
+      const contentType = typeof transformResult.contentType === "function"
+        ? transformResult.contentType()
+        : POSTER_FORMAT;
+      response = new Response(stream, {
+        headers: { "content-type": contentType },
+      });
+    } else {
+      return null;
+    }
+
+    const buffer = await response.arrayBuffer();
+    if (!buffer || !buffer.byteLength) {
+      return null;
+    }
+
+    const outputBytes = new Uint8Array(buffer);
+
+    let outputInfo;
+    try {
+      outputInfo = await env.IMAGES.info(outputBytes);
+    } catch {
+      outputInfo = null;
+    }
+
+    const ratio = Math.min(
+      POSTER_MAX_WIDTH / originalInfo.width,
+      POSTER_MAX_HEIGHT / originalInfo.height,
+      1
+    );
+    const width = outputInfo?.width || Math.max(1, Math.round(originalInfo.width * ratio));
+    const height = outputInfo?.height || Math.max(1, Math.round(originalInfo.height * ratio));
+
+    const r2Key = `users/${userId}/derivatives/v1/${assetId}/poster.webp`;
+    await env.USER_IMAGES.put(r2Key, outputBytes, {
+      httpMetadata: { contentType: POSTER_FORMAT },
+    });
+
+    await env.DB.prepare(
+      "UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ? WHERE id = ? AND user_id = ?"
+    ).bind(r2Key, width, height, assetId, userId).run();
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: "video_poster_saved",
+      asset_id: assetId,
+      user_id: userId,
+      poster_width: width,
+      poster_height: height,
+    });
+
+    return { r2Key, width, height };
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: "video_poster_save_failed",
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      ...getErrorFields(error),
+    });
+    return null;
+  }
 }

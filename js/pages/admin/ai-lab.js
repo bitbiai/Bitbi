@@ -1661,6 +1661,21 @@ export function createAdminAiLab({ showToast } = {}) {
                 return;
             }
 
+            if (intent.sourceModule === 'video') {
+                const videoEl = refs.video?.preview?.querySelector('video');
+                if (videoEl && videoEl.videoWidth && videoEl.videoHeight && videoEl.dataset.corsDisabled !== '1') {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = videoEl.videoWidth;
+                        canvas.height = videoEl.videoHeight;
+                        canvas.getContext('2d').drawImage(videoEl, 0, 0);
+                        intent.payload.posterBase64 = canvas.toDataURL('image/webp', 0.82);
+                    } catch {
+                        // CORS-tainted canvas — poster unavailable
+                    }
+                }
+            }
+
             let res;
             if (intent.sourceModule === 'music') {
                 res = await apiAiSaveAudio({
@@ -2893,8 +2908,17 @@ export function createAdminAiLab({ showToast } = {}) {
         const video = document.createElement('video');
         video.controls = true;
         video.preload = 'metadata';
-        video.src = videoUrl;
+        video.crossOrigin = 'anonymous';
         video.className = 'admin-ai__video-el';
+
+        video.addEventListener('error', () => {
+            if (video.crossOrigin) {
+                video.crossOrigin = '';
+                video.dataset.corsDisabled = '1';
+                video.src = videoUrl;
+            }
+        }, { once: true });
+        video.src = videoUrl;
 
         wrapper.append(head, video);
         refs.video.preview.appendChild(wrapper);

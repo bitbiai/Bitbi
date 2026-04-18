@@ -1070,12 +1070,12 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
+    if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
       const [folderId, userId] = bindings;
       return {
         results: this.state.aiTextAssets
           .filter((row) => row.folder_id === folderId && row.user_id === userId)
-          .map((row) => ({ r2_key: row.r2_key })),
+          .map((row) => ({ r2_key: row.r2_key, poster_r2_key: row.poster_r2_key ?? null })),
       };
     }
 
@@ -1089,7 +1089,7 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT id, r2_key FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+    if (query.startsWith('SELECT id, r2_key, poster_r2_key FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
       const requestedIds = bindings.slice(0, -1);
       const userId = bindings[bindings.length - 1];
       return {
@@ -1098,6 +1098,7 @@ class MockD1 {
           .map((row) => ({
             id: row.id,
             r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
           })),
       };
     }
@@ -1223,6 +1224,9 @@ class MockD1 {
           created_at: row.created_at,
           visibility: row.visibility || 'private',
           published_at: row.published_at ?? null,
+          poster_r2_key: row.poster_r2_key ?? null,
+          poster_width: row.poster_width ?? null,
+          poster_height: row.poster_height ?? null,
         })),
       };
     }
@@ -1463,10 +1467,10 @@ class MockD1 {
         : null;
     }
 
-    if (query === 'SELECT r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+    if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
-      return row ? { r2_key: row.r2_key } : null;
+      return row ? { r2_key: row.r2_key, poster_r2_key: row.poster_r2_key ?? null } : null;
     }
 
     if (query === 'DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?') {
@@ -1865,6 +1869,22 @@ class MockD1 {
       return { success: true, meta: { changes: rows.length } };
     }
 
+    if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT poster_r2_key, 'pending', ? FROM ai_text_assets WHERE folder_id = ? AND user_id = ? AND poster_r2_key IS NOT NULL")) {
+      const [createdAt, folderId, userId] = bindings;
+      const rows = this.state.aiTextAssets.filter((row) => row.folder_id === folderId && row.user_id === userId && row.poster_r2_key);
+      for (const row of rows) {
+        this.state.r2CleanupQueue.push({
+          id: this._cleanupSeq++,
+          r2_key: row.poster_r2_key,
+          status: 'pending',
+          created_at: createdAt,
+          attempts: 0,
+          last_attempt_at: null,
+        });
+      }
+      return { success: true, meta: { changes: rows.length } };
+    }
+
     if (query.startsWith("INSERT INTO r2_cleanup_queue (r2_key, status, created_at) SELECT r2_key, 'pending', ? FROM ai_text_assets WHERE user_id = ?")) {
       const [createdAt, userId] = bindings;
       const rows = this.state.aiTextAssets.filter((row) => row.user_id === userId);
@@ -1988,6 +2008,15 @@ class MockD1 {
       const changes = before - this.state.aiTextAssets.length;
       this._lastChanges = changes;
       return { success: true, meta: { changes } };
+    }
+
+    if (query === "DELETE FROM r2_cleanup_queue WHERE r2_key = ? AND status = 'pending'") {
+      const [key] = bindings;
+      const before = this.state.r2CleanupQueue.length;
+      this.state.r2CleanupQueue = this.state.r2CleanupQueue.filter(
+        (row) => !(row.status === 'pending' && row.r2_key === key)
+      );
+      return { success: true, meta: { changes: before - this.state.r2CleanupQueue.length } };
     }
 
     if (query.startsWith('DELETE FROM r2_cleanup_queue WHERE r2_key IN (') && query.endsWith(") AND status = 'pending'")) {

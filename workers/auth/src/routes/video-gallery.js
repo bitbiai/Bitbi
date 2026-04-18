@@ -27,7 +27,7 @@ function getPublicMemvidCaption(displayName, publishedAt) {
 
 function toPublicMemvidRecord(row) {
   const meta = parseMetadataJson(row.metadata_json);
-  return {
+  const record = {
     id: row.id,
     slug: `memvid-${row.id}`,
     title: row.title || "Memvids",
@@ -39,6 +39,14 @@ function toPublicMemvidRecord(row) {
     },
     duration_seconds: meta.duration_seconds ?? null,
   };
+  if (row.poster_r2_key) {
+    record.poster = {
+      url: `/api/gallery/memvids/${row.id}/poster`,
+      w: row.poster_width ?? null,
+      h: row.poster_height ?? null,
+    };
+  }
+  return record;
 }
 
 function parseMetadataJson(raw) {
@@ -71,6 +79,9 @@ async function handleListMemvids(ctx) {
             ai_text_assets.metadata_json,
             ai_text_assets.created_at,
             ai_text_assets.published_at,
+            ai_text_assets.poster_r2_key,
+            ai_text_assets.poster_width,
+            ai_text_assets.poster_height,
             profiles.display_name AS owner_display_name
      FROM ai_text_assets
      LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id
@@ -116,6 +127,31 @@ async function handleGetMemvidFile(ctx, videoId) {
   );
 }
 
+async function handleGetMemvidPoster(ctx, videoId) {
+  const { env } = ctx;
+  const row = await env.DB.prepare(
+    "SELECT poster_r2_key FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'video' AND poster_r2_key IS NOT NULL"
+  ).bind(videoId).first();
+
+  if (!row?.poster_r2_key) {
+    return json({ ok: false, error: "Poster not found." }, { status: 404 });
+  }
+
+  const object = await env.USER_IMAGES.get(row.poster_r2_key);
+  if (!object) {
+    return json({ ok: false, error: "Poster not found." }, { status: 404 });
+  }
+
+  const headers = new Headers();
+  headers.set("Content-Type", object.httpMetadata?.contentType || "image/webp");
+  headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  headers.set("X-Content-Type-Options", "nosniff");
+  if (object.size) {
+    headers.set("Content-Length", String(object.size));
+  }
+  return new Response(object.body, { headers });
+}
+
 export async function handleVideoGallery(ctx) {
   const { pathname, method } = ctx;
 
@@ -126,6 +162,11 @@ export async function handleVideoGallery(ctx) {
   const fileMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/file$/);
   if (fileMatch && method === "GET") {
     return handleGetMemvidFile(ctx, fileMatch[1]);
+  }
+
+  const posterMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/poster$/);
+  if (posterMatch && method === "GET") {
+    return handleGetMemvidPoster(ctx, posterMatch[1]);
   }
 
   return null;
