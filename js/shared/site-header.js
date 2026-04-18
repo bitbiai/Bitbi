@@ -9,6 +9,7 @@ import { initAuthModal } from './auth-modal.js';
 import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
+import { initModelsOverlay } from './models-overlay.js';
 
 const NAV_HTML = `
 <nav class="site-nav glass-nav" aria-label="Main navigation">
@@ -23,7 +24,7 @@ const NAV_HTML = `
                 <a href="/#soundlab" class="site-nav__link nav-link">Sound Lab</a>
                 <a href="/#youtube" class="site-nav__link nav-link">YouTube</a>
                 <a href="/#contact" class="site-nav__link nav-link">Contact</a>
-                <a href="/#models" class="site-nav__link nav-link" data-models-link="desktop">Models</a>
+                <button type="button" class="site-nav__link nav-link" data-models-link="desktop">Models</button>
             </div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
@@ -49,7 +50,7 @@ const MOBILE_NAV_HTML = `
             <span class="mobile-nav__label">Explore</span>
             <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary">Gallery</a>
             <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary">Sound Lab</a>
-            <a href="/#models" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</a>
+            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
         </nav>
 
         <nav class="mobile-nav__section" aria-label="Connect">
@@ -86,6 +87,7 @@ export function initSiteHeader() {
 
     /* 3. Init mobile nav behavior */
     try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
+    try { initModelsOverlay(); } catch (e) { console.warn('modelsOverlay:', e); }
     try { initWalletController(); } catch (e) { console.warn('wallet:', e); }
     try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio:', e); }
 

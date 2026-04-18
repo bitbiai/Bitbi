@@ -18,7 +18,7 @@ import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
-import { initModelsOverlay } from './models-overlay.js';
+import { initModelsOverlay } from '../../shared/models-overlay.js';
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
