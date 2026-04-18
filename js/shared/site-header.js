@@ -22,6 +22,7 @@ const NAV_HTML = `
             <div class="site-nav__links">
                 <a href="/#gallery" class="site-nav__link nav-link">Gallery</a>
                 <a href="/#soundlab" class="site-nav__link nav-link">Sound Lab</a>
+                <a href="/#video-creations" class="site-nav__link nav-link">VIDEO</a>
                 <a href="/#youtube" class="site-nav__link nav-link">YouTube</a>
                 <a href="/#contact" class="site-nav__link nav-link">Contact</a>
                 <button type="button" class="site-nav__link nav-link" data-models-link="desktop">Models</button>
@@ -50,6 +51,7 @@ const MOBILE_NAV_HTML = `
             <span class="mobile-nav__label">Explore</span>
             <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary">Gallery</a>
             <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary">Sound Lab</a>
+            <a href="/#video-creations" class="mobile-nav__link mobile-nav__link--primary">VIDEO</a>
             <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
         </nav>
 

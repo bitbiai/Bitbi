@@ -4,6 +4,7 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
+import { createStarButton } from '../../shared/favorites.js';
 
 const MEMVIDS_LIMIT = 60;
 
@@ -88,6 +89,13 @@ export function initVideoGallery() {
         playIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
         poster.appendChild(playIcon);
 
+        const star = createStarButton('video', item.id, {
+            title: item.title || 'Video',
+            thumb_url: item.poster?.url || '',
+        });
+        star.style.cssText = 'position:absolute;top:8px;right:8px';
+        poster.appendChild(star);
+
         inner.appendChild(poster);
 
         /* Info overlay */
@@ -165,6 +173,9 @@ export function initVideoGallery() {
         closeBtn.title = 'Close';
         closeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
+        const favoriteSlot = document.createElement('div');
+        favoriteSlot.className = 'video-modal__favorite';
+
         const videoWrap = document.createElement('div');
         videoWrap.id = 'videoModalPlayer';
         videoWrap.className = 'video-modal__player';
@@ -184,6 +195,7 @@ export function initVideoGallery() {
         body.appendChild(captionEl);
 
         card.appendChild(closeBtn);
+        card.appendChild(favoriteSlot);
         card.appendChild(videoWrap);
         card.appendChild(body);
         content.appendChild(card);
@@ -194,7 +206,7 @@ export function initVideoGallery() {
             if (e.target === overlay) closeVideoModal();
         });
 
-        return { root: overlay, videoWrap, titleEl, captionEl };
+        return { root: overlay, favoriteSlot, videoWrap, titleEl, captionEl };
     }
 
     function openVideoModal(item) {
@@ -206,6 +218,14 @@ export function initVideoGallery() {
         video.style.cssText = 'width:100%;max-height:70vh;display:block;border-radius:8px;background:#000';
         video.src = item.file.url;
 
+        const star = createStarButton('video', item.id, {
+            title: item.title || 'Video',
+            thumb_url: item.poster?.url || '',
+        });
+        star.classList.add('video-modal__fav');
+
+        modal.favoriteSlot.innerHTML = '';
+        modal.favoriteSlot.appendChild(star);
         modal.videoWrap.innerHTML = '';
         modal.videoWrap.appendChild(video);
         modal.titleEl.textContent = item.title || 'Memvids';
@@ -225,6 +245,7 @@ export function initVideoGallery() {
             video.load();
         }
 
+        modal.favoriteSlot.innerHTML = '';
         modal.root.classList.remove('active');
         document.body.style.overflow = '';
         if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }

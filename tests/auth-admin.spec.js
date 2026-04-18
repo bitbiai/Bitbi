@@ -2308,6 +2308,75 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveAttribute('src', /\/api\/soundlab-thumbs\/thumb-bitbi$/);
   });
 
+  test('mempics and video favorites render in the profile sidebar and open the matching viewer surfaces', async ({
+    page,
+  }) => {
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      favoritesPayload: [
+        {
+          item_type: 'mempics',
+          item_id: 'a1b2c3d4',
+          title: 'Mempics',
+          thumb_url: '/api/gallery/mempics/a1b2c3d4/thumb',
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          item_type: 'video',
+          item_id: 'bada55e1',
+          title: 'Launch Walkthrough',
+          thumb_url: '/api/gallery/memvids/bada55e1/poster',
+          created_at: '2026-04-10T11:59:00.000Z',
+        },
+      ],
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('[data-favorites-type="mempics"] [data-fav-key="mempics:a1b2c3d4"] img')).toHaveAttribute('src', /\/api\/gallery\/mempics\/a1b2c3d4\/thumb$/);
+    await expect(page.locator('[data-favorites-type="video"] [data-fav-key="video:bada55e1"] img')).toHaveAttribute('src', /\/api\/gallery\/memvids\/bada55e1\/poster$/);
+
+    await page.locator('[data-fav-key="mempics:a1b2c3d4"]').click();
+    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', /\/api\/gallery\/mempics\/a1b2c3d4\/medium$/);
+    await expect(page.locator('#favViewer .fav-viewer__full-link')).toHaveAttribute('href', /\/api\/gallery\/mempics\/a1b2c3d4\/file$/);
+    await page.locator('#favViewerClose').click();
+
+    await page.locator('[data-fav-key="video:bada55e1"]').click();
+    await expect(page.locator('#favViewer .fav-viewer__image video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/bada55e1\/file$/);
+    await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Launch Walkthrough');
+
+    await page.locator('#favViewer .fav-viewer__fav-star').click();
+    await expect(page.locator('[data-fav-key="video:bada55e1"]')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="mempics:a1b2c3d4"]')).toHaveCount(1);
+  });
+
   test('profile save updates the header label from email to display name when an avatar is present', async ({
     page,
   }) => {

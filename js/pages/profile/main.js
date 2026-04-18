@@ -948,6 +948,18 @@ function createFavoriteViewerImage(url, alt) {
     return img;
 }
 
+function buildMempicFavoritePreviewUrl(fav) {
+    return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/medium`;
+}
+
+function buildMempicFavoriteFullUrl(fav) {
+    return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/file`;
+}
+
+function buildVideoFavoriteFileUrl(fav) {
+    return `/api/gallery/memvids/${encodeURIComponent(String(fav.item_id || ''))}/file`;
+}
+
 /* ── Viewer overlay ── */
 const $viewer = document.getElementById('favViewer');
 const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
@@ -971,6 +983,12 @@ function closeViewer() {
     /* Cleanup iframe */
     const iframe = $viewerBody.querySelector('iframe');
     if (iframe) iframe.src = '';
+    const video = $viewerBody.querySelector('video');
+    if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+    }
     /* Clear body */
     $viewerBody.innerHTML = '';
     $viewer.className = 'fav-viewer';
@@ -1090,6 +1108,33 @@ function openGalleryInViewer(fav) {
         fullLink.appendChild(document.createTextNode(' Open full size'));
         info.appendChild(fullLink);
     }
+
+    $viewerBody.innerHTML = '';
+    $viewerBody.appendChild(card);
+    openViewer('');
+}
+
+function openMempicInViewer(fav) {
+    const title = String(fav.title || 'Mempics');
+    const previewUrl = buildMempicFavoritePreviewUrl(fav);
+    const fullUrl = buildMempicFavoriteFullUrl(fav);
+
+    const { card, image, info } = createFavoriteViewerCard();
+    image.appendChild(createFavoriteViewerImage(previewUrl, title));
+
+    const heading = document.createElement('h3');
+    heading.className = 'fav-viewer__title';
+    heading.textContent = title;
+    info.appendChild(heading);
+
+    const fullLink = document.createElement('a');
+    fullLink.className = 'fav-viewer__full-link';
+    fullLink.href = fullUrl;
+    fullLink.target = '_blank';
+    fullLink.rel = 'noopener noreferrer';
+    fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+    fullLink.appendChild(document.createTextNode(' Open full size'));
+    info.appendChild(fullLink);
 
     $viewerBody.innerHTML = '';
     $viewerBody.appendChild(card);
@@ -1216,9 +1261,46 @@ function openSoundlabInViewer(fav) {
     });
 }
 
+function openVideoInViewer(fav) {
+    const title = String(fav.title || 'Video');
+    const fileUrl = buildVideoFavoriteFileUrl(fav);
+    const posterUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
+
+    const { card, image, info } = createFavoriteViewerCard();
+
+    const video = document.createElement('video');
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    video.src = fileUrl;
+    if (posterUrl) {
+        video.poster = posterUrl;
+    }
+    image.appendChild(video);
+
+    const heading = document.createElement('h3');
+    heading.className = 'fav-viewer__title';
+    heading.textContent = title;
+    info.appendChild(heading);
+
+    const openLink = document.createElement('a');
+    openLink.className = 'fav-viewer__full-link';
+    openLink.href = fileUrl;
+    openLink.target = '_blank';
+    openLink.rel = 'noopener noreferrer';
+    openLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+    openLink.appendChild(document.createTextNode(' Open video'));
+    info.appendChild(openLink);
+
+    $viewerBody.innerHTML = '';
+    $viewerBody.appendChild(card);
+    openViewer('');
+}
+
 /* ── Build favorite tiles ── */
 function renderFavorites(favorites) {
-    const groups = { gallery: [], soundlab: [] };
+    const groups = { gallery: [], mempics: [], video: [], soundlab: [] };
     for (const f of favorites) {
         if (groups[f.item_type]) groups[f.item_type].push(f);
     }
@@ -1333,6 +1415,8 @@ function handleTileClick(fav) {
 
     switch (fav.item_type) {
         case 'gallery': openGalleryInViewer(fav); break;
+        case 'mempics': openMempicInViewer(fav); break;
+        case 'video': openVideoInViewer(fav); break;
         case 'soundlab': openSoundlabInViewer(fav); break;
     }
 }

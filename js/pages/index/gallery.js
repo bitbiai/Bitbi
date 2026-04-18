@@ -41,7 +41,7 @@ export function initGallery() {
                     throw new Error(data?.error || `Error ${res.status}`);
                 }
                 const items = Array.isArray(data?.data?.items) ? data.data.items : [];
-                return items.map((item) => ({ ...item, favoriteType: false }));
+                return items.map((item) => ({ ...item, favoriteType: 'mempics' }));
             } catch (error) {
                 console.warn('mempics:', error);
                 throw error;

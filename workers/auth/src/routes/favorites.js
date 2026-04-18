@@ -3,7 +3,7 @@ import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 
-const VALID_TYPES = ["gallery", "soundlab", "experiments"];
+const VALID_TYPES = ["gallery", "mempics", "soundlab", "video", "experiments"];
 const MAX_FAVORITES = 100;
 const PUBLIC_FAVORITE_THUMB_ORIGIN = "https://pub.bitbi.ai";
 

@@ -3225,6 +3225,8 @@ test.describe('Worker routes', () => {
       { input: '', stored: '' },
       { input: ' /assets/images/1.jpg ', stored: '/assets/images/1.jpg' },
       { input: ' /api/soundlab-thumbs/thumb-bitbi ', stored: '/api/soundlab-thumbs/thumb-bitbi' },
+      { input: ' /api/gallery/mempics/a1b2c3d4/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/thumb' },
+      { input: ' /api/gallery/memvids/bada55e1/poster ', stored: '/api/gallery/memvids/bada55e1/poster' },
       {
         input: ' https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp ',
         stored: 'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
@@ -3302,6 +3304,49 @@ test.describe('Worker routes', () => {
     }
 
     expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-invalid-user')).toHaveLength(0);
+  });
+
+  test('favorites: accepts mempics and video item types through the shared route', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-media-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-media-user');
+    const cases = [
+      {
+        item_type: 'mempics',
+        item_id: 'a1b2c3d4',
+        title: 'Mempics',
+        thumb_url: '/api/gallery/mempics/a1b2c3d4/thumb',
+      },
+      {
+        item_type: 'video',
+        item_id: 'bada55e1',
+        title: 'Launch Walkthrough',
+        thumb_url: '/api/gallery/memvids/bada55e1/poster',
+      },
+    ];
+
+    for (const favorite of cases) {
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/favorites', 'POST', favorite, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({ ok: true });
+    }
+
+    expect(
+      env.DB.state.favorites
+        .filter((row) => row.user_id === 'fav-media-user')
+        .map((row) => ({ item_type: row.item_type, item_id: row.item_id, thumb_url: row.thumb_url }))
+    ).toEqual(cases.map(({ item_type, item_id, thumb_url }) => ({ item_type, item_id, thumb_url })));
   });
 
   test('shared limiter: login is blocked when the durable IP limit is already exhausted', async () => {

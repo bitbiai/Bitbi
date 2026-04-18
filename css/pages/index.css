@@ -673,7 +673,22 @@
 
     /* Video modal player */
     .modal-card--video {
+        position: relative;
         max-inline-size: min(56rem, 90vw);
+    }
+
+    .video-modal__favorite {
+        position: absolute;
+        inset-block-start: 12px;
+        inset-inline-start: 12px;
+        z-index: 2;
+    }
+
+    .video-modal__fav {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }
 
     .video-modal__player {
@@ -751,7 +766,7 @@
     @media (min-width: 640px) {
         #soundLabTracks {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: var(--space-4);
         }
 
@@ -779,6 +794,24 @@
 
         #playlistPlayer {
             display: none !important;
+        }
+    }
+
+    @media (min-width: 768px) {
+        #soundLabTracks {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (min-width: 1024px) {
+        #soundLabTracks {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+    }
+
+    @media (min-width: 1280px) {
+        #soundLabTracks {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
         }
     }
 
