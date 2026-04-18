@@ -124,7 +124,7 @@ Two R2 buckets serve media — one public, one private:
 | Public | `https://pub.bitbi.ai` | Gallery images (thumb/preview/full), Sound Lab audio |
 | Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Exclusive gallery images, exclusive audio, avatars |
 
-**Public R2 base URL** is defined as `const R2_PUBLIC_BASE = 'https://pub.bitbi.ai'` in each module that needs it (`js/shared/gallery-data.js`, `js/pages/index/soundlab.js`, `js/pages/profile/main.js`). Change it in all three places if the domain changes.
+**Public R2 base URL** is defined as `const R2_PUBLIC_BASE = 'https://pub.bitbi.ai'` in each module that needs it (`js/shared/audio/audio-library.js`, `js/pages/profile/main.js`). Change it in both places if the domain changes.
 
 **Public R2 key layout:**
 - Gallery images: `gallery/[thumbs|previews|full]/ai-creations/{slug}-{width}.webp`
@@ -168,11 +168,11 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 ### Gallery
 
-**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items 100–108. Each item has `id`, `slug`, `title`, `caption`, `category`, `aspectRatio`, and three image variants (`thumb`, `preview`, `full`) with URLs built from `R2_PUBLIC_BASE`. Items reference only public R2 URLs — exclusive/private items (Little Monster) are injected separately by `locked-sections.js` and have no `full` variant.
+**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items. Currently empty — Mempics are fetched from the API, and exclusive/private items (Little Monster) are injected separately by `locked-sections.js`.
 
 **Rendering** (`js/pages/index/gallery.js`): Imports `galleryItems` from `gallery-data.js`. Grid cards load **only thumb** images with explicit `width`/`height` and `loading="lazy"`. Modal loads **only preview** images. Full images are opened in a new tab via `window.open()` only on explicit click of the top-left modal action button. The full-link button (`#modalFullLink`) is shown only for public items (those with `item.full.url`) and hidden for exclusive items.
 
-**Categories**: Desktop filter bar has three buttons: Pictures, Creepy Creatures, Experimental. The Exclusive filter button is injected by `locked-sections.js` and is auth-gated. Default active category is Pictures (no "All" category).
+**Categories**: Desktop filter bar has one button: Mempics. The Exclusive filter button is injected by `locked-sections.js` and is auth-gated. Default active category is Mempics (no "All" category).
 
 **Modal controls**: Two absolutely-positioned buttons inside `.modal-card` — open-full link (`.modal-action--left`, top-left) and close button (`.modal-action--right`, top-right). Both use `.modal-action` base class in `css/components/components.css`.
 

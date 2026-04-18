@@ -589,7 +589,7 @@ function loadContent() {
     // Gallery (from imported gallery-data.js)
     const galEl = document.getElementById('contentGallery');
     if (galEl) {
-        const catLabels = { pictures: 'Pictures', creepy: 'Creepy Creatures', experimental: 'Experimental' };
+        const catLabels = { mempics: 'Mempics' };
         const cats = {};
         for (const item of galleryItems) {
             cats[item.category] = (cats[item.category] || 0) + 1;

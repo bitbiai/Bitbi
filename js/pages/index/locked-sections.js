@@ -83,8 +83,8 @@ function setupGalleryFilter() {
         btn.setAttribute('aria-selected', 'false');
 
         if (isActive) {
-            /* Toggle off: re-activate "Pictures" (default category) */
-            const defaultBtn = filterBar.querySelector('[data-filter="pictures"]');
+            /* Toggle off: re-activate default category */
+            const defaultBtn = filterBar.querySelector('[data-filter="mempics"]');
             if (defaultBtn) { defaultBtn.classList.add('active'); defaultBtn.setAttribute('aria-selected', 'true'); defaultBtn.click(); }
         } else {
             /* Toggle on: show exclusive only */

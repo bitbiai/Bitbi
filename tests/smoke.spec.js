@@ -208,9 +208,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', '/api/gallery/mempics/a1b2c3d4/file');
     await page.locator('.modal-close').click();
 
-    await page.locator('.filter-btn[data-filter="pictures"]').click();
-    const freeCards = await page.locator('#galleryGrid .gallery-item').count();
-    expect(freeCards).toBeGreaterThan(0);
+    await page.locator('.filter-btn[data-filter="mempics"]').click();
   });
 
 });

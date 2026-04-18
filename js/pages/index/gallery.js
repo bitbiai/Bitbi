@@ -173,7 +173,7 @@ export function initGallery() {
         });
     }
 
-    render('pictures');
+    render('mempics');
 
     /* Listen for exclusive filter from locked-sections.js */
     grid.addEventListener('gallery:filter', (e) => {
@@ -280,7 +280,7 @@ export function initGallery() {
     let galDotsEl = null;
     let galSwipeLock = false;
     let galGridObserver = null;
-    let galCategory = 'pictures';
+    let galCategory = 'mempics';
 
     function galGetCards() {
         return Array.from(grid.children).filter(c => c.style.display !== 'none' && c.tagName !== 'BUTTON');
@@ -379,8 +379,6 @@ export function initGallery() {
         bar.setAttribute('aria-label', 'Gallery categories');
 
         const cats = [
-            { key: 'pictures', label: 'Pictures' },
-            { key: 'creepy', label: 'Creepy Creatures' },
             { key: 'mempics', label: 'Mempics' },
         ];
 
@@ -443,9 +441,9 @@ export function initGallery() {
             if (!loggedIn && galCategory === 'exclusive') {
                 exclBtn.classList.remove('active');
                 exclBtn.setAttribute('aria-selected', 'false');
-                galBtns.pictures.classList.add('active');
-                galBtns.pictures.setAttribute('aria-selected', 'true');
-                galSwitchCategory('pictures');
+                galBtns.mempics.classList.add('active');
+                galBtns.mempics.setAttribute('aria-selected', 'true');
+                galSwitchCategory('mempics');
             }
         });
 
@@ -473,15 +471,15 @@ export function initGallery() {
             c.style.transition = '';
         });
         if (galDotsEl) { galDotsEl.remove(); galDotsEl = null; }
-        render('pictures');
+        render('mempics');
         const desktopBar = document.querySelector('#gallery .filter-bar');
         if (desktopBar) {
             desktopBar.querySelectorAll('.filter-btn').forEach(b => {
                 b.classList.remove('active');
                 b.setAttribute('aria-selected', 'false');
             });
-            const picturesBtn = desktopBar.querySelector('[data-filter="pictures"]');
-            if (picturesBtn) { picturesBtn.classList.add('active'); picturesBtn.setAttribute('aria-selected', 'true'); }
+            const mempicsBtn = desktopBar.querySelector('[data-filter="mempics"]');
+            if (mempicsBtn) { mempicsBtn.classList.add('active'); mempicsBtn.setAttribute('aria-selected', 'true'); }
             const authBtn = desktopBar.querySelector('.auth-filter-btn');
             if (authBtn) { authBtn.classList.remove('active'); authBtn.setAttribute('aria-selected', 'false'); }
         }
