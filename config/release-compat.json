@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0024_add_text_asset_poster.sql",
+    "currentSchemaMigration": "0025_add_media_favorite_types.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",
