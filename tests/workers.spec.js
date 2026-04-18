@@ -2382,10 +2382,12 @@ test.describe('Worker routes', () => {
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro text-to-video with resolution and audio fields', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
+      let capturedOptions = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
-        aiRun: async (modelId, payload) => {
+        aiRun: async (modelId, payload, options) => {
           capturedModelId = modelId;
           capturedPayload = payload;
+          capturedOptions = options;
           return { video: 'https://cdn.example.com/video/vidu-text.mp4' };
         },
       });
@@ -2445,6 +2447,7 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.workflow).toBeUndefined();
       expect(capturedPayload.start_image).toBeUndefined();
       expect(capturedPayload.end_image).toBeUndefined();
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
     });
 
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro start/end-frame workflows without sending unsupported fields', async () => {
@@ -2753,14 +2756,85 @@ test.describe('Worker routes', () => {
       expect(typeof capturedPayload.aspect_ratio).toBe('string');
     });
 
-    test('POST /api/admin/ai/test-video minimal_mode sends only a hardcoded prompt to env.AI.run() for vidu/q3-pro', async () => {
-      let capturedModelId = null;
-      let capturedPayload = null;
+    test('POST /api/admin/ai/test-video accepts gateway_mode=off for vidu/q3-pro and omits the AI Gateway options argument', async () => {
+      let capturedArgs = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
-        aiRun: async (modelId, payload) => {
-          capturedModelId = modelId;
-          capturedPayload = payload;
-          return { video: 'https://cdn.example.com/video/vidu-minimal.mp4' };
+        aiRun: async (...args) => {
+          capturedArgs = args;
+          return { video: 'https://cdn.example.com/video/vidu-gateway-off.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'This prompt should be ignored in minimal mode.',
+          duration: 10,
+          resolution: '1080p',
+          audio: true,
+          aspect_ratio: '16:9',
+          gateway_mode: 'off',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedArgs).toHaveLength(2);
+      expect(capturedArgs[0]).toBe('vidu/q3-pro');
+      expect(capturedArgs[1]).toEqual({
+        prompt: 'This prompt should be ignored in minimal mode.',
+        duration: 10,
+        resolution: '1080p',
+        audio: true,
+        aspect_ratio: '16:9',
+      });
+    });
+
+    test('POST /api/admin/ai/test-video accepts gateway_mode=on for vidu/q3-pro and keeps the AI Gateway options argument', async () => {
+      let capturedArgs = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          capturedArgs = args;
+          return { video: 'https://cdn.example.com/video/vidu-gateway-on.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Gateway on request.',
+          duration: 10,
+          resolution: '1080p',
+          audio: true,
+          aspect_ratio: '16:9',
+          gateway_mode: 'on',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedArgs).toHaveLength(3);
+      expect(capturedArgs[0]).toBe('vidu/q3-pro');
+      expect(capturedArgs[1]).toEqual({
+        prompt: 'Gateway on request.',
+        duration: 10,
+        resolution: '1080p',
+        audio: true,
+        aspect_ratio: '16:9',
+      });
+      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video minimal_mode still overrides the vidu/q3-pro payload when gateway_mode=off', async () => {
+      let capturedArgs = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          capturedArgs = args;
+          return { video: 'https://cdn.example.com/video/vidu-minimal-off.mp4' };
         },
       });
 
@@ -2774,17 +2848,77 @@ test.describe('Worker routes', () => {
           audio: true,
           aspect_ratio: '16:9',
           minimal_mode: true,
+          gateway_mode: 'off',
         }, authHeaders),
         env,
         createExecutionContext().execCtx
       );
 
       expect(res.status).toBe(200);
-      expect(capturedModelId).toBe('vidu/q3-pro');
-      // minimal_mode replaces the entire payload with a hardcoded prompt-only object
-      expect(capturedPayload).toEqual({
+      expect(capturedArgs).toHaveLength(2);
+      expect(capturedArgs[0]).toBe('vidu/q3-pro');
+      expect(capturedArgs[1]).toEqual({
         prompt: 'A golden retriever running through a sunlit meadow in slow motion',
       });
+    });
+
+    test('POST /api/admin/ai/test-video minimal_mode still overrides the vidu/q3-pro payload when gateway_mode=on', async () => {
+      let capturedArgs = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (...args) => {
+          capturedArgs = args;
+          return { video: 'https://cdn.example.com/video/vidu-minimal-on.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'This prompt should be ignored in minimal mode.',
+          duration: 10,
+          resolution: '1080p',
+          audio: true,
+          aspect_ratio: '16:9',
+          minimal_mode: true,
+          gateway_mode: 'on',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedArgs).toHaveLength(3);
+      expect(capturedArgs[0]).toBe('vidu/q3-pro');
+      expect(capturedArgs[1]).toEqual({
+        prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+      });
+      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video rejects invalid gateway_mode for vidu/q3-pro', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'Bad gateway mode.',
+          duration: 10,
+          resolution: '1080p',
+          audio: true,
+          gateway_mode: 'maybe',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('gateway_mode'),
+      }));
     });
 
     test('POST /api/admin/ai/test-video validates required prompt', async () => {

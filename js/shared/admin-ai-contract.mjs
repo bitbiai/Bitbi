@@ -1137,6 +1137,7 @@ export function validateAdminAiVideoBody(body) {
         "aspect_ratio",
         "resolution",
         "audio",
+        "gateway_mode",
       ],
       selectedModel.id
     );
@@ -1162,6 +1163,7 @@ export function validateAdminAiVideoBody(body) {
       selectedModel.defaultResolution
     );
     const audio = optionalBoolean(input.audio, "audio", selectedModel.defaultGenerateAudio);
+    const gateway_mode = optionalEnum(input.gateway_mode, "gateway_mode", ["on", "off"], null);
 
     const hasFrameInput = !!start_image || !!end_image;
     if (end_image && !start_image) {
@@ -1200,6 +1202,7 @@ export function validateAdminAiVideoBody(body) {
       duration,
       resolution,
       audio,
+      gateway_mode,
       aspect_ratio: hasFrameInput
         ? null
         : optionalEnum(

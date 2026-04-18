@@ -985,13 +985,26 @@ export async function invokeVideo(env, model, input) {
   const startedAt = Date.now();
   const request = buildVideoPayload(model, input);
   const payload = request.payload;
-
-  const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
+  const minimalModeActive =
+    model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode === true;
+  const gatewayMode =
+    model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+      ? (input.gateway_mode === "off" ? "off" : "on")
+      : null;
+  const runOptions =
+    model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+      ? (gatewayMode === "on" ? { gateway: { id: "default" } } : undefined)
+      : (model.proxied ? { gateway: { id: "default" } } : undefined);
 
   const payloadTypeMap = {};
   for (const [k, v] of Object.entries(payload)) {
     payloadTypeMap[`pt_${k}`] = `${typeof v}`;
   }
+
+  // --- Vidu minimal_mode: bypass UI params, send hardcoded prompt-only payload ---
+  const effectivePayload = minimalModeActive
+    ? { prompt: "A golden retriever running through a sunlit meadow in slow motion" }
+    : payload;
 
   // --- Vidu pre-flight diagnostic: log the exact outgoing payload ---
   if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
@@ -1010,8 +1023,26 @@ export async function invokeVideo(env, model, input) {
       prompt_has_control_chars: hasControlChars,
       prompt_preview: promptStr.slice(0, 120),
       payload_keys: Object.keys(payload).sort().join(","),
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
       gateway_options: runOptions ? JSON.stringify(runOptions) : "none",
       ...payloadTypeMap,
+    });
+
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_effective_request",
+      level: "info",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
+      payload_json: JSON.stringify(payload),
+      effective_payload_json: JSON.stringify(effectivePayload),
+      gateway_options: runOptions ? JSON.stringify(runOptions) : "none",
+      payload_keys: Object.keys(payload).sort().join(","),
+      effective_payload_keys: Object.keys(effectivePayload).sort().join(","),
     });
   }
 
@@ -1031,16 +1062,12 @@ export async function invokeVideo(env, model, input) {
     quality: payload.quality || null,
     resolution: payload.resolution || null,
     payload_keys: Object.keys(payload).sort().join(","),
+    gateway_mode: gatewayMode,
+    minimal_mode_active: minimalModeActive,
     ...payloadTypeMap,
   });
 
-  // --- Vidu minimal_mode: bypass UI params, send hardcoded prompt-only payload ---
-  const effectivePayload =
-    model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode
-      ? { prompt: "A golden retriever running through a sunlit meadow in slow motion" }
-      : payload;
-
-  if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && input.minimal_mode) {
+  if (minimalModeActive) {
     logDiagnostic({
       service: "bitbi-ai",
       component: "invoke-video",
@@ -1048,6 +1075,8 @@ export async function invokeVideo(env, model, input) {
       level: "warn",
       correlationId: input.correlationId || null,
       model: model.id,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: true,
       original_payload_keys: Object.keys(payload).sort().join(","),
       effective_payload_json: JSON.stringify(effectivePayload),
     });
@@ -1055,7 +1084,9 @@ export async function invokeVideo(env, model, input) {
 
   let raw;
   try {
-    raw = await env.AI.run(model.id, effectivePayload, runOptions);
+    raw = runOptions
+      ? await env.AI.run(model.id, effectivePayload, runOptions)
+      : await env.AI.run(model.id, effectivePayload);
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -1065,6 +1096,12 @@ export async function invokeVideo(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       has_gateway_option: !!runOptions,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
+      effective_payload_json:
+        model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+          ? JSON.stringify(effectivePayload)
+          : undefined,
       has_image_input: !!request.normalized.hasImageInput,
       has_end_image_input: !!request.normalized.hasEndImageInput,
       ...getErrorFields(error),
