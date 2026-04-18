@@ -134,8 +134,7 @@ function open() {
         overlayEl = buildOverlay();
         document.body.appendChild(overlayEl);
 
-        overlayEl.querySelector('.models-overlay__close').addEventListener('click', close);
-        overlayEl.querySelector('.models-overlay__backdrop').addEventListener('click', close);
+        overlayEl.addEventListener('click', close);
     }
 
     overlayEl.setAttribute('aria-hidden', 'false');
