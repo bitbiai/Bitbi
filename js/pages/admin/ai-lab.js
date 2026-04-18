@@ -2755,6 +2755,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function renderVideoEmptyState() {
+        if (!refs.video.preview) return;
         refs.video.preview.innerHTML = `
             <div class="admin-ai__video-empty">
                 <div class="admin-ai__video-empty-icon" aria-hidden="true"></div>
@@ -2767,6 +2768,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function renderVideoPreview(payload, result) {
+        if (!refs.video.preview) return;
         const videoUrl = payload?.videoUrl || null;
         refs.video.download.hidden = !videoUrl;
         refs.video.save.hidden = !videoUrl;
@@ -2812,6 +2814,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function renderVideoResult() {
+        if (!refs.video.preview) return;
         const result = state.results.video;
         const response = result?.raw || null;
         const payload = response?.result || null;
