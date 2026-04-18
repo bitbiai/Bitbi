@@ -2640,6 +2640,132 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('POST /api/admin/ai/proxy-video streams video bytes from the upstream URL', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createAdminUser('admin-proxy-video')],
+      });
+
+      const fakeVideoBytes = new Uint8Array([
+        0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+        0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
+      ]);
+      const originalFetch = global.fetch;
+      global.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.startsWith('https://cdn.vidu.example.com/')) {
+          return new Response(fakeVideoBytes, {
+            status: 200,
+            headers: { 'content-type': 'video/mp4' },
+          });
+        }
+        return originalFetch(url, opts);
+      };
+
+      try {
+        const token = await seedSession(env, 'admin-proxy-video');
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/proxy-video', 'POST', {
+            url: 'https://cdn.vidu.example.com/video/signed.mp4?token=abc',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+            'CF-Connecting-IP': '203.0.113.80',
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('video/mp4');
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        const body = new Uint8Array(await res.arrayBuffer());
+        expect(body).toEqual(fakeVideoBytes);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/proxy-video rejects non-video content types', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createAdminUser('admin-proxy-nonvideo')],
+      });
+
+      const originalFetch = global.fetch;
+      global.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.startsWith('https://bad.example.com/')) {
+          return new Response('<html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          });
+        }
+        return originalFetch(url, opts);
+      };
+
+      try {
+        const token = await seedSession(env, 'admin-proxy-nonvideo');
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/proxy-video', 'POST', {
+            url: 'https://bad.example.com/page.html',
+          }, {
+            Origin: 'https://bitbi.ai',
+            Cookie: `bitbi_session=${token}`,
+            'CF-Connecting-IP': '203.0.113.81',
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(422);
+        const body = await res.json();
+        expect(body.ok).toBe(false);
+        expect(body.error).toContain('video content');
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/proxy-video rejects missing URL field', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createAdminUser('admin-proxy-nourl')],
+      });
+
+      const token = await seedSession(env, 'admin-proxy-nourl');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/proxy-video', 'POST', {}, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.82',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('url is required');
+    });
+
+    test('POST /api/admin/ai/proxy-video rejects unauthenticated requests', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({});
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/proxy-video', 'POST', {
+          url: 'https://cdn.example.com/video.mp4',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.83',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(401);
+    });
+
     test('POST /api/admin/ai/compare returns the compare response contract used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 

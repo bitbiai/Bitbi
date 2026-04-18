@@ -3116,11 +3116,39 @@ export function createAdminAiLab({ showToast } = {}) {
         `;
     }
 
+    async function loadVideoBlob(url) {
+        try {
+            const res = await fetch(url);
+            if (res.ok) return URL.createObjectURL(await res.blob());
+        } catch { /* CORS or network — try proxy */ }
+
+        try {
+            const res = await fetch('/api/admin/ai/proxy-video', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            if (res.ok) return URL.createObjectURL(await res.blob());
+        } catch { /* proxy unavailable */ }
+
+        return null;
+    }
+
+    function revokePreviewBlobUrl() {
+        if (state._previewBlobUrl) {
+            URL.revokeObjectURL(state._previewBlobUrl);
+            state._previewBlobUrl = null;
+        }
+    }
+
     function renderVideoPreview(payload, result) {
         if (!refs.video.preview) return;
         const videoUrl = payload?.videoUrl || null;
         refs.video.download.hidden = !videoUrl;
         refs.video.save.hidden = !videoUrl;
+
+        revokePreviewBlobUrl();
 
         if (!videoUrl) {
             if (result?.status === 'loading' && !payload) {
@@ -3151,27 +3179,31 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const note = document.createElement('div');
         note.className = 'admin-ai__video-player-note';
-        note.textContent = 'Streaming from a temporary provider URL. Download while it is still available.';
+        note.textContent = 'Loading video preview\u2026';
 
         head.append(title, note);
 
         const video = document.createElement('video');
         video.controls = true;
-        video.preload = 'metadata';
+        video.preload = 'auto';
         video.crossOrigin = 'anonymous';
         video.className = 'admin-ai__video-el';
 
-        video.addEventListener('error', () => {
-            if (video.crossOrigin) {
+        wrapper.append(head, video);
+        refs.video.preview.appendChild(wrapper);
+
+        loadVideoBlob(videoUrl).then(blobUrl => {
+            if (blobUrl) {
+                state._previewBlobUrl = blobUrl;
+                video.src = blobUrl;
+                note.textContent = 'Preview loaded. Use Save or Download to keep.';
+            } else {
                 video.crossOrigin = '';
                 video.dataset.corsDisabled = '1';
                 video.src = videoUrl;
+                note.textContent = 'Streaming from provider URL. Poster capture may be unavailable.';
             }
-        }, { once: true });
-        video.src = videoUrl;
-
-        wrapper.append(head, video);
-        refs.video.preview.appendChild(wrapper);
+        });
     }
 
     function renderVideoResult() {
@@ -3322,7 +3354,7 @@ export function createAdminAiLab({ showToast } = {}) {
         ].join('-') + '.mp4';
 
         const link = document.createElement('a');
-        link.href = videoUrl;
+        link.href = state._previewBlobUrl || videoUrl;
         link.download = filename;
         link.target = '_blank';
         link.rel = 'noopener';
