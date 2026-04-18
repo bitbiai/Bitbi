@@ -8,6 +8,8 @@ import {
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
 
+const DEFAULT_AI_GATEWAY_ID = "default";
+
 function ensureAI(env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
     const error = new Error("Workers AI binding is not configured.");
@@ -377,6 +379,210 @@ function getUpstreamErrorDetails(error) {
     ),
     upstream_cause: sanitizeErrorValue(error?.cause ?? null),
   };
+}
+
+function getNestedValue(source, path) {
+  if (!source || !path) return undefined;
+  const segments = Array.isArray(path) ? path : String(path).split(".");
+  let current = source;
+  for (const segment of segments) {
+    if (current == null) return undefined;
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index)) return undefined;
+      current = current[index];
+      continue;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+
+function firstNestedValue(source, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(source, path);
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    return value;
+  }
+  return null;
+}
+
+function readAiGatewayLogId(aiBinding) {
+  const value = aiBinding?.aiGatewayLogId;
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+function extractGatewayLogSummary(gatewayLog) {
+  return {
+    gateway_log_shape: summarizeResultShape(gatewayLog),
+    gateway_provider_id: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "provider.id",
+      "request.provider.id",
+      "target.provider.id",
+      "metadata.provider.id",
+      "provider",
+    ])),
+    gateway_provider_name: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "provider.name",
+      "request.provider.name",
+      "target.provider.name",
+      "metadata.provider.name",
+    ])),
+    gateway_model_id: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "model.id",
+      "model",
+      "request.model.id",
+      "request.model",
+      "response.model.id",
+      "response.model",
+      "metadata.model.id",
+      "metadata.model",
+    ])),
+    gateway_response_status: firstNestedValue(gatewayLog, [
+      "response.status",
+      "response.status_code",
+      "status",
+      "status_code",
+      "response.code",
+    ]),
+    gateway_response_status_text: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "response.statusText",
+      "response.status_text",
+      "statusText",
+      "status_text",
+    ])),
+    gateway_upstream_error_message: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "error.message",
+      "response.error.message",
+      "response.body.error.message",
+      "response.body.message",
+      "response.data.error.message",
+      "response.data.message",
+      "provider_error.message",
+      "body.error.message",
+      "body.message",
+      "message",
+    ])),
+    gateway_validation_details: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "error.details",
+      "response.error.details",
+      "response.body.error.details",
+      "response.body.details",
+      "response.body.validation",
+      "response.body.errors",
+      "response.data.error.details",
+      "response.data.details",
+      "response.data.validation",
+      "response.data.errors",
+      "validation",
+      "details",
+      "errors",
+    ])),
+    gateway_request_target: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "request.target",
+      "target.path",
+      "target.url",
+      "target",
+    ])),
+    gateway_request_path: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "request.path",
+      "request.route",
+      "target.path",
+      "metadata.path",
+    ])),
+    gateway_request_method: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "request.method",
+      "method",
+    ])),
+    gateway_request_url: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "request.url",
+      "target.url",
+      "metadata.url",
+    ])),
+    gateway_request_provider_metadata: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "request.provider",
+      "target.provider",
+      "metadata.provider",
+    ])),
+    gateway_error_body: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "response.body",
+      "response.data",
+      "response.error",
+      "error",
+      "body",
+      "data",
+    ])),
+  };
+}
+
+function logViduGatewayReference({
+  correlationId,
+  modelId,
+  gatewayMode,
+  minimalModeActive,
+  effectivePayload,
+  aiGatewayLogId,
+  runOutcome,
+}) {
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-video",
+    event: "vidu_ai_gateway_log_reference",
+    level: runOutcome === "failure" ? "error" : "info",
+    correlationId,
+    model: modelId,
+    ai_gateway_log_id: aiGatewayLogId,
+    gateway_mode: gatewayMode,
+    minimal_mode_active: minimalModeActive,
+    effective_payload_json: JSON.stringify(effectivePayload),
+    run_outcome: runOutcome,
+  });
+}
+
+async function logViduGatewayFailureDetails({
+  env,
+  correlationId,
+  modelId,
+  gatewayMode,
+  minimalModeActive,
+  effectivePayload,
+  aiGatewayLogId,
+}) {
+  if (!aiGatewayLogId) return;
+
+  try {
+    const gatewayLog = await env.AI.gateway(DEFAULT_AI_GATEWAY_ID).getLog(aiGatewayLogId);
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_ai_gateway_log_summary",
+      level: "error",
+      correlationId,
+      model: modelId,
+      ai_gateway_log_id: aiGatewayLogId,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
+      effective_payload_json: JSON.stringify(effectivePayload),
+      ...extractGatewayLogSummary(gatewayLog),
+    });
+  } catch (gatewayLogError) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_ai_gateway_log_lookup_failed",
+      level: "error",
+      correlationId,
+      model: modelId,
+      ai_gateway_log_id: aiGatewayLogId,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
+      effective_payload_json: JSON.stringify(effectivePayload),
+      ...getErrorFields(gatewayLogError),
+    });
+  }
 }
 
 function buildMusicProviderError(raw) {
@@ -993,8 +1199,8 @@ export async function invokeVideo(env, model, input) {
       : null;
   const runOptions =
     model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
-      ? (gatewayMode === "on" ? { gateway: { id: "default" } } : undefined)
-      : (model.proxied ? { gateway: { id: "default" } } : undefined);
+      ? (gatewayMode === "on" ? { gateway: { id: DEFAULT_AI_GATEWAY_ID } } : undefined)
+      : (model.proxied ? { gateway: { id: DEFAULT_AI_GATEWAY_ID } } : undefined);
 
   const payloadTypeMap = {};
   for (const [k, v] of Object.entries(payload)) {
@@ -1083,11 +1289,45 @@ export async function invokeVideo(env, model, input) {
   }
 
   let raw;
+  let aiGatewayLogId = null;
   try {
     raw = runOptions
       ? await env.AI.run(model.id, effectivePayload, runOptions)
       : await env.AI.run(model.id, effectivePayload);
+    aiGatewayLogId = readAiGatewayLogId(env.AI);
+    if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+      logViduGatewayReference({
+        correlationId: input.correlationId || null,
+        modelId: model.id,
+        gatewayMode,
+        minimalModeActive,
+        effectivePayload,
+        aiGatewayLogId,
+        runOutcome: "success",
+      });
+    }
   } catch (error) {
+    aiGatewayLogId = readAiGatewayLogId(env.AI);
+    if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+      logViduGatewayReference({
+        correlationId: input.correlationId || null,
+        modelId: model.id,
+        gatewayMode,
+        minimalModeActive,
+        effectivePayload,
+        aiGatewayLogId,
+        runOutcome: "failure",
+      });
+      await logViduGatewayFailureDetails({
+        env,
+        correlationId: input.correlationId || null,
+        modelId: model.id,
+        gatewayMode,
+        minimalModeActive,
+        effectivePayload,
+        aiGatewayLogId,
+      });
+    }
     logDiagnostic({
       service: "bitbi-ai",
       component: "invoke-video",
@@ -1096,6 +1336,7 @@ export async function invokeVideo(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       has_gateway_option: !!runOptions,
+      ai_gateway_log_id: aiGatewayLogId,
       gateway_mode: gatewayMode,
       minimal_mode_active: minimalModeActive,
       effective_payload_json:

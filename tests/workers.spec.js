@@ -172,14 +172,46 @@ async function createAdminAiContractHarness(options = {}) {
   const aiWorker = await loadWorker('workers/ai/src/index.js');
   const user = options.user || createAdminUser();
   const aiRun = options.aiRun || createAiLabRunStub();
+  let currentAiGatewayLogId = null;
+  const gatewayGetLogCalls = [];
   const env = createAuthTestEnv({
     users: [user],
     imagesBinding: options.imagesBinding,
   });
   env.AI_LAB = createAiLabServiceBinding(aiWorker, {
     AI: {
+      get aiGatewayLogId() {
+        return currentAiGatewayLogId;
+      },
+      gateway(name) {
+        return {
+          async getLog(logId) {
+            gatewayGetLogCalls.push({ name, logId });
+            if (typeof options.gatewayGetLog === 'function') {
+              return options.gatewayGetLog(logId, name);
+            }
+            return null;
+          },
+        };
+      },
       async run(...args) {
-        return aiRun(...args);
+        let result;
+        let error = null;
+        try {
+          result = await aiRun(...args);
+          return result;
+        } catch (err) {
+          error = err;
+          throw err;
+        } finally {
+          if (options.aiGatewayLogId !== undefined) {
+            currentAiGatewayLogId = typeof options.aiGatewayLogId === 'function'
+              ? options.aiGatewayLogId({ args, result, error })
+              : options.aiGatewayLogId;
+          } else {
+            currentAiGatewayLogId = null;
+          }
+        }
       },
     },
   });
@@ -198,7 +230,48 @@ async function createAdminAiContractHarness(options = {}) {
     env,
     authHeaders,
     user,
+    gatewayGetLogCalls,
   };
+}
+
+function captureDiagnosticLogs() {
+  const entries = [];
+  const originalConsole = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+  };
+
+  const capture = () => (...args) => {
+    for (const arg of args) {
+      if (typeof arg !== 'string') continue;
+      try {
+        const parsed = JSON.parse(arg);
+        if (parsed && typeof parsed === 'object' && typeof parsed.event === 'string') {
+          entries.push(parsed);
+        }
+      } catch {
+        // ignore non-JSON console output
+      }
+    }
+  };
+
+  console.log = capture();
+  console.warn = capture();
+  console.error = capture();
+
+  return {
+    entries,
+    restore() {
+      console.log = originalConsole.log;
+      console.warn = originalConsole.warn;
+      console.error = originalConsole.error;
+    },
+  };
+}
+
+function findDiagnosticEvent(entries, eventName) {
+  return entries.find((entry) => entry.event === eventName) || null;
 }
 
 function parseSessionCookie(setCookie) {
@@ -2829,6 +2902,46 @@ test.describe('Worker routes', () => {
       expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
     });
 
+    test('POST /api/admin/ai/test-video logs aiGatewayLogId after a successful vidu/q3-pro run', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      try {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => ({ video: 'https://cdn.example.com/video/vidu-gateway-log-success.mp4' }),
+          aiGatewayLogId: 'gw-log-success-123',
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'This prompt should be ignored in minimal mode.',
+            duration: 10,
+            resolution: '1080p',
+            audio: true,
+            aspect_ratio: '16:9',
+            minimal_mode: true,
+            gateway_mode: 'on',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(200);
+        const referenceLog = findDiagnosticEvent(diagnostics.entries, 'vidu_ai_gateway_log_reference');
+        expect(referenceLog).toEqual(expect.objectContaining({
+          ai_gateway_log_id: 'gw-log-success-123',
+          gateway_mode: 'on',
+          minimal_mode_active: true,
+          effective_payload_json: JSON.stringify({
+            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          }),
+          run_outcome: 'success',
+        }));
+      } finally {
+        diagnostics.restore();
+      }
+    });
+
     test('POST /api/admin/ai/test-video minimal_mode still overrides the vidu/q3-pro payload when gateway_mode=off', async () => {
       let capturedArgs = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
@@ -2894,6 +3007,162 @@ test.describe('Worker routes', () => {
         prompt: 'A golden retriever running through a sunlit meadow in slow motion',
       });
       expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video fetches and logs the AI Gateway log on vidu/q3-pro failure when a log ID exists', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      try {
+        const providerError = new Error('Model execution failed (User Input Error): Request validation failed');
+        providerError.status = 502;
+
+        const { authWorker, env, authHeaders, gatewayGetLogCalls } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw providerError;
+          },
+          aiGatewayLogId: 'gw-log-failure-456',
+          gatewayGetLog: async () => ({
+            request: {
+              method: 'POST',
+              path: '/v1/video/generate',
+              url: 'https://gateway.example.com/v1/video/generate',
+              target: 'providers/vidu/q3-pro',
+              provider: {
+                id: 'vidu',
+                name: 'Vidu',
+              },
+              model: 'vidu/q3-pro',
+            },
+            response: {
+              status: 400,
+              statusText: 'Bad Request',
+              body: {
+                error: {
+                  message: 'Request validation failed',
+                  details: {
+                    field: 'prompt',
+                    reason: 'must satisfy provider validation',
+                  },
+                },
+              },
+            },
+          }),
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'This prompt should be ignored in minimal mode.',
+            duration: 10,
+            resolution: '1080p',
+            audio: true,
+            aspect_ratio: '16:9',
+            minimal_mode: true,
+            gateway_mode: 'on',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(502);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'upstream_error',
+          error: 'Video generation failed',
+        }));
+        expect(gatewayGetLogCalls).toEqual([
+          { name: 'default', logId: 'gw-log-failure-456' },
+        ]);
+
+        const referenceLog = findDiagnosticEvent(diagnostics.entries, 'vidu_ai_gateway_log_reference');
+        expect(referenceLog).toEqual(expect.objectContaining({
+          ai_gateway_log_id: 'gw-log-failure-456',
+          gateway_mode: 'on',
+          minimal_mode_active: true,
+          effective_payload_json: JSON.stringify({
+            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          }),
+          run_outcome: 'failure',
+        }));
+
+        const summaryLog = findDiagnosticEvent(diagnostics.entries, 'vidu_ai_gateway_log_summary');
+        expect(summaryLog).toEqual(expect.objectContaining({
+          ai_gateway_log_id: 'gw-log-failure-456',
+          gateway_provider_id: 'vidu',
+          gateway_provider_name: 'Vidu',
+          gateway_model_id: 'vidu/q3-pro',
+          gateway_response_status: 400,
+          gateway_response_status_text: 'Bad Request',
+          gateway_upstream_error_message: 'Request validation failed',
+          gateway_request_target: 'providers/vidu/q3-pro',
+          gateway_request_path: '/v1/video/generate',
+          gateway_request_method: 'POST',
+          gateway_request_url: 'https://gateway.example.com/v1/video/generate',
+        }));
+        expect(summaryLog.gateway_validation_details).toEqual({
+          field: 'prompt',
+          reason: 'must satisfy provider validation',
+        });
+      } finally {
+        diagnostics.restore();
+      }
+    });
+
+    test('POST /api/admin/ai/test-video handles AI Gateway log lookup failures safely for vidu/q3-pro', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      try {
+        const providerError = new Error('Model execution failed (User Input Error): Request validation failed');
+        providerError.status = 502;
+
+        const { authWorker, env, authHeaders, gatewayGetLogCalls } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw providerError;
+          },
+          aiGatewayLogId: 'gw-log-lookup-failure-789',
+          gatewayGetLog: async () => {
+            throw new Error('Gateway log lookup exploded');
+          },
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'This prompt should be ignored in minimal mode.',
+            duration: 10,
+            resolution: '1080p',
+            audio: true,
+            aspect_ratio: '16:9',
+            minimal_mode: true,
+            gateway_mode: 'on',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(502);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'upstream_error',
+          error: 'Video generation failed',
+        }));
+        expect(gatewayGetLogCalls).toEqual([
+          { name: 'default', logId: 'gw-log-lookup-failure-789' },
+        ]);
+
+        const lookupFailureLog = findDiagnosticEvent(diagnostics.entries, 'vidu_ai_gateway_log_lookup_failed');
+        expect(lookupFailureLog).toEqual(expect.objectContaining({
+          ai_gateway_log_id: 'gw-log-lookup-failure-789',
+          gateway_mode: 'on',
+          minimal_mode_active: true,
+          effective_payload_json: JSON.stringify({
+            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          }),
+          error_message: 'Gateway log lookup exploded',
+        }));
+      } finally {
+        diagnostics.restore();
+      }
     });
 
     test('POST /api/admin/ai/test-video rejects invalid gateway_mode for vidu/q3-pro', async () => {
