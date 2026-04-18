@@ -1285,15 +1285,80 @@
 
     .admin-ai__video-image-preview {
         position: relative;
-        display: inline-block;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        inline-size: min(100%, 11rem);
+        aspect-ratio: 4 / 3;
+        overflow: hidden;
+        border-radius: var(--radius-sm);
+        border: 1px dashed rgba(255, 255, 255, 0.12);
+        background:
+            linear-gradient(180deg, rgba(0, 240, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%),
+            rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-ai__video-image-preview[data-state="ready"] {
+        border-style: solid;
+        border-color: rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.3);
+    }
+
+    .admin-ai__video-image-preview[data-state="error"] {
+        border-color: rgba(255, 128, 64, 0.22);
+        background:
+            linear-gradient(180deg, rgba(255, 128, 64, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%),
+            rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-ai__video-image-empty {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        inline-size: 100%;
+        min-block-size: 100%;
+        justify-content: center;
+        padding: var(--space-4);
+        color: rgba(255, 255, 255, 0.58);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.6;
+    }
+
+    .admin-ai__video-image-badge {
+        display: inline-flex;
+        align-self: flex-start;
+        padding: 0.2rem 0.45rem;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        background: rgba(0, 240, 255, 0.08);
+        color: rgba(188, 245, 255, 0.76);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .admin-ai__video-image-empty-title {
+        color: rgba(255, 255, 255, 0.84);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+
+    .admin-ai__video-image-empty-hint {
+        max-inline-size: 15rem;
     }
 
     .admin-ai__video-image-preview img {
         display: block;
-        max-width: 160px;
-        max-height: 120px;
-        border-radius: var(--radius-sm);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        inline-size: 100%;
+        block-size: 100%;
+        object-fit: cover;
+    }
+
+    .admin-ai__video-image-preview img[hidden],
+    .admin-ai__video-image-empty[hidden] {
+        display: none;
     }
 
     .admin-ai__video-image-clear {
@@ -1313,6 +1378,10 @@
         align-items: center;
         justify-content: center;
         padding: 0;
+    }
+
+    .admin-ai__video-image-clear[hidden] {
+        display: none;
     }
 
     .admin-ai__field--inline {

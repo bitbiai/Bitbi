@@ -3500,6 +3500,107 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiCompareBText')).not.toContainText('Slow compare B.');
   });
 
+  test('uses the 480 second default timeout for slow Video AI requests without breaking abort handling', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    await page.addInitScript(() => {
+      const nativeSetTimeout = window.setTimeout.bind(window);
+      window.setTimeout = (fn, delay, ...args) => {
+        const nextDelay = typeof delay === 'number' && delay > 1000 ? 180 : delay;
+        return nativeSetTimeout(fn, nextDelay, ...args);
+      };
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await page.unroute('**/api/admin/ai/test-video');
+    await page.route('**/api/admin/ai/test-video', async (route) => {
+      const body = route.request().postDataJSON();
+      await wait(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'video',
+          model: catalog.models.video[0],
+          preset: body.preset || 'video_studio',
+          result: {
+            videoUrl: 'https://example.com/slow-generated-video.mp4',
+            prompt: body.prompt,
+            duration: body.duration ?? 5,
+            aspect_ratio: body.aspect_ratio || '16:9',
+            quality: body.quality || '720p',
+            seed: body.seed ?? null,
+            generate_audio: body.generate_audio !== false,
+            hasImageInput: !!body.image_input,
+          },
+          elapsedMs: 800,
+        }),
+      });
+    });
+
+    await page.locator('#aiVideoPrompt').fill('timeout video');
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiVideoState')).not.toContainText('cancelled');
+    await expect(page.locator('#aiLabStatus')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiVideoRun')).toBeEnabled();
+    await expect(page.locator('#aiVideoCancel')).toBeDisabled();
+
+    await wait(750);
+    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiVideoPreview video')).toHaveCount(0);
+    await expect(page.locator('#aiVideoSave')).toBeHidden();
+  });
+
+  test('keeps the Video AI image input preview in a designed empty state before selection, after clear, and after load failure', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await expect(page.locator('#aiVideoImagePreview')).toBeVisible();
+    await expect(page.locator('#aiVideoImagePreview')).toHaveAttribute('data-state', 'empty');
+    await expect(page.locator('#aiVideoImageEmpty')).toContainText('Optional image input preview');
+    await expect(page.locator('#aiVideoImageEmpty')).toContainText('No reference image selected.');
+    await expect(page.locator('#aiVideoImageThumb')).toBeHidden();
+    await expect(page.locator('#aiVideoImageClear')).toBeHidden();
+
+    await page.locator('#aiVideoImageFile').setInputFiles({
+      name: 'video-input.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+    await expect(page.locator('#aiVideoImagePreview')).toHaveAttribute('data-state', 'ready');
+    await expect(page.locator('#aiVideoImageThumb')).toBeVisible();
+    await expect(page.locator('#aiVideoImageClear')).toBeVisible();
+
+    await page.locator('#aiVideoImageClear').click();
+    await expect(page.locator('#aiVideoImagePreview')).toHaveAttribute('data-state', 'empty');
+    await expect(page.locator('#aiVideoImageEmpty')).toContainText('No reference image selected.');
+    await expect(page.locator('#aiVideoImageThumb')).toBeHidden();
+    await expect(page.locator('#aiVideoImageClear')).toBeHidden();
+
+    await page.locator('#aiVideoImageFile').setInputFiles({
+      name: 'broken-preview.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('not-a-real-png', 'utf8'),
+    });
+    await expect(page.locator('#aiVideoInlineError')).toContainText(
+      'Selected image preview could not be loaded. Choose another image.',
+    );
+    await expect(page.locator('#aiVideoImagePreview')).toHaveAttribute('data-state', 'error');
+    await expect(page.locator('#aiVideoImageEmpty')).toContainText('Preview unavailable.');
+    await expect(page.locator('#aiVideoImageThumb')).toBeHidden();
+    await expect(page.locator('#aiVideoImageClear')).toBeHidden();
+  });
+
   test('Live Agent section appears after Compare and shows the chat UI', async ({
     page,
   }) => {

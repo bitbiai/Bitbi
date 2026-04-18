@@ -913,9 +913,14 @@
                             <span class="admin-ai__label">Image Input (optional)</span>
                             <div class="admin-ai__video-image-input">
                                 <input type="file" id="aiVideoImageFile" class="admin-ai__file-input" accept="image/png,image/jpeg,image/webp">
-                                <div id="aiVideoImagePreview" class="admin-ai__video-image-preview" hidden>
-                                    <img id="aiVideoImageThumb" alt="Image input preview">
-                                    <button type="button" id="aiVideoImageClear" class="admin-ai__video-image-clear" aria-label="Remove image">&times;</button>
+                                <div id="aiVideoImagePreview" class="admin-ai__video-image-preview" data-state="empty">
+                                    <div id="aiVideoImageEmpty" class="admin-ai__video-image-empty" role="status" aria-live="polite">
+                                        <span class="admin-ai__video-image-badge">Optional image input preview</span>
+                                        <strong class="admin-ai__video-image-empty-title">No reference image selected.</strong>
+                                        <span class="admin-ai__video-image-empty-hint">Upload a PNG, JPEG, or WebP to guide motion in image-to-video mode.</span>
+                                    </div>
+                                    <img id="aiVideoImageThumb" alt="Selected image input preview" hidden>
+                                    <button type="button" id="aiVideoImageClear" class="admin-ai__video-image-clear" aria-label="Remove image" hidden>&times;</button>
                                 </div>
                             </div>
                             <span class="admin-ai__hint">Upload a reference image for image-to-video generation. Max 10 MB.</span>

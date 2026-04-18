@@ -42,7 +42,7 @@ const DEFAULT_REQUEST_TIMEOUTS = {
     image: 180_000,
     embeddings: 15_000,
     music: 320_000,
-    video: 240_000,
+    video: 480_000,
     compare: 30_000,
 };
 const TASK_UI = {
@@ -154,6 +154,21 @@ const DEFAULT_FORMS = {
 
 const DEFAULT_PREFERENCES = {
     compareOnlyDifferences: false,
+};
+
+const VIDEO_IMAGE_EMPTY_STATES = {
+    empty: {
+        title: 'No reference image selected.',
+        hint: 'Upload a PNG, JPEG, or WebP to guide motion in image-to-video mode.',
+    },
+    loading: {
+        title: 'Preparing preview.',
+        hint: 'Verifying the selected image before image-to-video generation.',
+    },
+    error: {
+        title: 'Preview unavailable.',
+        hint: 'Choose a different PNG, JPEG, or WebP reference image.',
+    },
 };
 
 const SAMPLE_LIBRARY = {
@@ -873,6 +888,7 @@ export function createAdminAiLab({ showToast } = {}) {
             negativePromptCount: document.getElementById('aiVideoNegativePromptCount'),
             imageFile: document.getElementById('aiVideoImageFile'),
             imagePreview: document.getElementById('aiVideoImagePreview'),
+            imageEmpty: document.getElementById('aiVideoImageEmpty'),
             imageThumb: document.getElementById('aiVideoImageThumb'),
             imageClear: document.getElementById('aiVideoImageClear'),
             duration: document.getElementById('aiVideoDuration'),
@@ -961,6 +977,8 @@ export function createAdminAiLab({ showToast } = {}) {
             cancel: document.getElementById('aiLabSaveCancel'),
         },
     };
+
+    let videoImagePreviewSeq = 0;
 
     const savedAssetsBrowser = createSavedAssetsBrowser({
         refs: refs.savedAssets,
@@ -1215,6 +1233,66 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!refs.video.inlineError) return;
         refs.video.inlineError.textContent = message;
         refs.video.inlineError.hidden = !message;
+    }
+
+    function updateVideoImageEmptyState(variant = 'empty') {
+        const preview = refs.video.imagePreview;
+        const empty = refs.video.imageEmpty;
+        if (!preview || !empty) return;
+
+        const next = VIDEO_IMAGE_EMPTY_STATES[variant] || VIDEO_IMAGE_EMPTY_STATES.empty;
+        const title = empty.querySelector('.admin-ai__video-image-empty-title');
+        const hint = empty.querySelector('.admin-ai__video-image-empty-hint');
+
+        preview.dataset.state = variant;
+        empty.hidden = false;
+        if (title) title.textContent = next.title;
+        if (hint) hint.textContent = next.hint;
+    }
+
+    function resetVideoImageThumb() {
+        if (!refs.video.imageThumb) return;
+        refs.video.imageThumb.onload = null;
+        refs.video.imageThumb.onerror = null;
+        refs.video.imageThumb.hidden = true;
+        refs.video.imageThumb.removeAttribute('src');
+    }
+
+    function renderVideoImageSelection(source, variant = 'empty') {
+        if (!refs.video.imagePreview) return;
+
+        const value = typeof source === 'string' ? source.trim() : '';
+        if (!value) {
+            videoImagePreviewSeq += 1;
+            resetVideoImageThumb();
+            if (refs.video.imageClear) refs.video.imageClear.hidden = true;
+            updateVideoImageEmptyState(variant);
+            return;
+        }
+
+        const requestId = ++videoImagePreviewSeq;
+        resetVideoImageThumb();
+        updateVideoImageEmptyState('loading');
+        if (refs.video.imageClear) refs.video.imageClear.hidden = false;
+
+        refs.video.imageThumb.onload = () => {
+            if (requestId !== videoImagePreviewSeq) return;
+            refs.video.imagePreview.dataset.state = 'ready';
+            if (refs.video.imageEmpty) refs.video.imageEmpty.hidden = true;
+            refs.video.imageThumb.hidden = false;
+            if (refs.video.imageClear) refs.video.imageClear.hidden = false;
+        };
+        refs.video.imageThumb.onerror = () => {
+            if (requestId !== videoImagePreviewSeq) return;
+            state.forms.video.imageInput = null;
+            refs.video.imageFile.value = '';
+            if (refs.video.imageClear) refs.video.imageClear.hidden = true;
+            setVideoInlineError('Selected image preview could not be loaded. Choose another image.');
+            resetVideoImageThumb();
+            updateVideoImageEmptyState('error');
+            persistState();
+        };
+        refs.video.imageThumb.src = value;
     }
 
     function syncVideoFieldState() {
@@ -2119,6 +2197,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.quality.value = state.forms.video.quality;
             refs.video.seed.value = state.forms.video.seed;
             refs.video.generateAudio.checked = state.forms.video.generateAudio;
+            renderVideoImageSelection(state.forms.video.imageInput);
         }
 
         refs.compare.system.value = state.forms.compare.system;
@@ -2916,9 +2995,8 @@ export function createAdminAiLab({ showToast } = {}) {
         state.forms.video = cloneDefaultForms().video;
         state.results.video = null;
         setVideoInlineError('');
-        refs.video.imagePreview.hidden = true;
-        refs.video.imageThumb.removeAttribute('src');
         refs.video.imageFile.value = '';
+        renderVideoImageSelection(null);
         syncFormInputs();
         renderVideoResult();
         persistState();
@@ -2969,22 +3047,25 @@ export function createAdminAiLab({ showToast } = {}) {
         const reader = new FileReader();
         reader.onload = () => {
             state.forms.video.imageInput = reader.result;
-            refs.video.imageThumb.src = reader.result;
-            refs.video.imagePreview.hidden = false;
             setVideoInlineError('');
+            renderVideoImageSelection(reader.result);
             persistState();
         };
         reader.onerror = () => {
+            state.forms.video.imageInput = null;
+            refs.video.imageFile.value = '';
             setVideoInlineError('Could not read the image file.');
+            renderVideoImageSelection(null, 'error');
+            persistState();
         };
         reader.readAsDataURL(file);
     }
 
     function clearVideoImage() {
         state.forms.video.imageInput = null;
-        refs.video.imagePreview.hidden = true;
-        refs.video.imageThumb.removeAttribute('src');
         refs.video.imageFile.value = '';
+        setVideoInlineError('');
+        renderVideoImageSelection(null);
         persistState();
     }
 
