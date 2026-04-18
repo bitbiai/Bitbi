@@ -58,6 +58,7 @@
         --font-display: 'Playfair Display', Georgia, serif;
         --font-body: 'Inter', system-ui, sans-serif;
         --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+        --font-nav: 'Exo 2', 'Inter', system-ui, sans-serif;
 
         /* Spacing Scale */
         --space-1: 4px;
