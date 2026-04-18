@@ -267,6 +267,54 @@ function serializeLiveAgentPayload(title, payload, savedAt) {
   };
 }
 
+function serializeVideoPayload(title, payload, savedAt) {
+  const generationMode = payload.hasImageInput ? "Image-to-video" : "Text-to-video";
+  const generateAudio = payload.generate_audio === null || payload.generate_audio === undefined
+    ? "Unknown"
+    : payload.generate_audio ? "yes" : "no";
+
+  const sections = [
+    `Title: ${title}`,
+    "Module: Video",
+    `Saved At: ${savedAt}`,
+    `Run Received At: ${payload.receivedAt || "Unknown"}`,
+    `Model: ${buildModelLine(payload.model)}`,
+    `Vendor: ${payload.model?.vendor || "Unknown"}`,
+    `Elapsed: ${payload.elapsedMs ?? "Unknown"} ms`,
+    `Duration: ${payload.duration ?? "Unknown"} s`,
+    `Aspect Ratio: ${payload.aspect_ratio || "Unknown"}`,
+    `Quality: ${payload.quality || "Unknown"}`,
+    `Seed: ${payload.seed ?? "Unknown"}`,
+    `Generate Audio: ${generateAudio}`,
+    `Mode: ${generationMode}`,
+    "",
+    "Warnings:",
+    buildWarningsBlock(payload.warnings),
+    "",
+    "Prompt:",
+    payload.prompt,
+    "",
+    "Video URL:",
+    payload.videoUrl,
+  ];
+
+  return {
+    content: sections.join("\n"),
+    previewText: truncatePreview(payload.prompt || payload.videoUrl || "Video generation"),
+    metadata: {
+      ...normalizeMetadataCommon("video", payload, savedAt),
+      prompt: payload.prompt || null,
+      video_url: payload.videoUrl,
+      duration: payload.duration ?? null,
+      aspect_ratio: payload.aspect_ratio || null,
+      quality: payload.quality || null,
+      seed: payload.seed ?? null,
+      generate_audio: payload.generate_audio ?? null,
+      has_image_input: payload.hasImageInput ?? null,
+    },
+  };
+}
+
 function buildMusicMetadata(payload, savedAt) {
   return {
     source_module: "music",
@@ -300,6 +348,7 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
     system: cleanMultilineText(payload.system),
     output: cleanMultilineText(payload.output),
     finalResponse: cleanMultilineText(payload.finalResponse),
+    videoUrl: cleanInlineText(payload.videoUrl),
     inputItems: Array.isArray(payload.inputItems) ? payload.inputItems.map(cleanMultilineText) : [],
     transcript: Array.isArray(payload.transcript)
       ? payload.transcript.map((entry) => ({
@@ -318,6 +367,8 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
       return serializeComparePayload(safeTitle, normalizedPayload, savedAt);
     case "live_agent":
       return serializeLiveAgentPayload(safeTitle, normalizedPayload, savedAt);
+    case "video":
+      return serializeVideoPayload(safeTitle, normalizedPayload, savedAt);
     default: {
       const error = new Error(`Unsupported source module "${sourceModule}".`);
       error.status = 400;

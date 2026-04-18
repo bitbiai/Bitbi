@@ -4396,6 +4396,30 @@ test.describe('Worker routes', () => {
       },
       contains: ['Module: Live Agent', '[USER] Hello agent.', 'Final Response:'],
     },
+    {
+      label: 'video',
+      sourceModule: 'video',
+      title: 'Video Save',
+      data: {
+        videoUrl: 'https://cdn.example.com/generated/video-save.mp4',
+        prompt: 'A slow dolly shot through a neon alley.',
+        model: {
+          id: 'pixverse/v6',
+          label: 'Pixverse V6',
+          vendor: 'Pixverse',
+        },
+        duration: 5,
+        aspect_ratio: '16:9',
+        quality: '720p',
+        seed: 42,
+        generate_audio: true,
+        hasImageInput: false,
+        warnings: ['Mock video warning'],
+        elapsedMs: 645,
+        receivedAt: nowIso(),
+      },
+      contains: ['Module: Video', 'Video URL:', 'Mode: Text-to-video'],
+    },
   ].forEach((scenario) => {
     test(`admin AI save-text-asset saves ${scenario.label} output as a shared folder text asset`, async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -4443,6 +4467,7 @@ test.describe('Worker routes', () => {
       const row = env.DB.state.aiTextAssets[0];
       expect(row.folder_id).toBe('feed1234');
       expect(row.source_module).toBe(scenario.sourceModule);
+      expect(JSON.parse(row.metadata_json).source_module).toBe(scenario.sourceModule);
       expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
       const object = env.USER_IMAGES.objects.get(row.r2_key);
       const text = decodeStoredTextBody(object.body);
@@ -4990,6 +5015,20 @@ test.describe('Worker routes', () => {
           metadata_json: '{}',
           created_at: '2026-04-10T12:06:00.000Z',
         },
+        {
+          id: 'abe100vv',
+          user_id: 'mixed-assets-user',
+          folder_id: 'f01da123',
+          r2_key: 'users/mixed-assets-user/folders/launches/text/video-save.txt',
+          title: 'Video Save',
+          file_name: 'video-save.txt',
+          source_module: 'video',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 384,
+          preview_text: 'A slow dolly shot through a neon alley.',
+          metadata_json: '{}',
+          created_at: '2026-04-10T12:07:00.000Z',
+        },
       ],
       userImages: {
         'users/mixed-assets-user/folders/launches/text/txt100.txt': {
@@ -4999,6 +5038,10 @@ test.describe('Worker routes', () => {
         'users/mixed-assets-user/folders/launches/text/snd100.mp3': {
           body: new TextEncoder().encode('mock-audio').buffer,
           httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'users/mixed-assets-user/folders/launches/text/video-save.txt': {
+          body: new TextEncoder().encode('Video Save').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
         },
         'users/mixed-assets-user/derivatives/v1/1ab100cd/thumb.webp': {
           body: new TextEncoder().encode('thumb').buffer,
@@ -5025,6 +5068,12 @@ test.describe('Worker routes', () => {
     const listBody = await listRes.json();
     expect(listBody.ok).toBe(true);
     expect(listBody.data.assets).toEqual([
+      expect.objectContaining({
+        id: 'abe100vv',
+        asset_type: 'text',
+        source_module: 'video',
+        file_url: '/api/ai/text-assets/abe100vv/file',
+      }),
       expect.objectContaining({
         id: 'abd100aa',
         asset_type: 'sound',

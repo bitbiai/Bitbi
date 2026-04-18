@@ -1609,9 +1609,17 @@ export function createAdminAiLab({ showToast } = {}) {
             state.save.saving = false;
             closeSaveModal();
             await refreshSavedAssetsBrowser();
-            const isMusic = intent.sourceModule === 'music';
-            setStatus(isMusic ? 'Audio saved to the shared folder structure.' : 'Text asset saved to the shared folder structure.', 'success');
-            if (showToast) showToast(isMusic ? 'Audio saved.' : 'Text asset saved.');
+            let statusMessage = 'Text asset saved to the shared folder structure.';
+            let toastMessage = 'Text asset saved.';
+            if (intent.sourceModule === 'music') {
+                statusMessage = 'Audio saved to the shared folder structure.';
+                toastMessage = 'Audio saved.';
+            } else if (intent.sourceModule === 'video') {
+                statusMessage = 'Video asset saved to the shared folder structure.';
+                toastMessage = 'Video asset saved.';
+            }
+            setStatus(statusMessage, 'success');
+            if (showToast) showToast(toastMessage);
         } catch {
             setSaveState('error', 'Save failed. Please try again.');
             state.save.saving = false;

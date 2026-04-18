@@ -143,6 +143,13 @@ function createMockAiCatalog() {
         model: 'minimax/music-2.6',
         description: 'Admin music preset',
       },
+      {
+        name: 'video_studio',
+        task: 'video',
+        label: 'Video Studio',
+        model: 'pixverse/v6',
+        description: 'Admin video preset',
+      },
     ],
     models: {
       text: [
@@ -249,6 +256,15 @@ function createMockAiCatalog() {
           label: 'Music 2.6',
           vendor: 'MiniMax',
           description: 'Prompt-based music generation with vocal and instrumental controls.',
+        },
+      ],
+      video: [
+        {
+          id: 'pixverse/v6',
+          task: 'video',
+          label: 'Pixverse V6',
+          vendor: 'Pixverse',
+          description: 'Prompt-driven video generation for admin testing.',
         },
       ],
     },
@@ -557,6 +573,32 @@ async function mockAdminAiLab(page, captures = {}) {
         },
         traceId: 'mock-music-trace',
         elapsedMs: 512,
+      }),
+    });
+  });
+
+  await page.route('**/api/admin/ai/test-video', async (route) => {
+    const body = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        task: 'video',
+        model: catalog.models.video[0],
+        preset: body.preset || 'video_studio',
+        result: {
+          videoUrl: 'https://example.com/generated-video.mp4',
+          prompt: body.prompt,
+          duration: body.duration ?? 5,
+          aspect_ratio: body.aspect_ratio || '16:9',
+          quality: body.quality || '720p',
+          seed: body.seed ?? null,
+          generate_audio: body.generate_audio !== false,
+          hasImageInput: !!body.image_input,
+        },
+        elapsedMs: 645,
+        warnings: ['Mock video warning'],
       }),
     });
   });
@@ -2782,7 +2824,7 @@ test.describe('Admin AI Lab', () => {
     ).toBeVisible();
   });
 
-  test('saves text, embeddings, compare, and live-agent outputs into shared folders', async ({
+  test('saves text, embeddings, compare, live-agent, and video outputs into shared folders', async ({
     page,
   }) => {
     const catalog = createMockAiCatalog();
@@ -2927,7 +2969,18 @@ test.describe('Admin AI Lab', () => {
     await page.selectOption('#aiLabSaveFolder', 'folder-research');
     await page.locator('#aiLabSaveConfirm').click();
 
-    expect(saveTextAssetRequests).toHaveLength(4);
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await page.locator('#aiVideoPrompt').fill('Save this video output');
+    await page.locator('#aiVideoRun').click();
+    await expect(page.locator('#aiVideoSave')).toBeVisible();
+    await page.locator('#aiVideoSave').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
+    await page.locator('#aiLabSaveInput').fill('Video Save');
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+
+    expect(saveTextAssetRequests).toHaveLength(5);
     expect(saveTextAssetRequests[0]).toEqual(expect.objectContaining({
       sourceModule: 'text',
       folderId: 'folder-launches',
@@ -2966,6 +3019,22 @@ test.describe('Admin AI Lab', () => {
       folderId: 'folder-research',
     }));
     expect(saveTextAssetRequests[3].data.transcript.length).toBeGreaterThanOrEqual(2);
+    expect(saveTextAssetRequests[4]).toEqual(expect.objectContaining({
+      title: 'Video Save',
+      sourceModule: 'video',
+      folderId: 'folder-launches',
+    }));
+    expect(saveTextAssetRequests[4].data).toEqual(expect.objectContaining({
+      videoUrl: 'https://example.com/generated-video.mp4',
+      prompt: 'Save this video output',
+      duration: 5,
+      aspect_ratio: '16:9',
+      quality: '720p',
+      generate_audio: true,
+      hasImageInput: false,
+    }));
+
+    await expect(page.locator('#aiLabStatus')).toContainText('Video asset saved to the shared folder structure.');
   });
 
   test('reuses the existing image save flow for AI Lab image results', async ({

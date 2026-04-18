@@ -29,7 +29,7 @@ const SAVE_TEXT_ASSET_LIMITS = {
   maxTranscriptMessages: 60,
 };
 
-const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent", "music"]);
+const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent", "music", "video"]);
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -123,6 +123,27 @@ function optionalNumber(value, field, min, max, defaultValue = null) {
   return parsed;
 }
 
+function optionalBoolean(value, field, defaultValue = null) {
+  if (value === undefined || value === null) return defaultValue;
+  if (typeof value !== "boolean") {
+    throw new InputError(`${field} must be a boolean.`, 400, "validation_error");
+  }
+  return value;
+}
+
+function optionalEnum(value, field, allowedValues, defaultValue = null) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  const normalized = requiredString(value, field, 80);
+  if (!allowedValues.includes(normalized)) {
+    throw new InputError(
+      `${field} must be one of: ${allowedValues.join(", ")}.`,
+      400,
+      "validation_error"
+    );
+  }
+  return normalized;
+}
+
 function normalizeStringArray(value, field, minItems, maxItems, maxItemLength) {
   const values = typeof value === "string" ? [value] : value;
   if (!Array.isArray(values)) {
@@ -200,6 +221,19 @@ function optionalHexId(value, field) {
   if (!normalized) return null;
   if (!/^[a-f0-9]+$/.test(normalized)) {
     throw new InputError(`${field} is invalid.`, 400, "validation_error");
+  }
+  return normalized;
+}
+
+function requiredHttpUrl(value, field, maxLength) {
+  const normalized = requiredString(value, field, maxLength);
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("invalid_protocol");
+    }
+  } catch {
+    throw new InputError(`${field} must be a valid HTTP(S) URL.`, 400, "validation_error");
   }
   return normalized;
 }
@@ -471,6 +505,40 @@ function validateSavedMusicData(data) {
   };
 }
 
+function validateSavedVideoData(data) {
+  const input = ensurePlainObject(data, "data");
+  return {
+    videoUrl: requiredHttpUrl(input.videoUrl, "data.videoUrl", 2048),
+    prompt: requiredString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
+    model: optionalModelSummary(input.model, "data.model"),
+    duration: optionalInteger(
+      input.duration,
+      "data.duration",
+      LIMITS.video.minDuration,
+      LIMITS.video.maxDuration,
+      null
+    ),
+    aspect_ratio: optionalEnum(
+      input.aspect_ratio,
+      "data.aspect_ratio",
+      LIMITS.video.allowedAspectRatios,
+      null
+    ),
+    quality: optionalEnum(
+      input.quality,
+      "data.quality",
+      LIMITS.video.allowedQualities,
+      null
+    ),
+    seed: optionalInteger(input.seed, "data.seed", 0, LIMITS.video.maxSeed, null),
+    generate_audio: optionalBoolean(input.generate_audio, "data.generate_audio", null),
+    hasImageInput: optionalBoolean(input.hasImageInput, "data.hasImageInput", null),
+    warnings: optionalWarnings(input.warnings),
+    elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
+    receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),
+  };
+}
+
 function validateSaveTextAssetPayload(body) {
   const input = ensureObject(body);
   const title = requiredString(input.title, "title", SAVE_TEXT_ASSET_LIMITS.titleMax);
@@ -497,6 +565,9 @@ function validateSaveTextAssetPayload(body) {
       break;
     case "music":
       payload = validateSavedMusicData(input.data);
+      break;
+    case "video":
+      payload = validateSavedVideoData(input.data);
       break;
     default:
       throw new InputError("sourceModule is invalid.", 400, "validation_error");
