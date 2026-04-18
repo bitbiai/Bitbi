@@ -18,6 +18,7 @@ import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
+import { initModelsOverlay } from './models-overlay.js';
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
@@ -176,6 +177,9 @@ try { initBinaryRain('binaryRain', {
 try { initMobileNav(); } catch (e) { console.warn('mobileNav FAILED:', e); }
 try { initWalletController(); } catch (e) { console.warn('wallet FAILED:', e); }
 try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio FAILED:', e); }
+
+/* Models overlay */
+try { initModelsOverlay(); } catch (e) { console.warn('modelsOverlay:', e); }
 
 /* Scroll reveal */
 let revealObserver = null;
