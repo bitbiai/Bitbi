@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   buildStaticSite,
   extractAssetVersionTokens,
+  generateAssetVersionToken,
   validateAssetVersionSources,
 } from "./lib/asset-version.mjs";
 
@@ -43,6 +44,24 @@ import {
     },
   });
   assert(issues.some((issue) => issue.includes("manual asset-version choreography text")));
+}
+
+{
+  assert.equal(generateAssetVersionToken({ ASSET_VERSION: "release-1234" }), "release-1234");
+  assert.equal(
+    generateAssetVersionToken({
+      GITHUB_SHA: "bbe3d55d32d6f4c8e6a11223344556677889900",
+      GITHUB_RUN_ID: "15234987654",
+      GITHUB_RUN_ATTEMPT: "3",
+    }),
+    "bbe3d55d32d6-15234987654-3"
+  );
+  assert.equal(
+    generateAssetVersionToken({
+      GITHUB_SHA: "bbe3d55d32d6f4c8e6a11223344556677889900",
+    }),
+    "bbe3d55d32d6"
+  );
 }
 
 {

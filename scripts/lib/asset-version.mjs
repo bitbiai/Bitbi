@@ -100,7 +100,13 @@ export function validateAssetVersionSources({ files, placeholder }) {
 
 export function generateAssetVersionToken(env = process.env) {
   if (env.ASSET_VERSION) return env.ASSET_VERSION;
-  if (env.GITHUB_SHA) return env.GITHUB_SHA.slice(0, 12);
+  if (env.GITHUB_SHA) {
+    const sha = env.GITHUB_SHA.slice(0, 12);
+    const runId = String(env.GITHUB_RUN_ID || "").trim();
+    if (!runId) return sha;
+    const runAttempt = String(env.GITHUB_RUN_ATTEMPT || "1").trim() || "1";
+    return `${sha}-${runId}-${runAttempt}`;
+  }
   return `local-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
 }
 
@@ -164,4 +170,3 @@ export function buildStaticSite(repoRoot, { outDir, placeholder, versionToken })
     throw new Error(`Build output still contains unresolved asset version placeholder in: ${unresolved.join(", ")}`);
   }
 }
-

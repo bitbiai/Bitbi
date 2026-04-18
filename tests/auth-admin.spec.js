@@ -3912,6 +3912,81 @@ test.describe('Admin AI Lab', () => {
     expect(requests[1].seed).toBeUndefined();
   });
 
+  test('Vidu minimal mode exposes the checkbox, logs the outgoing payload, and sends minimal_mode in the video request', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    const viduModel = catalog.models.video.find((entry) => entry.id === 'vidu/q3-pro');
+    const requests = [];
+    const consoleMessages = [];
+
+    page.on('console', (message) => {
+      consoleMessages.push(message.text());
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/test-video');
+    await page.route('**/api/admin/ai/test-video', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'video',
+          model: viduModel,
+          preset: body.preset || 'video_vidu_q3_pro',
+          result: {
+            videoUrl: 'https://example.com/generated-video.mp4',
+            prompt: body.prompt || null,
+            duration: body.duration ?? 5,
+            aspect_ratio: body.aspect_ratio || '16:9',
+            quality: null,
+            resolution: body.resolution || '720p',
+            seed: null,
+            generate_audio: body.audio !== false,
+            hasImageInput: !!body.start_image,
+            hasEndImageInput: !!body.end_image,
+            workflow: 'text_to_video',
+          },
+          elapsedMs: 645,
+          warnings: ['Mock Vidu warning'],
+        }),
+      });
+    });
+
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await page.locator('#aiVideoCardVidu').click();
+
+    await expect(page.locator('#aiVideoMinimalMode')).toBeVisible();
+    await expect(page.locator('label:has(#aiVideoMinimalMode)')).toContainText('Force Minimal Mode');
+    await expect(page.locator('#aiVideoMinimalModeHint')).toBeHidden();
+
+    await page.locator('#aiVideoPrompt').fill('Minimal mode deploy verification');
+    await page.locator('#aiVideoMinimalMode').check();
+    await expect(page.locator('#aiVideoMinimalModeHint')).toBeVisible();
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoPreview video')).toHaveCount(1);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      preset: 'video_vidu_q3_pro',
+      model: 'vidu/q3-pro',
+      prompt: 'Minimal mode deploy verification',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      audio: true,
+      minimal_mode: true,
+    });
+    expect(
+      consoleMessages.some((message) => message.includes('[AI Lab] test-video outgoing payload'))
+    ).toBe(true);
+  });
+
   test('Live Agent section appears after Compare and shows the chat UI', async ({
     page,
   }) => {
