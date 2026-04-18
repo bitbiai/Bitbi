@@ -1063,6 +1063,12 @@
                             <span id="aiVideoAudioLabel" class="admin-ai__label">Generate Audio</span>
                         </label>
 
+                        <label class="admin-ai__field admin-ai__field--inline" style="margin-top:0.25rem">
+                            <input type="checkbox" id="aiVideoMinimalMode">
+                            <span class="admin-ai__label" style="color:var(--color-ember,#f59e0b)">Force Minimal Mode</span>
+                        </label>
+                        <small id="aiVideoMinimalModeHint" class="admin-ai__hint" style="color:var(--color-ember,#f59e0b)" hidden>Minimal mode active: backend will replace the payload with a single hardcoded prompt.</small>
+
                         <span id="aiVideoInlineError" class="admin-ai__inline-error" hidden></span>
 
                         <div class="admin-ai__actions">

@@ -958,6 +958,8 @@ export function createAdminAiLab({ showToast } = {}) {
             seed: document.getElementById('aiVideoSeed'),
             audioLabel: document.getElementById('aiVideoAudioLabel'),
             generateAudio: document.getElementById('aiVideoGenerateAudio'),
+            minimalMode: document.getElementById('aiVideoMinimalMode'),
+            minimalModeHint: document.getElementById('aiVideoMinimalModeHint'),
             inlineError: document.getElementById('aiVideoInlineError'),
             run: document.getElementById('aiVideoRun'),
             cancel: document.getElementById('aiVideoCancel'),
@@ -4347,6 +4349,17 @@ export function createAdminAiLab({ showToast } = {}) {
             }
         }
 
+        if (refs.video.minimalMode?.checked) {
+            payload.minimal_mode = true;
+        }
+
+        console.log('[AI Lab] test-video outgoing payload', {
+            model: payload.model,
+            minimal_mode: !!payload.minimal_mode,
+            payload_keys: Object.keys(payload).sort().join(','),
+            payload,
+        });
+
         const res = await apiAdminAiTestVideo(payload, {
             signal: controller.signal,
         });
@@ -4827,6 +4840,10 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.generateAudio.addEventListener('change', () => {
                 state.forms.video.generateAudio = refs.video.generateAudio.checked;
                 persistState();
+            });
+            refs.video.minimalMode?.addEventListener('change', () => {
+                const on = refs.video.minimalMode.checked;
+                if (refs.video.minimalModeHint) refs.video.minimalModeHint.hidden = !on;
             });
             refs.video.prompt.addEventListener('input', () => setVideoInlineError(''));
             refs.video.imageFile?.addEventListener('change', handleVideoImageFile);
