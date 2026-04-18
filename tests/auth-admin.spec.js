@@ -150,6 +150,13 @@ function createMockAiCatalog() {
         model: 'pixverse/v6',
         description: 'Admin video preset',
       },
+      {
+        name: 'video_vidu_q3_pro',
+        task: 'video',
+        label: 'Vidu Q3 Pro',
+        model: 'vidu/q3-pro',
+        description: 'Admin Vidu video preset',
+      },
     ],
     models: {
       text: [
@@ -265,6 +272,59 @@ function createMockAiCatalog() {
           label: 'Pixverse V6',
           vendor: 'Pixverse',
           description: 'Prompt-driven video generation for admin testing.',
+          capabilities: {
+            supportsImageInput: true,
+            supportsEndImage: false,
+            supportsNegativePrompt: true,
+            supportsSeed: true,
+            supportsAudioToggle: true,
+            supportsPromptlessImageMode: false,
+            resolutionField: 'quality',
+            aspectRatioMode: 'always',
+            maxPromptLength: 2048,
+            maxNegativePromptLength: 2048,
+            minDuration: 1,
+            maxDuration: 15,
+            aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '2:3', '3:2', '21:9'],
+            qualityOptions: ['360p', '540p', '720p', '1080p'],
+            resolutionOptions: [],
+            defaultDuration: 5,
+            defaultAspectRatio: '16:9',
+            defaultQuality: '720p',
+            defaultResolution: null,
+            defaultGenerateAudio: true,
+            defaultPreset: 'video_studio',
+          },
+        },
+        {
+          id: 'vidu/q3-pro',
+          task: 'video',
+          label: 'Vidu Q3 Pro',
+          vendor: 'Vidu',
+          description: 'Text-to-video, image-to-video, and start/end-frame generation for admin testing.',
+          capabilities: {
+            supportsImageInput: true,
+            supportsEndImage: true,
+            supportsNegativePrompt: false,
+            supportsSeed: false,
+            supportsAudioToggle: true,
+            supportsPromptlessImageMode: true,
+            resolutionField: 'resolution',
+            aspectRatioMode: 'text_only',
+            maxPromptLength: 5000,
+            maxNegativePromptLength: null,
+            minDuration: 1,
+            maxDuration: 16,
+            aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
+            qualityOptions: [],
+            resolutionOptions: ['540p', '720p', '1080p'],
+            defaultDuration: 5,
+            defaultAspectRatio: '16:9',
+            defaultQuality: null,
+            defaultResolution: '720p',
+            defaultGenerateAudio: true,
+            defaultPreset: 'video_vidu_q3_pro',
+          },
         },
       ],
     },
@@ -579,23 +639,41 @@ async function mockAdminAiLab(page, captures = {}) {
 
   await page.route('**/api/admin/ai/test-video', async (route) => {
     const body = route.request().postDataJSON();
+    const selectedModelId = body.model || (body.preset === 'video_vidu_q3_pro' ? 'vidu/q3-pro' : 'pixverse/v6');
+    const selectedModel = catalog.models.video.find((entry) => entry.id === selectedModelId) || catalog.models.video[0];
+    const isVidu = selectedModel.id === 'vidu/q3-pro';
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
         task: 'video',
-        model: catalog.models.video[0],
-        preset: body.preset || 'video_studio',
-        result: {
+        model: selectedModel,
+        preset: body.preset || (isVidu ? 'video_vidu_q3_pro' : 'video_studio'),
+        result: isVidu ? {
+          videoUrl: 'https://example.com/generated-video.mp4',
+          prompt: body.prompt || null,
+          duration: body.duration ?? 5,
+          aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
+          quality: null,
+          resolution: body.resolution || '720p',
+          seed: null,
+          generate_audio: body.audio !== false,
+          hasImageInput: !!body.start_image,
+          hasEndImageInput: !!body.end_image,
+          workflow: body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video',
+        } : {
           videoUrl: 'https://example.com/generated-video.mp4',
           prompt: body.prompt,
           duration: body.duration ?? 5,
           aspect_ratio: body.aspect_ratio || '16:9',
           quality: body.quality || '720p',
+          resolution: null,
           seed: body.seed ?? null,
           generate_audio: body.generate_audio !== false,
           hasImageInput: !!body.image_input,
+          hasEndImageInput: false,
+          workflow: body.image_input ? 'image_to_video' : 'text_to_video',
         },
         elapsedMs: 645,
         warnings: ['Mock video warning'],
@@ -3705,6 +3783,133 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoImageEmpty')).toContainText('Preview unavailable.');
     await expect(page.locator('#aiVideoImageThumb')).toBeHidden();
     await expect(page.locator('#aiVideoImageClear')).toBeHidden();
+  });
+
+  test('shows the Vidu Q3 Pro video card in both the admin AI Lab and profile AI Lab embed', async ({
+    page,
+  }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
+    await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
+    await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
+
+    await mockAuthenticatedProfile(page, { role: 'admin' });
+    await mockAdminAiLab(page);
+    await page.goto('/account/profile.html#ai-lab');
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
+    await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
+    await expect(page.locator('#aiVideoCardVidu')).toContainText('Vidu Q3 Pro');
+  });
+
+  test('Vidu Q3 Pro sends supported text-to-video and start/end-frame payloads and renders the shared video preview', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    const viduModel = catalog.models.video.find((entry) => entry.id === 'vidu/q3-pro');
+    const requests = [];
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/test-video');
+    await page.route('**/api/admin/ai/test-video', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      const workflow = body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'video',
+          model: viduModel,
+          preset: body.preset || 'video_vidu_q3_pro',
+          result: {
+            videoUrl: 'https://example.com/generated-video.mp4',
+            prompt: body.prompt || null,
+            duration: body.duration ?? 5,
+            aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
+            quality: null,
+            resolution: body.resolution || '720p',
+            seed: null,
+            generate_audio: body.audio !== false,
+            hasImageInput: !!body.start_image,
+            hasEndImageInput: !!body.end_image,
+            workflow,
+          },
+          elapsedMs: 645,
+          warnings: ['Mock Vidu warning'],
+        }),
+      });
+    });
+
+    await page.getByRole('button', { name: 'Video AI' }).click();
+    await page.locator('#aiVideoCardVidu').click();
+    await expect(page.locator('#aiVideoModelBadge')).toContainText('vidu/q3-pro');
+    await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
+    await expect(page.locator('#aiVideoStartImageField')).toBeVisible();
+    await expect(page.locator('#aiVideoEndImageField')).toBeVisible();
+    await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
+    await expect(page.locator('#aiVideoSeedField')).toBeHidden();
+
+    await page.locator('#aiVideoPrompt').fill('Vertical neon city');
+    await page.selectOption('#aiVideoAspectRatio', '9:16');
+    await page.selectOption('#aiVideoResolution', '1080p');
+    await page.locator('#aiVideoGenerateAudio').uncheck();
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoPreview video')).toHaveCount(1);
+    await expect(page.locator('#aiVideoMeta')).toContainText('Resolution');
+    await expect(page.locator('#aiVideoMeta')).toContainText('Text-to-Video');
+
+    expect(requests[0]).toMatchObject({
+      preset: 'video_vidu_q3_pro',
+      model: 'vidu/q3-pro',
+      prompt: 'Vertical neon city',
+      duration: 5,
+      aspect_ratio: '9:16',
+      resolution: '1080p',
+      audio: false,
+    });
+    expect(requests[0].quality).toBeUndefined();
+    expect(requests[0].seed).toBeUndefined();
+    expect(requests[0].negative_prompt).toBeUndefined();
+
+    await page.locator('#aiVideoPrompt').fill('');
+    await page.locator('#aiVideoStartImageFile').setInputFiles({
+      name: 'vidu-start.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+    await expect(page.locator('#aiVideoStartImagePreview')).toHaveAttribute('data-state', 'ready');
+    await expect(page.locator('#aiVideoAspectRatio')).toBeDisabled();
+
+    await page.locator('#aiVideoEndImageFile').setInputFiles({
+      name: 'vidu-end.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+    await expect(page.locator('#aiVideoEndImagePreview')).toHaveAttribute('data-state', 'ready');
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoMeta')).toContainText('Start/End-Frame-to-Video');
+    expect(requests[1]).toMatchObject({
+      preset: 'video_vidu_q3_pro',
+      model: 'vidu/q3-pro',
+      duration: 5,
+      resolution: '1080p',
+      audio: false,
+    });
+    expect(requests[1].prompt).toBeUndefined();
+    expect(requests[1].start_image).toMatch(/^data:image\/png;base64,/);
+    expect(requests[1].end_image).toMatch(/^data:image\/png;base64,/);
+    expect(requests[1].aspect_ratio).toBeUndefined();
+    expect(requests[1].quality).toBeUndefined();
+    expect(requests[1].seed).toBeUndefined();
   });
 
   test('Live Agent section appears after Compare and shows the chat UI', async ({

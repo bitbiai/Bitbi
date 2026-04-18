@@ -1,4 +1,8 @@
-import { buildAdminAiMultipartImageRequest } from "../../../../js/shared/admin-ai-contract.mjs";
+import {
+  ADMIN_AI_VIDEO_MODEL_ID,
+  ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
+  buildAdminAiMultipartImageRequest,
+} from "../../../../js/shared/admin-ai-contract.mjs";
 import {
   getErrorFields,
   logDiagnostic,
@@ -816,26 +820,97 @@ function extractVideoUrl(result) {
   return null;
 }
 
+function buildVideoPayload(model, input) {
+  if (model.id === ADMIN_AI_VIDEO_MODEL_ID) {
+    const payload = {
+      prompt: input.prompt,
+      duration: input.duration,
+      aspect_ratio: input.aspect_ratio,
+      quality: input.quality,
+      generate_audio: input.generate_audio,
+    };
+
+    if (input.negative_prompt) {
+      payload.negative_prompt = input.negative_prompt;
+    }
+    if (input.seed !== null && input.seed !== undefined) {
+      payload.seed = input.seed;
+    }
+    if (input.image_input) {
+      payload.image_input = input.image_input;
+    }
+
+    return {
+      payload,
+      normalized: {
+        prompt: input.prompt,
+        duration: input.duration,
+        aspect_ratio: input.aspect_ratio,
+        quality: input.quality,
+        resolution: null,
+        seed: input.seed ?? null,
+        generate_audio: input.generate_audio,
+        hasImageInput: !!input.image_input,
+        hasEndImageInput: false,
+        workflow: input.workflow || (input.image_input ? "image_to_video" : "text_to_video"),
+      },
+    };
+  }
+
+  if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+    const payload = {
+      duration: input.duration,
+      resolution: input.resolution,
+      audio: input.audio,
+    };
+
+    if (input.prompt) {
+      payload.prompt = input.prompt;
+    }
+    if (input.start_image) {
+      payload.start_image = input.start_image;
+    }
+    if (input.end_image) {
+      payload.end_image = input.end_image;
+    }
+    if (!input.start_image && !input.end_image && input.aspect_ratio) {
+      payload.aspect_ratio = input.aspect_ratio;
+    }
+
+    return {
+      payload,
+      normalized: {
+        prompt: input.prompt || null,
+        duration: input.duration,
+        aspect_ratio: !input.start_image && !input.end_image ? input.aspect_ratio || null : null,
+        quality: null,
+        resolution: input.resolution,
+        seed: null,
+        generate_audio: input.audio,
+        hasImageInput: !!input.start_image,
+        hasEndImageInput: !!input.end_image,
+        workflow:
+          input.workflow
+          || (input.end_image
+            ? "start_end_to_video"
+            : input.start_image
+              ? "image_to_video"
+              : "text_to_video"),
+      },
+    };
+  }
+
+  const error = new Error(`Unsupported video model "${model.id}".`);
+  error.status = 400;
+  error.code = "model_not_allowed";
+  throw error;
+}
+
 export async function invokeVideo(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
-  const payload = {
-    prompt: input.prompt,
-    duration: input.duration,
-    aspect_ratio: input.aspect_ratio,
-    quality: input.quality,
-    generate_audio: input.generate_audio,
-  };
-
-  if (input.negative_prompt) {
-    payload.negative_prompt = input.negative_prompt;
-  }
-  if (input.seed !== null && input.seed !== undefined) {
-    payload.seed = input.seed;
-  }
-  if (input.image_input) {
-    payload.image = input.image_input;
-  }
+  const request = buildVideoPayload(model, input);
+  const payload = request.payload;
 
   const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
 
@@ -847,10 +922,13 @@ export async function invokeVideo(env, model, input) {
     correlationId: input.correlationId || null,
     model: model.id,
     has_gateway_option: !!runOptions,
-    has_image_input: !!input.image_input,
+    has_image_input: !!request.normalized.hasImageInput,
+    has_end_image_input: !!request.normalized.hasEndImageInput,
+    workflow: request.normalized.workflow,
     duration: input.duration,
     aspect_ratio: input.aspect_ratio,
-    quality: input.quality,
+    quality: input.quality || null,
+    resolution: input.resolution || null,
   });
 
   let raw;
@@ -865,7 +943,8 @@ export async function invokeVideo(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       has_gateway_option: !!runOptions,
-      has_image_input: !!input.image_input,
+      has_image_input: !!request.normalized.hasImageInput,
+      has_end_image_input: !!request.normalized.hasEndImageInput,
       ...getErrorFields(error),
     });
     throw error;
@@ -890,13 +969,16 @@ export async function invokeVideo(env, model, input) {
 
   return {
     videoUrl,
-    prompt: input.prompt,
-    duration: input.duration,
-    aspect_ratio: input.aspect_ratio,
-    quality: input.quality,
-    seed: input.seed ?? null,
-    generate_audio: input.generate_audio,
-    hasImageInput: !!input.image_input,
+    prompt: request.normalized.prompt,
+    duration: request.normalized.duration,
+    aspect_ratio: request.normalized.aspect_ratio,
+    quality: request.normalized.quality,
+    resolution: request.normalized.resolution,
+    seed: request.normalized.seed,
+    generate_audio: request.normalized.generate_audio,
+    hasImageInput: request.normalized.hasImageInput,
+    hasEndImageInput: request.normalized.hasEndImageInput,
+    workflow: request.normalized.workflow,
     elapsedMs: Date.now() - startedAt,
   };
 }

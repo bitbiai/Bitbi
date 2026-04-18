@@ -1492,6 +1492,7 @@ test.describe('Worker routes', () => {
           image: expect.any(Array),
           embeddings: expect.any(Array),
           music: expect.any(Array),
+          video: expect.any(Array),
         },
         presets: expect.any(Array),
       });
@@ -1511,6 +1512,10 @@ test.describe('Worker routes', () => {
       ]));
       expect(body.models.music.map((model) => model.id)).toEqual(expect.arrayContaining([
         'minimax/music-2.6',
+      ]));
+      expect(body.models.video.map((model) => model.id)).toEqual(expect.arrayContaining([
+        'pixverse/v6',
+        'vidu/q3-pro',
       ]));
       expect(body.presets[0]).toEqual(expect.objectContaining({
         name: expect.any(String),
@@ -2305,9 +2310,12 @@ test.describe('Worker routes', () => {
           duration: 8,
           aspect_ratio: '16:9',
           quality: '720p',
+          resolution: null,
           seed: 42,
           generate_audio: true,
           hasImageInput: false,
+          hasEndImageInput: false,
+          workflow: 'text_to_video',
         }),
         elapsedMs: expect.any(Number),
       }));
@@ -2367,7 +2375,137 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.result.hasImageInput).toBe(true);
-      expect(capturedPayload.image).toContain('data:image/png;base64,');
+      expect(body.result.workflow).toBe('image_to_video');
+      expect(capturedPayload.image_input).toContain('data:image/png;base64,');
+    });
+
+    test('POST /api/admin/ai/test-video accepts vidu/q3-pro text-to-video with resolution and audio fields', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-text.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_vidu_q3_pro',
+          model: 'vidu/q3-pro',
+          prompt: 'A neon-lit boulevard after rain, vertical camera move.',
+          duration: 10,
+          resolution: '1080p',
+          aspect_ratio: '9:16',
+          audio: false,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: true,
+        task: 'video',
+        model: expect.objectContaining({
+          id: 'vidu/q3-pro',
+          label: 'Vidu Q3 Pro',
+          vendor: 'Vidu',
+        }),
+        preset: 'video_vidu_q3_pro',
+        result: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/video/vidu-text.mp4',
+          prompt: 'A neon-lit boulevard after rain, vertical camera move.',
+          duration: 10,
+          aspect_ratio: '9:16',
+          quality: null,
+          resolution: '1080p',
+          seed: null,
+          generate_audio: false,
+          hasImageInput: false,
+          hasEndImageInput: false,
+          workflow: 'text_to_video',
+        }),
+      }));
+      expect(capturedModelId).toBe('vidu/q3-pro');
+      expect(capturedPayload).toEqual({
+        prompt: 'A neon-lit boulevard after rain, vertical camera move.',
+        duration: 10,
+        resolution: '1080p',
+        audio: false,
+        aspect_ratio: '9:16',
+      });
+    });
+
+    test('POST /api/admin/ai/test-video accepts vidu/q3-pro start/end-frame workflows without sending unsupported fields', async () => {
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, payload) => {
+          capturedPayload = payload;
+          return { video_url: 'https://cdn.example.com/video/vidu-start-end.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
+          end_image: 'https://cdn.example.com/frame/end.png',
+          duration: 6,
+          resolution: '720p',
+          audio: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result).toEqual(expect.objectContaining({
+        videoUrl: 'https://cdn.example.com/video/vidu-start-end.mp4',
+        prompt: null,
+        duration: 6,
+        aspect_ratio: null,
+        quality: null,
+        resolution: '720p',
+        generate_audio: true,
+        hasImageInput: true,
+        hasEndImageInput: true,
+        workflow: 'start_end_to_video',
+      }));
+      expect(capturedPayload).toEqual({
+        start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
+        end_image: 'https://cdn.example.com/frame/end.png',
+        duration: 6,
+        resolution: '720p',
+        audio: true,
+      });
+      expect(capturedPayload.aspect_ratio).toBeUndefined();
+      expect(capturedPayload.negative_prompt).toBeUndefined();
+      expect(capturedPayload.seed).toBeUndefined();
+    });
+
+    test('POST /api/admin/ai/test-video rejects vidu/q3-pro end_image without start_image', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          end_image: 'https://cdn.example.com/frame/end.png',
+          duration: 5,
+          resolution: '720p',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('end_image requires start_image'),
+      }));
     });
 
     test('POST /api/admin/ai/test-video validates required prompt', async () => {
@@ -4589,6 +4727,78 @@ test.describe('Worker routes', () => {
       const object = env.USER_IMAGES.objects.get(row.r2_key);
       expect(object.httpMetadata.contentType).toBe('video/mp4');
       expect(object.size).toBe(fakeVideoBytes.byteLength);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('admin AI save-text-asset preserves vidu/q3-pro resolution and workflow metadata through the video pipeline', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-vidu-video')],
+    });
+
+    const fakeVideoBytes = new Uint8Array([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+      0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        return new Response(fakeVideoBytes, {
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-vidu-video');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Frame Blend',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/frame-blend.mp4',
+            prompt: null,
+            model: { id: 'vidu/q3-pro', label: 'Vidu Q3 Pro', vendor: 'Vidu' },
+            duration: 6,
+            resolution: '1080p',
+            generate_audio: false,
+            hasImageInput: true,
+            hasEndImageInput: true,
+            workflow: 'start_end_to_video',
+            warnings: ['Mock Vidu warning'],
+            elapsedMs: 912,
+            receivedAt: nowIso(),
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.52',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(201);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          source_module: 'video',
+          mime_type: 'video/mp4',
+        },
+      });
+
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const metadata = JSON.parse(env.DB.state.aiTextAssets[0].metadata_json);
+      expect(metadata.prompt).toBeNull();
+      expect(metadata.resolution).toBe('1080p');
+      expect(metadata.workflow).toBe('start_end_to_video');
+      expect(metadata.has_image_input).toBe(true);
+      expect(metadata.has_end_image_input).toBe(true);
+      expect(metadata.generate_audio).toBe(false);
     } finally {
       global.fetch = originalFetch;
     }

@@ -509,7 +509,7 @@ function validateSavedVideoData(data) {
   const input = ensurePlainObject(data, "data");
   const result = {
     videoUrl: requiredHttpUrl(input.videoUrl, "data.videoUrl", 2048),
-    prompt: requiredString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
+    prompt: optionalString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
     model: optionalModelSummary(input.model, "data.model"),
     duration: optionalInteger(
       input.duration,
@@ -530,9 +530,22 @@ function validateSavedVideoData(data) {
       LIMITS.video.allowedQualities,
       null
     ),
+    resolution: optionalEnum(
+      input.resolution,
+      "data.resolution",
+      LIMITS.video.allowedResolutions,
+      null
+    ),
     seed: optionalInteger(input.seed, "data.seed", 0, LIMITS.video.maxSeed, null),
     generate_audio: optionalBoolean(input.generate_audio, "data.generate_audio", null),
     hasImageInput: optionalBoolean(input.hasImageInput, "data.hasImageInput", null),
+    hasEndImageInput: optionalBoolean(input.hasEndImageInput, "data.hasEndImageInput", null),
+    workflow: optionalEnum(
+      input.workflow,
+      "data.workflow",
+      ["text_to_video", "image_to_video", "start_end_to_video"],
+      null
+    ),
     warnings: optionalWarnings(input.warnings),
     elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
     receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),

@@ -11,6 +11,7 @@ export const FLUX_2_DEV_MODEL_ID = "@cf/black-forest-labs/flux-2-dev";
 export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
+export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",
@@ -85,14 +86,41 @@ export const ADMIN_AI_LIMITS = {
     maxBpm: 240,
   },
   video: {
-    maxPromptLength: 2048,
-    maxNegativePromptLength: 1024,
+    maxPromptLength: 5000,
+    maxNegativePromptLength: 2048,
     minDuration: 1,
-    maxDuration: 15,
+    maxDuration: 16,
     allowedAspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "2:3", "3:2", "21:9"],
     allowedQualities: ["360p", "540p", "720p", "1080p"],
+    allowedResolutions: ["540p", "720p", "1080p"],
     maxSeed: 2147483647,
     maxImageInputBytes: 10 * 1024 * 1024,
+    maxRemoteImageUrlLength: 2048,
+    models: {
+      [ADMIN_AI_VIDEO_MODEL_ID]: {
+        maxPromptLength: 2048,
+        maxNegativePromptLength: 2048,
+        minDuration: 1,
+        maxDuration: 15,
+        allowedAspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "2:3", "3:2", "21:9"],
+        allowedQualities: ["360p", "540p", "720p", "1080p"],
+        defaultDuration: 5,
+        defaultAspectRatio: "16:9",
+        defaultQuality: "720p",
+        defaultGenerateAudio: true,
+      },
+      [ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID]: {
+        maxPromptLength: 5000,
+        minDuration: 1,
+        maxDuration: 16,
+        allowedAspectRatios: ["16:9", "9:16", "3:4", "4:3", "1:1"],
+        allowedResolutions: ["540p", "720p", "1080p"],
+        defaultDuration: 5,
+        defaultAspectRatio: "16:9",
+        defaultResolution: "720p",
+        defaultAudio: true,
+      },
+    },
   },
 };
 
@@ -271,11 +299,52 @@ const VIDEO_MODELS = {
     inputFormat: "json",
     proxied: true,
     supportsImageInput: true,
+    supportsEndImage: false,
+    supportsNegativePrompt: true,
+    supportsSeed: true,
+    supportsAudioToggle: true,
+    supportsPromptlessImageMode: false,
+    resolutionField: "quality",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].maxPromptLength,
+    maxNegativePromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].maxNegativePromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].allowedAspectRatios,
+    allowedQualities: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_MODEL_ID].allowedQualities,
     defaultDuration: 5,
     defaultAspectRatio: "16:9",
     defaultQuality: "720p",
     defaultGenerateAudio: true,
+    defaultPreset: "video_studio",
     description: "Text-to-video and image-to-video generation with configurable duration, quality, and aspect ratio.",
+  },
+  [ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
+    task: "video",
+    label: "Vidu Q3 Pro",
+    vendor: "Vidu",
+    inputFormat: "json",
+    proxied: true,
+    supportsImageInput: true,
+    supportsEndImage: true,
+    supportsNegativePrompt: false,
+    supportsSeed: false,
+    supportsAudioToggle: true,
+    supportsPromptlessImageMode: true,
+    resolutionField: "resolution",
+    aspectRatioMode: "text_only",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID].allowedResolutions,
+    defaultDuration: 5,
+    defaultAspectRatio: "16:9",
+    defaultResolution: "720p",
+    defaultGenerateAudio: true,
+    defaultPreset: "video_vidu_q3_pro",
+    description: "Text-to-video, image-to-video, and start/end-frame-to-video generation with duration, resolution, and audio controls.",
   },
 };
 
@@ -328,6 +397,13 @@ const PRESETS = {
     label: "Video Studio",
     model: ADMIN_AI_VIDEO_MODEL_ID,
     description: "Pixverse V6 preset for admin-only video generation.",
+  },
+  video_vidu_q3_pro: {
+    name: "video_vidu_q3_pro",
+    task: "video",
+    label: "Vidu Q3 Pro",
+    model: ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
+    description: "Vidu Q3 Pro preset for admin-only video generation.",
   },
 };
 
@@ -428,6 +504,14 @@ function optionalNumber(value, field, min, max, defaultValue = null) {
     );
   }
   return parsed;
+}
+
+function optionalBoolean(value, field, defaultValue = null) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (typeof value !== "boolean") {
+    throw new AdminAiValidationError(`${field} must be a boolean.`, 400, "validation_error");
+  }
+  return value;
 }
 
 function optionalEnum(value, field, allowed, defaultValue = null) {
@@ -578,6 +662,68 @@ function dataUriToBytes(dataUri, field) {
   return bytes;
 }
 
+function assertOnlyAllowedFields(input, allowedFields, modelId) {
+  const extras = Object.keys(input).filter((key) => !allowedFields.includes(key));
+  if (extras.length === 0) return;
+
+  const [field] = extras;
+  throw new AdminAiValidationError(
+    modelId
+      ? `${field} is not supported by model "${modelId}".`
+      : `${field} is not supported.`,
+    400,
+    "validation_error"
+  );
+}
+
+function optionalVideoImageReference(value, field, { allowRemoteUrl = false } = {}) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new AdminAiValidationError(`${field} must be a string.`, 400, "validation_error");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("data:image/")) {
+    const commaIndex = trimmed.indexOf(",");
+    if (commaIndex === -1) {
+      throw new AdminAiValidationError(`${field} is not a valid data URI.`, 400, "validation_error");
+    }
+    const base64 = trimmed.slice(commaIndex + 1);
+    const estimatedBytes = Math.ceil(base64.length * 0.75);
+    if (estimatedBytes > ADMIN_AI_LIMITS.video.maxImageInputBytes) {
+      throw new AdminAiValidationError(
+        `${field} exceeds the ${ADMIN_AI_LIMITS.video.maxImageInputBytes} byte size limit.`,
+        400,
+        "validation_error"
+      );
+    }
+    return trimmed;
+  }
+
+  if (allowRemoteUrl && /^https?:\/\//i.test(trimmed)) {
+    if (trimmed.length > ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength) {
+      throw new AdminAiValidationError(
+        `${field} must be at most ${ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength} characters.`,
+        400,
+        "validation_error"
+      );
+    }
+    return trimmed;
+  }
+
+  throw new AdminAiValidationError(
+    `${field} must be a data URI image${allowRemoteUrl ? " or a public http(s) URL" : ""}.`,
+    400,
+    "validation_error"
+  );
+}
+
+export function getAdminAiVideoModelSpec(modelId = ADMIN_AI_VIDEO_MODEL_ID) {
+  return VIDEO_MODELS[modelId] || VIDEO_MODELS[ADMIN_AI_VIDEO_MODEL_ID];
+}
+
 function getRegistryForTask(task) {
   const registry = REGISTRY[task];
   if (!registry) {
@@ -613,10 +759,26 @@ function toPublicModel(model) {
   if (model.task === "video") {
     pub.capabilities = {
       supportsImageInput: !!model.supportsImageInput,
+      supportsEndImage: !!model.supportsEndImage,
+      supportsNegativePrompt: !!model.supportsNegativePrompt,
+      supportsSeed: !!model.supportsSeed,
+      supportsAudioToggle: !!model.supportsAudioToggle,
+      supportsPromptlessImageMode: !!model.supportsPromptlessImageMode,
+      resolutionField: model.resolutionField || "quality",
+      aspectRatioMode: model.aspectRatioMode || "always",
+      maxPromptLength: model.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength,
+      maxNegativePromptLength: model.maxNegativePromptLength || null,
+      minDuration: model.minDuration || 1,
+      maxDuration: model.maxDuration || 16,
+      aspectRatios: Array.isArray(model.allowedAspectRatios) ? [...model.allowedAspectRatios] : [],
+      qualityOptions: Array.isArray(model.allowedQualities) ? [...model.allowedQualities] : [],
+      resolutionOptions: Array.isArray(model.allowedResolutions) ? [...model.allowedResolutions] : [],
       defaultDuration: model.defaultDuration || 5,
       defaultAspectRatio: model.defaultAspectRatio || "16:9",
       defaultQuality: model.defaultQuality || "720p",
+      defaultResolution: model.defaultResolution || null,
       defaultGenerateAudio: model.defaultGenerateAudio !== false,
+      defaultPreset: model.defaultPreset || null,
     };
   }
   return pub;
@@ -892,78 +1054,168 @@ export function validateAdminAiMusicBody(body) {
 
 export function validateAdminAiVideoBody(body) {
   const input = ensureObject(body);
-  const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.video.maxPromptLength);
-  const negative_prompt = optionalString(
-    input.negative_prompt,
-    "negative_prompt",
-    ADMIN_AI_LIMITS.video.maxNegativePromptLength
-  );
-  const duration = optionalInteger(
-    input.duration,
-    "duration",
-    ADMIN_AI_LIMITS.video.minDuration,
-    ADMIN_AI_LIMITS.video.maxDuration,
-    5
-  );
-  const aspect_ratio = optionalEnum(
-    input.aspect_ratio,
-    "aspect_ratio",
-    ADMIN_AI_LIMITS.video.allowedAspectRatios,
-    "16:9"
-  );
-  const quality = optionalEnum(
-    input.quality,
-    "quality",
-    ADMIN_AI_LIMITS.video.allowedQualities,
-    "720p"
-  );
-  const seed = optionalInteger(input.seed, "seed", 0, ADMIN_AI_LIMITS.video.maxSeed, null);
-  const generate_audio =
-    input.generate_audio === undefined || input.generate_audio === null
-      ? true
-      : !!input.generate_audio;
+  const preset = optionalString(input.preset, "preset", 64);
+  const model = optionalString(input.model, "model", 120);
+  const selection = resolveAdminAiModelSelection("video", { preset, model });
+  const selectedModel = selection.model;
 
-  let image_input = null;
-  if (input.image_input !== undefined && input.image_input !== null && input.image_input !== "") {
-    if (typeof input.image_input !== "string" || !input.image_input.startsWith("data:image/")) {
-      throw new AdminAiValidationError(
-        "image_input must be a data URI starting with data:image/.",
-        400,
-        "validation_error"
-      );
-    }
-    const commaIndex = input.image_input.indexOf(",");
-    if (commaIndex === -1) {
-      throw new AdminAiValidationError(
-        "image_input is not a valid data URI.",
-        400,
-        "validation_error"
-      );
-    }
-    const base64 = input.image_input.slice(commaIndex + 1);
-    const estimatedBytes = Math.ceil(base64.length * 0.75);
-    if (estimatedBytes > ADMIN_AI_LIMITS.video.maxImageInputBytes) {
-      throw new AdminAiValidationError(
-        `image_input exceeds the ${ADMIN_AI_LIMITS.video.maxImageInputBytes} byte size limit.`,
-        400,
-        "validation_error"
-      );
-    }
-    image_input = input.image_input;
+  if (selectedModel.id === ADMIN_AI_VIDEO_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "negative_prompt",
+        "image_input",
+        "duration",
+        "aspect_ratio",
+        "quality",
+        "seed",
+        "generate_audio",
+      ],
+      selectedModel.id
+    );
+
+    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const negative_prompt = optionalString(
+      input.negative_prompt,
+      "negative_prompt",
+      selectedModel.maxNegativePromptLength
+    );
+    const image_input = optionalVideoImageReference(input.image_input, "image_input");
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const aspect_ratio = optionalEnum(
+      input.aspect_ratio,
+      "aspect_ratio",
+      selectedModel.allowedAspectRatios,
+      selectedModel.defaultAspectRatio
+    );
+    const quality = optionalEnum(
+      input.quality,
+      "quality",
+      selectedModel.allowedQualities,
+      selectedModel.defaultQuality
+    );
+    const seed = optionalInteger(input.seed, "seed", 0, ADMIN_AI_LIMITS.video.maxSeed, null);
+    const generate_audio = optionalBoolean(
+      input.generate_audio,
+      "generate_audio",
+      selectedModel.defaultGenerateAudio
+    );
+
+    return {
+      preset,
+      model,
+      prompt,
+      negative_prompt,
+      image_input,
+      duration,
+      aspect_ratio,
+      quality,
+      seed,
+      generate_audio,
+    };
   }
 
-  return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
-    prompt,
-    negative_prompt,
-    image_input,
-    duration,
-    aspect_ratio,
-    quality,
-    seed,
-    generate_audio,
-  };
+  if (selectedModel.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "start_image",
+        "end_image",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+        "audio",
+      ],
+      selectedModel.id
+    );
+
+    const prompt = optionalString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const start_image = optionalVideoImageReference(input.start_image, "start_image", {
+      allowRemoteUrl: true,
+    });
+    const end_image = optionalVideoImageReference(input.end_image, "end_image", {
+      allowRemoteUrl: true,
+    });
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      selectedModel.allowedResolutions,
+      selectedModel.defaultResolution
+    );
+    const audio = optionalBoolean(input.audio, "audio", selectedModel.defaultGenerateAudio);
+
+    const hasFrameInput = !!start_image || !!end_image;
+    if (end_image && !start_image) {
+      throw new AdminAiValidationError(
+        "end_image requires start_image.",
+        400,
+        "validation_error"
+      );
+    }
+    if (!prompt && !start_image) {
+      throw new AdminAiValidationError(
+        "prompt is required when no start_image is provided.",
+        400,
+        "validation_error"
+      );
+    }
+    if (
+      hasFrameInput
+      && input.aspect_ratio !== undefined
+      && input.aspect_ratio !== null
+      && input.aspect_ratio !== ""
+    ) {
+      throw new AdminAiValidationError(
+        "aspect_ratio is only supported for text-to-video on vidu/q3-pro.",
+        400,
+        "validation_error"
+      );
+    }
+
+    return {
+      preset,
+      model,
+      prompt,
+      start_image,
+      end_image,
+      duration,
+      resolution,
+      audio,
+      aspect_ratio: hasFrameInput
+        ? null
+        : optionalEnum(
+            input.aspect_ratio,
+            "aspect_ratio",
+            selectedModel.allowedAspectRatios,
+            selectedModel.defaultAspectRatio
+          ),
+    };
+  }
+
+  throw new AdminAiValidationError(
+    `Unsupported video model "${selectedModel.id}".`,
+    400,
+    "model_not_allowed"
+  );
 }
 
 export function validateAdminAiLiveAgentBody(body) {

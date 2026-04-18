@@ -19,8 +19,11 @@ import {
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
     ADMIN_AI_MUSIC_KEYS,
+    ADMIN_AI_VIDEO_MODEL_ID,
+    ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     FLUX_2_DEV_MODEL_ID,
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
+    getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
@@ -132,13 +135,16 @@ const DEFAULT_FORMS = {
     },
     video: {
         preset: ADMIN_AI_DEFAULT_PRESETS.video,
-        model: '',
+        model: ADMIN_AI_VIDEO_MODEL_ID,
         prompt: '',
         negativePrompt: '',
         imageInput: null,
+        startImageInput: null,
+        endImageInput: null,
         duration: 5,
         aspectRatio: '16:9',
         quality: '720p',
+        resolution: '720p',
         seed: '',
         generateAudio: true,
     },
@@ -157,17 +163,47 @@ const DEFAULT_PREFERENCES = {
 };
 
 const VIDEO_IMAGE_EMPTY_STATES = {
-    empty: {
-        title: 'No reference image selected.',
-        hint: 'Upload a PNG, JPEG, or WebP to guide motion in image-to-video mode.',
+    imageInput: {
+        empty: {
+            title: 'No reference image selected.',
+            hint: 'Upload a PNG, JPEG, or WebP to guide motion in image-to-video mode.',
+        },
+        loading: {
+            title: 'Preparing preview.',
+            hint: 'Verifying the selected image before image-to-video generation.',
+        },
+        error: {
+            title: 'Preview unavailable.',
+            hint: 'Choose a different PNG, JPEG, or WebP reference image.',
+        },
     },
-    loading: {
-        title: 'Preparing preview.',
-        hint: 'Verifying the selected image before image-to-video generation.',
+    startImageInput: {
+        empty: {
+            title: 'No start frame selected.',
+            hint: 'Upload a PNG, JPEG, or WebP to drive image-to-video or start/end-frame generation.',
+        },
+        loading: {
+            title: 'Preparing start frame preview.',
+            hint: 'Verifying the selected start frame before generation.',
+        },
+        error: {
+            title: 'Preview unavailable.',
+            hint: 'Choose a different PNG, JPEG, or WebP start frame.',
+        },
     },
-    error: {
-        title: 'Preview unavailable.',
-        hint: 'Choose a different PNG, JPEG, or WebP reference image.',
+    endImageInput: {
+        empty: {
+            title: 'No end frame selected.',
+            hint: 'Optional end frame for start/end-frame-to-video. Requires a selected start frame.',
+        },
+        loading: {
+            title: 'Preparing end frame preview.',
+            hint: 'Verifying the selected end frame before generation.',
+        },
+        error: {
+            title: 'Preview unavailable.',
+            hint: 'Choose a different PNG, JPEG, or WebP end frame.',
+        },
     },
 };
 
@@ -882,19 +918,45 @@ export function createAdminAiLab({ showToast } = {}) {
             copyRaw: document.getElementById('aiMusicCopyRaw'),
         },
         video: {
+            modelBadge: document.getElementById('aiVideoModelBadge'),
+            modelDesc: document.getElementById('aiVideoModelDesc'),
+            modelCards: Array.from(root.querySelectorAll('[data-ai-video-model]')),
             prompt: document.getElementById('aiVideoPrompt'),
             promptCount: document.getElementById('aiVideoPromptCount'),
+            negativePromptField: document.getElementById('aiVideoNegativePromptField'),
             negativePrompt: document.getElementById('aiVideoNegativePrompt'),
             negativePromptCount: document.getElementById('aiVideoNegativePromptCount'),
+            imageField: document.getElementById('aiVideoImageField'),
             imageFile: document.getElementById('aiVideoImageFile'),
             imagePreview: document.getElementById('aiVideoImagePreview'),
             imageEmpty: document.getElementById('aiVideoImageEmpty'),
             imageThumb: document.getElementById('aiVideoImageThumb'),
             imageClear: document.getElementById('aiVideoImageClear'),
+            startImageField: document.getElementById('aiVideoStartImageField'),
+            startImageFile: document.getElementById('aiVideoStartImageFile'),
+            startImagePreview: document.getElementById('aiVideoStartImagePreview'),
+            startImageEmpty: document.getElementById('aiVideoStartImageEmpty'),
+            startImageThumb: document.getElementById('aiVideoStartImageThumb'),
+            startImageClear: document.getElementById('aiVideoStartImageClear'),
+            endImageField: document.getElementById('aiVideoEndImageField'),
+            endImageFile: document.getElementById('aiVideoEndImageFile'),
+            endImagePreview: document.getElementById('aiVideoEndImagePreview'),
+            endImageEmpty: document.getElementById('aiVideoEndImageEmpty'),
+            endImageThumb: document.getElementById('aiVideoEndImageThumb'),
+            endImageClear: document.getElementById('aiVideoEndImageClear'),
+            durationField: document.getElementById('aiVideoDurationField'),
             duration: document.getElementById('aiVideoDuration'),
+            aspectRatioField: document.getElementById('aiVideoAspectRatioField'),
             aspectRatio: document.getElementById('aiVideoAspectRatio'),
+            aspectRatioHint: document.getElementById('aiVideoAspectRatioHint'),
+            qualityField: document.getElementById('aiVideoQualityField'),
+            qualityLabel: document.getElementById('aiVideoQualityLabel'),
             quality: document.getElementById('aiVideoQuality'),
+            resolutionField: document.getElementById('aiVideoResolutionField'),
+            resolution: document.getElementById('aiVideoResolution'),
+            seedField: document.getElementById('aiVideoSeedField'),
             seed: document.getElementById('aiVideoSeed'),
+            audioLabel: document.getElementById('aiVideoAudioLabel'),
             generateAudio: document.getElementById('aiVideoGenerateAudio'),
             inlineError: document.getElementById('aiVideoInlineError'),
             run: document.getElementById('aiVideoRun'),
@@ -978,7 +1040,11 @@ export function createAdminAiLab({ showToast } = {}) {
         },
     };
 
-    let videoImagePreviewSeq = 0;
+    let videoImagePreviewSeq = {
+        imageInput: 0,
+        startImageInput: 0,
+        endImageInput: 0,
+    };
 
     const savedAssetsBrowser = createSavedAssetsBrowser({
         refs: refs.savedAssets,
@@ -998,6 +1064,109 @@ export function createAdminAiLab({ showToast } = {}) {
         savedAssetsBrowser.show().catch((error) => {
             console.warn('AI Lab saved assets load failed:', error);
         });
+    }
+
+    function getVideoModelSummary(modelId = ADMIN_AI_VIDEO_MODEL_ID) {
+        const spec = getAdminAiVideoModelSpec(modelId);
+        const catalogModel = hasCatalog() ? getModelInfo(state.catalog.data, 'video', spec.id) : null;
+        return {
+            id: spec.id,
+            label: catalogModel?.label || spec.label || spec.id,
+            vendor: catalogModel?.vendor || spec.vendor || '',
+            description: catalogModel?.description || spec.description || '',
+            capabilities: catalogModel?.capabilities || null,
+            spec,
+        };
+    }
+
+    function getSelectedVideoModelId() {
+        return getAdminAiVideoModelSpec(state.forms.video.model || ADMIN_AI_VIDEO_MODEL_ID).id;
+    }
+
+    function getSelectedVideoModelSpec() {
+        return getAdminAiVideoModelSpec(getSelectedVideoModelId());
+    }
+
+    function normalizeVideoFormForModel(modelId = getSelectedVideoModelId()) {
+        const spec = getAdminAiVideoModelSpec(modelId);
+        state.forms.video.model = spec.id;
+        state.forms.video.preset = spec.defaultPreset || state.forms.video.preset || ADMIN_AI_DEFAULT_PRESETS.video;
+
+        const duration = Number(state.forms.video.duration);
+        state.forms.video.duration = Number.isFinite(duration)
+            ? Math.min(Math.max(Math.round(duration), spec.minDuration || 1), spec.maxDuration || 16)
+            : (spec.defaultDuration || 5);
+
+        if (!Array.isArray(spec.allowedAspectRatios) || !spec.allowedAspectRatios.includes(state.forms.video.aspectRatio)) {
+            state.forms.video.aspectRatio = spec.defaultAspectRatio || '16:9';
+        }
+
+        if (spec.resolutionField === 'quality') {
+            if (!Array.isArray(spec.allowedQualities) || !spec.allowedQualities.includes(state.forms.video.quality)) {
+                state.forms.video.quality = spec.defaultQuality || '720p';
+            }
+        } else if (!Array.isArray(spec.allowedResolutions) || !spec.allowedResolutions.includes(state.forms.video.resolution)) {
+            state.forms.video.resolution = spec.defaultResolution || '720p';
+        }
+
+        if (typeof state.forms.video.generateAudio !== 'boolean') {
+            state.forms.video.generateAudio = spec.defaultGenerateAudio !== false;
+        }
+
+        return spec;
+    }
+
+    function setVideoModel(modelId, { persist = true } = {}) {
+        normalizeVideoFormForModel(modelId);
+        syncFormInputs();
+        renderVideoResult();
+        if (persist) persistState();
+    }
+
+    function formatVideoWorkflow(workflow, payload = null) {
+        const normalized = workflow
+            || (payload?.hasEndImageInput
+                ? 'start_end_to_video'
+                : payload?.hasImageInput
+                    ? 'image_to_video'
+                    : 'text_to_video');
+        switch (normalized) {
+        case 'start_end_to_video':
+            return 'Start/End-Frame-to-Video';
+        case 'image_to_video':
+            return 'Image-to-Video';
+        default:
+            return 'Text-to-Video';
+        }
+    }
+
+    function getVideoImageRefs(key) {
+        switch (key) {
+        case 'startImageInput':
+            return {
+                file: refs.video.startImageFile,
+                preview: refs.video.startImagePreview,
+                empty: refs.video.startImageEmpty,
+                thumb: refs.video.startImageThumb,
+                clear: refs.video.startImageClear,
+            };
+        case 'endImageInput':
+            return {
+                file: refs.video.endImageFile,
+                preview: refs.video.endImagePreview,
+                empty: refs.video.endImageEmpty,
+                thumb: refs.video.endImageThumb,
+                clear: refs.video.endImageClear,
+            };
+        default:
+            return {
+                file: refs.video.imageFile,
+                preview: refs.video.imagePreview,
+                empty: refs.video.imageEmpty,
+                thumb: refs.video.imageThumb,
+                clear: refs.video.imageClear,
+            };
+        }
     }
 
     function persistState() {
@@ -1235,12 +1404,13 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.inlineError.hidden = !message;
     }
 
-    function updateVideoImageEmptyState(variant = 'empty') {
-        const preview = refs.video.imagePreview;
-        const empty = refs.video.imageEmpty;
+    function updateVideoImageEmptyState(key = 'imageInput', variant = 'empty') {
+        const imageRefs = getVideoImageRefs(key);
+        const preview = imageRefs.preview;
+        const empty = imageRefs.empty;
         if (!preview || !empty) return;
 
-        const next = VIDEO_IMAGE_EMPTY_STATES[variant] || VIDEO_IMAGE_EMPTY_STATES.empty;
+        const next = VIDEO_IMAGE_EMPTY_STATES[key]?.[variant] || VIDEO_IMAGE_EMPTY_STATES[key]?.empty;
         const title = empty.querySelector('.admin-ai__video-image-empty-title');
         const hint = empty.querySelector('.admin-ai__video-image-empty-hint');
 
@@ -1250,64 +1420,124 @@ export function createAdminAiLab({ showToast } = {}) {
         if (hint) hint.textContent = next.hint;
     }
 
-    function resetVideoImageThumb() {
-        if (!refs.video.imageThumb) return;
-        refs.video.imageThumb.onload = null;
-        refs.video.imageThumb.onerror = null;
-        refs.video.imageThumb.hidden = true;
-        refs.video.imageThumb.removeAttribute('src');
+    function resetVideoImageThumb(key = 'imageInput') {
+        const imageRefs = getVideoImageRefs(key);
+        if (!imageRefs.thumb) return;
+        imageRefs.thumb.onload = null;
+        imageRefs.thumb.onerror = null;
+        imageRefs.thumb.hidden = true;
+        imageRefs.thumb.removeAttribute('src');
     }
 
-    function renderVideoImageSelection(source, variant = 'empty') {
-        if (!refs.video.imagePreview) return;
+    function renderVideoImageSelection(key = 'imageInput', source, variant = 'empty') {
+        const imageRefs = getVideoImageRefs(key);
+        if (!imageRefs.preview) return;
 
         const value = typeof source === 'string' ? source.trim() : '';
         if (!value) {
-            videoImagePreviewSeq += 1;
-            resetVideoImageThumb();
-            if (refs.video.imageClear) refs.video.imageClear.hidden = true;
-            updateVideoImageEmptyState(variant);
+            videoImagePreviewSeq[key] += 1;
+            resetVideoImageThumb(key);
+            if (imageRefs.clear) imageRefs.clear.hidden = true;
+            updateVideoImageEmptyState(key, variant);
             return;
         }
 
-        const requestId = ++videoImagePreviewSeq;
-        resetVideoImageThumb();
-        updateVideoImageEmptyState('loading');
-        if (refs.video.imageClear) refs.video.imageClear.hidden = false;
+        const requestId = ++videoImagePreviewSeq[key];
+        const label = key === 'endImageInput' ? 'end frame' : key === 'startImageInput' ? 'start frame' : 'image';
+        resetVideoImageThumb(key);
+        updateVideoImageEmptyState(key, 'loading');
+        if (imageRefs.clear) imageRefs.clear.hidden = false;
 
-        refs.video.imageThumb.onload = () => {
-            if (requestId !== videoImagePreviewSeq) return;
-            refs.video.imagePreview.dataset.state = 'ready';
-            if (refs.video.imageEmpty) refs.video.imageEmpty.hidden = true;
-            refs.video.imageThumb.hidden = false;
-            if (refs.video.imageClear) refs.video.imageClear.hidden = false;
+        imageRefs.thumb.onload = () => {
+            if (requestId !== videoImagePreviewSeq[key]) return;
+            imageRefs.preview.dataset.state = 'ready';
+            if (imageRefs.empty) imageRefs.empty.hidden = true;
+            imageRefs.thumb.hidden = false;
+            if (imageRefs.clear) imageRefs.clear.hidden = false;
         };
-        refs.video.imageThumb.onerror = () => {
-            if (requestId !== videoImagePreviewSeq) return;
-            state.forms.video.imageInput = null;
-            refs.video.imageFile.value = '';
-            if (refs.video.imageClear) refs.video.imageClear.hidden = true;
-            setVideoInlineError('Selected image preview could not be loaded. Choose another image.');
-            resetVideoImageThumb();
-            updateVideoImageEmptyState('error');
+        imageRefs.thumb.onerror = () => {
+            if (requestId !== videoImagePreviewSeq[key]) return;
+            state.forms.video[key] = null;
+            if (imageRefs.file) imageRefs.file.value = '';
+            if (imageRefs.clear) imageRefs.clear.hidden = true;
+            setVideoInlineError(`Selected ${label} preview could not be loaded. Choose another image.`);
+            resetVideoImageThumb(key);
+            updateVideoImageEmptyState(key, 'error');
             persistState();
         };
-        refs.video.imageThumb.src = value;
+        imageRefs.thumb.src = value;
     }
 
     function syncVideoFieldState() {
         if (!refs.video.prompt) return;
+        const spec = getSelectedVideoModelSpec();
+        const modelSummary = getVideoModelSummary(spec.id);
         const isBusy = state.results.video?.status === 'loading';
+        const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+            && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
+
+        if (refs.video.modelBadge) refs.video.modelBadge.textContent = modelSummary.id;
+        if (refs.video.modelDesc) refs.video.modelDesc.textContent = modelSummary.description || spec.description || '';
+        refs.video.modelCards.forEach((button) => {
+            const isActive = button.dataset.aiVideoModel === spec.id;
+            button.classList.toggle('admin-ai__video-model-card--active', isActive);
+            button.setAttribute('aria-selected', String(isActive));
+            button.disabled = isBusy;
+        });
+
+        refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
+        refs.video.prompt.placeholder = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+            ? (usesViduFrameWorkflow
+                ? 'Optional — add a text prompt to steer motion between the selected frames.'
+                : 'Describe the scene, motion, and visual style for text-to-video.')
+            : 'Describe the scene, motion, camera movement, and visual style.';
         refs.video.prompt.disabled = isBusy;
-        refs.video.negativePrompt.disabled = isBusy;
-        refs.video.imageFile.disabled = isBusy;
+        refs.video.negativePrompt.maxLength = spec.maxNegativePromptLength || ADMIN_AI_LIMITS.video.maxNegativePromptLength;
+        refs.video.negativePromptField.hidden = !spec.supportsNegativePrompt;
+        refs.video.negativePrompt.disabled = isBusy || !spec.supportsNegativePrompt;
+
+        refs.video.imageField.hidden = spec.id !== ADMIN_AI_VIDEO_MODEL_ID;
+        refs.video.imageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_MODEL_ID;
+
+        refs.video.startImageField.hidden = spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+        refs.video.startImageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+        refs.video.endImageField.hidden = spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+        refs.video.endImageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+
+        refs.video.duration.min = spec.minDuration || 1;
+        refs.video.duration.max = spec.maxDuration || 16;
         refs.video.duration.disabled = isBusy;
-        refs.video.aspectRatio.disabled = isBusy;
-        refs.video.quality.disabled = isBusy;
-        refs.video.seed.disabled = isBusy;
-        refs.video.generateAudio.disabled = isBusy;
+
+        setFieldDisabled(
+            refs.video.aspectRatioField,
+            refs.video.aspectRatio,
+            isBusy || (spec.aspectRatioMode === 'text_only' && usesViduFrameWorkflow),
+            refs.video.aspectRatioHint,
+            usesViduFrameWorkflow
+                ? 'Available only for text-to-video when no start or end frame is selected.'
+                : 'Not supported by this model.'
+        );
+
+        refs.video.qualityField.hidden = spec.resolutionField !== 'quality';
+        refs.video.quality.disabled = isBusy || spec.resolutionField !== 'quality';
+        if (refs.video.qualityLabel) refs.video.qualityLabel.textContent = 'Quality';
+
+        refs.video.resolutionField.hidden = spec.resolutionField !== 'resolution';
+        refs.video.resolution.disabled = isBusy || spec.resolutionField !== 'resolution';
+
+        refs.video.seedField.hidden = !spec.supportsSeed;
+        refs.video.seed.disabled = isBusy || !spec.supportsSeed;
+
+        refs.video.generateAudio.disabled = isBusy || !spec.supportsAudioToggle;
+        if (refs.video.audioLabel) {
+            refs.video.audioLabel.textContent = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+                ? 'Enable Audio'
+                : 'Generate Audio';
+        }
         refs.video.reset.disabled = isBusy;
         if (refs.video.imageClear) refs.video.imageClear.disabled = isBusy;
+        if (refs.video.startImageClear) refs.video.startImageClear.disabled = isBusy;
+        if (refs.video.endImageClear) refs.video.endImageClear.disabled = isBusy;
     }
 
     function populateSampleSelect(selectEl, task) {
@@ -2064,6 +2294,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const imageIds = getCatalogModels(state.catalog.data, 'image').map((item) => item.id);
         const embeddingIds = getCatalogModels(state.catalog.data, 'embeddings').map((item) => item.id);
         const musicIds = getCatalogModels(state.catalog.data, 'music').map((item) => item.id);
+        const videoIds = getCatalogModels(state.catalog.data, 'video').map((item) => item.id);
 
         if (state.forms.text.model && !textIds.includes(state.forms.text.model)) state.forms.text.model = '';
         if (state.forms.image.model && !imageIds.includes(state.forms.image.model)) state.forms.image.model = '';
@@ -2072,6 +2303,9 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         if (state.forms.music.model && !musicIds.includes(state.forms.music.model)) {
             state.forms.music.model = '';
+        }
+        if (state.forms.video.model && videoIds.length > 0 && !videoIds.includes(state.forms.video.model)) {
+            state.forms.video.model = videoIds[0];
         }
 
         if (!textIds.includes(state.forms.compare.modelA)) state.forms.compare.modelA = textIds[0] || '';
@@ -2205,14 +2439,18 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.bpm.value = state.forms.music.bpm;
 
         if (refs.video.prompt) {
+            normalizeVideoFormForModel();
             refs.video.prompt.value = state.forms.video.prompt;
             refs.video.negativePrompt.value = state.forms.video.negativePrompt;
             refs.video.duration.value = state.forms.video.duration;
             refs.video.aspectRatio.value = state.forms.video.aspectRatio;
             refs.video.quality.value = state.forms.video.quality;
+            refs.video.resolution.value = state.forms.video.resolution;
             refs.video.seed.value = state.forms.video.seed;
             refs.video.generateAudio.checked = state.forms.video.generateAudio;
-            renderVideoImageSelection(state.forms.video.imageInput);
+            renderVideoImageSelection('imageInput', state.forms.video.imageInput);
+            renderVideoImageSelection('startImageInput', state.forms.video.startImageInput);
+            renderVideoImageSelection('endImageInput', state.forms.video.endImageInput);
         }
 
         refs.compare.system.value = state.forms.compare.system;
@@ -2248,8 +2486,17 @@ export function createAdminAiLab({ showToast } = {}) {
         updateCounter(refs.music.prompt, refs.music.promptCount, ADMIN_AI_LIMITS.music.maxPromptLength);
         updateCounter(refs.music.lyrics, refs.music.lyricsCount, ADMIN_AI_LIMITS.music.maxLyricsLength);
         if (refs.video.prompt) {
-            updateCounter(refs.video.prompt, refs.video.promptCount, ADMIN_AI_LIMITS.video.maxPromptLength);
-            updateCounter(refs.video.negativePrompt, refs.video.negativePromptCount, ADMIN_AI_LIMITS.video.maxNegativePromptLength);
+            const videoSpec = getSelectedVideoModelSpec();
+            updateCounter(
+                refs.video.prompt,
+                refs.video.promptCount,
+                videoSpec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength
+            );
+            updateCounter(
+                refs.video.negativePrompt,
+                refs.video.negativePromptCount,
+                videoSpec.maxNegativePromptLength || ADMIN_AI_LIMITS.video.maxNegativePromptLength
+            );
         }
         updateCounter(refs.compare.system, refs.compare.systemCount, 1200);
         updateCounter(refs.compare.prompt, refs.compare.promptCount, 4000);
@@ -2897,7 +3144,10 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const title = document.createElement('h4');
         title.className = 'admin-ai__video-player-title';
-        title.textContent = payload.hasImageInput ? 'Generated Video (image-to-video)' : 'Generated Video';
+        const workflowLabel = formatVideoWorkflow(payload?.workflow, payload);
+        title.textContent = workflowLabel === 'Text-to-Video'
+            ? 'Generated Video'
+            : `Generated Video (${workflowLabel})`;
 
         const note = document.createElement('div');
         note.className = 'admin-ai__video-player-note';
@@ -2939,12 +3189,21 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Vendor', value: response.model?.vendor },
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
             { label: 'Received', value: formatTime(result?.receivedAt) },
+            { label: 'Workflow', value: formatVideoWorkflow(payload?.workflow, payload) },
             { label: 'Duration', value: payload?.duration ? `${payload.duration} s` : null },
             { label: 'Aspect Ratio', value: payload?.aspect_ratio },
             { label: 'Quality', value: payload?.quality },
+            { label: 'Resolution', value: payload?.resolution },
             { label: 'Seed', value: payload?.seed },
-            { label: 'Audio', value: payload?.generate_audio ? 'Enabled' : 'Disabled' },
-            { label: 'Image Input', value: payload?.hasImageInput ? 'Yes' : 'No' },
+            {
+                label: 'Audio',
+                value: payload?.generate_audio === false ? 'Disabled' : payload?.generate_audio === true ? 'Enabled' : null,
+            },
+            {
+                label: 'Reference Start',
+                value: payload?.hasImageInput ? 'Yes' : payload?.workflow && payload?.workflow !== 'text_to_video' ? 'No' : null,
+            },
+            { label: 'Reference End', value: payload?.hasEndImageInput ? 'Yes' : null },
         ] : []);
         renderWarnings(refs.video.warnings, response ? getWarnings(response) : []);
         renderDebug(refs.video.debug, refs.video.raw, result?.debugRaw || response);
@@ -3004,7 +3263,19 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function validateVideoForm() {
+        const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
+        if (spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+            const hasStartImage = !!state.forms.video.startImageInput;
+            const hasEndImage = !!state.forms.video.endImageInput;
+            if (hasEndImage && !hasStartImage) {
+                return 'End frame requires a start frame before generating video.';
+            }
+            if (!prompt && !hasStartImage) {
+                return 'Prompt or start frame is required before generating video.';
+            }
+            return '';
+        }
         if (!prompt) {
             return 'Prompt is required before generating video.';
         }
@@ -3020,7 +3291,11 @@ export function createAdminAiLab({ showToast } = {}) {
         state.results.video = null;
         setVideoInlineError('');
         refs.video.imageFile.value = '';
-        renderVideoImageSelection(null);
+        if (refs.video.startImageFile) refs.video.startImageFile.value = '';
+        if (refs.video.endImageFile) refs.video.endImageFile.value = '';
+        renderVideoImageSelection('imageInput', null);
+        renderVideoImageSelection('startImageInput', null);
+        renderVideoImageSelection('endImageInput', null);
         syncFormInputs();
         renderVideoResult();
         persistState();
@@ -3042,7 +3317,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const filename = [
             'ai-lab',
             'video',
-            slugify(state.forms.video.prompt || 'prompt'),
+            slugify(payload?.prompt || state.forms.video.prompt || payload?.workflow || 'video'),
             dateStamp,
         ].join('-') + '.mp4';
 
@@ -3058,39 +3333,73 @@ export function createAdminAiLab({ showToast } = {}) {
         if (showToast) showToast('Video download started.');
     }
 
-    function handleVideoImageFile() {
-        const file = refs.video.imageFile.files?.[0];
+    function handleVideoImageFileSelection(formKey, inputEl, previewKey, label) {
+        const file = inputEl?.files?.[0];
         if (!file) return;
 
         if (file.size > ADMIN_AI_LIMITS.video.maxImageInputBytes) {
             setVideoInlineError(`Image file exceeds ${ADMIN_AI_LIMITS.video.maxImageInputBytes / (1024 * 1024)} MB limit.`);
-            refs.video.imageFile.value = '';
+            inputEl.value = '';
             return;
         }
 
         const reader = new FileReader();
         reader.onload = () => {
-            state.forms.video.imageInput = reader.result;
-            setVideoInlineError('');
-            renderVideoImageSelection(reader.result);
+            state.forms.video[formKey] = reader.result;
+            setVideoInlineError(formKey === 'endImageInput' && !state.forms.video.startImageInput
+                ? 'End frame requires a start frame before generating video.'
+                : '');
+            renderVideoImageSelection(previewKey, reader.result);
+            syncVideoFieldState();
             persistState();
         };
         reader.onerror = () => {
-            state.forms.video.imageInput = null;
-            refs.video.imageFile.value = '';
-            setVideoInlineError('Could not read the image file.');
-            renderVideoImageSelection(null, 'error');
+            state.forms.video[formKey] = null;
+            inputEl.value = '';
+            setVideoInlineError(`Could not read the ${label} file.`);
+            renderVideoImageSelection(previewKey, null, 'error');
+            syncVideoFieldState();
             persistState();
         };
         reader.readAsDataURL(file);
     }
 
-    function clearVideoImage() {
-        state.forms.video.imageInput = null;
-        refs.video.imageFile.value = '';
+    function handleVideoImageFile() {
+        handleVideoImageFileSelection('imageInput', refs.video.imageFile, 'imageInput', 'image');
+    }
+
+    function handleVideoStartImageFile() {
+        handleVideoImageFileSelection('startImageInput', refs.video.startImageFile, 'startImageInput', 'start frame');
+    }
+
+    function handleVideoEndImageFile() {
+        handleVideoImageFileSelection('endImageInput', refs.video.endImageFile, 'endImageInput', 'end frame');
+    }
+
+    function clearVideoImageSelection(formKey, inputEl, previewKey) {
+        state.forms.video[formKey] = null;
+        if (inputEl) inputEl.value = '';
+        if (formKey === 'startImageInput' && state.forms.video.endImageInput) {
+            state.forms.video.endImageInput = null;
+            if (refs.video.endImageFile) refs.video.endImageFile.value = '';
+            renderVideoImageSelection('endImageInput', null);
+        }
         setVideoInlineError('');
-        renderVideoImageSelection(null);
+        renderVideoImageSelection(previewKey, null);
+        syncVideoFieldState();
         persistState();
+    }
+
+    function clearVideoImage() {
+        clearVideoImageSelection('imageInput', refs.video.imageFile, 'imageInput');
+    }
+
+    function clearVideoStartImage() {
+        clearVideoImageSelection('startImageInput', refs.video.startImageFile, 'startImageInput');
+    }
+
+    function clearVideoEndImage() {
+        clearVideoImageSelection('endImageInput', refs.video.endImageFile, 'endImageInput');
     }
 
     function getCompareCardText(entry, diff, side) {
@@ -3966,24 +4275,44 @@ export function createAdminAiLab({ showToast } = {}) {
         renderVideoResult();
         startTaskTimer('video', controller);
 
+        const videoSpec = getSelectedVideoModelSpec();
+        const prompt = (state.forms.video.prompt || '').trim();
         const payload = {
-            preset: state.forms.video.preset || undefined,
-            model: state.forms.video.model || undefined,
-            prompt: (state.forms.video.prompt || '').trim(),
+            preset: videoSpec.defaultPreset || state.forms.video.preset || undefined,
+            model: videoSpec.id,
             duration: Number(state.forms.video.duration),
-            aspect_ratio: state.forms.video.aspectRatio,
-            quality: state.forms.video.quality,
-            generate_audio: state.forms.video.generateAudio,
         };
-        const negativePrompt = (state.forms.video.negativePrompt || '').trim();
-        if (negativePrompt) {
-            payload.negative_prompt = negativePrompt;
-        }
-        if (state.forms.video.seed !== '' && state.forms.video.seed !== null && state.forms.video.seed !== undefined) {
-            payload.seed = Number(state.forms.video.seed);
-        }
-        if (state.forms.video.imageInput) {
-            payload.image_input = state.forms.video.imageInput;
+
+        if (videoSpec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+            payload.resolution = state.forms.video.resolution;
+            payload.audio = state.forms.video.generateAudio;
+            if (prompt) {
+                payload.prompt = prompt;
+            }
+            if (state.forms.video.startImageInput) {
+                payload.start_image = state.forms.video.startImageInput;
+            }
+            if (state.forms.video.endImageInput) {
+                payload.end_image = state.forms.video.endImageInput;
+            }
+            if (!state.forms.video.startImageInput && !state.forms.video.endImageInput) {
+                payload.aspect_ratio = state.forms.video.aspectRatio;
+            }
+        } else {
+            payload.prompt = prompt;
+            payload.aspect_ratio = state.forms.video.aspectRatio;
+            payload.quality = state.forms.video.quality;
+            payload.generate_audio = state.forms.video.generateAudio;
+            const negativePrompt = (state.forms.video.negativePrompt || '').trim();
+            if (negativePrompt) {
+                payload.negative_prompt = negativePrompt;
+            }
+            if (state.forms.video.seed !== '' && state.forms.video.seed !== null && state.forms.video.seed !== undefined) {
+                payload.seed = Number(state.forms.video.seed);
+            }
+            if (state.forms.video.imageInput) {
+                payload.image_input = state.forms.video.imageInput;
+            }
         }
 
         const res = await apiAdminAiTestVideo(payload, {
@@ -4461,14 +4790,26 @@ export function createAdminAiLab({ showToast } = {}) {
             attachFieldSync(refs.video.duration, 'video', 'duration', (value) => value === '' ? '' : Number(value));
             attachFieldSync(refs.video.aspectRatio, 'video', 'aspectRatio');
             attachFieldSync(refs.video.quality, 'video', 'quality');
+            attachFieldSync(refs.video.resolution, 'video', 'resolution');
             attachFieldSync(refs.video.seed, 'video', 'seed');
             refs.video.generateAudio.addEventListener('change', () => {
                 state.forms.video.generateAudio = refs.video.generateAudio.checked;
                 persistState();
             });
             refs.video.prompt.addEventListener('input', () => setVideoInlineError(''));
-            refs.video.imageFile.addEventListener('change', handleVideoImageFile);
-            refs.video.imageClear.addEventListener('click', clearVideoImage);
+            refs.video.imageFile?.addEventListener('change', handleVideoImageFile);
+            refs.video.imageClear?.addEventListener('click', clearVideoImage);
+            refs.video.startImageFile?.addEventListener('change', handleVideoStartImageFile);
+            refs.video.startImageClear?.addEventListener('click', clearVideoStartImage);
+            refs.video.endImageFile?.addEventListener('change', handleVideoEndImageFile);
+            refs.video.endImageClear?.addEventListener('click', clearVideoEndImage);
+            refs.video.modelCards.forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (button.disabled) return;
+                    setVideoInlineError('');
+                    setVideoModel(button.dataset.aiVideoModel);
+                });
+            });
         }
 
         attachFieldSync(refs.compare.modelA, 'compare', 'modelA');

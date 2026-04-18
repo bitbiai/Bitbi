@@ -30,9 +30,12 @@ export async function handleVideo({ request, env, correlationId }) {
         duration: output.duration,
         aspect_ratio: output.aspect_ratio,
         quality: output.quality,
+        resolution: output.resolution,
         seed: output.seed,
         generate_audio: output.generate_audio,
         hasImageInput: output.hasImageInput,
+        hasEndImageInput: output.hasEndImageInput,
+        workflow: output.workflow,
       },
       elapsedMs: output.elapsedMs,
     });
@@ -44,7 +47,8 @@ export async function handleVideo({ request, env, correlationId }) {
       level: "error",
       correlationId,
       model: selection?.model?.id || null,
-      has_image_input: !!input?.image_input,
+      has_image_input: !!(input?.image_input || input?.start_image),
+      has_end_image_input: !!input?.end_image,
       ...getErrorFields(error),
     });
     return fromError(error, "Video generation failed");

@@ -915,9 +915,9 @@
                             <div>
                                 <div class="admin-ai__label-row admin-ai__label-row--wrap">
                                     <h3 id="aiVideoTitle" class="admin-section-title">Video AI</h3>
-                                    <code class="admin-ai__model-badge">pixverse/v6</code>
+                                    <code id="aiVideoModelBadge" class="admin-ai__model-badge">pixverse/v6</code>
                                 </div>
-                                <p class="admin-shell__desc">Admin-only console for text-to-video and image-to-video generation with configurable duration, quality, and aspect ratio.</p>
+                                <p id="aiVideoModelDesc" class="admin-shell__desc">Admin-only console for text-to-video and image-to-video generation with configurable duration, quality, and aspect ratio.</p>
                             </div>
                             <div class="admin-ai__panel-actions">
                                 <button type="button" id="aiVideoReset" class="btn-action">Clear</button>
@@ -933,23 +933,36 @@
                             <span></span>
                         </div>
 
+                        <div class="admin-ai__video-model-grid" role="tablist" aria-label="Video AI models">
+                            <button type="button" id="aiVideoCardPixverse" class="admin-ai__video-model-card admin-ai__video-model-card--active" data-ai-video-model="pixverse/v6" aria-selected="true">
+                                <span class="admin-ai__video-model-card-title">Pixverse V6</span>
+                                <code class="admin-ai__video-model-card-id">pixverse/v6</code>
+                                <span class="admin-ai__video-model-card-copy">Text-to-video and image-to-video with negative prompt, quality, seed, and audio controls.</span>
+                            </button>
+                            <button type="button" id="aiVideoCardVidu" class="admin-ai__video-model-card" data-ai-video-model="vidu/q3-pro" aria-selected="false">
+                                <span class="admin-ai__video-model-card-title">Vidu Q3 Pro</span>
+                                <code class="admin-ai__video-model-card-id">vidu/q3-pro</code>
+                                <span class="admin-ai__video-model-card-copy">Text-to-video, image-to-video, and start/end-frame workflows with resolution and audio controls.</span>
+                            </button>
+                        </div>
+
                         <label class="admin-ai__field">
                             <span class="admin-ai__label-row">
                                 <span class="admin-ai__label">Prompt</span>
                                 <span id="aiVideoPromptCount" class="admin-ai__count"></span>
                             </span>
-                            <textarea id="aiVideoPrompt" class="admin-ai__textarea" rows="5" maxlength="2048" placeholder="Describe the scene, motion, camera movement, and visual style."></textarea>
+                            <textarea id="aiVideoPrompt" class="admin-ai__textarea" rows="5" maxlength="5000" placeholder="Describe the scene, motion, camera movement, and visual style."></textarea>
                         </label>
 
-                        <label class="admin-ai__field">
+                        <label id="aiVideoNegativePromptField" class="admin-ai__field">
                             <span class="admin-ai__label-row">
                                 <span class="admin-ai__label">Negative Prompt</span>
                                 <span id="aiVideoNegativePromptCount" class="admin-ai__count"></span>
                             </span>
-                            <textarea id="aiVideoNegativePrompt" class="admin-ai__textarea" rows="2" maxlength="1024" placeholder="Optional — describe what to avoid."></textarea>
+                            <textarea id="aiVideoNegativePrompt" class="admin-ai__textarea" rows="2" maxlength="2048" placeholder="Optional — describe what to avoid."></textarea>
                         </label>
 
-                        <div class="admin-ai__field">
+                        <div id="aiVideoImageField" class="admin-ai__field">
                             <span class="admin-ai__label">Image Input (optional)</span>
                             <div class="admin-ai__video-image-input">
                                 <input type="file" id="aiVideoImageFile" class="admin-ai__file-input" accept="image/png,image/jpeg,image/webp">
@@ -966,12 +979,46 @@
                             <span class="admin-ai__hint">Upload a reference image for image-to-video generation. Max 10 MB.</span>
                         </div>
 
+                        <div id="aiVideoStartImageField" class="admin-ai__field" hidden>
+                            <span class="admin-ai__label">Start Frame (optional)</span>
+                            <div class="admin-ai__video-image-input">
+                                <input type="file" id="aiVideoStartImageFile" class="admin-ai__file-input" accept="image/png,image/jpeg,image/webp">
+                                <div id="aiVideoStartImagePreview" class="admin-ai__video-image-preview" data-state="empty">
+                                    <div id="aiVideoStartImageEmpty" class="admin-ai__video-image-empty" role="status" aria-live="polite">
+                                        <span class="admin-ai__video-image-badge">Start frame preview</span>
+                                        <strong class="admin-ai__video-image-empty-title">No start frame selected.</strong>
+                                        <span class="admin-ai__video-image-empty-hint">Upload a PNG, JPEG, or WebP to drive image-to-video or start/end-frame generation.</span>
+                                    </div>
+                                    <img id="aiVideoStartImageThumb" alt="Selected start frame preview" hidden>
+                                    <button type="button" id="aiVideoStartImageClear" class="admin-ai__video-image-clear" aria-label="Remove start frame" hidden>&times;</button>
+                                </div>
+                            </div>
+                            <span class="admin-ai__hint">Upload a start frame for image-to-video generation. Max 10 MB.</span>
+                        </div>
+
+                        <div id="aiVideoEndImageField" class="admin-ai__field" hidden>
+                            <span class="admin-ai__label">End Frame (optional)</span>
+                            <div class="admin-ai__video-image-input">
+                                <input type="file" id="aiVideoEndImageFile" class="admin-ai__file-input" accept="image/png,image/jpeg,image/webp">
+                                <div id="aiVideoEndImagePreview" class="admin-ai__video-image-preview" data-state="empty">
+                                    <div id="aiVideoEndImageEmpty" class="admin-ai__video-image-empty" role="status" aria-live="polite">
+                                        <span class="admin-ai__video-image-badge">End frame preview</span>
+                                        <strong class="admin-ai__video-image-empty-title">No end frame selected.</strong>
+                                        <span class="admin-ai__video-image-empty-hint">Optional end frame for start/end-frame-to-video. Requires a selected start frame.</span>
+                                    </div>
+                                    <img id="aiVideoEndImageThumb" alt="Selected end frame preview" hidden>
+                                    <button type="button" id="aiVideoEndImageClear" class="admin-ai__video-image-clear" aria-label="Remove end frame" hidden>&times;</button>
+                                </div>
+                            </div>
+                            <span class="admin-ai__hint">Optional end frame. Vidu requires a start frame whenever an end frame is provided.</span>
+                        </div>
+
                         <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                            <label class="admin-ai__field">
+                            <label id="aiVideoDurationField" class="admin-ai__field">
                                 <span class="admin-ai__label">Duration (seconds)</span>
                                 <input id="aiVideoDuration" class="admin-ai__input" type="number" min="1" max="15" step="1" value="5">
                             </label>
-                            <label class="admin-ai__field">
+                            <label id="aiVideoAspectRatioField" class="admin-ai__field">
                                 <span class="admin-ai__label">Aspect Ratio</span>
                                 <select id="aiVideoAspectRatio" class="admin-ai__input">
                                     <option value="16:9" selected>16:9</option>
@@ -983,12 +1030,13 @@
                                     <option value="3:2">3:2</option>
                                     <option value="21:9">21:9</option>
                                 </select>
+                                <span id="aiVideoAspectRatioHint" class="admin-ai__hint" hidden></span>
                             </label>
                         </div>
 
                         <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                            <label class="admin-ai__field">
-                                <span class="admin-ai__label">Quality</span>
+                            <label id="aiVideoQualityField" class="admin-ai__field">
+                                <span id="aiVideoQualityLabel" class="admin-ai__label">Quality</span>
                                 <select id="aiVideoQuality" class="admin-ai__input">
                                     <option value="360p">360p</option>
                                     <option value="540p">540p</option>
@@ -996,7 +1044,15 @@
                                     <option value="1080p">1080p</option>
                                 </select>
                             </label>
-                            <label class="admin-ai__field">
+                            <label id="aiVideoResolutionField" class="admin-ai__field" hidden>
+                                <span class="admin-ai__label">Resolution</span>
+                                <select id="aiVideoResolution" class="admin-ai__input">
+                                    <option value="540p">540p</option>
+                                    <option value="720p" selected>720p</option>
+                                    <option value="1080p">1080p</option>
+                                </select>
+                            </label>
+                            <label id="aiVideoSeedField" class="admin-ai__field">
                                 <span class="admin-ai__label">Seed</span>
                                 <input id="aiVideoSeed" class="admin-ai__input" type="number" min="0" max="2147483647" step="1" placeholder="Optional">
                             </label>
@@ -1004,7 +1060,7 @@
 
                         <label class="admin-ai__field admin-ai__field--inline">
                             <input type="checkbox" id="aiVideoGenerateAudio" checked>
-                            <span class="admin-ai__label">Generate Audio</span>
+                            <span id="aiVideoAudioLabel" class="admin-ai__label">Generate Audio</span>
                         </label>
 
                         <span id="aiVideoInlineError" class="admin-ai__inline-error" hidden></span>

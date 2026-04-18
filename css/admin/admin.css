@@ -1187,6 +1187,72 @@
 
     /* Video AI */
 
+    .admin-ai__video-model-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+        margin-block-end: var(--space-4);
+    }
+
+    .admin-ai__video-model-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-4);
+        text-align: left;
+        color: inherit;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+            rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition:
+            border-color 0.2s var(--ease-default),
+            background 0.2s var(--ease-default),
+            transform 0.2s var(--ease-default);
+    }
+
+    .admin-ai__video-model-card:hover {
+        border-color: rgba(0, 240, 255, 0.18);
+        background:
+            linear-gradient(180deg, rgba(0, 240, 255, 0.06), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.02);
+        transform: translateY(-1px);
+    }
+
+    .admin-ai__video-model-card--active {
+        border-color: rgba(0, 240, 255, 0.22);
+        background:
+            linear-gradient(180deg, rgba(0, 240, 255, 0.1), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.03);
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.06) inset;
+    }
+
+    .admin-ai__video-model-card-title {
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .admin-ai__video-model-card-id {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: rgba(188, 245, 255, 0.78);
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-full);
+        padding: 0.2rem 0.55rem;
+    }
+
+    .admin-ai__video-model-card-copy {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.56);
+    }
+
     .admin-ai__video-preview {
         margin-block-end: var(--space-4);
     }
@@ -1895,6 +1961,10 @@
 
         .admin-ai__form-grid--4,
         .admin-ai__form-grid--5 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .admin-ai__video-model-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }

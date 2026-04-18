@@ -327,25 +327,39 @@ function resolveFetchedVideoMimeType(contentType, sourceUrl, finalUrl) {
   return null;
 }
 
-function buildVideoMetadata(payload, savedAt, { mimeType, sizeBytes } = {}) {
-  return {
+function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
+  const metadata = {
     source_module: "video",
-    saved_at: savedAt,
-    model: payload.model || null,
-    prompt: payload.prompt || null,
     upstream_url: payload.videoUrl || null,
     mime_type: mimeType || "video/mp4",
     size_bytes: sizeBytes ?? null,
-    duration: payload.duration ?? null,
-    aspect_ratio: payload.aspect_ratio || null,
-    quality: payload.quality || null,
-    seed: payload.seed ?? null,
-    generate_audio: payload.generate_audio ?? null,
-    has_image_input: payload.hasImageInput ?? null,
-    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
-    elapsed_ms: payload.elapsedMs ?? null,
-    received_at: payload.receivedAt || null,
   };
+
+  if (payload.model) metadata.model = payload.model;
+  if (payload.prompt || payload.prompt === null) metadata.prompt = payload.prompt;
+  if (payload.duration !== undefined && payload.duration !== null) metadata.duration = payload.duration;
+  if (payload.aspect_ratio) metadata.aspect_ratio = payload.aspect_ratio;
+  if (payload.quality) metadata.quality = payload.quality;
+  if (payload.resolution) metadata.resolution = payload.resolution;
+  if (payload.seed !== undefined && payload.seed !== null) metadata.seed = payload.seed;
+  if (payload.generate_audio !== undefined && payload.generate_audio !== null) {
+    metadata.generate_audio = payload.generate_audio;
+  }
+  if (payload.hasImageInput !== undefined && payload.hasImageInput !== null) {
+    metadata.has_image_input = payload.hasImageInput;
+  }
+  if (payload.hasEndImageInput !== undefined && payload.hasEndImageInput !== null) {
+    metadata.has_end_image_input = payload.hasEndImageInput;
+  }
+  if (payload.workflow) metadata.workflow = payload.workflow;
+  if (Array.isArray(payload.warnings) && payload.warnings.length > 0) {
+    metadata.warnings = payload.warnings;
+  }
+  if (payload.elapsedMs !== undefined && payload.elapsedMs !== null) {
+    metadata.elapsed_ms = payload.elapsedMs;
+  }
+
+  return metadata;
 }
 
 export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedAt = nowIso() }) {
