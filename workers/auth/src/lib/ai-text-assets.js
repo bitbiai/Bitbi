@@ -3,6 +3,7 @@ import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
 
 export const AI_TEXT_ASSET_MIME_TYPE = "text/plain; charset=utf-8";
 export const AI_TEXT_ASSET_MAX_BYTES = 220_000;
+export const AI_VIDEO_ASSET_MAX_BYTES = 80_000_000;
 const PREVIEW_MAX_CHARS = 220;
 const METADATA_JSON_LIMITS = {
   maxEntries: 16,
@@ -267,54 +268,6 @@ function serializeLiveAgentPayload(title, payload, savedAt) {
   };
 }
 
-function serializeVideoPayload(title, payload, savedAt) {
-  const generationMode = payload.hasImageInput ? "Image-to-video" : "Text-to-video";
-  const generateAudio = payload.generate_audio === null || payload.generate_audio === undefined
-    ? "Unknown"
-    : payload.generate_audio ? "yes" : "no";
-
-  const sections = [
-    `Title: ${title}`,
-    "Module: Video",
-    `Saved At: ${savedAt}`,
-    `Run Received At: ${payload.receivedAt || "Unknown"}`,
-    `Model: ${buildModelLine(payload.model)}`,
-    `Vendor: ${payload.model?.vendor || "Unknown"}`,
-    `Elapsed: ${payload.elapsedMs ?? "Unknown"} ms`,
-    `Duration: ${payload.duration ?? "Unknown"} s`,
-    `Aspect Ratio: ${payload.aspect_ratio || "Unknown"}`,
-    `Quality: ${payload.quality || "Unknown"}`,
-    `Seed: ${payload.seed ?? "Unknown"}`,
-    `Generate Audio: ${generateAudio}`,
-    `Mode: ${generationMode}`,
-    "",
-    "Warnings:",
-    buildWarningsBlock(payload.warnings),
-    "",
-    "Prompt:",
-    payload.prompt,
-    "",
-    "Video URL:",
-    payload.videoUrl,
-  ];
-
-  return {
-    content: sections.join("\n"),
-    previewText: truncatePreview(payload.prompt || payload.videoUrl || "Video generation"),
-    metadata: {
-      ...normalizeMetadataCommon("video", payload, savedAt),
-      prompt: payload.prompt || null,
-      video_url: payload.videoUrl,
-      duration: payload.duration ?? null,
-      aspect_ratio: payload.aspect_ratio || null,
-      quality: payload.quality || null,
-      seed: payload.seed ?? null,
-      generate_audio: payload.generate_audio ?? null,
-      has_image_input: payload.hasImageInput ?? null,
-    },
-  };
-}
-
 function buildMusicMetadata(payload, savedAt) {
   return {
     source_module: "music",
@@ -340,6 +293,55 @@ function buildMusicMetadata(payload, savedAt) {
   };
 }
 
+function urlPathLooksLikeMp4(value) {
+  try {
+    return new URL(value).pathname.toLowerCase().endsWith(".mp4");
+  } catch {
+    return false;
+  }
+}
+
+function resolveFetchedVideoMimeType(contentType, sourceUrl, finalUrl) {
+  const normalized = String(contentType || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "video/mp4") {
+    return "video/mp4";
+  }
+
+  if (
+    (!normalized || normalized === "application/octet-stream")
+    && (urlPathLooksLikeMp4(finalUrl) || urlPathLooksLikeMp4(sourceUrl))
+  ) {
+    return "video/mp4";
+  }
+
+  return null;
+}
+
+function buildVideoMetadata(payload, savedAt, { mimeType, sizeBytes } = {}) {
+  return {
+    source_module: "video",
+    saved_at: savedAt,
+    model: payload.model || null,
+    prompt: payload.prompt || null,
+    upstream_url: payload.videoUrl || null,
+    mime_type: mimeType || "video/mp4",
+    size_bytes: sizeBytes ?? null,
+    duration: payload.duration ?? null,
+    aspect_ratio: payload.aspect_ratio || null,
+    quality: payload.quality || null,
+    seed: payload.seed ?? null,
+    generate_audio: payload.generate_audio ?? null,
+    has_image_input: payload.hasImageInput ?? null,
+    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    elapsed_ms: payload.elapsedMs ?? null,
+    received_at: payload.receivedAt || null,
+  };
+}
+
 export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedAt = nowIso() }) {
   const safeTitle = cleanInlineText(title);
   const normalizedPayload = {
@@ -348,7 +350,6 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
     system: cleanMultilineText(payload.system),
     output: cleanMultilineText(payload.output),
     finalResponse: cleanMultilineText(payload.finalResponse),
-    videoUrl: cleanInlineText(payload.videoUrl),
     inputItems: Array.isArray(payload.inputItems) ? payload.inputItems.map(cleanMultilineText) : [],
     transcript: Array.isArray(payload.transcript)
       ? payload.transcript.map((entry) => ({
@@ -367,8 +368,6 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
       return serializeComparePayload(safeTitle, normalizedPayload, savedAt);
     case "live_agent":
       return serializeLiveAgentPayload(safeTitle, normalizedPayload, savedAt);
-    case "video":
-      return serializeVideoPayload(safeTitle, normalizedPayload, savedAt);
     default: {
       const error = new Error(`Unsupported source module "${sourceModule}".`);
       error.status = 400;
@@ -438,6 +437,81 @@ async function buildMusicAssetFields(safeTitle, payload, now) {
   return { bytes, mimeType, ext, previewText, metadata };
 }
 
+async function buildVideoAssetFields(safeTitle, payload, now) {
+  let res;
+  try {
+    res = await fetch(payload.videoUrl, { redirect: "follow" });
+  } catch {
+    const error = new Error("Failed to download video from the provided URL.");
+    error.status = 502;
+    error.code = "upstream_fetch_error";
+    throw error;
+  }
+
+  if (!res.ok) {
+    const error = new Error(`Video URL returned HTTP ${res.status}.`);
+    error.status = 502;
+    error.code = "upstream_fetch_error";
+    throw error;
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  const mimeType = resolveFetchedVideoMimeType(contentType, payload.videoUrl, res.url);
+  if (!mimeType) {
+    const error = new Error(
+      `Video URL returned unexpected content-type: ${contentType || "missing"}.`
+    );
+    error.status = 422;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > AI_VIDEO_ASSET_MAX_BYTES) {
+    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  let bytes;
+  try {
+    bytes = new Uint8Array(await res.arrayBuffer());
+  } catch {
+    const error = new Error("Failed to read downloaded video bytes.");
+    error.status = 502;
+    error.code = "upstream_fetch_error";
+    throw error;
+  }
+
+  if (bytes.byteLength > AI_VIDEO_ASSET_MAX_BYTES) {
+    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+  if (bytes.byteLength === 0) {
+    const error = new Error("Video payload is empty.");
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const previewText = truncatePreview(payload.prompt || safeTitle || "Video generation");
+  const metadata = buildVideoMetadata(payload, now, {
+    mimeType,
+    sizeBytes: bytes.byteLength,
+  });
+
+  return {
+    bytes,
+    mimeType,
+    ext: "mp4",
+    previewText,
+    metadata,
+  };
+}
+
 export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {
   const safeTitle = cleanInlineText(title).slice(0, 120) || "AI Lab Asset";
   const now = nowIso();
@@ -455,6 +529,13 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     fileExt = music.ext;
     previewText = music.previewText;
     metadataRaw = music.metadata;
+  } else if (sourceModule === "video") {
+    const video = await buildVideoAssetFields(safeTitle, payload, now);
+    bytes = video.bytes;
+    mimeType = video.mimeType;
+    fileExt = video.ext;
+    previewText = video.previewText;
+    metadataRaw = video.metadata;
   } else {
     const serialization = serializeAdminAiTextAsset({
       title: safeTitle,
@@ -500,7 +581,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   const fileName = `${fileStem}.${fileExt}`;
   const assetId = randomTokenHex(16);
   const timestamp = Date.now();
-  const subDir = sourceModule === "music" ? "audio" : "text";
+  const subDir = sourceModule === "music" ? "audio" : sourceModule === "video" ? "video" : "text";
   const r2Key = `users/${userId}/folders/${folderSlug}/${subDir}/${timestamp}-${randomTokenHex(4)}-${fileName}`;
   const metadataJson = JSON.stringify(
     sanitizeAssetMetadata(metadataRaw, {
@@ -510,12 +591,21 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     })
   );
 
-  await env.USER_IMAGES.put(r2Key, bytes, {
-    httpMetadata: {
-      contentType: mimeType,
-      contentDisposition: `inline; filename="${fileName}"`,
-    },
-  });
+  try {
+    await env.USER_IMAGES.put(r2Key, bytes, {
+      httpMetadata: {
+        contentType: mimeType,
+        contentDisposition: `inline; filename="${fileName}"`,
+      },
+    });
+  } catch {
+    const error = new Error(
+      sourceModule === "video" ? "Failed to store video asset." : "Failed to store saved asset."
+    );
+    error.status = 500;
+    error.code = "storage_error";
+    throw error;
+  }
 
   let insertResult;
   try {

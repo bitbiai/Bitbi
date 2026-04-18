@@ -182,13 +182,13 @@ export function buildVideoSaveIntent({
     const result = response?.result;
     if (!result?.videoUrl) return null;
     return {
-        type: 'text',
+        type: 'video',
         sourceModule: 'video',
         modalTitle: 'Save Video Result',
-        description: 'Save the generated video metadata into your existing folder structure.',
+        description: 'Download the generated MP4 server-side and save it into your existing folder structure.',
         confirmLabel: 'Save Video',
         defaultTitle: buildSaveTitle(prompt, 'AI Lab Video'),
-        note: 'The video URL is temporary. Download the file before saving if you want to keep it.',
+        note: 'The auth worker stores the final MP4 in your own saved-assets storage and records the run metadata beside it.',
         payload: {
             videoUrl: result.videoUrl,
             prompt: result.prompt || prompt || '',

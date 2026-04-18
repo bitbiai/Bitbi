@@ -95,9 +95,14 @@ function flattenAiImageKeys(rows) {
 }
 
 function inferAiFileAssetType(mimeType) {
-  return String(mimeType || "").toLowerCase().startsWith("audio/")
-    ? "sound"
-    : "text";
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.startsWith("audio/")) {
+    return "sound";
+  }
+  if (normalized.startsWith("video/")) {
+    return "video";
+  }
+  return "text";
 }
 
 function toAiFileAssetRecord(row) {
@@ -1152,23 +1157,28 @@ async function handleGetTextAssetFile(ctx, assetId) {
     ).bind(assetId, session.user.id).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
-      return json({ ok: false, error: "Text asset service unavailable." }, { status: 503 });
+      return json({ ok: false, error: "Saved asset service unavailable." }, { status: 503 });
     }
     throw error;
   }
 
   if (!row) {
-    return json({ ok: false, error: "Text asset not found." }, { status: 404 });
+    return json({ ok: false, error: "Saved asset not found." }, { status: 404 });
   }
 
   const object = await env.USER_IMAGES.get(row.r2_key);
   if (!object) {
-    return json({ ok: false, error: "Text asset file not found." }, { status: 404 });
+    return json({ ok: false, error: "Saved asset file not found." }, { status: 404 });
   }
 
   const headers = new Headers();
   headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "text/plain; charset=utf-8");
   headers.set("Cache-Control", "private, max-age=3600");
+  if (object.size) {
+    headers.set("Content-Length", String(object.size));
+  }
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("X-Content-Type-Options", "nosniff");
   if (row.file_name) {
     headers.set("Content-Disposition", `inline; filename="${row.file_name}"`);
   }

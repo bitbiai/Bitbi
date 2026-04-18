@@ -4396,30 +4396,6 @@ test.describe('Worker routes', () => {
       },
       contains: ['Module: Live Agent', '[USER] Hello agent.', 'Final Response:'],
     },
-    {
-      label: 'video',
-      sourceModule: 'video',
-      title: 'Video Save',
-      data: {
-        videoUrl: 'https://cdn.example.com/generated/video-save.mp4',
-        prompt: 'A slow dolly shot through a neon alley.',
-        model: {
-          id: 'pixverse/v6',
-          label: 'Pixverse V6',
-          vendor: 'Pixverse',
-        },
-        duration: 5,
-        aspect_ratio: '16:9',
-        quality: '720p',
-        seed: 42,
-        generate_audio: true,
-        hasImageInput: false,
-        warnings: ['Mock video warning'],
-        elapsedMs: 645,
-        receivedAt: nowIso(),
-      },
-      contains: ['Module: Video', 'Video URL:', 'Mode: Text-to-video'],
-    },
   ].forEach((scenario) => {
     test(`admin AI save-text-asset saves ${scenario.label} output as a shared folder text asset`, async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -4476,6 +4452,323 @@ test.describe('Worker routes', () => {
         expect(text).toContain(fragment);
       }
     });
+  });
+
+  test('admin AI save-text-asset downloads MP4 video output into the video subdirectory', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video')],
+      aiFolders: [
+        {
+          id: 'feed7788',
+          user_id: 'admin-save-video',
+          name: 'Clips',
+          slug: 'clips',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const fakeVideoBytes = new Uint8Array([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+      0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        return new Response(fakeVideoBytes, {
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-video');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Family Walk',
+          folderId: 'feed7788',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/family-walk.mp4',
+            prompt: 'A family walking through a sunlit park.',
+            model: { id: 'pixverse/v6', label: 'Pixverse V6', vendor: 'Pixverse' },
+            duration: 5,
+            aspect_ratio: '16:9',
+            quality: '720p',
+            seed: 99,
+            generate_audio: true,
+            hasImageInput: false,
+            warnings: ['Mock video warning'],
+            elapsedMs: 645,
+            receivedAt: nowIso(),
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.41',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(201);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          folder_id: 'feed7788',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          file_name: expect.stringMatching(/\.mp4$/),
+        },
+      });
+
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const row = env.DB.state.aiTextAssets[0];
+      expect(row.folder_id).toBe('feed7788');
+      expect(row.source_module).toBe('video');
+      expect(row.mime_type).toBe('video/mp4');
+      expect(row.r2_key).toContain('/video/');
+      expect(row.r2_key).toMatch(/\.mp4$/);
+
+      const metadata = JSON.parse(row.metadata_json);
+      expect(metadata.prompt).toBe('A family walking through a sunlit park.');
+      expect(metadata.upstream_url).toBe('https://cdn.example.com/video/family-walk.mp4');
+      expect(metadata.mime_type).toBe('video/mp4');
+      expect(metadata.size_bytes).toBe(fakeVideoBytes.byteLength);
+
+      expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+      const object = env.USER_IMAGES.objects.get(row.r2_key);
+      expect(object.httpMetadata.contentType).toBe('video/mp4');
+      expect(object.size).toBe(fakeVideoBytes.byteLength);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('admin AI save-text-asset rejects video saves with a missing upstream URL', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-missing')],
+    });
+
+    const token = await seedSession(env, 'admin-save-video-missing');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+        title: 'Broken Video Save',
+        sourceModule: 'video',
+        data: {
+          prompt: 'Missing video URL.',
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.42',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'validation_error',
+      error: expect.stringContaining('videoUrl'),
+    }));
+  });
+
+  test('admin AI save-text-asset rejects upstream video responses with non-video content types', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-badtype')],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        return new Response('not a video', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-video-badtype');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Bad Type',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/bad-type.mp4',
+            prompt: 'Bad upstream content type.',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.43',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(422);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('unexpected content-type'),
+      }));
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('admin AI save-text-asset surfaces upstream video download failures', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-upstream')],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        throw new Error('network down');
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-video-upstream');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Fetch Failure',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/fetch-failure.mp4',
+            prompt: 'Fetch failure.',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.44',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'upstream_fetch_error',
+        error: 'Failed to download video from the provided URL.',
+      }));
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('admin AI save-text-asset rejects empty downloaded video payloads', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-empty')],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        return new Response(new Uint8Array(0), {
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-video-empty');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Empty Video',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/empty.mp4',
+            prompt: 'Empty payload.',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.45',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: 'Video payload is empty.',
+      }));
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('admin AI save-text-asset surfaces R2 write failures for video saves', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-r2')],
+    });
+
+    const originalFetch = global.fetch;
+    const originalPut = env.USER_IMAGES.put.bind(env.USER_IMAGES);
+    global.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
+        return new Response(new Uint8Array([0, 1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'video/mp4' },
+        });
+      }
+      return originalFetch(url, opts);
+    };
+    env.USER_IMAGES.put = async (...args) => {
+      throw new Error('R2 unavailable');
+    };
+
+    try {
+      const token = await seedSession(env, 'admin-save-video-r2');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+          title: 'Video R2 Failure',
+          sourceModule: 'video',
+          data: {
+            videoUrl: 'https://cdn.example.com/video/r2-failure.mp4',
+            prompt: 'R2 failure.',
+          },
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.46',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(500);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'storage_error',
+        error: 'Failed to store video asset.',
+      }));
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    } finally {
+      env.USER_IMAGES.put = originalPut;
+      global.fetch = originalFetch;
+    }
   });
 
   test('admin AI save-text-asset saves music output as a binary MP3 in the audio subdirectory', async () => {
@@ -4949,7 +5242,7 @@ test.describe('Worker routes', () => {
     expect(json.error).toMatch(/HTTP/i);
   });
 
-  test('AI assets route returns mixed image, text, and sound assets from the shared folder world', async () => {
+  test('AI assets route returns mixed image, text, sound, and video assets from the shared folder world', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'mixed-assets-user', role: 'user' })],
@@ -5016,15 +5309,15 @@ test.describe('Worker routes', () => {
           created_at: '2026-04-10T12:06:00.000Z',
         },
         {
-          id: 'abe100vv',
+          id: 'abe100ab',
           user_id: 'mixed-assets-user',
           folder_id: 'f01da123',
-          r2_key: 'users/mixed-assets-user/folders/launches/text/video-save.txt',
+          r2_key: 'users/mixed-assets-user/folders/launches/video/video-save.mp4',
           title: 'Video Save',
-          file_name: 'video-save.txt',
+          file_name: 'video-save.mp4',
           source_module: 'video',
-          mime_type: 'text/plain; charset=utf-8',
-          size_bytes: 384,
+          mime_type: 'video/mp4',
+          size_bytes: 8192,
           preview_text: 'A slow dolly shot through a neon alley.',
           metadata_json: '{}',
           created_at: '2026-04-10T12:07:00.000Z',
@@ -5039,9 +5332,9 @@ test.describe('Worker routes', () => {
           body: new TextEncoder().encode('mock-audio').buffer,
           httpMetadata: { contentType: 'audio/mpeg' },
         },
-        'users/mixed-assets-user/folders/launches/text/video-save.txt': {
-          body: new TextEncoder().encode('Video Save').buffer,
-          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        'users/mixed-assets-user/folders/launches/video/video-save.mp4': {
+          body: new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]).buffer,
+          httpMetadata: { contentType: 'video/mp4' },
         },
         'users/mixed-assets-user/derivatives/v1/1ab100cd/thumb.webp': {
           body: new TextEncoder().encode('thumb').buffer,
@@ -5066,13 +5359,14 @@ test.describe('Worker routes', () => {
 
     expect(listRes.status).toBe(200);
     const listBody = await listRes.json();
-    expect(listBody.ok).toBe(true);
-    expect(listBody.data.assets).toEqual([
+      expect(listBody.ok).toBe(true);
+      expect(listBody.data.assets).toEqual([
       expect.objectContaining({
-        id: 'abe100vv',
-        asset_type: 'text',
+        id: 'abe100ab',
+        asset_type: 'video',
         source_module: 'video',
-        file_url: '/api/ai/text-assets/abe100vv/file',
+        mime_type: 'video/mp4',
+        file_url: '/api/ai/text-assets/abe100ab/file',
       }),
       expect.objectContaining({
         id: 'abd100aa',
@@ -5109,6 +5403,17 @@ test.describe('Worker routes', () => {
     expect(fileRes.status).toBe(200);
     expect(await fileRes.text()).toBe('Compare Notes');
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
+
+    const videoRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abe100ab/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(videoRes.status).toBe(200);
+    expect(videoRes.headers.get('content-type')).toContain('video/mp4');
   });
 
   test('owner can publish and unpublish their own saved image asset without changing ownership or folder state', async () => {

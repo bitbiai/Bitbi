@@ -50,6 +50,11 @@ function isAudioAsset(asset) {
     return String(asset?.mime_type || '').toLowerCase().startsWith('audio/');
 }
 
+function isVideoAsset(asset) {
+    if (asset?.asset_type === 'video') return true;
+    return String(asset?.mime_type || '').toLowerCase().startsWith('video/');
+}
+
 function isImageAsset(asset) {
     return asset?.asset_type === 'image';
 }
@@ -60,6 +65,7 @@ function isPublishedImageAsset(asset) {
 
 function getFileBadge(asset) {
     if (isAudioAsset(asset)) return 'SOUND';
+    if (isVideoAsset(asset)) return 'VIDEO';
     const sourceModule = String(asset?.source_module || '').trim();
     return sourceModule
         ? sourceModule.replace(/_/g, ' ').toUpperCase()
@@ -67,12 +73,19 @@ function getFileBadge(asset) {
 }
 
 function getFileTitle(asset) {
-    return asset?.title || asset?.file_name || (isAudioAsset(asset) ? 'Saved audio asset' : 'Saved asset');
+    return asset?.title
+        || asset?.file_name
+        || (isAudioAsset(asset)
+            ? 'Saved audio asset'
+            : isVideoAsset(asset)
+                ? 'Saved video asset'
+                : 'Saved asset');
 }
 
 function getFilePreview(asset) {
     if (asset?.preview_text) return asset.preview_text;
     if (isAudioAsset(asset)) return 'Saved audio asset.';
+    if (isVideoAsset(asset)) return 'Saved video asset.';
     return 'Saved AI Lab asset.';
 }
 
@@ -487,14 +500,15 @@ async function deleteSingleAsset(asset) {
     function buildFileCard(asset) {
         const item = document.createElement('article');
         const isSound = isAudioAsset(asset);
-        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : 'studio__image-item--text'}`;
+        const isVideo = isVideoAsset(asset);
+        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}`;
         item.dataset.assetId = asset.id;
-        item.dataset.assetType = isSound ? 'sound' : 'text';
+        item.dataset.assetType = isSound ? 'sound' : isVideo ? 'video' : 'text';
         item.dataset.openUrl = asset.file_url || '';
         item.title = getFileTitle(asset);
 
         const badge = document.createElement('span');
-        badge.className = `studio__asset-badge ${isSound ? 'studio__asset-badge--sound' : 'studio__asset-badge--text'}`;
+        badge.className = `studio__asset-badge ${isSound ? 'studio__asset-badge--sound' : isVideo ? 'studio__asset-badge--video' : 'studio__asset-badge--text'}`;
         badge.textContent = getFileBadge(asset);
         item.appendChild(badge);
 
@@ -515,6 +529,14 @@ async function deleteSingleAsset(asset) {
             audio.preload = 'none';
             audio.src = asset.file_url;
             item.appendChild(audio);
+        } else if (isVideo && asset.file_url) {
+            const video = document.createElement('video');
+            video.className = 'studio__asset-video';
+            video.controls = true;
+            video.preload = 'metadata';
+            video.playsInline = true;
+            video.src = asset.file_url;
+            item.appendChild(video);
         }
 
         const meta = document.createElement('div');
@@ -534,7 +556,7 @@ async function deleteSingleAsset(asset) {
         openLink.href = asset.file_url || '#';
         openLink.target = '_blank';
         openLink.rel = 'noopener noreferrer';
-        openLink.textContent = isSound ? 'Open File' : 'Open';
+        openLink.textContent = isSound ? 'Open File' : isVideo ? 'Open Video' : 'Open';
         actions.appendChild(openLink);
 
         const deleteButton = document.createElement('button');
@@ -543,7 +565,11 @@ async function deleteSingleAsset(asset) {
         deleteButton.textContent = 'Delete';
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
-            const confirmText = isSound ? 'Delete this sound file?' : 'Delete this saved asset?';
+            const confirmText = isSound
+                ? 'Delete this sound file?'
+                : isVideo
+                    ? 'Delete this video asset?'
+                    : 'Delete this saved asset?';
             if (!confirm(confirmText)) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
@@ -555,7 +581,7 @@ async function deleteSingleAsset(asset) {
                 return;
             }
             await refresh();
-            showMsg(isSound ? 'Sound file deleted.' : 'Asset deleted.', 'success');
+            showMsg(isSound ? 'Sound file deleted.' : isVideo ? 'Video asset deleted.' : 'Asset deleted.', 'success');
         });
         actions.appendChild(deleteButton);
 

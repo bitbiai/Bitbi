@@ -766,11 +766,17 @@ async function mockAdminAiLab(page, captures = {}) {
 
   await page.route('**/api/ai/text-assets/*/file', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const contentType = path.includes('snd-asset-1') ? 'audio/mpeg' : 'text/plain; charset=utf-8';
+    const assetId = path.split('/').slice(-2, -1)[0];
+    const asset = assetStore.getAsset(assetId);
+    const contentType = asset?.mime_type || 'text/plain; charset=utf-8';
     await route.fulfill({
       status: 200,
       contentType,
-      body: path.includes('snd-asset-1') ? 'mock-audio' : 'Saved AI Lab text asset.',
+      body: contentType.startsWith('audio/')
+        ? 'mock-audio'
+        : contentType.startsWith('video/')
+          ? Buffer.from('mock-video')
+          : 'Saved AI Lab text asset.',
     });
   });
 
@@ -843,16 +849,18 @@ async function mockAdminAiLab(page, captures = {}) {
     saveTextAssetRequests.push(body);
     const id = `txt-${saveTextAssetRequests.length}`;
     const title = body.title;
+    const slug = String(title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset';
+    const isVideo = body.sourceModule === 'video';
     assetStore.addAsset({
       id,
-      asset_type: 'text',
+      asset_type: isVideo ? 'video' : 'text',
       folder_id: body.folderId || null,
       title,
-      file_name: `${String(title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
+      file_name: `${slug}.${isVideo ? 'mp4' : 'txt'}`,
       source_module: body.sourceModule,
-      mime_type: 'text/plain; charset=utf-8',
-      size_bytes: 420,
-      preview_text: 'Saved from admin AI Lab.',
+      mime_type: isVideo ? 'video/mp4' : 'text/plain; charset=utf-8',
+      size_bytes: isVideo ? 8192 : 420,
+      preview_text: body.data?.prompt || 'Saved from admin AI Lab.',
       created_at: '2026-04-10T12:00:00.000Z',
       file_url: `/api/ai/text-assets/${id}/file`,
     });
@@ -865,11 +873,11 @@ async function mockAdminAiLab(page, captures = {}) {
           id,
           folder_id: body.folderId || null,
           title,
-          file_name: `${String(title || 'asset').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'}.txt`,
+          file_name: `${slug}.${isVideo ? 'mp4' : 'txt'}`,
           source_module: body.sourceModule,
-          mime_type: 'text/plain; charset=utf-8',
-          size_bytes: 420,
-          preview_text: 'Saved from admin AI Lab.',
+          mime_type: isVideo ? 'video/mp4' : 'text/plain; charset=utf-8',
+          size_bytes: isVideo ? 8192 : 420,
+          preview_text: body.data?.prompt || 'Saved from admin AI Lab.',
           created_at: '2026-04-10T12:00:00.000Z',
         },
       }),
@@ -1026,10 +1034,17 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   });
 
   await page.route('**/api/ai/text-assets/*/file', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const assetId = path.split('/').slice(-2, -1)[0];
+    const asset = assetStore.getAsset(assetId);
     await route.fulfill({
       status: 200,
-      contentType: 'text/plain; charset=utf-8',
-      body: 'Saved AI Lab text asset.',
+      contentType: asset?.mime_type || 'text/plain; charset=utf-8',
+      body: asset?.mime_type?.startsWith('audio/')
+        ? 'mock-audio'
+        : asset?.mime_type?.startsWith('video/')
+          ? Buffer.from('mock-video')
+          : 'Saved AI Lab text asset.',
     });
   });
 
@@ -1675,6 +1690,19 @@ test.describe('Image Studio (authenticated)', () => {
             created_at: '2026-04-10T12:06:00.000Z',
             file_url: '/api/ai/text-assets/snd-1/file',
           },
+          {
+            id: 'vid-1',
+            asset_type: 'video',
+            folder_id: 'folder-launches',
+            title: 'Launch Walkthrough',
+            file_name: 'launch-walkthrough.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 4096000,
+            preview_text: 'A cinematic walkthrough of the launch scene stored in owned R2.',
+            created_at: '2026-04-10T12:07:00.000Z',
+            file_url: '/api/ai/text-assets/vid-1/file',
+          },
         ],
         unfoldered: [],
         folders: {
@@ -1717,6 +1745,19 @@ test.describe('Image Studio (authenticated)', () => {
               created_at: '2026-04-10T12:06:00.000Z',
               file_url: '/api/ai/text-assets/snd-1/file',
             },
+            {
+              id: 'vid-1',
+              asset_type: 'video',
+              folder_id: 'folder-launches',
+              title: 'Launch Walkthrough',
+              file_name: 'launch-walkthrough.mp4',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              size_bytes: 4096000,
+              preview_text: 'A cinematic walkthrough of the launch scene stored in owned R2.',
+              created_at: '2026-04-10T12:07:00.000Z',
+              file_url: '/api/ai/text-assets/vid-1/file',
+            },
           ],
         },
       },
@@ -1727,12 +1768,15 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
-    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(4);
     await expect(page.locator('.studio__image-item--text')).toContainText('COMPARE');
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
     await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
     await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
+    await expect(page.locator('.studio__image-item--video')).toContainText('Launch Walkthrough');
+    await expect(page.locator('.studio__asset-video')).toHaveCount(1);
+    await expect(page.locator('.studio__asset-video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
     await expect(page.locator('.studio__asset-open').first()).toHaveAttribute('href', /\/api\/ai\/text-assets\//);
   });
 
@@ -2833,6 +2877,7 @@ test.describe('Admin AI Lab', () => {
     await page.route('**/api/admin/ai/save-text-asset', async (route) => {
       const body = route.request().postDataJSON();
       saveTextAssetRequests.push(body);
+      const isVideo = body.sourceModule === 'video';
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -2842,11 +2887,11 @@ test.describe('Admin AI Lab', () => {
             id: `txt-${saveTextAssetRequests.length}`,
             folder_id: body.folderId || null,
             title: body.title,
-            file_name: 'saved.txt',
+            file_name: isVideo ? 'saved.mp4' : 'saved.txt',
             source_module: body.sourceModule,
-            mime_type: 'text/plain; charset=utf-8',
-            size_bytes: 420,
-            preview_text: 'Saved from admin AI Lab.',
+            mime_type: isVideo ? 'video/mp4' : 'text/plain; charset=utf-8',
+            size_bytes: isVideo ? 8192 : 420,
+            preview_text: body.data?.prompt || 'Saved from admin AI Lab.',
             created_at: '2026-04-10T12:00:00.000Z',
           },
         }),
