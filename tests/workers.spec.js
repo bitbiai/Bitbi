@@ -2436,6 +2436,15 @@ test.describe('Worker routes', () => {
         audio: false,
         aspect_ratio: '9:16',
       });
+      // Pixverse-only fields must never leak into Vidu payload
+      expect(capturedPayload.quality).toBeUndefined();
+      expect(capturedPayload.generate_audio).toBeUndefined();
+      expect(capturedPayload.seed).toBeUndefined();
+      expect(capturedPayload.negative_prompt).toBeUndefined();
+      expect(capturedPayload.image_input).toBeUndefined();
+      expect(capturedPayload.workflow).toBeUndefined();
+      expect(capturedPayload.start_image).toBeUndefined();
+      expect(capturedPayload.end_image).toBeUndefined();
     });
 
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro start/end-frame workflows without sending unsupported fields', async () => {
@@ -2484,6 +2493,70 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.aspect_ratio).toBeUndefined();
       expect(capturedPayload.negative_prompt).toBeUndefined();
       expect(capturedPayload.seed).toBeUndefined();
+      // Remaining Pixverse-only fields must also be absent
+      expect(capturedPayload.quality).toBeUndefined();
+      expect(capturedPayload.generate_audio).toBeUndefined();
+      expect(capturedPayload.image_input).toBeUndefined();
+      expect(capturedPayload.workflow).toBeUndefined();
+    });
+
+    test('POST /api/admin/ai/test-video accepts vidu/q3-pro image-to-video (start_image only) without sending Pixverse fields', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          return { video: 'https://cdn.example.com/video/vidu-img2v.mp4' };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Camera slowly zooms into the subject.',
+          start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
+          duration: 8,
+          resolution: '1080p',
+          audio: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.result).toEqual(expect.objectContaining({
+        videoUrl: 'https://cdn.example.com/video/vidu-img2v.mp4',
+        prompt: 'Camera slowly zooms into the subject.',
+        duration: 8,
+        aspect_ratio: null,
+        quality: null,
+        resolution: '1080p',
+        seed: null,
+        generate_audio: true,
+        hasImageInput: true,
+        hasEndImageInput: false,
+        workflow: 'image_to_video',
+      }));
+      expect(capturedModelId).toBe('vidu/q3-pro');
+      expect(capturedPayload).toEqual({
+        prompt: 'Camera slowly zooms into the subject.',
+        start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
+        duration: 8,
+        resolution: '1080p',
+        audio: true,
+      });
+      // Pixverse-only fields must never leak into Vidu payload
+      expect(capturedPayload.quality).toBeUndefined();
+      expect(capturedPayload.generate_audio).toBeUndefined();
+      expect(capturedPayload.seed).toBeUndefined();
+      expect(capturedPayload.negative_prompt).toBeUndefined();
+      expect(capturedPayload.image_input).toBeUndefined();
+      expect(capturedPayload.workflow).toBeUndefined();
+      // Image-to-video must suppress aspect_ratio and end_image
+      expect(capturedPayload.aspect_ratio).toBeUndefined();
+      expect(capturedPayload.end_image).toBeUndefined();
     });
 
     test('POST /api/admin/ai/test-video rejects vidu/q3-pro end_image without start_image', async () => {

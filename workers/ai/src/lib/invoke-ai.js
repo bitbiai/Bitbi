@@ -929,6 +929,7 @@ export async function invokeVideo(env, model, input) {
     aspect_ratio: input.aspect_ratio,
     quality: input.quality || null,
     resolution: input.resolution || null,
+    payload_keys: Object.keys(payload).sort().join(","),
   });
 
   let raw;
