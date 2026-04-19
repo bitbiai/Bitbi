@@ -285,6 +285,150 @@ test.describe('Homepage', () => {
     await expect(page.locator('.filter-btn[data-filter="experimental"]')).toHaveCount(0);
   });
 
+  test('homepage removes the AI Art, AI Video, and Audio labels without leaving header gaps', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.route('**/api/favorites', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, favorites: [] }),
+      });
+    });
+
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'header-check-mempic',
+                slug: 'header-check-mempic',
+                title: 'Mempics',
+                caption: 'Published by Ada Member on 2026-04-12.',
+                category: 'mempics',
+                thumb: {
+                  url: '/api/gallery/mempics/header-check-mempic/thumb',
+                  w: 320,
+                  h: 320,
+                },
+                preview: {
+                  url: '/api/gallery/mempics/header-check-mempic/medium',
+                  w: 1280,
+                  h: 1280,
+                },
+                full: {
+                  url: '/api/gallery/mempics/header-check-mempic/file',
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'header-check-memvid',
+                slug: 'header-check-memvid',
+                title: 'Launch Walkthrough',
+                caption: 'Published by Ada Member on 2026-04-14.',
+                category: 'memvids',
+                file: {
+                  url: '/api/gallery/memvids/header-check-memvid/file',
+                },
+                poster: {
+                  url: '/api/gallery/memvids/header-check-memvid/poster',
+                  w: 1280,
+                  h: 720,
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+
+    await expect(page.locator('#gallery .section__label')).toHaveCount(0);
+    await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
+    await expect(page.locator('#soundlab .section__label')).toHaveCount(0);
+
+    await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+    await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+    await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+
+    const desktopHeaderLayout = await page.evaluate(() => (
+      ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
+        const headerInner = document.querySelector(`${selector} .section__header--sm > div`);
+        const title = document.querySelector(`${selector} .section__title`);
+        const style = window.getComputedStyle(title);
+        return {
+          selector,
+          marginTop: style.marginTop,
+          titleOffset: Math.round((title.getBoundingClientRect().top - headerInner.getBoundingClientRect().top) * 100) / 100,
+        };
+      })
+    ));
+
+    desktopHeaderLayout.forEach(({ marginTop, titleOffset }) => {
+      expect(marginTop).toBe('0px');
+      expect(titleOffset).toBeLessThanOrEqual(1);
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await expect(page.locator('#gallery .section__label')).toHaveCount(0);
+    await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
+    await expect(page.locator('#soundlab .section__label')).toHaveCount(0);
+    await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+    await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+    await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+  });
+
   test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {
     await page.route('**/api/gallery/mempics**', async (route) => {
       await route.fulfill({
