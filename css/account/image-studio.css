@@ -950,6 +950,17 @@
         border: 1px solid rgba(0, 240, 255, 0.15);
     }
 
+    .studio__bulk-btn--rename {
+        color: rgba(255, 179, 0, 0.92);
+        background: rgba(255, 179, 0, 0.08);
+        border: 1px solid rgba(255, 179, 0, 0.18);
+    }
+
+    .studio__bulk-btn--rename:hover {
+        background: rgba(255, 179, 0, 0.14);
+        border-color: rgba(255, 179, 0, 0.28);
+    }
+
     .studio__bulk-btn--move:hover {
         background: rgba(0, 240, 255, 0.12);
         border-color: rgba(0, 240, 255, 0.3);
@@ -1188,6 +1199,7 @@
 
     .studio__folder-card {
         aspect-ratio: 1;
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -1205,6 +1217,33 @@
     .studio__folder-card:hover {
         border-color: rgba(0, 240, 255, 0.2);
         background: rgba(0, 240, 255, 0.03);
+    }
+
+    .studio__folder-grid.studio--selecting .studio__folder-card[data-folder-id] .studio__image-check {
+        display: flex;
+    }
+
+    .studio__folder-grid.studio--selecting .studio__folder-card:not([data-folder-id]) {
+        opacity: 0.58;
+        cursor: default;
+    }
+
+    .studio__folder-card.selected {
+        border-color: rgba(0, 240, 255, 0.4);
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.12);
+    }
+
+    .studio__folder-card.selected .studio__image-check {
+        background: var(--color-cyan);
+        border-color: var(--color-cyan);
+    }
+
+    .studio__folder-card.selected .studio__image-check::after {
+        content: '\2713';
+        color: var(--color-midnight);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
     }
 
     .studio__folder-card-icon {

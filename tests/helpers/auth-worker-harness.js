@@ -844,10 +844,41 @@ class MockD1 {
       return this.state.aiFolders.find((row) => row.id === folderId && row.user_id === userId && row.status === 'active') || null;
     }
 
+    if (query === "SELECT id, name, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
+      const [folderId, userId] = bindings;
+      const row = this.state.aiFolders.find((item) => item.id === folderId && item.user_id === userId && item.status === 'active');
+      return row
+        ? {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+          }
+        : null;
+    }
+
     if (query === "SELECT id FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
       const [folderId, userId] = bindings;
       const row = this.state.aiFolders.find((item) => item.id === folderId && item.user_id === userId && item.status === 'active');
       return row ? { id: row.id } : null;
+    }
+
+    if (query === "UPDATE ai_folders SET name = ?, slug = ? WHERE id = ? AND user_id = ? AND status = 'active'") {
+      const [name, slug, folderId, userId] = bindings;
+      const conflict = this.state.aiFolders.find(
+        (row) => row.user_id === userId && row.id !== folderId && row.slug === slug
+      );
+      if (conflict) {
+        throw new Error('UNIQUE constraint failed: ai_folders.user_id, ai_folders.slug');
+      }
+      let changes = 0;
+      for (const row of this.state.aiFolders) {
+        if (row.id === folderId && row.user_id === userId && row.status === 'active') {
+          row.name = name;
+          row.slug = slug;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
     }
 
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) SELECT')) {
@@ -898,6 +929,29 @@ class MockD1 {
             published_at: row.published_at,
           }
         : null;
+    }
+
+    if (query === 'SELECT id, prompt FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row
+        ? {
+            id: row.id,
+            prompt: row.prompt,
+          }
+        : null;
+    }
+
+    if (query === 'UPDATE ai_images SET prompt = ? WHERE id = ? AND user_id = ?') {
+      const [prompt, imageId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId) {
+          row.prompt = prompt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
     }
 
     if (query === 'UPDATE ai_images SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?') {
@@ -1465,6 +1519,33 @@ class MockD1 {
             mime_type: row.mime_type,
           }
         : null;
+    }
+
+    if (query === 'SELECT id, title, file_name, mime_type, source_module FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row
+        ? {
+            id: row.id,
+            title: row.title,
+            file_name: row.file_name,
+            mime_type: row.mime_type,
+            source_module: row.source_module,
+          }
+        : null;
+    }
+
+    if (query === 'UPDATE ai_text_assets SET title = ?, file_name = ? WHERE id = ? AND user_id = ?') {
+      const [title, fileName, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.title = title;
+          row.file_name = fileName;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
     }
 
     if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {

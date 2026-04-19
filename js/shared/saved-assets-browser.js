@@ -8,6 +8,9 @@ import {
     apiAiGetAssets,
     apiAiGetFolders,
     apiAiGetFoldersForDelete,
+    apiAiRenameFolder,
+    apiAiRenameImage,
+    apiAiRenameTextAsset,
     apiAiSetImagePublication,
     apiAiSetTextAssetPublication,
 } from './auth-api.js?v=__ASSET_VERSION__';
@@ -16,6 +19,9 @@ import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=__ASSET
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';
 const MAX_BULK_SELECT = 50;
+const MAX_FOLDER_NAME_LENGTH = 100;
+const MAX_IMAGE_NAME_LENGTH = 1000;
+const MAX_FILE_ASSET_NAME_LENGTH = 120;
 const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -88,6 +94,63 @@ function getFilePreview(asset) {
     if (isAudioAsset(asset)) return 'Saved audio asset.';
     if (isVideoAsset(asset)) return 'Saved video asset.';
     return 'Saved AI Lab asset.';
+}
+
+function splitFileName(fileName) {
+    const normalized = String(fileName || '').trim();
+    const slashIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+    const bareName = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
+    const dotIndex = bareName.lastIndexOf('.');
+    if (dotIndex > 0 && dotIndex < bareName.length - 1) {
+        return {
+            base: bareName.slice(0, dotIndex),
+            ext: bareName.slice(dotIndex),
+        };
+    }
+    return {
+        base: bareName,
+        ext: '',
+    };
+}
+
+function getAssetRenameLabel(asset) {
+    if (isImageAsset(asset)) {
+        return String(asset?.title || asset?.prompt || asset?.preview_text || 'Saved image').trim();
+    }
+    if (asset?.title) {
+        return String(asset.title).trim();
+    }
+    if (asset?.file_name) {
+        return splitFileName(asset.file_name).base || String(asset.file_name).trim();
+    }
+    return getFileTitle(asset);
+}
+
+function getRenameTargetConfig(target) {
+    if (!target) return null;
+    if (target.kind === 'folder') {
+        return {
+            maxLength: MAX_FOLDER_NAME_LENGTH,
+            placeholder: 'Folder name',
+            successLabel: 'Folder',
+        };
+    }
+    if (isImageAsset(target.asset)) {
+        return {
+            maxLength: MAX_IMAGE_NAME_LENGTH,
+            placeholder: 'Image name',
+            successLabel: 'Image',
+        };
+    }
+    return {
+        maxLength: MAX_FILE_ASSET_NAME_LENGTH,
+        placeholder: 'Asset name',
+        successLabel: isAudioAsset(target.asset)
+            ? 'Sound asset'
+            : isVideoAsset(target.asset)
+                ? 'Video asset'
+                : 'Asset',
+    };
 }
 
 function getImagePreviewState(asset) {
@@ -222,9 +285,14 @@ export function createSavedAssetsBrowser({
     const $mobileActionsMenu = refs.mobileActionsMenu;
     const $bulkBar = refs.bulkBar;
     const $bulkCount = refs.bulkCount;
+    const $bulkRename = refs.bulkRename;
     const $bulkMove = refs.bulkMove;
     const $bulkDelete = refs.bulkDelete;
     const $bulkCancel = refs.bulkCancel;
+    const $renameForm = refs.renameForm;
+    const $renameInput = refs.renameInput;
+    const $renameConfirm = refs.renameConfirm;
+    const $renameCancel = refs.renameCancel;
     const $bulkMoveForm = refs.bulkMoveForm;
     const $bulkMoveSelect = refs.bulkMoveSelect;
     const $bulkMoveConfirm = refs.bulkMoveConfirm;
@@ -246,6 +314,8 @@ export function createSavedAssetsBrowser({
     let unfolderedCount = 0;
     let selectMode = false;
     let selectedIds = new Set();
+    let selectionScope = null;
+    let currentAssets = [];
     let folderDeck = null;
     let assetDeck = null;
     let folderLoadSeq = 0;
@@ -294,6 +364,7 @@ export function createSavedAssetsBrowser({
     }
 
     function renderEmptyState(message = emptyStateMessage) {
+        currentAssets = [];
         $assetGrid.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
@@ -308,7 +379,89 @@ export function createSavedAssetsBrowser({
         item.appendChild(check);
     }
 
-async function deleteSingleAsset(asset) {
+    function getSelectedEntity() {
+        if (selectedIds.size !== 1) return null;
+        const [id] = Array.from(selectedIds);
+        if (!id) return null;
+        if (selectionScope === 'folder') {
+            const folder = folders.find((entry) => entry.id === id);
+            return folder
+                ? {
+                    kind: 'folder',
+                    id: folder.id,
+                    label: folder.name,
+                }
+                : null;
+        }
+
+        const asset = currentAssets.find((entry) => entry.id === id);
+        return asset
+            ? {
+                kind: 'asset',
+                id: asset.id,
+                label: getAssetRenameLabel(asset),
+                asset,
+            }
+            : null;
+    }
+
+    function hideRenameForm() {
+        $renameForm?.classList.remove('visible');
+    }
+
+    function getSelectionContextLabel() {
+        return selectionScope === 'folder' ? 'folder' : 'asset';
+    }
+
+    function updateBulkCount() {
+        const count = selectedIds.size;
+        if ($bulkCount) {
+            $bulkCount.textContent = `${count} selected${count >= MAX_BULK_SELECT ? ' (max)' : ''}`;
+        }
+
+        if ($bulkRename) {
+            $bulkRename.disabled = count !== 1;
+        }
+
+        const folderSelection = selectionScope === 'folder';
+        if ($bulkMove) {
+            $bulkMove.hidden = folderSelection;
+            $bulkMove.disabled = folderSelection || count === 0;
+        }
+        if ($bulkDelete) {
+            $bulkDelete.hidden = folderSelection;
+            $bulkDelete.disabled = folderSelection || count === 0;
+        }
+
+        if (count !== 1) {
+            hideRenameForm();
+        }
+        if (folderSelection) {
+            $bulkMoveForm?.classList.remove('visible');
+        }
+    }
+
+    async function restoreSingleSelection(id, scope) {
+        if (!id || !scope) return;
+        if (scope === 'folder') {
+            if (!folderViewActive) return;
+            enterSelectMode();
+            const item = $folderGrid.querySelector(`.studio__folder-card[data-folder-id="${id}"]`);
+            if (item) {
+                toggleSelection(item);
+            }
+            return;
+        }
+
+        if (folderViewActive) return;
+        enterSelectMode();
+        const item = $assetGrid.querySelector(`.studio__image-item[data-asset-id="${id}"]`);
+        if (item) {
+            toggleSelection(item);
+        }
+    }
+
+    async function deleteSingleAsset(asset) {
         if (isImageAsset(asset)) {
             return apiAiDeleteImage(asset.id);
         }
@@ -356,6 +509,7 @@ async function deleteSingleAsset(asset) {
         exitSelectMode();
         hideNewFolderForm();
         hideDeleteFolderForm();
+        hideRenameForm();
         folderViewActive = true;
         $galleryFilter.value = '';
         $folderGrid.style.display = '';
@@ -369,7 +523,10 @@ async function deleteSingleAsset(asset) {
 
         const allCard = document.createElement('div');
         allCard.className = 'studio__folder-card';
-        allCard.addEventListener('click', openAllAssets);
+        allCard.addEventListener('click', () => {
+            if (selectMode) return;
+            openAllAssets();
+        });
         [
             { className: 'studio__folder-card-icon', text: '\u{1F5BC}' },
             { className: 'studio__folder-card-name', text: 'All Assets' },
@@ -384,7 +541,10 @@ async function deleteSingleAsset(asset) {
 
         const assetsCard = document.createElement('div');
         assetsCard.className = 'studio__folder-card';
-        assetsCard.addEventListener('click', () => openFolder(UNFOLDERED));
+        assetsCard.addEventListener('click', () => {
+            if (selectMode) return;
+            openFolder(UNFOLDERED);
+        });
         [
             { className: 'studio__folder-card-icon', text: '\u{1F4E6}' },
             { className: 'studio__folder-card-name', text: 'Assets' },
@@ -400,7 +560,15 @@ async function deleteSingleAsset(asset) {
         folders.forEach((folder) => {
             const card = document.createElement('div');
             card.className = 'studio__folder-card';
-            card.addEventListener('click', () => openFolder(folder.id));
+            card.dataset.folderId = folder.id;
+            card.title = folder.name;
+            card.addEventListener('click', () => {
+                if (selectMode) {
+                    toggleSelection(card);
+                    return;
+                }
+                openFolder(folder.id);
+            });
 
             const icon = document.createElement('span');
             icon.className = 'studio__folder-card-icon';
@@ -416,6 +584,7 @@ async function deleteSingleAsset(asset) {
             count.textContent = `${totalCount} asset${totalCount === 1 ? '' : 's'}`;
 
             card.append(icon, name, count);
+            appendSelectionCheck(card);
             $folderGrid.appendChild(card);
         });
     }
@@ -660,6 +829,7 @@ async function deleteSingleAsset(asset) {
         } catch (error) {
             console.warn('Failed to load gallery:', error);
             if (requestId !== assetLoadSeq) return;
+            currentAssets = [];
             renderEmptyState();
             showMsg('Could not load saved assets.', 'error');
             return;
@@ -668,13 +838,14 @@ async function deleteSingleAsset(asset) {
         if (requestId !== assetLoadSeq) return;
         hideMsg();
 
-        if (!Array.isArray(assets) || assets.length === 0) {
+        currentAssets = Array.isArray(assets) ? assets.slice() : [];
+        if (currentAssets.length === 0) {
             renderEmptyState(emptyStateMessage);
             return;
         }
 
         $assetGrid.innerHTML = '';
-        assets.forEach((asset) => {
+        currentAssets.forEach((asset) => {
             $assetGrid.appendChild(isImageAsset(asset) ? buildImageCard(asset) : buildFileCard(asset));
         });
         assetDeck?.refresh();
@@ -683,6 +854,7 @@ async function deleteSingleAsset(asset) {
     function openFolder(folderId) {
         hideNewFolderForm();
         hideDeleteFolderForm();
+        hideRenameForm();
         folderViewActive = false;
         $folderGrid.style.display = 'none';
         folderDeck?.setVisible(false);
@@ -695,6 +867,7 @@ async function deleteSingleAsset(asset) {
     function openAllAssets() {
         hideNewFolderForm();
         hideDeleteFolderForm();
+        hideRenameForm();
         folderViewActive = false;
         $folderGrid.style.display = 'none';
         folderDeck?.setVisible(false);
@@ -707,26 +880,54 @@ async function deleteSingleAsset(asset) {
     function exitSelectMode() {
         if (!selectMode) return;
         selectMode = false;
+        selectionScope = null;
         selectedIds.clear();
         $assetGrid.classList.remove('studio--selecting');
+        $folderGrid.classList.remove('studio--selecting');
         delete $assetGrid.dataset.selectMode;
+        delete $folderGrid.dataset.selectMode;
         $bulkBar?.classList.remove('visible');
+        hideRenameForm();
         $bulkMoveForm?.classList.remove('visible');
         $galleryFilter.disabled = false;
         setSelectionRootActive(false);
         $assetGrid.querySelectorAll('.studio__image-item.selected').forEach((el) => {
             el.classList.remove('selected');
         });
+        $folderGrid.querySelectorAll('.studio__folder-card.selected').forEach((el) => {
+            el.classList.remove('selected');
+        });
         updateBulkCount();
     }
 
     function enterSelectMode() {
-        const items = $assetGrid.querySelectorAll('.studio__image-item[data-asset-id]');
-        if (items.length === 0) return;
+        hideNewFolderForm();
+        hideDeleteFolderForm();
+        hideRenameForm();
+        $bulkMoveForm?.classList.remove('visible');
+
+        const folderScope = folderViewActive;
+        const items = folderScope
+            ? $folderGrid.querySelectorAll('.studio__folder-card[data-folder-id]')
+            : $assetGrid.querySelectorAll('.studio__image-item[data-asset-id]');
+        if (items.length === 0) {
+            showMsg(
+                folderScope ? 'No folders available to rename.' : 'No saved assets available to select.',
+                'error',
+            );
+            return;
+        }
+
         selectMode = true;
+        selectionScope = folderScope ? 'folder' : 'asset';
         selectedIds.clear();
-        $assetGrid.classList.add('studio--selecting');
-        $assetGrid.dataset.selectMode = 'true';
+        if (folderScope) {
+            $folderGrid.classList.add('studio--selecting');
+            $folderGrid.dataset.selectMode = 'true';
+        } else {
+            $assetGrid.classList.add('studio--selecting');
+            $assetGrid.dataset.selectMode = 'true';
+        }
         $bulkBar?.classList.add('visible');
         $galleryFilter.disabled = true;
         setSelectionRootActive(true);
@@ -735,7 +936,7 @@ async function deleteSingleAsset(asset) {
     }
 
     function toggleSelection(item) {
-        const id = item.dataset.assetId;
+        const id = item.dataset.assetId || item.dataset.folderId;
         if (!id) return;
         if (selectedIds.has(id)) {
             selectedIds.delete(id);
@@ -751,17 +952,84 @@ async function deleteSingleAsset(asset) {
         updateBulkCount();
     }
 
-    function updateBulkCount() {
-        if (!$bulkCount) return;
-        const count = selectedIds.size;
-        $bulkCount.textContent = `${count} selected${count >= MAX_BULK_SELECT ? ' (max)' : ''}`;
+    function showRenameForm() {
+        if (selectedIds.size !== 1) {
+            showMsg(`Select exactly one ${getSelectionContextLabel()} first.`, 'error');
+            return;
+        }
+        const target = getSelectedEntity();
+        if (!target) {
+            showMsg(`Selected ${getSelectionContextLabel()} could not be loaded. Refresh and try again.`, 'error');
+            return;
+        }
+
+        const config = getRenameTargetConfig(target);
+        if (!config || !$renameInput) return;
+
+        $bulkMoveForm?.classList.remove('visible');
+        $renameInput.value = target.label || '';
+        $renameInput.maxLength = config.maxLength;
+        $renameInput.placeholder = config.placeholder;
+        $renameForm?.classList.add('visible');
+        $renameInput.focus();
+        $renameInput.select();
+    }
+
+    async function handleRenameConfirm() {
+        const target = getSelectedEntity();
+        if (!target) {
+            showMsg(`Select exactly one ${getSelectionContextLabel()} first.`, 'error');
+            return;
+        }
+
+        const nextName = $renameInput?.value || '';
+        if ($renameConfirm) {
+            $renameConfirm.disabled = true;
+            $renameConfirm.textContent = '\u2026';
+        }
+
+        let result;
+        if (target.kind === 'folder') {
+            result = await apiAiRenameFolder(target.id, nextName);
+        } else if (isImageAsset(target.asset)) {
+            result = await apiAiRenameImage(target.id, nextName);
+        } else {
+            result = await apiAiRenameTextAsset(target.id, nextName);
+        }
+
+        if ($renameConfirm) {
+            $renameConfirm.disabled = false;
+            $renameConfirm.textContent = 'Rename';
+        }
+        if (!result.ok) {
+            showMsg(result.error || 'Rename failed.', 'error');
+            return;
+        }
+
+        hideRenameForm();
+        const config = getRenameTargetConfig(target);
+        if (result.data?.unchanged) {
+            showMsg(`${config?.successLabel || 'Item'} name unchanged.`, 'success');
+            return;
+        }
+
+        const selectedId = target.id;
+        const selectedScope = selectionScope;
+        await refresh({ preserveView: true });
+        await restoreSingleSelection(selectedId, selectedScope);
+        showMsg(`${config?.successLabel || 'Item'} renamed.`, 'success');
     }
 
     function showBulkMoveForm() {
+        if (selectionScope === 'folder') {
+            showMsg('Move is only available for saved assets.', 'error');
+            return;
+        }
         if (selectedIds.size === 0) {
             showMsg('Select at least one asset first.', 'error');
             return;
         }
+        hideRenameForm();
         populateFolderOptions($bulkMoveSelect, folders);
         $bulkMoveForm?.classList.add('visible');
         $bulkMoveSelect?.focus();
@@ -790,6 +1058,10 @@ async function deleteSingleAsset(asset) {
     }
 
     async function handleBulkDelete() {
+        if (selectionScope === 'folder') {
+            showMsg('Delete is only available from the folder delete action.', 'error');
+            return;
+        }
         if (selectedIds.size === 0) {
             showMsg('Select at least one asset first.', 'error');
             return;
@@ -821,6 +1093,7 @@ async function deleteSingleAsset(asset) {
     }
 
     function showNewFolderForm() {
+        hideRenameForm();
         $deleteFolderForm?.classList.remove('visible');
         $newFolderForm?.classList.add('visible');
         if ($newFolderInput) {
@@ -846,6 +1119,7 @@ async function deleteSingleAsset(asset) {
 
     async function showDeleteFolderForm() {
         hideNewFolderForm();
+        hideRenameForm();
         let deletableFolders;
         try {
             deletableFolders = await apiAiGetFoldersForDelete();
@@ -980,9 +1254,22 @@ async function deleteSingleAsset(asset) {
         });
 
         $selectBtn?.addEventListener('click', enterSelectMode);
+        $bulkRename?.addEventListener('click', showRenameForm);
         $bulkMove?.addEventListener('click', showBulkMoveForm);
         $bulkDelete?.addEventListener('click', handleBulkDelete);
         $bulkCancel?.addEventListener('click', exitSelectMode);
+        $renameConfirm?.addEventListener('click', handleRenameConfirm);
+        $renameCancel?.addEventListener('click', hideRenameForm);
+        $renameInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleRenameConfirm();
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideRenameForm();
+            }
+        });
         $bulkMoveConfirm?.addEventListener('click', handleBulkMoveConfirm);
         $bulkMoveCancel?.addEventListener('click', () => {
             $bulkMoveForm?.classList.remove('visible');

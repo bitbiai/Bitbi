@@ -270,6 +270,10 @@ export function apiAiDeleteFolder(folderId) {
     return request('DELETE', `/ai/folders/${folderId}`);
 }
 
+export function apiAiRenameFolder(folderId, name) {
+    return request('PATCH', `/ai/folders/${folderId}`, { name });
+}
+
 export async function apiAiGetImages(folderId, { onlyUnfoldered } = {}) {
     const params = new URLSearchParams();
     if (onlyUnfoldered) params.set('only_unfoldered', '1');
@@ -302,6 +306,10 @@ export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }
 
+export function apiAiRenameImage(imageId, name) {
+    return request('PATCH', `/ai/images/${imageId}/rename`, { name });
+}
+
 export function apiAiSetImagePublication(imageId, visibility) {
     return request('PATCH', `/ai/images/${imageId}/publication`, { visibility });
 }
@@ -312,6 +320,10 @@ export function apiAiSetTextAssetPublication(assetId, visibility) {
 
 export function apiAiDeleteTextAsset(assetId) {
     return request('DELETE', `/ai/text-assets/${assetId}`);
+}
+
+export function apiAiRenameTextAsset(assetId, name) {
+    return request('PATCH', `/ai/text-assets/${assetId}/rename`, { name });
 }
 
 export function apiAiBulkMoveAssets(assetIds, folderId) {

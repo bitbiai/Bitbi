@@ -7299,6 +7299,153 @@ test.describe('Worker routes', () => {
     return { env, response };
   }
 
+  function createRenameEnv() {
+    return createAuthTestEnv({
+      users: [createContractUser({ id: 'rename-user', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'f01daaab',
+          user_id: 'rename-user',
+          name: 'Launches',
+          slug: 'launches',
+          status: 'active',
+          created_at: nowIso(),
+        },
+        {
+          id: 'f01daaac',
+          user_id: 'rename-user',
+          name: 'Research',
+          slug: 'research',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+      aiImages: [
+        {
+          id: '1ab100cd',
+          user_id: 'rename-user',
+          folder_id: 'f01daaab',
+          r2_key: 'users/rename-user/folders/launches/original.png',
+          prompt: 'Shared Poster',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          created_at: nowIso(),
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'abc100ef',
+          user_id: 'rename-user',
+          folder_id: 'f01daaab',
+          r2_key: 'users/rename-user/folders/launches/text.txt',
+          title: 'Prompt Notes',
+          file_name: 'prompt-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 120,
+          preview_text: 'Prompt notes',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+        {
+          id: 'abd100aa',
+          user_id: 'rename-user',
+          folder_id: 'f01daaab',
+          r2_key: 'users/rename-user/folders/launches/loop.mp3',
+          title: 'Concept Loop',
+          file_name: 'concept-loop.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'Concept loop',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+        {
+          id: 'abe100bb',
+          user_id: 'rename-user',
+          folder_id: 'f01daaab',
+          r2_key: 'users/rename-user/folders/launches/walkthrough.mp4',
+          title: 'Walkthrough',
+          file_name: 'walkthrough.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: 4096000,
+          preview_text: 'Walkthrough clip',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        'users/rename-user/folders/launches/original.png': {
+          body: new TextEncoder().encode('original').buffer,
+          httpMetadata: { contentType: 'image/png' },
+        },
+        'users/rename-user/folders/launches/text.txt': {
+          body: new TextEncoder().encode('notes').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+        },
+        'users/rename-user/folders/launches/loop.mp3': {
+          body: new TextEncoder().encode('audio').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'users/rename-user/folders/launches/walkthrough.mp4': {
+          body: new TextEncoder().encode('video').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+      },
+    });
+  }
+
+  async function runFolderRenameRequest(name, folderId = 'f01daaab') {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createRenameEnv();
+    const token = await seedSession(env, 'rename-user');
+    const execCtx = createExecutionContext().execCtx;
+    const response = await authWorker.fetch(
+      authJsonRequest(`/api/ai/folders/${folderId}`, 'PATCH', { name }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      execCtx
+    );
+    return { authWorker, env, token, execCtx, response };
+  }
+
+  async function runImageRenameRequest(name, imageId = '1ab100cd') {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createRenameEnv();
+    const token = await seedSession(env, 'rename-user');
+    const execCtx = createExecutionContext().execCtx;
+    const response = await authWorker.fetch(
+      authJsonRequest(`/api/ai/images/${imageId}/rename`, 'PATCH', { name }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      execCtx
+    );
+    return { authWorker, env, token, execCtx, response };
+  }
+
+  async function runTextAssetRenameRequest(name, assetId = 'abc100ef') {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createRenameEnv();
+    const token = await seedSession(env, 'rename-user');
+    const execCtx = createExecutionContext().execCtx;
+    const response = await authWorker.fetch(
+      authJsonRequest(`/api/ai/text-assets/${assetId}/rename`, 'PATCH', { name }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      execCtx
+    );
+    return { authWorker, env, token, execCtx, response };
+  }
+
   test('AI assets bulk move updates one image through the shared route', async () => {
     const { env, response } = await runSharedBulkMoveRequest(['1ab100cd']);
     expect(response.status).toBe(200);
@@ -7398,6 +7545,135 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toBeTruthy();
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
     expect(env.USER_IMAGES.objects.size).toBe(5);
+  });
+
+  test('AI folder rename updates only the logical folder name and slug', async () => {
+    const { env, response } = await runFolderRenameRequest('Launch Vault');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: 'f01daaab',
+        name: 'Launch Vault',
+        slug: 'launch-vault',
+        unchanged: false,
+      },
+    });
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'f01daaab')).toMatchObject({
+      name: 'Launch Vault',
+      slug: 'launch-vault',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBe('f01daaab');
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').r2_key).toBe('users/rename-user/folders/launches/original.png');
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').r2_key).toBe('users/rename-user/folders/launches/text.txt');
+  });
+
+  test('AI folder rename rejects collisions against another folder slug', async () => {
+    const { env, response } = await runFolderRenameRequest('Research');
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'A folder with that name already exists.',
+    });
+    expect(env.DB.state.aiFolders.find((row) => row.id === 'f01daaab')).toMatchObject({
+      name: 'Launches',
+      slug: 'launches',
+    });
+  });
+
+  test('AI image rename updates the prompt-backed title and keeps the image file reachable', async () => {
+    const { authWorker, env, token, execCtx, response } = await runImageRenameRequest('Sunrise Poster');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: '1ab100cd',
+        title: 'Sunrise Poster',
+        prompt: 'Sunrise Poster',
+        unchanged: false,
+      },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toMatchObject({
+      prompt: 'Sunrise Poster',
+      r2_key: 'users/rename-user/folders/launches/original.png',
+    });
+
+    const fileRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/1ab100cd/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      execCtx
+    );
+    expect(fileRes.status).toBe(200);
+    expect(await fileRes.text()).toBe('original');
+  });
+
+  [
+    ['abc100ef', 'Release Notes', 'release-notes.txt'],
+    ['abd100aa', 'Night Drive', 'night-drive.mp3'],
+    ['abe100bb', 'Launch Walkthrough Remix', 'launch-walkthrough-remix.mp4'],
+  ].forEach(([assetId, nextName, expectedFileName]) => {
+    test(`AI text asset rename preserves the existing file extension for ${expectedFileName}`, async () => {
+      const { authWorker, env, token, execCtx, response } = await runTextAssetRenameRequest(nextName, assetId);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          id: assetId,
+          title: nextName,
+          file_name: expectedFileName,
+          unchanged: false,
+        },
+      });
+      expect(env.DB.state.aiTextAssets.find((row) => row.id === assetId)).toMatchObject({
+        title: nextName,
+        file_name: expectedFileName,
+      });
+
+      const fileRes = await authWorker.fetch(
+        authJsonRequest(`/api/ai/text-assets/${assetId}/file`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        execCtx
+      );
+      expect(fileRes.status).toBe(200);
+      expect(fileRes.headers.get('content-disposition')).toContain(expectedFileName);
+    });
+  });
+
+  test('AI rename rejects empty names', async () => {
+    const { env, response } = await runTextAssetRenameRequest('   ', 'abc100ef');
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Asset name must be 1–120 characters.',
+    });
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toMatchObject({
+      title: 'Prompt Notes',
+      file_name: 'prompt-notes.txt',
+    });
+  });
+
+  test('AI rename returns a safe no-op when the requested name is unchanged', async () => {
+    const { env, response } = await runTextAssetRenameRequest('Prompt Notes', 'abc100ef');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: 'abc100ef',
+        title: 'Prompt Notes',
+        file_name: 'prompt-notes.txt',
+        unchanged: true,
+      },
+    });
+    expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toMatchObject({
+      title: 'Prompt Notes',
+      file_name: 'prompt-notes.txt',
+    });
   });
 
   test('AI image thumb and medium routes preserve auth and ownership checks', async () => {

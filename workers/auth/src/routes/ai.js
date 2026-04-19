@@ -42,6 +42,8 @@ const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
 const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
 const MAX_SAVED_AI_IMAGE_PIXELS = 1024 * 1024;
+const MAX_FOLDER_NAME_LENGTH = 100;
+const MAX_SAVED_FILE_TITLE_LENGTH = 120;
 
 // Parse a base64 string (plain or data-URI) into { base64, mimeType }
 function parseBase64Image(str) {
@@ -80,6 +82,59 @@ function slugify(name) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60) || "folder";
+}
+
+function slugifyAssetFileStem(name, fallback = "asset") {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || fallback;
+}
+
+function hasControlCharacters(value) {
+  return /[\x00-\x1f\x7f]/.test(String(value || ""));
+}
+
+function getFileExtensionFromName(fileName) {
+  const normalized = String(fileName || "").trim();
+  const slashIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  const bareName = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
+  const dotIndex = bareName.lastIndexOf(".");
+  if (dotIndex > 0 && dotIndex < bareName.length - 1) {
+    return bareName.slice(dotIndex + 1).toLowerCase();
+  }
+  return "";
+}
+
+function inferFileExtension({ fileName, mimeType, sourceModule }) {
+  const resolvedFileName = fileName;
+  const resolvedMimeType = mimeType;
+  const resolvedSourceModule = sourceModule;
+  const fromName = getFileExtensionFromName(resolvedFileName);
+  if (fromName) return fromName;
+
+  const normalizedMime = String(resolvedMimeType || "").toLowerCase();
+  if (normalizedMime === "video/mp4") return "mp4";
+  if (normalizedMime === "audio/mpeg") return "mp3";
+  if (normalizedMime.startsWith("audio/")) {
+    return normalizedMime.slice("audio/".length).replace(/[^a-z0-9]+/g, "") || "mp3";
+  }
+  if (normalizedMime.startsWith("video/")) {
+    return normalizedMime.slice("video/".length).replace(/[^a-z0-9]+/g, "") || "mp4";
+  }
+  if (String(resolvedSourceModule || "").toLowerCase() === "video") return "mp4";
+  if (String(resolvedSourceModule || "").toLowerCase() === "music") return "mp3";
+  return "txt";
+}
+
+function buildRenamedFileName(name, row) {
+  const extension = inferFileExtension({
+    fileName: row?.file_name ?? row?.fileName,
+    mimeType: row?.mime_type ?? row?.mimeType,
+    sourceModule: row?.source_module ?? row?.sourceModule,
+  });
+  return `${slugifyAssetFileStem(name, row?.source_module || row?.sourceModule || "asset")}.${extension}`;
 }
 
 function isMissingTextAssetTableError(error) {
@@ -667,8 +722,8 @@ async function handleCreateFolder(ctx) {
   }
 
   const name = String(body.name).trim();
-  if (name.length === 0 || name.length > 100) {
-    return json({ ok: false, error: "Folder name must be 1–100 characters." }, { status: 400 });
+  if (name.length === 0 || name.length > MAX_FOLDER_NAME_LENGTH) {
+    return json({ ok: false, error: `Folder name must be 1–${MAX_FOLDER_NAME_LENGTH} characters.` }, { status: 400 });
   }
   if (/[\x00-\x1f\x7f]/.test(name)) {
     return json({ ok: false, error: "Folder name cannot contain control characters." }, { status: 400 });
@@ -789,6 +844,173 @@ async function handleGetAssets(ctx) {
     .slice(0, 200);
 
   return json({ ok: true, data: { assets } });
+}
+
+// ── PATCH /api/ai/folders/:id ──
+async function handleRenameFolder(ctx, folderId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const name = String(body?.name || "").trim();
+  if (name.length === 0 || name.length > MAX_FOLDER_NAME_LENGTH) {
+    return json({ ok: false, error: `Folder name must be 1–${MAX_FOLDER_NAME_LENGTH} characters.` }, { status: 400 });
+  }
+  if (hasControlCharacters(name)) {
+    return json({ ok: false, error: "Folder name cannot contain control characters." }, { status: 400 });
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, name, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
+  ).bind(folderId, session.user.id).first();
+
+  if (!existing) {
+    return json({ ok: false, error: "Folder not found." }, { status: 404 });
+  }
+
+  const nextSlug = slugify(name);
+  if (existing.name === name && existing.slug === nextSlug) {
+    return json({
+      ok: true,
+      data: {
+        id: existing.id,
+        name: existing.name,
+        slug: existing.slug,
+        unchanged: true,
+      },
+    });
+  }
+
+  try {
+    await env.DB.prepare(
+      "UPDATE ai_folders SET name = ?, slug = ? WHERE id = ? AND user_id = ? AND status = 'active'"
+    ).bind(name, nextSlug, folderId, session.user.id).run();
+  } catch (error) {
+    if (String(error).includes("UNIQUE")) {
+      return json({ ok: false, error: "A folder with that name already exists." }, { status: 409 });
+    }
+    throw error;
+  }
+
+  return json({
+    ok: true,
+    data: {
+      id: folderId,
+      name,
+      slug: nextSlug,
+      unchanged: false,
+    },
+  });
+}
+
+// ── PATCH /api/ai/images/:id/rename ──
+async function handleRenameImage(ctx, imageId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const name = String(body?.name || "").trim();
+  if (name.length === 0 || name.length > MAX_PROMPT_LENGTH) {
+    return json({ ok: false, error: `Image name must be 1–${MAX_PROMPT_LENGTH} characters.` }, { status: 400 });
+  }
+  if (hasControlCharacters(name)) {
+    return json({ ok: false, error: "Image name cannot contain control characters." }, { status: 400 });
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, prompt FROM ai_images WHERE id = ? AND user_id = ?"
+  ).bind(imageId, session.user.id).first();
+
+  if (!existing) {
+    return json({ ok: false, error: "Image not found." }, { status: 404 });
+  }
+
+  if (existing.prompt === name) {
+    return json({
+      ok: true,
+      data: {
+        id: existing.id,
+        title: existing.prompt,
+        prompt: existing.prompt,
+        unchanged: true,
+      },
+    });
+  }
+
+  await env.DB.prepare(
+    "UPDATE ai_images SET prompt = ? WHERE id = ? AND user_id = ?"
+  ).bind(name, imageId, session.user.id).run();
+
+  return json({
+    ok: true,
+    data: {
+      id: imageId,
+      title: name,
+      prompt: name,
+      unchanged: false,
+    },
+  });
+}
+
+// ── PATCH /api/ai/text-assets/:id/rename ──
+async function handleRenameTextAsset(ctx, assetId) {
+  const { request, env } = ctx;
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const body = await readJsonBody(request);
+  const name = String(body?.name || "").trim();
+  if (name.length === 0 || name.length > MAX_SAVED_FILE_TITLE_LENGTH) {
+    return json({ ok: false, error: `Asset name must be 1–${MAX_SAVED_FILE_TITLE_LENGTH} characters.` }, { status: 400 });
+  }
+  if (hasControlCharacters(name)) {
+    return json({ ok: false, error: "Asset name cannot contain control characters." }, { status: 400 });
+  }
+
+  let existing;
+  try {
+    existing = await env.DB.prepare(
+      "SELECT id, title, file_name, mime_type, source_module FROM ai_text_assets WHERE id = ? AND user_id = ?"
+    ).bind(assetId, session.user.id).first();
+  } catch (error) {
+    if (isMissingTextAssetTableError(error)) {
+      return json({ ok: false, error: "Text asset service unavailable." }, { status: 503 });
+    }
+    throw error;
+  }
+
+  if (!existing) {
+    return json({ ok: false, error: "Text asset not found." }, { status: 404 });
+  }
+
+  const nextFileName = buildRenamedFileName(name, existing);
+  if (existing.title === name && existing.file_name === nextFileName) {
+    return json({
+      ok: true,
+      data: {
+        id: existing.id,
+        title: existing.title,
+        file_name: existing.file_name,
+        unchanged: true,
+      },
+    });
+  }
+
+  await env.DB.prepare(
+    "UPDATE ai_text_assets SET title = ?, file_name = ? WHERE id = ? AND user_id = ?"
+  ).bind(name, nextFileName, assetId, session.user.id).run();
+
+  return json({
+    ok: true,
+    data: {
+      id: assetId,
+      title: name,
+      file_name: nextFileName,
+      unchanged: false,
+    },
+  });
 }
 
 // ── PATCH /api/ai/images/:id/publication ──
@@ -1232,8 +1454,6 @@ async function handleGetTextAssetPoster(ctx, assetId) {
 }
 
 // ── POST /api/ai/audio/save ──
-const MAX_AUDIO_TITLE_LENGTH = 120;
-
 async function handleSaveAudio(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
@@ -1247,9 +1467,9 @@ async function handleSaveAudio(ctx) {
   }
 
   const title = String(body.title || "").trim();
-  if (!title || title.length > MAX_AUDIO_TITLE_LENGTH) {
+  if (!title || title.length > MAX_SAVED_FILE_TITLE_LENGTH) {
     return respond(
-      { ok: false, error: `Title is required and must be at most ${MAX_AUDIO_TITLE_LENGTH} characters.` },
+      { ok: false, error: `Title is required and must be at most ${MAX_SAVED_FILE_TITLE_LENGTH} characters.` },
       { status: 400 }
     );
   }
@@ -2256,9 +2476,12 @@ export async function handleAI(ctx) {
   }
 
   // DELETE /api/ai/folders/:id
-  const folderDeleteMatch = pathname.match(/^\/api\/ai\/folders\/([a-f0-9]+)$/);
-  if (folderDeleteMatch && method === "DELETE") {
-    return handleDeleteFolder(ctx, folderDeleteMatch[1]);
+  const folderMatch = pathname.match(/^\/api\/ai\/folders\/([a-f0-9]+)$/);
+  if (folderMatch && method === "PATCH") {
+    return handleRenameFolder(ctx, folderMatch[1]);
+  }
+  if (folderMatch && method === "DELETE") {
+    return handleDeleteFolder(ctx, folderMatch[1]);
   }
 
   // /api/ai/images/:id/file
@@ -2298,9 +2521,19 @@ export async function handleAI(ctx) {
     return handleUpdateImagePublication(ctx, publicationMatch[1]);
   }
 
+  const imageRenameMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/rename$/);
+  if (imageRenameMatch && method === "PATCH") {
+    return handleRenameImage(ctx, imageRenameMatch[1]);
+  }
+
   const textPublicationMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/publication$/);
   if (textPublicationMatch && method === "PATCH") {
     return handleUpdateTextAssetPublication(ctx, textPublicationMatch[1]);
+  }
+
+  const textRenameMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/rename$/);
+  if (textRenameMatch && method === "PATCH") {
+    return handleRenameTextAsset(ctx, textRenameMatch[1]);
   }
 
   const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);

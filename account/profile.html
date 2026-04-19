@@ -1098,9 +1098,16 @@
 
                     <div id="aiLabAssetsBulkBar" class="studio__bulk-bar">
                         <span id="aiLabAssetsBulkCount" class="studio__bulk-count">0 selected</span>
+                        <button type="button" id="aiLabAssetsBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
                         <button type="button" id="aiLabAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
                         <button type="button" id="aiLabAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
                         <button type="button" id="aiLabAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                    </div>
+
+                    <div id="aiLabAssetsRenameForm" class="studio__bulk-move-form">
+                        <input type="text" id="aiLabAssetsRenameInput" class="studio__new-folder-input" placeholder="New name" maxlength="1000">
+                        <button type="button" id="aiLabAssetsRenameConfirm" class="studio__new-folder-save">Rename</button>
+                        <button type="button" id="aiLabAssetsRenameCancel" class="studio__new-folder-cancel">Cancel</button>
                     </div>
 
                     <div id="aiLabAssetsBulkMoveForm" class="studio__bulk-move-form">

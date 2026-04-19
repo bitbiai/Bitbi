@@ -80,6 +80,42 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
     addAsset(asset) {
       assetMap.set(asset.id, cloneJson(asset));
     },
+    renameFolder(id, name) {
+      const folder = folders.find((entry) => entry.id === id);
+      if (!folder) return null;
+      folder.name = name;
+      folder.slug = String(name || 'folder')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60) || 'folder';
+      return cloneJson(folder);
+    },
+    renameAsset(id, name) {
+      const asset = assetMap.get(id);
+      if (!asset) return null;
+      asset.title = name;
+      if (asset.asset_type !== 'image') {
+        const extMatch = String(asset.file_name || '').match(/\.([^.]+)$/);
+        const ext = extMatch ? extMatch[1] : (
+          asset.mime_type?.startsWith('audio/')
+            ? 'mp3'
+            : asset.mime_type?.startsWith('video/')
+              ? 'mp4'
+              : 'txt'
+        );
+        const stem = String(name || 'asset')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 64) || 'asset';
+        asset.file_name = `${stem}.${ext}`;
+      } else {
+        asset.prompt = name;
+        asset.preview_text = name;
+      }
+      return cloneJson(asset);
+    },
     setImageVisibility(id, visibility) {
       const asset = assetMap.get(id);
       if (!asset || asset.asset_type !== 'image') return null;
@@ -800,6 +836,38 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
+  await page.route('**/api/ai/folders/**', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.fallback();
+      return;
+    }
+    const pathname = new URL(route.request().url()).pathname;
+    const folderId = pathname.split('/').filter(Boolean).pop();
+    const body = route.request().postDataJSON();
+    const renamed = assetStore.renameFolder(folderId, body.name);
+    if (!renamed) {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'Folder not found.' }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id: renamed.id,
+          name: renamed.name,
+          slug: renamed.slug,
+          unchanged: false,
+        },
+      }),
+    });
+  });
+
   await page.route('**/api/ai/assets**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== '/api/ai/assets' || route.request().method() !== 'GET') {
@@ -895,6 +963,33 @@ async function mockAdminAiLab(page, captures = {}) {
       });
       return;
     }
+    if (method === 'PATCH' && /\/api\/ai\/images\/[^/]+\/rename$/.test(new URL(route.request().url()).pathname)) {
+      const imageId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const renamed = assetStore.renameAsset(imageId, body.name);
+      if (!renamed) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Image not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: renamed.id,
+            title: renamed.title,
+            prompt: renamed.prompt,
+            unchanged: false,
+          },
+        }),
+      });
+      return;
+    }
     if (method !== 'DELETE') {
       await route.fallback();
       return;
@@ -908,7 +1003,34 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
-  await page.route('**/api/ai/text-assets/*', async (route) => {
+  await page.route('**/api/ai/text-assets/**', async (route) => {
+    if (route.request().method() === 'PATCH' && /\/api\/ai\/text-assets\/[^/]+\/rename$/.test(new URL(route.request().url()).pathname)) {
+      const assetId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const renamed = assetStore.renameAsset(assetId, body.name);
+      if (!renamed) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Text asset not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: renamed.id,
+            title: renamed.title,
+            file_name: renamed.file_name,
+            unchanged: false,
+          },
+        }),
+      });
+      return;
+    }
     if (route.request().method() !== 'DELETE') {
       await route.fallback();
       return;
@@ -2049,6 +2171,134 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioGalleryMsg')).toContainText('2 assets deleted.');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
     await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
+  });
+
+  test('account Image Studio gates rename to exactly one selection and renames folders plus saved assets safely', async ({
+    page,
+  }) => {
+    const folderPayload = {
+      folders: [
+        { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
+        { id: 'folder-research', name: 'Research', slug: 'research', created_at: '2026-04-09T09:00:00.000Z' },
+      ],
+    };
+    const assetsPayload = {
+      all: [
+        {
+          id: 'img-rename-1',
+          asset_type: 'image',
+          folder_id: 'folder-launches',
+          title: 'Shared Poster',
+          preview_text: 'Shared Poster',
+          prompt: 'Shared Poster',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 9,
+          created_at: '2026-04-10T12:00:00.000Z',
+          file_url: '/api/ai/images/img-rename-1/file',
+          original_url: '/api/ai/images/img-rename-1/file',
+        },
+        {
+          id: 'txt-rename-1',
+          asset_type: 'text',
+          folder_id: 'folder-launches',
+          title: 'Prompt Notes',
+          file_name: 'prompt-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 320,
+          preview_text: 'Notes that should keep loading after rename.',
+          created_at: '2026-04-10T11:59:00.000Z',
+          file_url: '/api/ai/text-assets/txt-rename-1/file',
+        },
+      ],
+    };
+    const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload,
+      assetsPayload,
+      assetStore,
+    });
+    await page.route('**/api/ai/folders/folder-launches', async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.fallback();
+        return;
+      }
+      const body = route.request().postDataJSON();
+      const renamed = assetStore.renameFolder('folder-launches', body.name);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: renamed.id,
+            name: renamed.name,
+            slug: renamed.slug,
+            unchanged: false,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/text-assets/txt-rename-1/rename', async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.fallback();
+        return;
+      }
+      const body = route.request().postDataJSON();
+      const renamed = assetStore.renameAsset('txt-rename-1', body.name);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: renamed.id,
+            title: renamed.title,
+            file_name: renamed.file_name,
+            unchanged: false,
+          },
+        }),
+      });
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioSelectBtn').click();
+    await expect(page.locator('#studioBulkRename')).toBeDisabled();
+    await page.locator('#studioFolderGrid [data-folder-id="folder-launches"]').click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
+    await expect(page.locator('#studioBulkRename')).toBeEnabled();
+    await expect(page.locator('#studioBulkMove')).toBeHidden();
+    await expect(page.locator('#studioBulkDelete')).toBeHidden();
+    await page.locator('#studioBulkRename').click();
+    await expect(page.locator('#studioRenameInput')).toHaveValue('Launches');
+    await page.locator('#studioRenameInput').fill('Launch Vault');
+    await page.locator('#studioRenameConfirm').click();
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Folder renamed.');
+    await expect(page.locator('#studioFolderGrid [data-folder-id="folder-launches"] .studio__folder-card-name')).toHaveText('Launch Vault');
+
+    await page.locator('#studioBulkCancel').click();
+    await page.locator('#studioFolderGrid [data-folder-id="folder-launches"]').click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(2);
+
+    await page.locator('#studioSelectBtn').click();
+    await expect(page.locator('#studioBulkRename')).toBeDisabled();
+    await page.locator('#studioImageGrid [data-asset-id="txt-rename-1"]').click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
+    await expect(page.locator('#studioBulkRename')).toBeEnabled();
+    await page.locator('#studioBulkRename').click();
+    await expect(page.locator('#studioRenameInput')).toHaveValue('Prompt Notes');
+    await page.locator('#studioRenameInput').fill('Release Notes');
+    await page.locator('#studioRenameConfirm').click();
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Asset renamed.');
+    await expect(page.locator('#studioImageGrid [data-asset-id="txt-rename-1"]')).toContainText('Release Notes');
+    await expect(page.locator('#studioImageGrid [data-asset-id="txt-rename-1"] .studio__asset-meta')).toContainText('release-notes.txt');
+
+    await page.locator('#studioImageGrid [data-asset-id="img-rename-1"]').click();
+    await expect(page.locator('#studioBulkCount')).toHaveText('2 selected');
+    await expect(page.locator('#studioBulkRename')).toBeDisabled();
   });
 
   test('account Image Studio grid requests thumbs only and uses medium/original for detail fallback', async ({
