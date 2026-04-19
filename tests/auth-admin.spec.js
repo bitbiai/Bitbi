@@ -39,6 +39,14 @@ async function expectStudioModalClosed(page) {
     .toBe(false);
 }
 
+function aiLabModeButton(page, mode, rootSelector = '#sectionAiLab') {
+  return page.locator(`${rootSelector} .admin-ai__modes [data-ai-mode="${mode}"]`);
+}
+
+async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
+  await aiLabModeButton(page, mode, rootSelector).click();
+}
+
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   const folders = cloneJson(folderPayload.folders || []);
   const assetMap = new Map();
@@ -3117,7 +3125,7 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('#aiLabRefreshModels').click();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
-    await page.getByRole('button', { name: 'Text' }).click();
+    await clickAiLabMode(page, 'text');
     await expect(page.locator('#aiTextPreset option')).toHaveCount(2);
     await page.locator('#aiTextPrompt').fill('profile ai lab smoke');
     await page.locator('#aiTextRun').click();
@@ -3313,7 +3321,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
     await expect(page.locator('#aiModelsMusic')).toContainText('Music 2.6');
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.selectOption('#aiTextSampleSelect', 'release-notes');
     await page.locator('#aiTextSample').click();
     await expect(page.locator('#aiTextPrompt')).toHaveValue(
@@ -3327,7 +3335,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiTextMeta')).toContainText('@cf/openai/gpt-oss-20b');
     await expect(page.locator('#aiTextMeta')).toContainText('Received');
 
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.selectOption('#aiImageSampleSelect', 'editorial-portrait');
     await page.locator('#aiImageSample').click();
     await expect(page.locator('#aiImagePrompt')).toHaveValue(
@@ -3352,7 +3360,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiImageDownload').click();
     await expect((await imageDownload).suggestedFilename()).toContain('ai-lab-image');
 
-    await page.getByRole('button', { name: 'Embeddings' }).click();
+    await clickAiLabMode(page, 'embeddings');
     await page.selectOption('#aiEmbeddingsSampleSelect', 'taxonomy');
     await page.locator('#aiEmbeddingsSample').click();
     await expect(page.locator('#aiEmbeddingsInput')).toHaveValue(
@@ -3365,7 +3373,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiEmbeddingsPreview')).toContainText('0.1000');
     await expect(page.locator('#aiEmbeddingsMeta')).toContainText('Shape');
 
-    await page.getByRole('button', { name: 'Compare' }).click();
+    await clickAiLabMode(page, 'compare');
     await expect(page.locator('#aiCompareModelA')).toContainText('Gemma 4 26B A4B');
     await page.selectOption('#aiCompareSampleSelect', 'hero-intro');
     await page.locator('#aiCompareSample').click();
@@ -3393,7 +3401,7 @@ test.describe('Admin AI Lab', () => {
       'It feels agile and technical.',
     );
 
-    await page.getByRole('button', { name: 'Music AI' }).click();
+    await clickAiLabMode(page, 'music');
     await expect(page.locator('#aiMusicTitle')).toHaveText('Music AI');
     await page.locator('#aiMusicPrompt').fill('Dark synthwave with a slow pulse and distant vocals.');
     await page.locator('#aiMusicLyrics').fill('[Verse]\nDrive through the static night\n\n[Chorus]\nKeep the signal in sight');
@@ -3468,7 +3476,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Music AI' }).click();
+    await clickAiLabMode(page, 'music');
     await expect(page.locator('#aiLabPanelMusic')).toBeVisible();
     await expect(page.locator('#aiMusicTitle')).toBeVisible();
 
@@ -3513,7 +3521,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
 
     await page.locator('#aiImageRef0').setInputFiles(createSvgUpload(511, 511));
@@ -3538,7 +3546,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 4');
 
@@ -3695,7 +3703,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.locator('#aiTextPrompt').fill('Save this text output');
     await page.locator('#aiTextRun').click();
     await page.locator('#aiTextSave').click();
@@ -3704,7 +3712,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiLabSaveConfirm').click();
     await expect(page.locator('#aiLabSaveModal')).toBeHidden();
 
-    await page.getByRole('button', { name: 'Embeddings' }).click();
+    await clickAiLabMode(page, 'embeddings');
     await page.locator('#aiEmbeddingsInput').fill('first vector\nsecond vector');
     await page.locator('#aiEmbeddingsRun').click();
     await page.locator('#aiEmbeddingsSave').click();
@@ -3712,14 +3720,14 @@ test.describe('Admin AI Lab', () => {
     await page.selectOption('#aiLabSaveFolder', 'folder-research');
     await page.locator('#aiLabSaveConfirm').click();
 
-    await page.getByRole('button', { name: 'Compare' }).click();
+    await clickAiLabMode(page, 'compare');
     await page.locator('#aiCompareRun').click();
     await page.locator('#aiCompareSave').click();
     await page.locator('#aiLabSaveInput').fill('Compare Session');
     await page.selectOption('#aiLabSaveFolder', 'folder-launches');
     await page.locator('#aiLabSaveConfirm').click();
 
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await clickAiLabMode(page, 'live-agent');
     await page.route('**/api/admin/ai/live-agent', async (route) => {
       await route.fulfill({
         status: 200,
@@ -3736,7 +3744,7 @@ test.describe('Admin AI Lab', () => {
     await page.selectOption('#aiLabSaveFolder', 'folder-research');
     await page.locator('#aiLabSaveConfirm').click();
 
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoPrompt').fill('Save this video output');
     await page.locator('#aiVideoRun').click();
     await expect(page.locator('#aiVideoSave')).toBeVisible();
@@ -3833,7 +3841,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.locator('#aiImagePrompt').fill('Save this generated image');
     await page.locator('#aiImageRun').click();
     await page.locator('#aiImageSave').click();
@@ -3860,7 +3868,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.locator('#aiTextPrompt').fill('Persist me');
     await page.locator('#aiTextRun').click();
     await expect(page.locator('#aiTextOutput')).toContainText(
@@ -3869,7 +3877,7 @@ test.describe('Admin AI Lab', () => {
     await page.reload();
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await expect(page.locator('#aiTextPrompt')).toHaveValue('Persist me');
     await expect(page.locator('#aiTextPromptHistory')).toContainText('Persist me');
 
@@ -3894,7 +3902,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.locator('#aiTextPrompt').fill('force coded error');
     await page.locator('#aiTextRun').click();
     await expect(page.locator('#aiLabStatus')).toContainText(
@@ -3914,7 +3922,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await clickAiLabMode(page, 'compare');
     await page.locator('#aiCompareRun').click();
     await expect(page.locator('#aiCompareAText')).toContainText(
       'BITBI blends AI imagery with a premium admin control surface.',
@@ -3962,7 +3970,7 @@ test.describe('Admin AI Lab', () => {
 
     await page.reload();
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await clickAiLabMode(page, 'compare');
     await expect(page.locator('#aiCompareOnlyDifferences')).toBeChecked();
 
     await page.locator('#aiCompareRun').click();
@@ -3987,7 +3995,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await clickAiLabMode(page, 'compare');
     await page.locator('#aiComparePrompt').fill('identical compare output');
     await page.locator('#aiCompareRun').click();
     await page.locator('#aiCompareOnlyDifferences').check();
@@ -4016,7 +4024,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.locator('#aiTextPrompt').fill('Fast success');
     await page.locator('#aiTextRun').click();
     await expect(page.locator('#aiTextOutput')).toContainText(
@@ -4085,7 +4093,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Text', exact: true }).click();
+    await clickAiLabMode(page, 'text');
     await page.unroute('**/api/admin/ai/test-text');
     await page.route('**/api/admin/ai/test-text', async (route) => {
       await wait(700);
@@ -4114,7 +4122,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiTextRun')).toBeEnabled();
     await expect(page.locator('#aiTextCancel')).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.unroute('**/api/admin/ai/test-image');
     await page.route('**/api/admin/ai/test-image', async (route) => {
       await wait(700);
@@ -4144,7 +4152,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImageRun')).toBeEnabled();
     await expect(page.locator('#aiImageCancel')).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Embeddings' }).click();
+    await clickAiLabMode(page, 'embeddings');
     await page.unroute('**/api/admin/ai/test-embeddings');
     await page.route('**/api/admin/ai/test-embeddings', async (route) => {
       await wait(700);
@@ -4173,7 +4181,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiEmbeddingsRun')).toBeEnabled();
     await expect(page.locator('#aiEmbeddingsCancel')).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Compare' }).click();
+    await clickAiLabMode(page, 'compare');
     await page.unroute('**/api/admin/ai/compare');
     await page.route('**/api/admin/ai/compare', async (route) => {
       await wait(700);
@@ -4237,7 +4245,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await page.unroute('**/api/admin/ai/test-video');
     await page.route('**/api/admin/ai/test-video', async (route) => {
       const body = route.request().postDataJSON();
@@ -4286,7 +4294,7 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await expect(page.locator('#aiVideoImagePreview')).toBeVisible();
     await expect(page.locator('#aiVideoImagePreview')).toHaveAttribute('data-state', 'empty');
     await expect(page.locator('#aiVideoImageEmpty')).toContainText('Optional image input preview');
@@ -4328,7 +4336,7 @@ test.describe('Admin AI Lab', () => {
   }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
@@ -4337,7 +4345,7 @@ test.describe('Admin AI Lab', () => {
     await mockAdminAiLab(page);
     await page.goto('/account/profile.html#ai-lab');
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toContainText('Vidu Q3 Pro');
@@ -4385,7 +4393,7 @@ test.describe('Admin AI Lab', () => {
       });
     });
 
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoCardVidu').click();
     await expect(page.locator('#aiVideoModelBadge')).toContainText('vidu/q3-pro');
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
@@ -4496,7 +4504,7 @@ test.describe('Admin AI Lab', () => {
       });
     });
 
-    await page.getByRole('button', { name: 'Video AI' }).click();
+    await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoCardVidu').click();
 
     await expect(page.locator('#aiVideoMinimalMode')).toBeVisible();
@@ -4545,7 +4553,7 @@ test.describe('Admin AI Lab', () => {
     expect(musicIdx).toBe(liveAgentIdx + 1);
 
     // Switch to Live Agent — only Live Agent card visible
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await clickAiLabMode(page, 'live-agent');
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
     await expect(page.locator('#aiLabPanelMusic')).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Live Agent' })).toBeVisible();
@@ -4557,7 +4565,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiLiveAgentState')).toContainText('Ready');
 
     // Switch to Music AI — only Music AI card visible
-    await page.getByRole('button', { name: 'Music AI' }).click();
+    await clickAiLabMode(page, 'music');
     await expect(page.locator('#aiLabPanelMusic')).toBeVisible();
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Music AI' })).toBeVisible();
@@ -4570,7 +4578,7 @@ test.describe('Admin AI Lab', () => {
   }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await clickAiLabMode(page, 'live-agent');
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
 
     const system = page.locator('#aiLiveAgentSystem');
@@ -4606,7 +4614,7 @@ test.describe('Admin AI Lab', () => {
   test('Live Agent rejects empty user input', async ({ page }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await clickAiLabMode(page, 'live-agent');
     await expect(page.locator('#aiLabPanelLiveAgent')).toBeVisible();
 
     // Send with empty input
@@ -4623,7 +4631,7 @@ test.describe('Admin AI Lab', () => {
   test('Live Agent clear resets conversation', async ({ page }) => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Live Agent' }).click();
+    await clickAiLabMode(page, 'live-agent');
 
     // Mock a streaming response
     await page.route('**/api/admin/ai/live-agent', async (route) => {
@@ -4669,7 +4677,7 @@ test.describe('AI Lab Image capability controls', () => {
     });
 
     await page.goto('/admin/index.html#ai-lab');
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await expect(page.locator('#aiImageModel')).toBeVisible();
 
     // Default model (preset) — guidance, prompt mode, ref images should be disabled
@@ -4715,7 +4723,7 @@ test.describe('AI Lab Image capability controls', () => {
     });
 
     await page.goto('/admin/index.html#ai-lab');
-    await page.getByRole('button', { name: 'Image' }).click();
+    await clickAiLabMode(page, 'image');
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
 
     // Standard mode is default
