@@ -42,6 +42,9 @@ export function initCategoryCarousel() {
     const prevButton = stage?.querySelector('[data-category-nav="prev"]');
     const nextButton = stage?.querySelector('[data-category-nav="next"]');
     const navbar = document.getElementById('navbar');
+    const categoryLinks = new Map(
+        CATEGORY_ORDER.map((key) => [key, Array.from(document.querySelectorAll(`[data-category-link="${key}"]`))]),
+    );
 
     if (!stage || !viewport || !prevButton || !nextButton) return;
 
@@ -54,6 +57,7 @@ export function initCategoryCarousel() {
 
     let activeCategory = resolveCategoryFromHash(window.location.hash) || 'video';
     let isTransitioning = false;
+    let pendingCategory = null;
     let transitionTimer = 0;
     let scrollFrame = 0;
 
@@ -192,6 +196,21 @@ export function initCategoryCarousel() {
         updateArrowState();
     }
 
+    function updateCategoryLinkState() {
+        const highlightedCategory = pendingCategory || activeCategory;
+        categoryLinks.forEach((links, key) => {
+            const isActive = key === highlightedCategory;
+            links.forEach((link) => {
+                link.classList.toggle('is-active-category', isActive);
+                if (isActive) {
+                    link.setAttribute('aria-current', 'location');
+                    return;
+                }
+                link.removeAttribute('aria-current');
+            });
+        });
+    }
+
     function syncHashForCategory(category) {
         const nextHash = CATEGORY_META[category]?.hash;
         if (nextHash && window.location.hash !== nextHash) {
@@ -203,22 +222,39 @@ export function initCategoryCarousel() {
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         activeCategory = nextCategory;
+        pendingCategory = null;
         applyCategoryState();
         isTransitioning = false;
         stage.classList.remove('is-transitioning');
         updateArrowState();
+        updateCategoryLinkState();
         requestAnimationFrame(() => {
             viewport.style.height = '';
         });
     }
 
     function setActiveCategory(nextCategory, { syncHash = false, alignStage = false } = {}) {
-        if (!CATEGORY_META[nextCategory] || nextCategory === activeCategory) {
-            if (syncHash) syncHashForCategory(nextCategory || activeCategory);
+        if (!CATEGORY_META[nextCategory]) {
+            if (syncHash) syncHashForCategory(activeCategory);
             return;
         }
 
         if (isTransitioning) return;
+
+        if (nextCategory === activeCategory) {
+            if (syncHash) syncHashForCategory(nextCategory);
+            pendingCategory = null;
+            updateCategoryLinkState();
+            if (alignStage) {
+                const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+                if (prefersReducedMotion || !stage.classList.contains('is-ready')) {
+                    alignStageToHeaderEdge();
+                } else {
+                    animateStageAlignment();
+                }
+            }
+            return;
+        }
 
         const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         const currentPanel = getPanel(activeCategory);
@@ -226,7 +262,9 @@ export function initCategoryCarousel() {
 
         if (!currentPanel || !nextPanel || prefersReducedMotion || !stage.classList.contains('is-ready')) {
             activeCategory = nextCategory;
+            pendingCategory = null;
             applyCategoryState();
+            updateCategoryLinkState();
             if (syncHash) syncHashForCategory(nextCategory);
             if (alignStage) alignStageToHeaderEdge();
             return;
@@ -237,8 +275,10 @@ export function initCategoryCarousel() {
         const nextFromLeft = nextIndex < currentIndex;
 
         isTransitioning = true;
+        pendingCategory = nextCategory;
         stage.classList.add('is-transitioning');
         updateArrowState();
+        updateCategoryLinkState();
 
         panels.forEach((panel) => {
             clearPanelState(panel);
@@ -284,22 +324,29 @@ export function initCategoryCarousel() {
     nextButton.addEventListener('click', () => move(1));
 
     document.addEventListener('click', (event) => {
-        const anchor = event.target.closest('a[href^="#"]');
+        const anchor = event.target.closest('a[data-category-link]');
         if (!anchor) return;
 
-        const href = anchor.getAttribute('href');
-        const nextCategory = resolveCategoryFromHash(href);
+        const nextCategory = anchor.dataset.categoryLink;
         if (!nextCategory) return;
 
-        setActiveCategory(nextCategory, { syncHash: true });
+        event.preventDefault();
+        setActiveCategory(nextCategory, { syncHash: true, alignStage: true });
     }, true);
 
     window.addEventListener('hashchange', () => {
         const nextCategory = resolveCategoryFromHash(window.location.hash);
         if (!nextCategory) return;
-        setActiveCategory(nextCategory);
+        setActiveCategory(nextCategory, { alignStage: true });
     });
 
     stage.classList.add('is-ready');
     applyCategoryState();
+    updateCategoryLinkState();
+
+    if (resolveCategoryFromHash(window.location.hash)) {
+        requestAnimationFrame(() => {
+            alignStageToHeaderEdge();
+        });
+    }
 }

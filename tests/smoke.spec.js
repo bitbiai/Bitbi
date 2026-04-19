@@ -148,6 +148,7 @@ async function readHomepageCategoryStageMetrics(page) {
 
     return {
       alignmentDelta: Math.round(Math.abs((stageRect?.top || 0) - (navRect?.bottom || 0)) * 100) / 100,
+      isTransitioning: stage?.classList.contains('is-transitioning') || false,
       prev: readArrow(prev),
       next: readArrow(next),
     };
@@ -188,6 +189,40 @@ async function switchHomepageCategory(page, targetCategory) {
 
   await expectActiveHomepageCategory(page, targetCategory);
   await waitForHomepageCategoryStage(page);
+}
+
+async function readHomepageHeaderCategoryGlow(page) {
+  return page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('#navbar .site-nav__links [data-category-link]'));
+    return Object.fromEntries(links.map((link) => [
+      link.dataset.categoryLink,
+      {
+        active: link.classList.contains('is-active-category'),
+        ariaCurrent: link.getAttribute('aria-current') || '',
+        boxShadow: window.getComputedStyle(link).boxShadow,
+      },
+    ]));
+  });
+}
+
+async function expectHomepageHeaderCategoryGlow(page, expectedCategory) {
+  await expect
+    .poll(async () => {
+      const state = await readHomepageHeaderCategoryGlow(page);
+      return Object.entries(state)
+        .filter(([, value]) => value.active)
+        .map(([key]) => key);
+    })
+    .toEqual([expectedCategory]);
+
+  const state = await readHomepageHeaderCategoryGlow(page);
+  expect(state[expectedCategory].ariaCurrent).toBe('location');
+  expect(state[expectedCategory].boxShadow).not.toBe('none');
+
+  for (const category of ['gallery', 'video', 'sound']) {
+    if (category === expectedCategory) continue;
+    expect(state[category].ariaCurrent).toBe('');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,43 +348,46 @@ test.describe('Homepage', () => {
 
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
+    await expectHomepageHeaderCategoryGlow(page, 'video');
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
 
     const initialStageMetrics = await readHomepageCategoryStageMetrics(page);
     [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
-      expect(arrowMetrics.width).toBeGreaterThan(63);
-      expect(arrowMetrics.width).toBeLessThan(66.5);
-      expect(arrowMetrics.height).toBeGreaterThan(63);
-      expect(arrowMetrics.height).toBeLessThan(66.5);
+      expect(arrowMetrics.width).toBeGreaterThan(69);
+      expect(arrowMetrics.width).toBeLessThan(72.5);
+      expect(arrowMetrics.height).toBeGreaterThan(69);
+      expect(arrowMetrics.height).toBeLessThan(72.5);
       expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
       expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
     });
 
-    const initialScrollY = await page.evaluate(() => window.scrollY);
+    const idleSparkOpacity = await prevButton.evaluate((button) => (
+      Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0')
+    ));
+    expect(idleSparkOpacity).toBeLessThan(0.1);
+
+    await prevButton.hover();
+    await expect.poll(async () => (
+      await prevButton.evaluate((button) => Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0'))
+    )).toBeGreaterThan(0.5);
+
     await prevButton.click();
     await page.waitForTimeout(160);
 
-    const midTransitionMetrics = await page.evaluate(() => {
-      const stage = document.getElementById('homeCategories');
-      const navbar = document.getElementById('navbar');
-      const stageRect = stage?.getBoundingClientRect();
-      const navRect = navbar?.getBoundingClientRect();
-      return {
-        isTransitioning: stage?.classList.contains('is-transitioning') || false,
-        scrollY: Math.round(window.scrollY * 100) / 100,
-        alignmentDelta: Math.round(Math.abs((stageRect?.top || 0) - (navRect?.bottom || 0)) * 100) / 100,
-      };
-    });
+    const midTransitionMetrics = {
+      ...(await readHomepageCategoryStageMetrics(page)),
+      scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
+    };
 
     expect(midTransitionMetrics.isTransitioning).toBe(true);
-    expect(midTransitionMetrics.scrollY).toBeGreaterThan(initialScrollY + 1);
     expect(midTransitionMetrics.alignmentDelta).toBeLessThan(initialStageMetrics.alignmentDelta);
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'gallery');
     await expect(prevButton).toBeHidden();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
@@ -358,6 +396,7 @@ test.describe('Homepage', () => {
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'video');
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
 
@@ -365,6 +404,7 @@ test.describe('Homepage', () => {
     await expectActiveHomepageCategory(page, 'sound');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'sound');
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeHidden();
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
@@ -373,9 +413,40 @@ test.describe('Homepage', () => {
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'video');
+
+    await page.evaluate(() => window.scrollBy({ top: 420, behavior: 'auto' }));
+    const preHeaderNavMetrics = await readHomepageCategoryStageMetrics(page);
+    expect(preHeaderNavMetrics.alignmentDelta).toBeGreaterThan(150);
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await page.waitForTimeout(160);
+
+    const midHeaderNavMetrics = {
+      ...(await readHomepageCategoryStageMetrics(page)),
+      scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
+    };
+    expect(midHeaderNavMetrics.isTransitioning).toBe(true);
+    expect(midHeaderNavMetrics.alignmentDelta).toBeLessThan(preHeaderNavMetrics.alignmentDelta);
+
     await expectActiveHomepageCategory(page, 'gallery');
+    await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'gallery');
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
+    await expectActiveHomepageCategory(page, 'video');
+    await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'video');
+
+    await switchHomepageCategory(page, 'sound');
+    await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'sound');
+
+    await switchHomepageCategory(page, 'video');
+    await waitForHomepageCategoryAlignment(page);
+    await expectHomepageHeaderCategoryGlow(page, 'video');
   });
 
   test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {
@@ -525,6 +596,14 @@ test.describe('Homepage', () => {
     await expect
       .poll(() => page.locator('[data-hero-video]').evaluate((el) => el.currentSrc))
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
+  });
+
+  test('Contact nav still scrolls the homepage to the contact section', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Contact' }).click();
+
+    await expect(page.locator('#contactDrawerTrigger')).toBeInViewport();
   });
 
   test('contact drawer is collapsed by default on desktop and preserves submit behavior when expanded', async ({ page }) => {
