@@ -120,35 +120,41 @@ async function expectActiveHomepageCategory(page, expectedCategory) {
     .toBe(expectedCategory);
 }
 
-async function switchHomepageCategory(page, targetCategory) {
-  const order = ['gallery', 'video', 'sound'];
+async function waitForHomepageCategoryStage(page) {
   const stage = page.locator('#homeCategories');
+  await expect
+    .poll(async () => (await stage.getAttribute('class')) || '')
+    .not.toContain('is-transitioning');
+}
+
+async function switchHomepageCategory(page, targetCategory) {
+  const stage = page.locator('#homeCategories');
+  const targetHash = {
+    gallery: '#gallery',
+    video: '#video-creations',
+    sound: '#soundlab',
+  }[targetCategory];
 
   await expect(stage).toBeVisible();
+  await waitForHomepageCategoryStage(page);
 
-  for (let attempt = 0; attempt < order.length + 1; attempt += 1) {
-    const currentCategory = await stage.getAttribute('data-active-category');
-    if (currentCategory === targetCategory) return;
-
-    const currentIndex = order.indexOf(currentCategory);
-    const targetIndex = order.indexOf(targetCategory);
-    const direction = targetIndex < currentIndex ? 'prev' : 'next';
-    const expectedNext = order[currentIndex + (direction === 'prev' ? -1 : 1)];
-    const button = stage.locator(`[data-category-nav="${direction}"]`);
-
-    await expect(button).toBeVisible();
-    await button.click();
-    let afterClickCategory = currentCategory;
-    for (let settleAttempt = 0; settleAttempt < 4; settleAttempt += 1) {
-      await page.waitForTimeout(50);
-      afterClickCategory = await stage.getAttribute('data-active-category');
-      if (afterClickCategory !== currentCategory) break;
-    }
-    if (afterClickCategory === currentCategory) continue;
-    await expectActiveHomepageCategory(page, expectedNext);
+  if (!targetHash) {
+    throw new Error(`Unknown homepage category "${targetCategory}"`);
   }
 
-  throw new Error(`Could not switch homepage category to "${targetCategory}"`);
+  const currentCategory = await stage.getAttribute('data-active-category');
+  if (currentCategory === targetCategory) return;
+
+  await page.evaluate((hash) => {
+    if (window.location.hash === hash) {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
+    window.location.hash = hash;
+  }, targetHash);
+
+  await expectActiveHomepageCategory(page, targetCategory);
+  await waitForHomepageCategoryStage(page);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,23 +279,27 @@ test.describe('Homepage', () => {
     const nextButton = stage.locator('[data-category-nav="next"]');
 
     await expectActiveHomepageCategory(page, 'video');
+    await waitForHomepageCategoryStage(page);
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
 
     await prevButton.click();
     await expectActiveHomepageCategory(page, 'gallery');
+    await waitForHomepageCategoryStage(page);
     await expect(prevButton).toBeHidden();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
 
     await nextButton.click();
     await expectActiveHomepageCategory(page, 'video');
+    await waitForHomepageCategoryStage(page);
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
 
     await nextButton.click();
     await expectActiveHomepageCategory(page, 'sound');
+    await waitForHomepageCategoryStage(page);
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeHidden();
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();

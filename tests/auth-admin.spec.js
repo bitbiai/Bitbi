@@ -1906,6 +1906,8 @@ test.describe('Image Studio (authenticated)', () => {
 
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
     await expect(page.locator('.gallery-mode__btn[data-mode="create"]')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('.gallery-mode__btn[data-mode="create"]').click();

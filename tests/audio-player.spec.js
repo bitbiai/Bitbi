@@ -112,11 +112,28 @@ async function dismissCookieBanner(page) {
   }
 }
 
+async function openHomepageSoundLab(page) {
+  const stage = page.locator('#homeCategories');
+  await expect(stage).toBeVisible();
+
+  const current = await stage.getAttribute('data-active-category');
+  if (current === 'sound') return;
+
+  if (current === 'gallery') {
+    await stage.locator('[data-category-nav="next"]').click();
+    await expect(stage).toHaveAttribute('data-active-category', 'video');
+  }
+
+  await stage.locator('[data-category-nav="next"]').click();
+  await expect(stage).toHaveAttribute('data-active-category', 'sound');
+}
+
 test.describe('Global audio player', () => {
   test('persists track state across hard navigation and reload', async ({ page }) => {
     await installAudioMock(page);
 
     await page.goto('/');
+    await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
     await firstPlay.scrollIntoViewIfNeeded();
     await firstPlay.click();
@@ -147,6 +164,7 @@ test.describe('Global audio player', () => {
     await installAudioMock(page);
 
     await page.goto('/');
+    await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
     await firstPlay.scrollIntoViewIfNeeded();
     await firstPlay.click();
@@ -167,6 +185,7 @@ test.describe('Global audio player', () => {
     await installAudioMock(page);
 
     await page.goto('/');
+    await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
     await firstPlay.scrollIntoViewIfNeeded();
     await firstPlay.click();
@@ -181,6 +200,7 @@ test.describe('Global audio player', () => {
     await installAudioMock(page);
 
     await page.goto('/');
+    await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
     await firstPlay.scrollIntoViewIfNeeded();
     await firstPlay.click();
@@ -229,6 +249,7 @@ test.describe('Global audio player', () => {
     });
 
     await page.goto('/');
+    await openHomepageSoundLab(page);
     await expect
       .poll(async () => page.locator('#soundLabTracks .excl-thumb').evaluateAll((elements) => (
         elements.some((element) => {
@@ -253,6 +274,7 @@ test.describe('Global audio player on mobile homepage', () => {
 
     await page.goto('/');
     await dismissCookieBanner(page);
+    await openHomepageSoundLab(page);
     await expect(page.locator('#globalAudioHandle')).toBeHidden();
     await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
     await expect(page.locator('#globalAudioMenuIndicator')).toBeHidden();

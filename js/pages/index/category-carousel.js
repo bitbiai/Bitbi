@@ -21,6 +21,8 @@ const CATEGORY_META = {
     },
 };
 
+const TRANSITION_MS = 560;
+
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
 }
@@ -50,32 +52,34 @@ export function initCategoryCarousel() {
     if (panels.size !== CATEGORY_ORDER.length) return;
 
     let activeCategory = resolveCategoryFromHash(window.location.hash) || 'video';
-    let heightFrame = 0;
+    let isTransitioning = false;
+    let transitionTimer = 0;
 
     function getPanel(category) {
         return panels.get(category) || null;
     }
 
+    function clearPanelState(panel) {
+        if (!panel) return;
+        panel.classList.remove(
+            'is-active',
+            'is-before',
+            'is-after',
+            'is-far-before',
+            'is-far-after',
+            'is-transition-current',
+            'is-transition-next',
+            'is-from-left',
+            'is-from-right',
+            'is-leave-left',
+            'is-leave-right',
+            'is-enter-active',
+        );
+    }
+
     function syncVisibleReveals(panel) {
         panel?.querySelectorAll('.reveal').forEach((el) => {
             el.classList.add('visible');
-        });
-    }
-
-    function syncViewportHeight() {
-        const activePanel = getPanel(activeCategory);
-        if (!activePanel) return;
-        const nextHeight = activePanel.offsetHeight;
-        if (nextHeight > 0) {
-            viewport.style.height = `${nextHeight}px`;
-        }
-    }
-
-    function scheduleViewportHeightSync() {
-        if (heightFrame) cancelAnimationFrame(heightFrame);
-        heightFrame = requestAnimationFrame(() => {
-            heightFrame = 0;
-            syncViewportHeight();
         });
     }
 
@@ -93,7 +97,7 @@ export function initCategoryCarousel() {
 
         if (prevTarget) {
             prevButton.hidden = false;
-            prevButton.disabled = false;
+            prevButton.disabled = isTransitioning;
             prevButton.setAttribute('aria-label', `Show ${CATEGORY_META[prevTarget].label}`);
             prevButton.title = `Show ${CATEGORY_META[prevTarget].label}`;
         } else {
@@ -104,7 +108,7 @@ export function initCategoryCarousel() {
 
         if (nextTarget) {
             nextButton.hidden = false;
-            nextButton.disabled = false;
+            nextButton.disabled = isTransitioning;
             nextButton.setAttribute('aria-label', `Show ${CATEGORY_META[nextTarget].label}`);
             nextButton.title = `Show ${CATEGORY_META[nextTarget].label}`;
         } else {
@@ -115,26 +119,10 @@ export function initCategoryCarousel() {
     }
 
     function applyCategoryState() {
-        const activeIndex = CATEGORY_ORDER.indexOf(activeCategory);
-
         panels.forEach((panel, key) => {
-            const panelIndex = CATEGORY_ORDER.indexOf(key);
-            const delta = panelIndex - activeIndex;
-            const isActive = delta === 0;
-
-            panel.classList.remove('is-before', 'is-active', 'is-after', 'is-far-before', 'is-far-after');
-            if (isActive) {
-                panel.classList.add('is-active');
-            } else if (delta === -1) {
-                panel.classList.add('is-before');
-            } else if (delta === 1) {
-                panel.classList.add('is-after');
-            } else if (delta < 0) {
-                panel.classList.add('is-far-before');
-            } else {
-                panel.classList.add('is-far-after');
-            }
-
+            const isActive = key === activeCategory;
+            clearPanelState(panel);
+            if (isActive) panel.classList.add('is-active');
             panel.setAttribute('aria-hidden', String(!isActive));
             setPanelInert(panel, !isActive);
         });
@@ -142,29 +130,82 @@ export function initCategoryCarousel() {
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
         updateArrowState();
-        scheduleViewportHeightSync();
+    }
+
+    function syncHashForCategory(category) {
+        const nextHash = CATEGORY_META[category]?.hash;
+        if (nextHash && window.location.hash !== nextHash) {
+            window.history.replaceState(window.history.state, '', nextHash);
+        }
+    }
+
+    function finishTransition(nextCategory) {
+        window.clearTimeout(transitionTimer);
+        transitionTimer = 0;
+        isTransitioning = false;
+        stage.classList.remove('is-transitioning');
+        activeCategory = nextCategory;
+        applyCategoryState();
+        requestAnimationFrame(() => {
+            viewport.style.height = '';
+        });
     }
 
     function setActiveCategory(nextCategory, { syncHash = false } = {}) {
         if (!CATEGORY_META[nextCategory] || nextCategory === activeCategory) {
-            if (syncHash) {
-                const nextHash = CATEGORY_META[nextCategory || activeCategory]?.hash;
-                if (nextHash && window.location.hash !== nextHash) {
-                    window.history.replaceState(window.history.state, '', nextHash);
-                }
-            }
+            if (syncHash) syncHashForCategory(nextCategory || activeCategory);
             return;
         }
 
-        activeCategory = nextCategory;
-        applyCategoryState();
+        if (isTransitioning) return;
 
-        if (syncHash) {
-            const nextHash = CATEGORY_META[nextCategory].hash;
-            if (window.location.hash !== nextHash) {
-                window.history.replaceState(window.history.state, '', nextHash);
-            }
+        const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const currentPanel = getPanel(activeCategory);
+        const nextPanel = getPanel(nextCategory);
+
+        if (!currentPanel || !nextPanel || prefersReducedMotion || !stage.classList.contains('is-ready')) {
+            activeCategory = nextCategory;
+            applyCategoryState();
+            if (syncHash) syncHashForCategory(nextCategory);
+            return;
         }
+
+        const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
+        const nextIndex = CATEGORY_ORDER.indexOf(nextCategory);
+        const nextFromLeft = nextIndex < currentIndex;
+
+        isTransitioning = true;
+        stage.classList.add('is-transitioning');
+        updateArrowState();
+
+        panels.forEach((panel) => {
+            clearPanelState(panel);
+            panel.setAttribute('aria-hidden', 'true');
+            setPanelInert(panel, true);
+        });
+
+        currentPanel.classList.add('is-transition-current');
+        currentPanel.setAttribute('aria-hidden', 'false');
+
+        nextPanel.classList.add('is-transition-next', nextFromLeft ? 'is-from-left' : 'is-from-right');
+        nextPanel.setAttribute('aria-hidden', 'false');
+
+        const currentHeight = currentPanel.offsetHeight;
+        const nextHeight = nextPanel.offsetHeight;
+
+        viewport.style.height = `${currentHeight}px`;
+
+        if (syncHash) syncHashForCategory(nextCategory);
+
+        requestAnimationFrame(() => {
+            currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
+            nextPanel.classList.add('is-enter-active');
+            viewport.style.height = `${nextHeight}px`;
+        });
+
+        transitionTimer = window.setTimeout(() => {
+            finishTransition(nextCategory);
+        }, TRANSITION_MS + 50);
     }
 
     function move(delta) {
@@ -173,18 +214,6 @@ export function initCategoryCarousel() {
         if (!nextCategory) return;
         setActiveCategory(nextCategory, { syncHash: true });
     }
-
-    const resizeObserver = typeof ResizeObserver === 'function'
-        ? new ResizeObserver(() => {
-            scheduleViewportHeightSync();
-        })
-        : null;
-
-    panels.forEach((panel) => {
-        resizeObserver?.observe(panel);
-    });
-
-    window.addEventListener('resize', scheduleViewportHeightSync);
 
     prevButton.addEventListener('click', () => move(-1));
     nextButton.addEventListener('click', () => move(1));
@@ -206,7 +235,6 @@ export function initCategoryCarousel() {
         setActiveCategory(nextCategory);
     });
 
-    applyCategoryState();
-    syncViewportHeight();
     stage.classList.add('is-ready');
+    applyCategoryState();
 }
