@@ -39,6 +39,22 @@ async function expectStudioModalClosed(page) {
     .toBe(false);
 }
 
+async function readSavedAssetBadgeMetrics(cardLocator) {
+  return cardLocator.evaluate((card) => {
+    const badge = card.querySelector('.studio__asset-badge');
+    const badgeRect = badge?.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const styles = badge ? getComputedStyle(badge) : null;
+    return {
+      badgeWidth: badgeRect?.width ?? 0,
+      cardWidth: cardRect.width,
+      badgeDisplay: styles?.display || '',
+      badgeAlignSelf: styles?.alignSelf || '',
+      badgeWhiteSpace: styles?.whiteSpace || '',
+    };
+  });
+}
+
 function aiLabModeButton(page, mode, rootSelector = '#sectionAiLab') {
   return page.locator(`${rootSelector} .admin-ai__modes [data-ai-mode="${mode}"]`);
 }
@@ -2085,6 +2101,197 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
     await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
     await page.locator('#studioImageModal .modal-close').click();
+  });
+
+  test('account Image Studio keeps saved-assets type badges compact on desktop and mobile', async ({
+    page,
+  }) => {
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-badges', name: 'Badge Lab', slug: 'badge-lab', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-badges': 5,
+        },
+        unfolderedCount: 0,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'compare-badge-1',
+            asset_type: 'text',
+            folder_id: 'folder-badges',
+            title: 'Compare Notes',
+            file_name: 'compare-notes.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 321,
+            preview_text: 'Compare badge layout check.',
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/ai/text-assets/compare-badge-1/file',
+          },
+          {
+            id: 'live-badge-1',
+            asset_type: 'text',
+            folder_id: 'folder-badges',
+            title: 'Live Agent Transcript',
+            file_name: 'live-agent-transcript.txt',
+            source_module: 'live_agent',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 654,
+            preview_text: 'Live Agent badge layout check.',
+            created_at: '2026-04-10T12:01:00.000Z',
+            file_url: '/api/ai/text-assets/live-badge-1/file',
+          },
+          {
+            id: 'text-badge-1',
+            asset_type: 'text',
+            folder_id: 'folder-badges',
+            title: 'Plain Text Notes',
+            file_name: 'plain-text-notes.txt',
+            source_module: '',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 777,
+            preview_text: 'Plain text badge layout check.',
+            created_at: '2026-04-10T12:02:00.000Z',
+            file_url: '/api/ai/text-assets/text-badge-1/file',
+          },
+          {
+            id: 'sound-badge-1',
+            asset_type: 'sound',
+            folder_id: 'folder-badges',
+            title: 'Badge Loop',
+            file_name: 'badge-loop.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 204800,
+            preview_text: 'Sound badge layout check.',
+            created_at: '2026-04-10T12:03:00.000Z',
+            file_url: '/api/ai/text-assets/sound-badge-1/file',
+          },
+          {
+            id: 'video-badge-1',
+            asset_type: 'video',
+            folder_id: 'folder-badges',
+            title: 'Badge Walkthrough',
+            file_name: 'badge-walkthrough.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 4096000,
+            created_at: '2026-04-10T12:04:00.000Z',
+            file_url: '/api/ai/text-assets/video-badge-1/file',
+          },
+        ],
+        unfoldered: [],
+        folders: {
+          'folder-badges': [
+            {
+              id: 'compare-badge-1',
+              asset_type: 'text',
+              folder_id: 'folder-badges',
+              title: 'Compare Notes',
+              file_name: 'compare-notes.txt',
+              source_module: 'compare',
+              mime_type: 'text/plain; charset=utf-8',
+              size_bytes: 321,
+              preview_text: 'Compare badge layout check.',
+              created_at: '2026-04-10T12:00:00.000Z',
+              file_url: '/api/ai/text-assets/compare-badge-1/file',
+            },
+            {
+              id: 'live-badge-1',
+              asset_type: 'text',
+              folder_id: 'folder-badges',
+              title: 'Live Agent Transcript',
+              file_name: 'live-agent-transcript.txt',
+              source_module: 'live_agent',
+              mime_type: 'text/plain; charset=utf-8',
+              size_bytes: 654,
+              preview_text: 'Live Agent badge layout check.',
+              created_at: '2026-04-10T12:01:00.000Z',
+              file_url: '/api/ai/text-assets/live-badge-1/file',
+            },
+            {
+              id: 'text-badge-1',
+              asset_type: 'text',
+              folder_id: 'folder-badges',
+              title: 'Plain Text Notes',
+              file_name: 'plain-text-notes.txt',
+              source_module: '',
+              mime_type: 'text/plain; charset=utf-8',
+              size_bytes: 777,
+              preview_text: 'Plain text badge layout check.',
+              created_at: '2026-04-10T12:02:00.000Z',
+              file_url: '/api/ai/text-assets/text-badge-1/file',
+            },
+            {
+              id: 'sound-badge-1',
+              asset_type: 'sound',
+              folder_id: 'folder-badges',
+              title: 'Badge Loop',
+              file_name: 'badge-loop.mp3',
+              source_module: 'text',
+              mime_type: 'audio/mpeg',
+              size_bytes: 204800,
+              preview_text: 'Sound badge layout check.',
+              created_at: '2026-04-10T12:03:00.000Z',
+              file_url: '/api/ai/text-assets/sound-badge-1/file',
+            },
+            {
+              id: 'video-badge-1',
+              asset_type: 'video',
+              folder_id: 'folder-badges',
+              title: 'Badge Walkthrough',
+              file_name: 'badge-walkthrough.mp4',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              size_bytes: 4096000,
+              created_at: '2026-04-10T12:04:00.000Z',
+              file_url: '/api/ai/text-assets/video-badge-1/file',
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(5);
+
+    const assetIds = [
+      'compare-badge-1',
+      'live-badge-1',
+      'text-badge-1',
+      'sound-badge-1',
+      'video-badge-1',
+    ];
+
+    for (const assetId of assetIds) {
+      const metrics = await readSavedAssetBadgeMetrics(
+        page.locator(`#studioImageGrid [data-asset-id="${assetId}"]`),
+      );
+      expect(['flex', 'inline-flex']).toContain(metrics.badgeDisplay);
+      expect(metrics.badgeAlignSelf).toBe('flex-start');
+      expect(metrics.badgeWhiteSpace).toBe('nowrap');
+      expect(metrics.badgeWidth).toBeGreaterThan(0);
+      expect(metrics.badgeWidth).toBeLessThan(metrics.cardWidth - 24);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(5);
+
+    for (const assetId of assetIds) {
+      const metrics = await readSavedAssetBadgeMetrics(
+        page.locator(`#studioImageGrid [data-asset-id="${assetId}"]`),
+      );
+      expect(['flex', 'inline-flex']).toContain(metrics.badgeDisplay);
+      expect(metrics.badgeAlignSelf).toBe('flex-start');
+      expect(metrics.badgeWhiteSpace).toBe('nowrap');
+      expect(metrics.badgeWidth).toBeGreaterThan(0);
+      expect(metrics.badgeWidth).toBeLessThan(metrics.cardWidth - 24);
+    }
   });
 
   test('account Image Studio keeps mobile file cards solid and limits sound playback animation to the active card', async ({
