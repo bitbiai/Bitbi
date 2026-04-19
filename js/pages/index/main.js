@@ -7,6 +7,7 @@ import { initMobileNav } from './navbar.js';
 import { initGallery } from './gallery.js';
 import { initVideoGallery } from './video-gallery.js?v=__ASSET_VERSION__';
 import { initSoundLab } from './soundlab.js';
+import { initCategoryCarousel } from './category-carousel.js?v=__ASSET_VERSION__';
 import { initSmoothScroll } from './smooth-scroll.js';
 import { initScrollReveal } from '../../shared/scroll-reveal.js';
 import { initParticles } from '../../shared/particles.js';
@@ -249,6 +250,7 @@ try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollRev
 try { initGallery(); } catch (e) { console.warn('gallery:', e); }
 try { initVideoGallery(); } catch (e) { console.warn('videoGallery:', e); }
 try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }
+try { initCategoryCarousel(); } catch (e) { console.warn('categoryCarousel:', e); }
 
 /* Binary footer */
 try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn('binaryFooter:', e); }

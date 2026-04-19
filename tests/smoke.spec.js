@@ -114,6 +114,43 @@ async function dispatchHorizontalTouchSwipe(page, selector, {
   }, { selector, startXFactor, endXFactor, yFactor });
 }
 
+async function expectActiveHomepageCategory(page, expectedCategory) {
+  await expect
+    .poll(async () => page.locator('#homeCategories').getAttribute('data-active-category'))
+    .toBe(expectedCategory);
+}
+
+async function switchHomepageCategory(page, targetCategory) {
+  const order = ['gallery', 'video', 'sound'];
+  const stage = page.locator('#homeCategories');
+
+  await expect(stage).toBeVisible();
+
+  for (let attempt = 0; attempt < order.length + 1; attempt += 1) {
+    const currentCategory = await stage.getAttribute('data-active-category');
+    if (currentCategory === targetCategory) return;
+
+    const currentIndex = order.indexOf(currentCategory);
+    const targetIndex = order.indexOf(targetCategory);
+    const direction = targetIndex < currentIndex ? 'prev' : 'next';
+    const expectedNext = order[currentIndex + (direction === 'prev' ? -1 : 1)];
+    const button = stage.locator(`[data-category-nav="${direction}"]`);
+
+    await expect(button).toBeVisible();
+    await button.click();
+    let afterClickCategory = currentCategory;
+    for (let settleAttempt = 0; settleAttempt < 4; settleAttempt += 1) {
+      await page.waitForTimeout(50);
+      afterClickCategory = await stage.getAttribute('data-active-category');
+      if (afterClickCategory !== currentCategory) break;
+    }
+    if (afterClickCategory === currentCategory) continue;
+    await expectActiveHomepageCategory(page, expectedNext);
+  }
+
+  throw new Error(`Could not switch homepage category to "${targetCategory}"`);
+}
+
 // ---------------------------------------------------------------------------
 // Homepage
 // ---------------------------------------------------------------------------
@@ -138,6 +175,127 @@ test.describe('Homepage', () => {
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+  });
+
+  test('homepage category carousel defaults to Video Creations and navigates the three staged states safely', async ({ page }) => {
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'stage-mempic',
+                slug: 'stage-mempic',
+                title: 'Staged Gallery Card',
+                caption: 'Gallery panel content.',
+                category: 'mempics',
+                thumb: {
+                  url: '/api/gallery/mempics/stage-mempic/thumb',
+                  w: 320,
+                  h: 320,
+                },
+                preview: {
+                  url: '/api/gallery/mempics/stage-mempic/medium',
+                  w: 1280,
+                  h: 1280,
+                },
+                full: {
+                  url: '/api/gallery/mempics/stage-mempic/file',
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'stage-memvid',
+                slug: 'stage-memvid',
+                title: 'Staged Video Card',
+                caption: 'Video panel content.',
+                category: 'memvids',
+                file: {
+                  url: '/api/gallery/memvids/stage-memvid/file',
+                },
+                poster: {
+                  url: '/api/gallery/memvids/stage-memvid/poster',
+                  w: 1280,
+                  h: 720,
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.goto('/');
+
+    const stage = page.locator('#homeCategories');
+    const prevButton = stage.locator('[data-category-nav="prev"]');
+    const nextButton = stage.locator('[data-category-nav="next"]');
+
+    await expectActiveHomepageCategory(page, 'video');
+    await expect(prevButton).toBeVisible();
+    await expect(nextButton).toBeVisible();
+    await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+
+    await prevButton.click();
+    await expectActiveHomepageCategory(page, 'gallery');
+    await expect(prevButton).toBeHidden();
+    await expect(nextButton).toBeVisible();
+    await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
+
+    await nextButton.click();
+    await expectActiveHomepageCategory(page, 'video');
+    await expect(prevButton).toBeVisible();
+    await expect(nextButton).toBeVisible();
+
+    await nextButton.click();
+    await expectActiveHomepageCategory(page, 'sound');
+    await expect(prevButton).toBeVisible();
+    await expect(nextButton).toBeHidden();
+    await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expectActiveHomepageCategory(page, 'gallery');
   });
 
   test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {
@@ -416,6 +574,7 @@ test.describe('Homepage', () => {
 
   test('gallery has Explore/Create mode toggle', async ({ page }) => {
     await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
     const modeBar = page.locator('.gallery-mode');
     await expect(modeBar).toBeAttached();
     await expect(modeBar.getByRole('tab', { name: 'Explore' })).toBeVisible();
@@ -537,8 +696,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
     await expect(page.locator('#soundlab .section__label')).toHaveCount(0);
 
-    await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+    await expectActiveHomepageCategory(page, 'video');
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+    await switchHomepageCategory(page, 'gallery');
+    await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+    await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
 
     const desktopHeaderLayout = await page.evaluate(() => (
@@ -564,8 +726,12 @@ test.describe('Homepage', () => {
     await expect(page.locator('#gallery .section__label')).toHaveCount(0);
     await expect(page.locator('#video-creations .section__label')).toHaveCount(0);
     await expect(page.locator('#soundlab .section__label')).toHaveCount(0);
+    await expectActiveHomepageCategory(page, 'sound');
+    await switchHomepageCategory(page, 'gallery');
     await expect(page.locator('#galleryGrid .gallery-item:not(.locked-area)').first()).toBeVisible();
+    await switchHomepageCategory(page, 'video');
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
+    await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
   });
 
@@ -613,6 +779,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
 
     const mempicsBtn = page.locator('.filter-btn[data-filter="mempics"]');
     await expect(mempicsBtn).toBeVisible();
@@ -677,6 +844,7 @@ test.describe('Homepage', () => {
 
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
 
     const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
     await expect(galleryCards).toHaveCount(5);
@@ -835,6 +1003,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
     await expect(page.locator('#videoGrid')).not.toHaveClass(/vid-deck/);
 
     const mempicStar = page.locator('#galleryGrid .gallery-item .fav-star').first();
@@ -860,6 +1029,8 @@ test.describe('Homepage', () => {
         item_id: 'a1b2c3d4',
       },
     });
+
+    await switchHomepageCategory(page, 'video');
 
     const videoCard = page.locator('#videoGrid .video-card').first();
     const videoCardStar = videoCard.locator('.fav-star');
@@ -993,6 +1164,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
+    await expectActiveHomepageCategory(page, 'video');
 
     const grid = page.locator('#videoGrid');
     const dots = page.locator('.vid-deck-dots .vid-deck-dot');
@@ -1217,6 +1389,7 @@ test.describe('Homepage', () => {
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
+    await switchHomepageCategory(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
 
     const wideLayout = await page.evaluate(() => {
