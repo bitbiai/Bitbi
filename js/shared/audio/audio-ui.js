@@ -235,18 +235,19 @@ function renderAudioShell(nextState) {
     const mobileNextBtn = document.getElementById('globalAudioMobileNext');
     const menuIndicator = ensureMobileMenuPlaybackIndicator();
 
-    const hasTrack = !!nextState.sourceUrl;
     const isPlaying = nextState.status === 'playing';
     const isBlocked = nextState.status === 'blocked';
     const isMobile = isMobileViewport();
-    const showMobileMenuPlayer = isMobile && isMobileMenuOpen() && hasTrack && isPlaying;
+    const hasTrack = !!nextState.sourceUrl;
+    const showDesktopShell = !isMobile && isPlaying;
+    const showMobileMenuPlayer = isMobile && isMobileMenuOpen() && isPlaying;
     const duration = Number(nextState.duration) || 0;
     const currentTime = Number(nextState.currentTime) || 0;
     const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
     const desktopStatusText = buildStatusText(nextState);
     const mobileStatusText = buildStatusText(nextState, { includeOrigin: false });
 
-    shell.hidden = !hasTrack || isMobile;
+    shell.hidden = !showDesktopShell;
     shell.classList.toggle('site-audio--playing', isPlaying);
     shell.classList.toggle('site-audio--blocked', isBlocked);
     shell.classList.toggle('site-audio--muted', !!nextState.muted);
@@ -256,8 +257,8 @@ function renderAudioShell(nextState) {
     }
 
     if (menuIndicator) {
-        menuIndicator.hidden = !(hasTrack && isPlaying);
-        menuIndicator.classList.toggle('is-active', hasTrack && isPlaying);
+        menuIndicator.hidden = !isPlaying;
+        menuIndicator.classList.toggle('is-active', isPlaying);
     }
 
     const canSkip = hasTrack && isSoundLabTrackId(nextState.trackId);
@@ -267,6 +268,21 @@ function renderAudioShell(nextState) {
     if (mobileNextBtn) mobileNextBtn.disabled = !canSkip;
 
     if (!hasTrack) {
+        if (title) title.textContent = 'Audio player';
+        if (status) status.textContent = '';
+        if (mobileTitle) mobileTitle.textContent = 'Audio player';
+        if (mobileStatus) mobileStatus.textContent = '';
+        syncPlayButtonState(playBtn, false);
+        syncPlayButtonState(mobilePlayBtn, false);
+        if (muteBtn) {
+            muteBtn.setAttribute('aria-label', 'Mute audio');
+            muteBtn.classList.remove('is-muted');
+        }
+        syncProgressControl(progress, progressFill, 0, false);
+        syncProgressControl(mobileProgress, mobileProgressFill, 0, false);
+        if (handle) {
+            handle.setAttribute('aria-label', 'Show audio player');
+        }
         setDrawerExpanded(shell, false);
         return;
     }
@@ -287,10 +303,12 @@ function renderAudioShell(nextState) {
     if (handle) {
         handle.setAttribute('aria-label', shell.classList.contains('is-open') ? 'Hide audio player' : 'Show audio player');
     }
-    if (isMobile) {
+
+    if (!showDesktopShell) {
         setDrawerExpanded(shell, false);
         return;
     }
+
     if (panel && !shell.classList.contains('is-open') && !shell.contains(document.activeElement)) {
         panel.setAttribute('aria-hidden', 'true');
     }

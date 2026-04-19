@@ -129,6 +129,22 @@ async function openHomepageSoundLab(page) {
 }
 
 test.describe('Global audio player', () => {
+  test('desktop player stays hidden on homepage load until playback starts', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect(page.locator('#globalAudioHandle')).toBeHidden();
+
+    await openHomepageSoundLab(page);
+    const firstPlay = page.locator('.snd-play').first();
+    await firstPlay.scrollIntoViewIfNeeded();
+    await firstPlay.click();
+
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await expect(page.locator('#globalAudioHandle')).toBeVisible();
+  });
+
   test('persists track state across hard navigation and reload', async ({ page }) => {
     await installAudioMock(page);
 
@@ -174,9 +190,11 @@ test.describe('Global audio player', () => {
 
     await page.locator('#globalAudioToggle').click();
     await expect(page.locator('.snd-card').first().locator('.pi')).toBeVisible();
-    await expect(page.locator('#globalAudioStatus')).toContainText('Paused');
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
 
-    await page.locator('#globalAudioToggle').click();
+    await firstPlay.click();
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await openGlobalAudioDrawer(page);
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
     await expect(page.locator('#globalAudioStatus')).toContainText('Playing');
   });
@@ -194,6 +212,32 @@ test.describe('Global audio player', () => {
       src: 'https://pub.bitbi.ai/audio/sound-lab/cosmic-sea.mp3',
       crossOrigin: '',
     });
+  });
+
+  test('desktop player hides after playback ends and stays hidden on reload when nothing is actively playing', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    const lastPlay = page.locator('.snd-play').last();
+    await lastPlay.scrollIntoViewIfNeeded();
+    await lastPlay.click();
+
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+
+    await page.evaluate(() => {
+      window.__bitbiAudioMock.instances[0]?.dispatchEvent(new Event('ended'));
+    });
+
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect.poll(async () => page.evaluate(() => {
+      const snapshot = JSON.parse(localStorage.getItem('bitbi_audio_state_v1'));
+      return snapshot?.playIntent ?? null;
+    })).toBe(false);
+
+    await page.reload();
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect(page.locator('#globalAudioHandle')).toBeHidden();
   });
 
   test('desktop drawer only opens from the visible handle hit area', async ({ page }) => {

@@ -180,6 +180,8 @@ export function initCategoryCarousel() {
             scrollFrame = 0;
         };
 
+        step(startTime + (1000 / 60));
+        if (scrollFrame) return;
         scrollFrame = window.requestAnimationFrame(step);
     }
 
@@ -344,9 +346,4 @@ export function initCategoryCarousel() {
     applyCategoryState();
     updateCategoryLinkState();
 
-    if (resolveCategoryFromHash(window.location.hash)) {
-        requestAnimationFrame(() => {
-            alignStageToHeaderEdge();
-        });
-    }
 }

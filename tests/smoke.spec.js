@@ -236,6 +236,52 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/BITBI/);
   });
 
+  test('refreshing mid-page preserves the current scroll position', async ({ page }) => {
+    await page.goto('/');
+
+    const beforeReload = await page.evaluate(() => {
+      window.scrollTo(0, 1480);
+      return Math.round(window.scrollY);
+    });
+
+    await page.reload();
+
+    await expect.poll(async () => {
+      const currentScroll = await page.evaluate(() => Math.round(window.scrollY));
+      return Math.abs(currentScroll - beforeReload);
+    }).toBeLessThanOrEqual(12);
+  });
+
+  test('refreshing near the category stage does not auto-jump the stage under the header', async ({ page }) => {
+    await page.goto('/');
+
+    const beforeReload = await page.evaluate(() => {
+      const stage = document.getElementById('homeCategories');
+      const navbar = document.getElementById('navbar');
+      const absoluteTop = window.scrollY + stage.getBoundingClientRect().top;
+      const targetScroll = Math.max(0, absoluteTop - 260);
+      window.scrollTo(0, targetScroll);
+      const stageRect = stage.getBoundingClientRect();
+      const navRect = navbar.getBoundingClientRect();
+      return {
+        scrollY: Math.round(window.scrollY),
+        alignmentDelta: Math.round(Math.abs(stageRect.top - navRect.bottom)),
+      };
+    });
+
+    expect(beforeReload.alignmentDelta).toBeGreaterThan(120);
+
+    await page.reload();
+
+    await expect.poll(async () => {
+      const currentScroll = await page.evaluate(() => Math.round(window.scrollY));
+      return Math.abs(currentScroll - beforeReload.scrollY);
+    }).toBeLessThanOrEqual(12);
+
+    const afterReload = await readHomepageCategoryStageMetrics(page);
+    expect(afterReload.alignmentDelta).toBeGreaterThan(120);
+  });
+
   test('navigation links are present', async ({ page }) => {
     await page.goto('/');
     const nav = page.locator('#navbar .site-nav__links');
@@ -423,6 +469,7 @@ test.describe('Homepage', () => {
       scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
     };
     expect(midHeaderNavMetrics.isTransitioning).toBe(true);
+    expect(midHeaderNavMetrics.alignmentDelta).toBeLessThanOrEqual(8);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
     await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#gallery');
 
