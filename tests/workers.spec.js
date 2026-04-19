@@ -2934,6 +2934,8 @@ test.describe('Worker routes', () => {
           minimal_mode_active: true,
           effective_payload_json: JSON.stringify({
             prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+            duration: 5,
+            resolution: '720p',
           }),
           run_outcome: 'success',
         }));
@@ -2972,6 +2974,8 @@ test.describe('Worker routes', () => {
       expect(capturedArgs[0]).toBe('vidu/q3-pro');
       expect(capturedArgs[1]).toEqual({
         prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+        duration: 5,
+        resolution: '720p',
       });
     });
 
@@ -3005,6 +3009,8 @@ test.describe('Worker routes', () => {
       expect(capturedArgs[0]).toBe('vidu/q3-pro');
       expect(capturedArgs[1]).toEqual({
         prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+        duration: 5,
+        resolution: '720p',
       });
       expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
     });
@@ -3081,6 +3087,8 @@ test.describe('Worker routes', () => {
           minimal_mode_active: true,
           effective_payload_json: JSON.stringify({
             prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+            duration: 5,
+            resolution: '720p',
           }),
           run_outcome: 'failure',
         }));
@@ -3157,6 +3165,8 @@ test.describe('Worker routes', () => {
           minimal_mode_active: true,
           effective_payload_json: JSON.stringify({
             prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+            duration: 5,
+            resolution: '720p',
           }),
           error_message: 'Gateway log lookup exploded',
         }));

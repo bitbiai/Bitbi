@@ -1028,6 +1028,11 @@ function extractVideoUrl(result) {
 
 const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
 const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
+const VIDU_MINIMAL_MODE_PAYLOAD = {
+  prompt: "A golden retriever running through a sunlit meadow in slow motion",
+  duration: 5,
+  resolution: "720p",
+};
 
 function viduValidationError(message) {
   const error = new Error(message);
@@ -1207,9 +1212,9 @@ export async function invokeVideo(env, model, input) {
     payloadTypeMap[`pt_${k}`] = `${typeof v}`;
   }
 
-  // --- Vidu minimal_mode: bypass UI params, send hardcoded prompt-only payload ---
+  // --- Vidu minimal_mode: replace UI params with a fixed doc-compliant payload ---
   const effectivePayload = minimalModeActive
-    ? { prompt: "A golden retriever running through a sunlit meadow in slow motion" }
+    ? { ...VIDU_MINIMAL_MODE_PAYLOAD }
     : payload;
 
   // --- Vidu pre-flight diagnostic: log the exact outgoing payload ---

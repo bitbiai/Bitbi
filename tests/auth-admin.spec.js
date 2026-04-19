@@ -3968,6 +3968,9 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoPrompt').fill('Minimal mode deploy verification');
     await page.locator('#aiVideoMinimalMode').check();
     await expect(page.locator('#aiVideoMinimalModeHint')).toBeVisible();
+    await expect(page.locator('#aiVideoMinimalModeHint')).toContainText(
+      'backend will replace the payload with a fixed Vidu prompt + duration + resolution payload.'
+    );
     await page.locator('#aiVideoRun').click();
 
     await expect(page.locator('#aiVideoPreview video')).toHaveCount(1);
