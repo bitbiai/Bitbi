@@ -139,10 +139,10 @@
     }
 
     .wallet-nav__mobile-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: start;
-        gap: var(--space-4);
+        display: flex;
+        position: relative;
+        align-items: stretch;
+        gap: clamp(0.875rem, 4vw, 1.125rem);
         min-width: 0;
     }
 
@@ -153,9 +153,13 @@
 
     .wallet-nav__mobile-link {
         display: grid;
+        flex: 1 1 auto;
         gap: 0.35rem;
-        width: 100%;
+        min-block-size: 44px;
+        position: relative;
+        z-index: 0;
         padding: 0;
+        padding-inline-end: 0.5rem;
         appearance: none;
         border: 0;
         background: none;
@@ -166,19 +170,24 @@
 
     .wallet-nav__mobile-trigger {
         display: inline-flex;
+        flex: 0 0 auto;
         align-items: center;
         justify-content: center;
-        align-self: start;
-        min-inline-size: fit-content;
-        padding: 0.2rem 0 0.2rem 0.75rem;
+        align-self: stretch;
+        min-inline-size: 4.5rem;
+        min-block-size: 44px;
+        position: relative;
+        z-index: 1;
+        padding: 0.2rem 0 0.2rem 1rem;
         border: 0;
+        border-inline-start: 1px solid rgba(255, 255, 255, 0.12);
         background: none;
         color: rgba(255, 255, 255, 0.5);
         font-family: var(--font-display);
         font-size: 1.125rem;
         font-weight: 700;
         line-height: 1.1;
-        text-align: right;
+        text-align: center;
         white-space: nowrap;
         cursor: pointer;
     }

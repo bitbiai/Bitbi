@@ -681,6 +681,29 @@ test.describe('Wallet navigation mobile', () => {
     expect(walletPanelBox).toBeTruthy();
     expect(Math.abs(walletPageBox.y - walletPanelBox.y)).toBeLessThan(10);
     expect(walletPanelBox.x).toBeGreaterThan(walletPageBox.x);
+    expect(walletPageBox.height).toBeGreaterThanOrEqual(40);
+    expect(walletPanelBox.height).toBeGreaterThanOrEqual(40);
+
+    const hitTargets = await page.evaluate(() => {
+      const walletPageEl = document.querySelector('.mobile-nav__section--wallet [data-wallet-page="mobile"]');
+      const walletPanelEl = document.querySelector('.mobile-nav__section--wallet [data-wallet-open="mobile"]');
+      const hitsSelf = (el) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        const target = document.elementFromPoint(rect.left + (rect.width / 2), rect.top + (rect.height / 2));
+        return target === el || el.contains(target);
+      };
+
+      return {
+        walletPageHit: hitsSelf(walletPageEl),
+        walletPanelHit: hitsSelf(walletPanelEl),
+      };
+    });
+
+    expect(hitTargets).toEqual({
+      walletPageHit: true,
+      walletPanelHit: true,
+    });
 
     const walletEntry = walletSection.locator('[data-wallet-open="mobile"]');
     await expect(walletEntry).toBeVisible();

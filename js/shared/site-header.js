@@ -9,7 +9,7 @@ import { initAuthModal } from './auth-modal.js';
 import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
-import { initModelsOverlay } from './models-overlay.js';
+import { initModelsOverlay } from './models-overlay.js?v=__ASSET_VERSION__';
 
 const NAV_HTML = `
 <nav class="site-nav glass-nav" aria-label="Main navigation">

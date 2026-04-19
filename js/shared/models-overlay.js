@@ -4,57 +4,36 @@
    the shared site header.
    ============================================================ */
 
+import { listAdminAiCatalog } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 
-/* ── Model catalog (presentation-layer extract) ──
-   Source of truth: js/shared/admin-ai-contract.mjs REGISTRY.
-   Only display-safe fields are kept here to avoid importing
-   the full contract (validation, limits, etc.) into the
-   client bundle. Keep in sync with admin-ai-contract.mjs. */
-const MODEL_CATALOG = [
-    {
-        category: 'Text Generation',
-        side: 'left',
-        models: [
-            { name: 'Llama 3.1 8B Instruct', vendor: 'Meta' },
-            { name: 'Llama 3.3 70B Instruct', vendor: 'Meta' },
-            { name: 'Gemma 4 26B A4B', vendor: 'Google' },
-            { name: 'GPT OSS 20B', vendor: 'OpenAI' },
-            { name: 'GPT OSS 120B', vendor: 'OpenAI' },
-        ],
-    },
-    {
-        category: 'Embeddings',
-        side: 'left',
-        models: [
-            { name: 'BGE M3', vendor: 'BAAI' },
-            { name: 'EmbeddingGemma 300M', vendor: 'Google' },
-        ],
-    },
-    {
-        category: 'Image Generation',
-        side: 'right',
-        models: [
-            { name: 'FLUX.1 Schnell', vendor: 'Black Forest Labs' },
-            { name: 'FLUX.2 Klein 9B', vendor: 'Black Forest Labs' },
-            { name: 'FLUX.2 Dev', vendor: 'Black Forest Labs' },
-        ],
-    },
-    {
-        category: 'Music',
-        side: 'right',
-        models: [
-            { name: 'Music 2.6', vendor: 'MiniMax' },
-        ],
-    },
-    {
-        category: 'Video',
-        side: 'right',
-        models: [
-            { name: 'Pixverse V6', vendor: 'Pixverse' },
-        ],
-    },
+const MODEL_GROUPS = [
+    { task: 'text', category: 'Text Generation', side: 'left' },
+    { task: 'embeddings', category: 'Embeddings', side: 'left' },
+    { task: 'image', category: 'Image Generation', side: 'right' },
+    { task: 'music', category: 'Music', side: 'right' },
+    { task: 'video', category: 'Video', side: 'right' },
 ];
+
+function buildModelCatalog() {
+    const catalog = listAdminAiCatalog();
+    const modelsByTask = catalog?.models || {};
+
+    return MODEL_GROUPS.map(({ task, category, side }) => ({
+        category,
+        side,
+        models: Array.isArray(modelsByTask[task])
+            ? modelsByTask[task]
+                .map((model) => ({
+                    name: model?.label || model?.id || '',
+                    vendor: model?.vendor || '',
+                }))
+                .filter((model) => model.name)
+            : [],
+    })).filter((group) => group.models.length > 0);
+}
+
+const MODEL_CATALOG = buildModelCatalog();
 
 let overlayEl = null;
 let focusTrapCleanup = null;

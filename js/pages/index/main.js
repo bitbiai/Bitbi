@@ -19,7 +19,7 @@ import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js';
-import { initModelsOverlay } from '../../shared/models-overlay.js';
+import { initModelsOverlay } from '../../shared/models-overlay.js?v=__ASSET_VERSION__';
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
@@ -152,9 +152,68 @@ function initHeroBackgroundVideo() {
     syncHeroBackgroundVideo();
 }
 
+function initMobileGuestBanner() {
+    const hero = document.getElementById('hero');
+    const menuBtn = document.getElementById('mobileMenuBtn');
+    if (!hero || !menuBtn) return;
+
+    const mobileQuery = window.matchMedia('(max-width: 639px)');
+    let banner = null;
+
+    function bindMediaQueryChange(query, listener) {
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', listener);
+            return;
+        }
+        if (typeof query.addListener === 'function') {
+            query.addListener(listener);
+        }
+    }
+
+    function ensureBanner() {
+        if (banner?.isConnected) return banner;
+
+        banner = document.createElement('div');
+        banner.id = 'mobileGuestBanner';
+        banner.className = 'mobile-guest-banner';
+
+        const cta = document.createElement('button');
+        cta.type = 'button';
+        cta.className = 'mobile-guest-banner__cta';
+        cta.setAttribute('aria-label', 'Open the menu to create a free BITBI account');
+        cta.innerHTML = `
+            <span class="mobile-guest-banner__eyebrow">Free Account</span>
+            <span class="mobile-guest-banner__title">Create your BITBI account for free</span>
+            <span class="mobile-guest-banner__hint">Open the menu to sign in or register</span>
+        `;
+        cta.addEventListener('click', () => menuBtn.click());
+
+        banner.appendChild(cta);
+        hero.appendChild(banner);
+        return banner;
+    }
+
+    function renderBanner() {
+        const { ready, loggedIn } = getAuthState();
+        const shouldShow = mobileQuery.matches && ready && !loggedIn;
+
+        if (!shouldShow) {
+            if (banner?.isConnected) banner.remove();
+            return;
+        }
+
+        ensureBanner();
+    }
+
+    bindMediaQueryChange(mobileQuery, renderBanner);
+    document.addEventListener('bitbi:auth-change', renderBanner);
+    renderBanner();
+}
+
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
 try { initHeroBackgroundVideo(); } catch (e) { console.warn('heroVideo:', e); }
+try { initMobileGuestBanner(); } catch (e) { console.warn('guestBanner:', e); }
 
 /* Hero particles (index uses more particles, nebulae, connections) */
 try { initParticles('heroCanvas', {

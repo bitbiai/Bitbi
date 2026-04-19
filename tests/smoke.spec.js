@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+const path = require('path');
+const { pathToFileURL } = require('url');
 
 const MODELS_OVERLAY_PATHS = [
   '/legal/privacy.html',
@@ -9,6 +11,34 @@ const MODELS_OVERLAY_PATHS = [
   '/admin/index.html',
 ];
 
+let expectedHomepageModelCatalog = null;
+
+async function getExpectedHomepageModelCatalog() {
+  if (expectedHomepageModelCatalog) return expectedHomepageModelCatalog;
+
+  const contractModule = await import(
+    pathToFileURL(path.join(__dirname, '..', 'js/shared/admin-ai-contract.mjs')).href
+  );
+  const { models } = contractModule.listAdminAiCatalog();
+  const groups = [
+    ['Text Generation', models.text],
+    ['Embeddings', models.embeddings],
+    ['Image Generation', models.image],
+    ['Music', models.music],
+    ['Video', models.video],
+  ];
+
+  expectedHomepageModelCatalog = groups.map(([category, entries]) => ({
+    category,
+    models: (entries || []).map((entry) => ({
+      name: entry.label,
+      vendor: entry.vendor,
+    })),
+  }));
+
+  return expectedHomepageModelCatalog;
+}
+
 async function expectPathUnchanged(page, expectedPath) {
   await expect.poll(() => {
     const url = new URL(page.url());
@@ -18,13 +48,22 @@ async function expectPathUnchanged(page, expectedPath) {
 
 async function expectModelsOverlayOpenState(page) {
   const overlay = page.locator('.models-overlay');
+  const expectedCatalog = await getExpectedHomepageModelCatalog();
 
   await expect(overlay).toBeVisible();
   await expect(overlay).toHaveClass(/is-active/);
-  await expect(overlay).toContainText('Text Generation');
-  await expect(overlay).toContainText('Image Generation');
-  await expect(overlay).toContainText('Video');
-  await expect(overlay).toContainText('Pixverse V6');
+
+  const actualCatalog = await overlay.locator('.models-overlay__group').evaluateAll((nodes) => (
+    nodes.map((node) => ({
+      category: node.querySelector('.models-overlay__category')?.textContent?.trim() || '',
+      models: Array.from(node.querySelectorAll('.models-overlay__card')).map((card) => ({
+        name: card.querySelector('.models-overlay__name')?.textContent?.trim() || '',
+        vendor: card.querySelector('.models-overlay__vendor')?.textContent?.trim() || '',
+      })),
+    }))
+  ));
+
+  expect(actualCatalog).toEqual(expectedCatalog);
 }
 
 async function dispatchHorizontalTouchSwipe(page, selector, {
@@ -131,6 +170,61 @@ test.describe('Homepage', () => {
 
     await expectPathUnchanged(page, '/');
     await expectModelsOverlayOpenState(page);
+  });
+
+  test('mobile guest banner appears only for logged-out visitors and does not block the burger menu', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/');
+
+    const banner = page.locator('#mobileGuestBanner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Create your BITBI account for free');
+    await expect(page.locator('#mobileMenuBtn')).toBeVisible();
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+  });
+
+  test('mobile guest banner stays hidden for logged-in users', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'member-banner-user',
+            email: 'member@bitbi.ai',
+            role: 'user',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
+  });
+
+  test('guest banner stays absent on desktop', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
   });
 
   test('hero section renders', async ({ page }) => {
@@ -587,6 +681,179 @@ test.describe('Homepage', () => {
     ));
     expect(resetActiveIndex).toBe(0);
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('mobile models overlay keeps the final model fully reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    await page.getByRole('button', { name: 'Toggle menu' }).click();
+    await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+
+    const layout = page.locator('.models-overlay__layout');
+    const lastCard = page.locator('.models-overlay__card').last();
+
+    await layout.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+
+    await expect(lastCard).toBeVisible();
+
+    const metrics = await page.evaluate(() => {
+      const layoutEl = document.querySelector('.models-overlay__layout');
+      const cards = document.querySelectorAll('.models-overlay__card');
+      const lastCardEl = cards[cards.length - 1] || null;
+      if (!layoutEl || !lastCardEl) {
+        return null;
+      }
+      const layoutRect = layoutEl.getBoundingClientRect();
+      const cardRect = lastCardEl.getBoundingClientRect();
+      return {
+        layoutTop: layoutRect.top,
+        layoutBottom: layoutRect.bottom,
+        cardTop: cardRect.top,
+        cardBottom: cardRect.bottom,
+      };
+    });
+
+    expect(metrics).toBeTruthy();
+    expect(metrics.cardTop).toBeGreaterThanOrEqual(metrics.layoutTop - 1);
+    expect(metrics.cardBottom).toBeLessThanOrEqual(metrics.layoutBottom + 1);
+  });
+
+  test('mobile video modal keeps favorite and close controls above the player surface', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const favoriteRequests = [];
+
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'video-modal-user',
+            email: 'video-modal@bitbi.ai',
+            role: 'user',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/favorites', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, favorites: [] }),
+        });
+        return;
+      }
+
+      favoriteRequests.push({
+        method: route.request().method(),
+        body: route.request().postDataJSON(),
+      });
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { items: [] } }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'vid-modal-1',
+                slug: 'vid-modal-1',
+                title: 'Launch Walkthrough',
+                caption: 'Player-safe controls.',
+                category: 'memvids',
+                file: { url: '/api/gallery/memvids/vid-modal-1/file' },
+                poster: { url: '/api/gallery/memvids/vid-modal-1/poster', w: 1280, h: 720 },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.goto('/');
+    await page.locator('#videoGrid .video-card').first().click();
+
+    const favoriteButton = page.locator('#videoModal .video-modal__fav');
+    const closeButton = page.locator('#videoModal .video-modal-close');
+    const player = page.locator('#videoModal video');
+
+    await expect(favoriteButton).toBeVisible();
+    await expect(closeButton).toBeVisible();
+    await expect(player).toBeVisible();
+
+    const boxes = await page.evaluate(() => {
+      const favoriteEl = document.querySelector('#videoModal .video-modal__fav');
+      const closeEl = document.querySelector('#videoModal .video-modal-close');
+      const playerEl = document.querySelector('#videoModal video');
+      if (!favoriteEl || !closeEl || !playerEl) return null;
+      const favoriteRect = favoriteEl.getBoundingClientRect();
+      const closeRect = closeEl.getBoundingClientRect();
+      const playerRect = playerEl.getBoundingClientRect();
+      return {
+        favoriteBottom: favoriteRect.bottom,
+        closeBottom: closeRect.bottom,
+        playerTop: playerRect.top,
+      };
+    });
+
+    expect(boxes).toBeTruthy();
+    expect(boxes.favoriteBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
+    expect(boxes.closeBottom).toBeLessThanOrEqual(boxes.playerTop + 1);
+
+    await favoriteButton.click();
+    expect(favoriteRequests.at(-1)).toEqual({
+      method: 'POST',
+      body: {
+        item_type: 'video',
+        item_id: 'vid-modal-1',
+        title: 'Launch Walkthrough',
+        thumb_url: '/api/gallery/memvids/vid-modal-1/poster',
+      },
+    });
+
+    await closeButton.click();
+    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
   });
 
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {
