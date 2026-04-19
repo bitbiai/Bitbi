@@ -1354,6 +1354,63 @@
         }
     }
 
+    .hero__lab-teaser {
+        pointer-events: none;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 0.6875rem;
+        padding: 0.9625rem 2.2rem;
+        border-radius: var(--radius-full);
+        font-size: 0.9625rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: rgba(255, 255, 255, 0.92);
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
+            rgba(8, 12, 20, 0.84);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            0 0 18px rgba(0, 240, 255, 0.06),
+            0 10px 28px rgba(0, 0, 0, 0.22);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+    }
+
+    .hero__lab-teaser-icon {
+        font-size: 1.0625rem;
+        line-height: 1;
+        filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.18));
+    }
+
+    .hero__lab-teaser-text {
+        line-height: 1;
+    }
+
+    .hero__lab-teaser-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.34rem 0.72rem;
+        border-radius: var(--radius-full);
+        font-size: 0.71rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(0, 240, 255, 0.84);
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    @media (max-width: 639px) {
+        .hero__lab-teaser {
+            padding-inline: 1.4rem;
+        }
+    }
+
     /* --- Contact Drawer --- */
     .contact-drawer {
         display: flex;

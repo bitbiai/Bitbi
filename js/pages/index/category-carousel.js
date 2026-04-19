@@ -55,6 +55,7 @@ export function initCategoryCarousel() {
     let activeCategory = resolveCategoryFromHash(window.location.hash) || 'video';
     let isTransitioning = false;
     let transitionTimer = 0;
+    let scrollFrame = 0;
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -119,17 +120,63 @@ export function initCategoryCarousel() {
         }
     }
 
-    function alignStageToHeaderEdge() {
+    function getStageAlignmentDelta() {
         const navBottom = navbar?.getBoundingClientRect().bottom || 0;
-        const stageTop = window.scrollY + stage.getBoundingClientRect().top;
-        const nextScrollTop = Math.max(0, stageTop - navBottom);
+        const stageTop = stage.getBoundingClientRect().top;
+        return stageTop - navBottom;
+    }
 
-        if (Math.abs(window.scrollY - nextScrollTop) <= 1) return;
+    function easeInOutCubic(value) {
+        if (value < 0.5) return 4 * value * value * value;
+        return 1 - Math.pow(-2 * value + 2, 3) / 2;
+    }
 
-        window.scrollTo({
-            top: nextScrollTop,
-            behavior: 'auto',
-        });
+    function stopStageAlignmentAnimation() {
+        if (!scrollFrame) return;
+        window.cancelAnimationFrame(scrollFrame);
+        scrollFrame = 0;
+    }
+
+    function alignStageToHeaderEdge() {
+        stopStageAlignmentAnimation();
+        const alignmentDelta = getStageAlignmentDelta();
+        if (Math.abs(alignmentDelta) <= 1) return;
+        window.scrollBy({ top: alignmentDelta, behavior: 'auto' });
+    }
+
+    function animateStageAlignment() {
+        stopStageAlignmentAnimation();
+
+        const initialDelta = getStageAlignmentDelta();
+        const startTime = performance.now();
+
+        const step = (now) => {
+            const progress = Math.min(1, (now - startTime) / TRANSITION_MS);
+            const eased = easeInOutCubic(progress);
+            const desiredDelta = Math.abs(initialDelta) <= 1
+                ? 0
+                : initialDelta * (1 - eased);
+            const currentDelta = getStageAlignmentDelta();
+            const correctionDelta = progress >= 1
+                ? currentDelta
+                : currentDelta - desiredDelta;
+
+            if (Math.abs(correctionDelta) > 0.5) {
+                window.scrollBy({
+                    top: correctionDelta,
+                    behavior: 'auto',
+                });
+            }
+
+            if (progress < 1) {
+                scrollFrame = window.requestAnimationFrame(step);
+                return;
+            }
+
+            scrollFrame = 0;
+        };
+
+        scrollFrame = window.requestAnimationFrame(step);
     }
 
     function applyCategoryState() {
@@ -140,7 +187,6 @@ export function initCategoryCarousel() {
             panel.setAttribute('aria-hidden', String(!isActive));
             setPanelInert(panel, !isActive);
         });
-
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
         updateArrowState();
@@ -153,14 +199,11 @@ export function initCategoryCarousel() {
         }
     }
 
-    function finishTransition(nextCategory, { alignStage = false } = {}) {
+    function finishTransition(nextCategory) {
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         activeCategory = nextCategory;
         applyCategoryState();
-        if (alignStage) {
-            alignStageToHeaderEdge();
-        }
         isTransitioning = false;
         stage.classList.remove('is-transitioning');
         updateArrowState();
@@ -217,13 +260,16 @@ export function initCategoryCarousel() {
         if (syncHash) syncHashForCategory(nextCategory);
 
         requestAnimationFrame(() => {
+            if (alignStage) {
+                animateStageAlignment();
+            }
             currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
             nextPanel.classList.add('is-enter-active');
             viewport.style.height = `${nextHeight}px`;
         });
 
         transitionTimer = window.setTimeout(() => {
-            finishTransition(nextCategory, { alignStage });
+            finishTransition(nextCategory);
         }, TRANSITION_MS + 50);
     }
 

@@ -327,7 +327,26 @@ test.describe('Homepage', () => {
       expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
     });
 
+    const initialScrollY = await page.evaluate(() => window.scrollY);
     await prevButton.click();
+    await page.waitForTimeout(160);
+
+    const midTransitionMetrics = await page.evaluate(() => {
+      const stage = document.getElementById('homeCategories');
+      const navbar = document.getElementById('navbar');
+      const stageRect = stage?.getBoundingClientRect();
+      const navRect = navbar?.getBoundingClientRect();
+      return {
+        isTransitioning: stage?.classList.contains('is-transitioning') || false,
+        scrollY: Math.round(window.scrollY * 100) / 100,
+        alignmentDelta: Math.round(Math.abs((stageRect?.top || 0) - (navRect?.bottom || 0)) * 100) / 100,
+      };
+    });
+
+    expect(midTransitionMetrics.isTransitioning).toBe(true);
+    expect(midTransitionMetrics.scrollY).toBeGreaterThan(initialScrollY + 1);
+    expect(midTransitionMetrics.alignmentDelta).toBeLessThan(initialStageMetrics.alignmentDelta);
+
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
@@ -450,6 +469,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
     const hero = page.locator('#hero');
     const heroVideo = hero.locator('[data-hero-video]');
+    const teaser = hero.locator('.hero__lab-teaser');
 
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeVisible();
@@ -459,7 +479,27 @@ test.describe('Homepage', () => {
       .poll(() => heroVideo.evaluate((el) => el.classList.contains('is-active')))
       .toBe(true);
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
-    await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
+    await expect(teaser).toBeVisible();
+    await expect(teaser).toContainText('Generate Lab');
+    await expect(teaser).toContainText('Coming Soon');
+    await expect(hero.locator('.hero__lab-teaser-icon')).toHaveText('⚗️');
+    await expect(hero.getByRole('link', { name: /Generate Lab/i })).toHaveCount(0);
+
+    const teaserMetrics = await page.evaluate(() => {
+      const teaserEl = document.querySelector('.hero__lab-teaser');
+      const submitEl = document.querySelector('#contactForm button[type="submit"]');
+      const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
+      const submitStyle = submitEl ? window.getComputedStyle(submitEl) : null;
+      return {
+        teaserFontSize: teaserStyle ? parseFloat(teaserStyle.fontSize) : 0,
+        baselineFontSize: submitStyle ? parseFloat(submitStyle.fontSize) : 0,
+        pointerEvents: teaserStyle?.pointerEvents || '',
+      };
+    });
+
+    expect(teaserMetrics.baselineFontSize).toBeGreaterThan(0);
+    expect(Math.round((teaserMetrics.teaserFontSize / teaserMetrics.baselineFontSize) * 100)).toBe(110);
+    expect(teaserMetrics.pointerEvents).toBe('none');
   });
 
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
@@ -468,10 +508,14 @@ test.describe('Homepage', () => {
 
     const hero = page.locator('#hero');
     const heroVideo = hero.locator('[data-hero-video]');
+    const teaser = hero.locator('.hero__lab-teaser');
 
     await expect(hero).toBeVisible();
     await expect(heroVideo).toBeHidden();
-    await expect(hero.getByRole('link', { name: 'Creation Lab' })).toBeVisible();
+    await expect(teaser).toBeVisible();
+    await expect(teaser).toContainText('Generate Lab');
+    await expect(teaser).toContainText('Coming Soon');
+    await expect(hero.getByRole('link', { name: /Generate Lab/i })).toHaveCount(0);
   });
 
   test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {
