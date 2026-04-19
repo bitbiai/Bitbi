@@ -282,27 +282,46 @@ test.describe('Homepage', () => {
     const panel = page.locator('#contactDrawerPanel');
     const form = page.locator('#contactForm');
     const submit = form.locator('button[type="submit"]');
+    const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
 
     await expect(trigger).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
+    await expect(trigger).toContainText('Contact');
+    await expect(trigger).not.toContainText('Say Hello');
+    await expect(page.getByText('Open the drawer to collaborate, ask a question, or send a note.')).toHaveCount(0);
 
     const collapsedState = await page.evaluate(() => {
       const panelEl = document.getElementById('contactDrawerPanel');
       const panelInner = panelEl?.querySelector('.contact-drawer__panel-inner');
+      const drawerEl = document.querySelector('.contact-drawer');
+      const triggerEl = document.getElementById('contactDrawerTrigger');
+      const drawerRect = drawerEl?.getBoundingClientRect();
+      const triggerRect = triggerEl?.getBoundingClientRect();
       return {
         panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
         inert: panelInner?.hasAttribute('inert') || false,
+        triggerHeight: Math.round((triggerRect?.height || 0) * 100) / 100,
+        triggerWidthRatio: Math.round((((triggerRect?.width || 0) / (drawerRect?.width || 1)) * 100)) / 100,
+        triggerCenterOffset: Math.round(Math.abs(
+          ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
+          - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
+        ) * 100) / 100,
       };
     });
 
     expect(collapsedState.panelHeight).toBeLessThanOrEqual(2);
     expect(collapsedState.inert).toBe(true);
+    expect(collapsedState.triggerHeight).toBeLessThanOrEqual(90);
+    expect(collapsedState.triggerWidthRatio).toBeLessThan(0.8);
+    expect(collapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
 
     await trigger.click();
 
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(panel).toHaveAttribute('aria-hidden', 'false');
+    await expect(panelTitle).toHaveText('Say Hello');
+    await expect(panelTitle).toBeVisible();
     await expect(form).toBeVisible();
     await expect(form.locator('input[name="name"]')).toBeVisible();
     await expect(form.locator('input[name="email"]')).toBeVisible();
@@ -350,21 +369,40 @@ test.describe('Homepage', () => {
     const trigger = page.locator('#contactDrawerTrigger');
     const panel = page.locator('#contactDrawerPanel');
     const form = page.locator('#contactForm');
+    const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
 
     await expect(trigger).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
+    await expect(trigger).toContainText('Contact');
+    await expect(trigger).not.toContainText('Say Hello');
+    await expect(page.getByText('Open the drawer to collaborate, ask a question, or send a note.')).toHaveCount(0);
 
     const mobileCollapsedState = await page.evaluate(() => {
       const panelEl = document.getElementById('contactDrawerPanel');
-      return Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100;
+      const drawerEl = document.querySelector('.contact-drawer');
+      const triggerEl = document.getElementById('contactDrawerTrigger');
+      const drawerRect = drawerEl?.getBoundingClientRect();
+      const triggerRect = triggerEl?.getBoundingClientRect();
+      return {
+        panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
+        triggerHeight: Math.round((triggerRect?.height || 0) * 100) / 100,
+        triggerCenterOffset: Math.round(Math.abs(
+          ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
+          - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
+        ) * 100) / 100,
+      };
     });
-    expect(mobileCollapsedState).toBeLessThanOrEqual(2);
+    expect(mobileCollapsedState.panelHeight).toBeLessThanOrEqual(2);
+    expect(mobileCollapsedState.triggerHeight).toBeLessThanOrEqual(84);
+    expect(mobileCollapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
 
     await trigger.click();
 
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(panel).toHaveAttribute('aria-hidden', 'false');
+    await expect(panelTitle).toHaveText('Say Hello');
+    await expect(panelTitle).toBeVisible();
     await expect(form).toBeVisible();
     await expect(form.locator('input[name="name"]')).toBeVisible();
     await expect(form.locator('input[name="email"]')).toBeVisible();

@@ -357,11 +357,7 @@
                 aria-expanded="false"
                 aria-controls="contactDrawerPanel"
             >
-                <span class="contact-drawer__copy">
-                    <span class="section__label section__label--gold contact-drawer__eyebrow">Contact</span>
-                    <span class="contact-drawer__title gt-gold-cyan">Say Hello</span>
-                    <span class="contact-drawer__hint">Open the drawer to collaborate, ask a question, or send a note.</span>
-                </span>
+                <span class="contact-drawer__trigger-label">Contact</span>
                 <span class="contact-drawer__chevron" aria-hidden="true">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <path d="m6 9 6 6 6-6"/>
@@ -371,6 +367,9 @@
         </h2>
         <div id="contactDrawerPanel" class="contact-drawer__panel" aria-hidden="true">
             <div class="contact-drawer__panel-inner">
+                <div class="contact-drawer__panel-header">
+                    <h3 class="contact-drawer__panel-title gt-gold-cyan">Say Hello</h3>
+                </div>
                 <div class="contact-drawer__form-shell">
                     <form id="contactForm" class="glass rounded-2xl contact-form" style="padding:var(--space-6)">
                         <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
