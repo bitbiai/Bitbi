@@ -178,7 +178,10 @@ async function createAdminAiContractHarness(options = {}) {
     users: [user],
     imagesBinding: options.imagesBinding,
   });
+  const aiEnvOverrides = options.aiEnv && typeof options.aiEnv === 'object' ? options.aiEnv : {};
+  const { AI: _ignoredAiEnvOverride, ...safeAiEnvOverrides } = aiEnvOverrides;
   env.AI_LAB = createAiLabServiceBinding(aiWorker, {
+    ...safeAiEnvOverrides,
     AI: {
       get aiGatewayLogId() {
         return currentAiGatewayLogId;
@@ -3172,6 +3175,300 @@ test.describe('Worker routes', () => {
         }));
       } finally {
         diagnostics.restore();
+      }
+    });
+
+    test('POST /api/admin/ai/test-video falls back to the direct Vidu provider when Cloudflare validation fails without a gateway log ID', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      const originalFetch = global.fetch;
+      let pollCount = 0;
+      const fetchCalls = [];
+      const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
+      providerError.name = 'InferenceUpstreamError';
+      providerError.status = 502;
+
+      global.fetch = async (url, init = {}) => {
+        const href = String(url);
+        fetchCalls.push({
+          url: href,
+          method: init.method || 'GET',
+          headers: new Headers(init.headers || {}),
+          body: init.body || null,
+        });
+
+        if (href === 'https://api.vidu.com/ent/v2/text2video') {
+          return new Response(JSON.stringify({
+            task_id: 'vidu-task-123',
+            state: 'created',
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          });
+        }
+
+        if (href === 'https://api.vidu.com/ent/v2/tasks/vidu-task-123/creations') {
+          pollCount += 1;
+          if (pollCount === 1) {
+            return new Response(JSON.stringify({
+              state: 'processing',
+              progress: 42,
+              creations: [],
+            }), {
+              status: 200,
+              headers: { 'content-type': 'application/json; charset=utf-8' },
+            });
+          }
+
+          return new Response(JSON.stringify({
+            state: 'success',
+            progress: 100,
+            creations: [
+              { url: 'https://cdn.vidu.example.com/video/signed.mp4?token=abc' },
+            ],
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch URL: ${href}`);
+      };
+
+      try {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw providerError;
+          },
+          aiGatewayLogId: null,
+          aiEnv: {
+            VIDU_API_KEY: 'vidu-secret-key',
+            __VIDU_POLL_INTERVAL_MS: 0,
+            __VIDU_POLL_TIMEOUT_MS: 1000,
+          },
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'little bird',
+            duration: 5,
+            resolution: '720p',
+            audio: true,
+            aspect_ratio: '16:9',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: true,
+          task: 'video',
+          result: expect.objectContaining({
+            videoUrl: 'https://cdn.vidu.example.com/video/signed.mp4?token=abc',
+            prompt: 'little bird',
+            duration: 5,
+            resolution: '720p',
+            generate_audio: true,
+            workflow: 'text_to_video',
+          }),
+        }));
+
+        expect(fetchCalls).toHaveLength(3);
+        expect(fetchCalls[0].url).toBe('https://api.vidu.com/ent/v2/text2video');
+        expect(fetchCalls[0].method).toBe('POST');
+        expect(fetchCalls[0].headers.get('authorization')).toBe('Token vidu-secret-key');
+        expect(JSON.parse(fetchCalls[0].body)).toEqual({
+          model: 'viduq3-pro',
+          prompt: 'little bird',
+          duration: 5,
+          resolution: '720p',
+        });
+
+        const fallbackStartedLog = findDiagnosticEvent(diagnostics.entries, 'vidu_provider_fallback_started');
+        expect(fallbackStartedLog).toEqual(expect.objectContaining({
+          gateway_mode: 'on',
+          minimal_mode_active: false,
+          workflow: 'text_to_video',
+          create_path: '/ent/v2/text2video',
+        }));
+
+        const fallbackSuccessLog = findDiagnosticEvent(diagnostics.entries, 'vidu_provider_fallback_succeeded');
+        expect(fallbackSuccessLog).toEqual(expect.objectContaining({
+          gateway_mode: 'on',
+          minimal_mode_active: false,
+          workflow: 'text_to_video',
+          provider_task_id: 'vidu-task-123',
+          provider_state: 'success',
+          poll_attempts: 2,
+          video_url_host: 'cdn.vidu.example.com',
+        }));
+      } finally {
+        diagnostics.restore();
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/test-video maps vidu/q3-pro start/end fallback requests onto the Vidu provider images array', async () => {
+      const originalFetch = global.fetch;
+      const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
+      providerError.name = 'InferenceUpstreamError';
+      providerError.status = 502;
+      const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==';
+      let capturedCreateBody = null;
+
+      global.fetch = async (url, init = {}) => {
+        const href = String(url);
+        if (href === 'https://api.vidu.com/ent/v2/start-end2video') {
+          capturedCreateBody = JSON.parse(init.body);
+          return new Response(JSON.stringify({
+            task_id: 'vidu-task-start-end',
+            state: 'created',
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          });
+        }
+
+        if (href === 'https://api.vidu.com/ent/v2/tasks/vidu-task-start-end/creations') {
+          return new Response(JSON.stringify({
+            state: 'success',
+            creations: [
+              { url: 'https://cdn.vidu.example.com/video/start-end.mp4?token=xyz' },
+            ],
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch URL: ${href}`);
+      };
+
+      try {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw providerError;
+          },
+          aiGatewayLogId: null,
+          aiEnv: {
+            VIDU_API_KEY: 'vidu-secret-key',
+            __VIDU_POLL_INTERVAL_MS: 0,
+            __VIDU_POLL_TIMEOUT_MS: 1000,
+          },
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'Blend these frames together.',
+            start_image: dataUri,
+            end_image: 'https://cdn.example.com/frame/end.png',
+            duration: 6,
+            resolution: '720p',
+            audio: false,
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: true,
+          task: 'video',
+          result: expect.objectContaining({
+            videoUrl: 'https://cdn.vidu.example.com/video/start-end.mp4?token=xyz',
+            workflow: 'start_end_to_video',
+            hasImageInput: true,
+            hasEndImageInput: true,
+          }),
+        }));
+
+        expect(capturedCreateBody).toEqual({
+          model: 'viduq3-pro',
+          prompt: 'Blend these frames together.',
+          duration: 6,
+          resolution: '720p',
+          audio: false,
+          images: [
+            dataUri,
+            'https://cdn.example.com/frame/end.png',
+          ],
+        });
+        expect(capturedCreateBody.start_image).toBeUndefined();
+        expect(capturedCreateBody.end_image).toBeUndefined();
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/test-video preserves the stable 502 response when the Vidu provider fallback also fails', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      const originalFetch = global.fetch;
+      const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
+      providerError.name = 'InferenceUpstreamError';
+      providerError.status = 502;
+
+      global.fetch = async (url) => {
+        const href = String(url);
+        if (href === 'https://api.vidu.com/ent/v2/text2video') {
+          return new Response(JSON.stringify({
+            err_code: 'invalid_request',
+            message: 'resolution is not allowed',
+          }), {
+            status: 400,
+            headers: { 'content-type': 'application/json; charset=utf-8' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch URL: ${href}`);
+      };
+
+      try {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw providerError;
+          },
+          aiGatewayLogId: null,
+          aiEnv: {
+            VIDU_API_KEY: 'vidu-secret-key',
+            __VIDU_POLL_INTERVAL_MS: 0,
+            __VIDU_POLL_TIMEOUT_MS: 1000,
+          },
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-video', 'POST', {
+            preset: 'video_vidu_q3_pro',
+            model: 'vidu/q3-pro',
+            prompt: 'little bird',
+            duration: 5,
+            resolution: '720p',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(502);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'upstream_error',
+          error: 'Video generation failed',
+        }));
+
+        const fallbackFailureLog = findDiagnosticEvent(diagnostics.entries, 'vidu_provider_fallback_failed');
+        expect(fallbackFailureLog).toEqual(expect.objectContaining({
+          gateway_mode: 'on',
+          minimal_mode_active: false,
+          error_message: 'Vidu provider task creation failed.',
+          error_code: 'upstream_error',
+          error_status: 502,
+        }));
+      } finally {
+        diagnostics.restore();
+        global.fetch = originalFetch;
       }
     });
 

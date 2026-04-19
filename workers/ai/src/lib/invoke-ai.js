@@ -9,6 +9,15 @@ import {
 } from "../../../../js/shared/worker-observability.mjs";
 
 const DEFAULT_AI_GATEWAY_ID = "default";
+const VIDU_PROVIDER_MODEL_ID = "viduq3-pro";
+const VIDU_PROVIDER_API_BASE_URL = "https://api.vidu.com";
+const VIDU_PROVIDER_CREATE_PATHS = Object.freeze({
+  text_to_video: "/ent/v2/text2video",
+  image_to_video: "/ent/v2/img2video",
+  start_end_to_video: "/ent/v2/start-end2video",
+});
+const VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS = 4_000;
+const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 450_000;
 
 function ensureAI(env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
@@ -542,6 +551,45 @@ function logViduGatewayReference({
   });
 }
 
+function readTrimmedEnvString(env, key) {
+  const value = env?.[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function readEnvNumber(env, keys, fallback) {
+  for (const key of keys) {
+    const value = env?.[key];
+    if (value === undefined || value === null || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function getViduProviderApiKey(env) {
+  return readTrimmedEnvString(env, "VIDU_API_KEY");
+}
+
+function getViduProviderPollIntervalMs(env) {
+  return readEnvNumber(
+    env,
+    ["__VIDU_POLL_INTERVAL_MS", "VIDU_POLL_INTERVAL_MS"],
+    VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS
+  );
+}
+
+function getViduProviderTimeoutMs(env) {
+  return readEnvNumber(
+    env,
+    ["__VIDU_POLL_TIMEOUT_MS", "VIDU_POLL_TIMEOUT_MS"],
+    VIDU_PROVIDER_DEFAULT_TIMEOUT_MS
+  );
+}
+
 async function logViduGatewayFailureDetails({
   env,
   correlationId,
@@ -583,6 +631,399 @@ async function logViduGatewayFailureDetails({
       ...getErrorFields(gatewayLogError),
     });
   }
+}
+
+function resolveViduWorkflowFromPayload(payload) {
+  if (typeof payload?.end_image === "string" && payload.end_image.trim()) {
+    return "start_end_to_video";
+  }
+  if (typeof payload?.start_image === "string" && payload.start_image.trim()) {
+    return "image_to_video";
+  }
+  return "text_to_video";
+}
+
+function buildViduProviderCreateRequest(payload) {
+  const workflow = resolveViduWorkflowFromPayload(payload);
+  const createPath = VIDU_PROVIDER_CREATE_PATHS[workflow];
+  const createPayload = {
+    model: VIDU_PROVIDER_MODEL_ID,
+    duration: payload.duration,
+    resolution: payload.resolution,
+  };
+
+  const prompt = typeof payload?.prompt === "string" ? payload.prompt.trim() : "";
+  if (prompt) {
+    createPayload.prompt = prompt;
+  }
+
+  if (payload?.audio === false) {
+    createPayload.audio = false;
+  }
+
+  if (workflow === "text_to_video") {
+    const aspectRatio = typeof payload?.aspect_ratio === "string" ? payload.aspect_ratio.trim() : "";
+    if (aspectRatio && aspectRatio !== "16:9") {
+      createPayload.aspect_ratio = aspectRatio;
+    }
+  } else if (workflow === "image_to_video") {
+    createPayload.images = [payload.start_image];
+  } else {
+    createPayload.images = [payload.start_image, payload.end_image];
+  }
+
+  return {
+    workflow,
+    createPath,
+    createPayload,
+  };
+}
+
+async function readJsonOrText(response) {
+  const rawText = await response.text();
+  if (!rawText) {
+    return { data: null, rawText: "" };
+  }
+
+  try {
+    return {
+      data: JSON.parse(rawText),
+      rawText,
+    };
+  } catch {
+    return {
+      data: null,
+      rawText,
+    };
+  }
+}
+
+function extractViduProviderTaskId(body) {
+  const value = firstNestedValue(body, [
+    "task_id",
+    "id",
+    "data.task_id",
+    "data.id",
+  ]);
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+function extractViduProviderState(body) {
+  const value = firstNestedValue(body, [
+    "state",
+    "status",
+    "data.state",
+    "data.status",
+  ]);
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized || null;
+}
+
+function extractViduProviderVideoUrl(body) {
+  const directCandidates = [
+    body?.video,
+    body?.video_url,
+    body?.url,
+    body?.data?.video,
+    body?.data?.video_url,
+    body?.data?.url,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && isUrlLike(candidate)) {
+      return candidate;
+    }
+  }
+
+  const creations = Array.isArray(body?.creations)
+    ? body.creations
+    : Array.isArray(body?.data?.creations)
+      ? body.data.creations
+      : [];
+
+  for (const creation of creations) {
+    const candidate = creation?.url || creation?.video_url || creation?.watermarked_url || null;
+    if (typeof candidate === "string" && isUrlLike(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function getUrlHost(value) {
+  if (!isUrlLike(value)) return null;
+  try {
+    return new URL(value).host;
+  } catch {
+    return null;
+  }
+}
+
+function buildViduProviderError(message, { status = null, body = null, step = null, taskId = null } = {}) {
+  const error = new Error(message);
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_status = status;
+  error.provider_body = sanitizeErrorValue(body);
+  error.provider_step = step;
+  error.provider_task_id = taskId;
+  return error;
+}
+
+async function delayMs(ms) {
+  if (!(ms > 0)) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldAttemptViduProviderFallback({
+  env,
+  modelId,
+  gatewayMode,
+  aiGatewayLogId,
+  error,
+}) {
+  if (modelId !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return false;
+  if (gatewayMode !== "on") return false;
+  if (aiGatewayLogId) return false;
+  if (!getViduProviderApiKey(env)) return false;
+  const errorMessage = String(error?.message || "");
+  return /request validation failed/i.test(errorMessage);
+}
+
+async function invokeViduProviderFallback({
+  env,
+  correlationId,
+  modelId,
+  gatewayMode,
+  minimalModeActive,
+  effectivePayload,
+  cloudflareError,
+}) {
+  const apiKey = getViduProviderApiKey(env);
+  if (!apiKey) {
+    throw buildViduProviderError("Vidu provider fallback is not configured.", {
+      step: "config",
+    });
+  }
+
+  const { workflow, createPath, createPayload } = buildViduProviderCreateRequest(effectivePayload);
+  const baseHeaders = {
+    Authorization: `Token ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-video",
+    event: "vidu_provider_fallback_started",
+    level: "warn",
+    correlationId,
+    model: modelId,
+    gateway_mode: gatewayMode,
+    minimal_mode_active: minimalModeActive,
+    workflow,
+    effective_payload_json: JSON.stringify(effectivePayload),
+    create_path: createPath,
+    create_payload_json: JSON.stringify(createPayload),
+    cloudflare_error_message: sanitizeErrorValue(cloudflareError?.message || null),
+  });
+
+  let createResponse;
+  try {
+    createResponse = await fetch(`${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
+      method: "POST",
+      headers: baseHeaders,
+      body: JSON.stringify(createPayload),
+    });
+  } catch (providerError) {
+    throw buildViduProviderError("Vidu provider task creation failed.", {
+      body: getErrorFields(providerError),
+      step: "create",
+    });
+  }
+
+  const createResult = await readJsonOrText(createResponse);
+  const createBody = createResult.data ?? createResult.rawText;
+  if (!createResponse.ok) {
+    throw buildViduProviderError("Vidu provider task creation failed.", {
+      status: createResponse.status,
+      body: createBody,
+      step: "create",
+    });
+  }
+
+  const taskId = extractViduProviderTaskId(createResult.data);
+  const createState = extractViduProviderState(createResult.data);
+  const immediateVideoUrl = extractViduProviderVideoUrl(createResult.data);
+  logDiagnostic({
+    service: "bitbi-ai",
+    component: "invoke-video",
+    event: "vidu_provider_task_created",
+    level: "info",
+    correlationId,
+    model: modelId,
+    gateway_mode: gatewayMode,
+    minimal_mode_active: minimalModeActive,
+    workflow,
+    provider_task_id: taskId,
+    provider_state: createState,
+    create_path: createPath,
+  });
+
+  if (immediateVideoUrl) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-video",
+      event: "vidu_provider_fallback_succeeded",
+      level: "warn",
+      correlationId,
+      model: modelId,
+      gateway_mode: gatewayMode,
+      minimal_mode_active: minimalModeActive,
+      workflow,
+      provider_task_id: taskId,
+      provider_state: createState || "success",
+      poll_attempts: 0,
+      video_url_host: getUrlHost(immediateVideoUrl),
+    });
+    return {
+      videoUrl: immediateVideoUrl,
+      providerTaskId: taskId,
+      workflow,
+      providerState: createState || "success",
+      pollAttempts: 0,
+    };
+  }
+
+  if (!taskId) {
+    throw buildViduProviderError("Vidu provider did not return a task ID.", {
+      body: createBody,
+      step: "create",
+    });
+  }
+
+  const pollIntervalMs = getViduProviderPollIntervalMs(env);
+  const timeoutAt = Date.now() + getViduProviderTimeoutMs(env);
+  let pollAttempts = 0;
+  let lastState = createState;
+
+  while (Date.now() <= timeoutAt) {
+    if (pollAttempts > 0) {
+      await delayMs(pollIntervalMs);
+    }
+    pollAttempts += 1;
+
+    let pollResponse;
+    try {
+      pollResponse = await fetch(
+        `${VIDU_PROVIDER_API_BASE_URL}/ent/v2/tasks/${encodeURIComponent(taskId)}/creations`,
+        {
+          method: "GET",
+          headers: baseHeaders,
+        }
+      );
+    } catch (providerError) {
+      throw buildViduProviderError("Vidu provider status check failed.", {
+        body: getErrorFields(providerError),
+        step: "poll",
+        taskId,
+      });
+    }
+
+    const pollResult = await readJsonOrText(pollResponse);
+    const pollBody = pollResult.data ?? pollResult.rawText;
+    if (!pollResponse.ok) {
+      throw buildViduProviderError("Vidu provider status check failed.", {
+        status: pollResponse.status,
+        body: pollBody,
+        step: "poll",
+        taskId,
+      });
+    }
+
+    const providerState = extractViduProviderState(pollResult.data);
+    const providerErrCode = sanitizeErrorValue(firstNestedValue(pollResult.data, [
+      "err_code",
+      "error.code",
+      "code",
+    ]));
+    const providerProgress = firstNestedValue(pollResult.data, [
+      "progress",
+      "data.progress",
+    ]);
+
+    if (pollAttempts === 1 || providerState !== lastState) {
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-video",
+        event: "vidu_provider_poll_state",
+        level: "info",
+        correlationId,
+        model: modelId,
+        gateway_mode: gatewayMode,
+        minimal_mode_active: minimalModeActive,
+        workflow,
+        provider_task_id: taskId,
+        provider_state: providerState,
+        provider_progress: providerProgress ?? null,
+        provider_err_code: providerErrCode,
+        poll_attempt: pollAttempts,
+      });
+      lastState = providerState;
+    }
+
+    const videoUrl = extractViduProviderVideoUrl(pollResult.data);
+    if (videoUrl) {
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-video",
+        event: "vidu_provider_fallback_succeeded",
+        level: "warn",
+        correlationId,
+        model: modelId,
+        gateway_mode: gatewayMode,
+        minimal_mode_active: minimalModeActive,
+        workflow,
+        provider_task_id: taskId,
+        provider_state: providerState || "success",
+        provider_err_code: providerErrCode,
+        poll_attempts: pollAttempts,
+        video_url_host: getUrlHost(videoUrl),
+      });
+      return {
+        videoUrl,
+        providerTaskId: taskId,
+        workflow,
+        providerState: providerState || "success",
+        pollAttempts,
+      };
+    }
+
+    if (providerState === "failed") {
+      throw buildViduProviderError("Vidu provider generation failed.", {
+        body: pollBody,
+        step: "poll",
+        taskId,
+      });
+    }
+
+    if (providerState === "success") {
+      throw buildViduProviderError("Vidu provider completed without returning a video URL.", {
+        body: pollBody,
+        step: "poll",
+        taskId,
+      });
+    }
+  }
+
+  throw buildViduProviderError("Vidu provider generation timed out before completion.", {
+    step: "poll_timeout",
+    taskId,
+  });
 }
 
 function buildMusicProviderError(raw) {
@@ -1332,27 +1773,68 @@ export async function invokeVideo(env, model, input) {
         effectivePayload,
         aiGatewayLogId,
       });
+
+      if (shouldAttemptViduProviderFallback({
+        env,
+        modelId: model.id,
+        gatewayMode,
+        aiGatewayLogId,
+        error,
+      })) {
+        try {
+          const fallback = await invokeViduProviderFallback({
+            env,
+            correlationId: input.correlationId || null,
+            modelId: model.id,
+            gatewayMode,
+            minimalModeActive,
+            effectivePayload,
+            cloudflareError: error,
+          });
+          raw = { video: fallback.videoUrl };
+          aiGatewayLogId = null;
+        } catch (fallbackError) {
+          logDiagnostic({
+            service: "bitbi-ai",
+            component: "invoke-video",
+            event: "vidu_provider_fallback_failed",
+            level: "error",
+            correlationId: input.correlationId || null,
+            model: model.id,
+            ai_gateway_log_id: aiGatewayLogId,
+            gateway_mode: gatewayMode,
+            minimal_mode_active: minimalModeActive,
+            effective_payload_json: JSON.stringify(effectivePayload),
+            cloudflare_error_message: sanitizeErrorValue(error?.message || null),
+            ...getErrorFields(fallbackError),
+            ...getUpstreamErrorDetails(fallbackError),
+          });
+          error = fallbackError;
+        }
+      }
     }
-    logDiagnostic({
-      service: "bitbi-ai",
-      component: "invoke-video",
-      event: "workers_ai_run_failed",
-      level: "error",
-      correlationId: input.correlationId || null,
-      model: model.id,
-      has_gateway_option: !!runOptions,
-      ai_gateway_log_id: aiGatewayLogId,
-      gateway_mode: gatewayMode,
-      minimal_mode_active: minimalModeActive,
-      effective_payload_json:
-        model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
-          ? JSON.stringify(effectivePayload)
-          : undefined,
-      has_image_input: !!request.normalized.hasImageInput,
-      has_end_image_input: !!request.normalized.hasEndImageInput,
-      ...getErrorFields(error),
-    });
-    throw error;
+    if (!raw) {
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-video",
+        event: "workers_ai_run_failed",
+        level: "error",
+        correlationId: input.correlationId || null,
+        model: model.id,
+        has_gateway_option: !!runOptions,
+        ai_gateway_log_id: aiGatewayLogId,
+        gateway_mode: gatewayMode,
+        minimal_mode_active: minimalModeActive,
+        effective_payload_json:
+          model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+            ? JSON.stringify(effectivePayload)
+            : undefined,
+        has_image_input: !!request.normalized.hasImageInput,
+        has_end_image_input: !!request.normalized.hasEndImageInput,
+        ...getErrorFields(error),
+      });
+      throw error;
+    }
   }
 
   const videoUrl = extractVideoUrl(raw);
