@@ -140,7 +140,6 @@
 
     .wallet-nav__mobile-row {
         display: flex;
-        position: relative;
         align-items: stretch;
         gap: clamp(0.875rem, 4vw, 1.125rem);
         min-width: 0;
@@ -156,8 +155,6 @@
         flex: 1 1 auto;
         gap: 0.35rem;
         min-block-size: 44px;
-        position: relative;
-        z-index: 0;
         padding: 0;
         padding-inline-end: 0.5rem;
         appearance: none;
@@ -176,8 +173,6 @@
         align-self: stretch;
         min-inline-size: 4.5rem;
         min-block-size: 44px;
-        position: relative;
-        z-index: 1;
         padding: 0.2rem 0 0.2rem 1rem;
         border: 0;
         border-inline-start: 1px solid rgba(255, 255, 255, 0.12);

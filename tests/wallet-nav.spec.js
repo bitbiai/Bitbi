@@ -262,6 +262,7 @@ async function openMobileWalletWorkspace(page) {
   const beforeUrl = page.url();
   await page.locator('#mobileMenuBtn').click();
   await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+  await expect.poll(() => page.locator('#mobileNav').evaluate((el) => el.dataset.state || '')).toBe('open');
   await page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]').click();
   await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
   await expect(page.locator('#walletWorkspace')).toBeVisible();
@@ -669,6 +670,7 @@ test.describe('Wallet navigation mobile', () => {
 
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect.poll(() => page.locator('#mobileNav').evaluate((el) => el.dataset.state || '')).toBe('open');
 
     const walletSection = page.locator('.mobile-nav__section--wallet');
     await expect(walletSection).toBeVisible();
@@ -743,11 +745,13 @@ test.describe('Wallet navigation mobile', () => {
     await page.goto('/');
 
     await page.locator('#mobileMenuBtn').click();
+    await expect.poll(() => page.locator('#mobileNav').evaluate((el) => el.dataset.state || '')).toBe('open');
     await page.locator('.mobile-nav__section--wallet [data-wallet-open="mobile"]').click();
     await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await page.locator('[data-wallet-close="panel"]').click();
 
     await page.locator('#mobileMenuBtn').click();
+    await expect.poll(() => page.locator('#mobileNav').evaluate((el) => el.dataset.state || '')).toBe('open');
 
     const walletLink = page.locator('.mobile-nav__section--wallet [data-wallet-page="mobile"]');
     await expect(walletLink.locator('.wallet-nav__mobile-label')).toHaveText('Wallet');

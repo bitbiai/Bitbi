@@ -21,6 +21,53 @@ export function initMobileNav() {
     let heroObjectUrl = null;
     let rainObjectUrl = null;
     let captureGen = 0;
+    let settleTimer = null;
+
+    panel.dataset.state = 'closed';
+
+    function parseTransitionTimeList(value) {
+        return String(value || '')
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part) => {
+                if (part.endsWith('ms')) return Number.parseFloat(part);
+                if (part.endsWith('s')) return Number.parseFloat(part) * 1000;
+                const parsed = Number.parseFloat(part);
+                return Number.isFinite(parsed) ? parsed : 0;
+            });
+    }
+
+    function clearSettleTimer() {
+        if (settleTimer !== null) {
+            window.clearTimeout(settleTimer);
+            settleTimer = null;
+        }
+    }
+
+    function finalizePanelState(expectedOpen) {
+        if (open !== expectedOpen) return;
+        panel.dataset.state = expectedOpen ? 'open' : 'closed';
+        clearSettleTimer();
+    }
+
+    function schedulePanelStateSync(expectedOpen) {
+        clearSettleTimer();
+
+        const styles = window.getComputedStyle(panel);
+        const durations = parseTransitionTimeList(styles.transitionDuration);
+        const delays = parseTransitionTimeList(styles.transitionDelay);
+        const total = durations.reduce((max, duration, index) => (
+            Math.max(max, duration + (delays[index] || delays[0] || 0))
+        ), 0);
+
+        if (total <= 0) {
+            requestAnimationFrame(() => finalizePanelState(expectedOpen));
+            return;
+        }
+
+        settleTimer = window.setTimeout(() => finalizePanelState(expectedOpen), total + 50);
+    }
 
     function captureBackdrop() {
         if (!backdrop) return;
@@ -128,11 +175,15 @@ export function initMobileNav() {
     const BAR_OFFSET_Y = '7px';
 
     function toggle(force) {
-        open = force !== undefined ? force : !open;
+        const nextOpen = force !== undefined ? force : !open;
+        if (nextOpen === open) return;
+        open = nextOpen;
 
         if (open) captureBackdrop();
 
+        panel.dataset.state = open ? 'opening' : 'closing';
         panel.classList.toggle('open', open);
+        schedulePanelStateSync(open);
         btn.setAttribute('aria-expanded', String(open));
         if (bar1) bar1.style.transform = open ? `rotate(45deg) translateY(${BAR_OFFSET_Y})` : '';
         if (bar2) bar2.style.opacity = open ? '0' : '1';
@@ -161,6 +212,11 @@ export function initMobileNav() {
             clearBackdrop();
         }
     }
+
+    panel.addEventListener('transitionend', (event) => {
+        if (event.target !== panel || event.propertyName !== 'transform') return;
+        finalizePanelState(open);
+    });
 
     btn.addEventListener('click', () => toggle());
 
