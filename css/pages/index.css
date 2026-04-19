@@ -1122,7 +1122,7 @@
         display: none;
     }
 
-    @media (min-width: 1024px) {
+    @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
         .home-categories.is-ready {
             isolation: isolate;
             overflow-anchor: none;

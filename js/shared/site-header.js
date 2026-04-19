@@ -85,6 +85,7 @@ export function initSiteHeader() {
     header.innerHTML = NAV_HTML;
 
     /* 2. Insert mobile nav panel after header */
+    document.getElementById('mobileNav')?.remove();
     header.insertAdjacentHTML('afterend', MOBILE_NAV_HTML);
 
     /* 3. Init mobile nav behavior */

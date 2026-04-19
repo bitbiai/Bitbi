@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect, devices } = require('@playwright/test');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -528,6 +528,46 @@ test.describe('Homepage', () => {
     expect(layout.every((entry) => entry.position !== 'absolute')).toBe(true);
     expect(layout[0].bottom).toBeLessThanOrEqual(layout[1].top);
     expect(layout[1].bottom).toBeLessThanOrEqual(layout[2].top);
+  });
+
+  test('iPad-class touch devices remain stacked with no desktop carousel controls', async ({ browser }) => {
+    const context = await browser.newContext({
+      ...devices['iPad Pro 11 landscape'],
+    });
+    const tabletPage = await context.newPage();
+
+    try {
+      await tabletPage.goto('/');
+
+      const stage = tabletPage.locator('#homeCategories');
+      await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
+      await expect(stage).not.toHaveClass(/is-ready/);
+      await expect(stage.locator('[data-category-nav="prev"]')).toBeHidden();
+      await expect(stage.locator('[data-category-nav="next"]')).toBeHidden();
+
+      const layout = await tabletPage.evaluate(() => {
+        return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
+          const element = document.querySelector(selector);
+          const rect = element.getBoundingClientRect();
+          const styles = window.getComputedStyle(element);
+          return {
+            id: element.id,
+            top: Math.round(rect.top),
+            bottom: Math.round(rect.bottom),
+            display: styles.display,
+            position: styles.position,
+          };
+        });
+      });
+
+      expect(layout.map((entry) => entry.id)).toEqual(['gallery', 'video-creations', 'soundlab']);
+      expect(layout.every((entry) => entry.display !== 'none')).toBe(true);
+      expect(layout.every((entry) => entry.position !== 'absolute')).toBe(true);
+      expect(layout[0].bottom).toBeLessThanOrEqual(layout[1].top);
+      expect(layout[1].bottom).toBeLessThanOrEqual(layout[2].top);
+    } finally {
+      await context.close();
+    }
   });
 
   test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {
@@ -1710,6 +1750,16 @@ test.describe('Shared MODELS overlay', () => {
     const videoLink = nav.getByRole('link', { name: 'Video' });
     await expect(videoLink).toBeVisible();
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
+    await expect
+      .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+  });
+
+  test('profile page uses the full shared header navigation instead of the logo-only fallback', async ({ page }) => {
+    await page.goto('/account/profile.html');
+
+    const nav = page.locator('.site-nav__links');
+    await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);

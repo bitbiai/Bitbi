@@ -22,7 +22,7 @@ const CATEGORY_META = {
 };
 
 const TRANSITION_MS = 560;
-const DESKTOP_STAGE_MEDIA = '(min-width: 1024px)';
+const DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
