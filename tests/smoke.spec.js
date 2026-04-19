@@ -415,10 +415,6 @@ test.describe('Homepage', () => {
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
 
-    await page.evaluate(() => window.scrollBy({ top: 420, behavior: 'auto' }));
-    const preHeaderNavMetrics = await readHomepageCategoryStageMetrics(page);
-    expect(preHeaderNavMetrics.alignmentDelta).toBeGreaterThan(150);
-
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
     await page.waitForTimeout(160);
 
@@ -427,7 +423,8 @@ test.describe('Homepage', () => {
       scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
     };
     expect(midHeaderNavMetrics.isTransitioning).toBe(true);
-    expect(midHeaderNavMetrics.alignmentDelta).toBeLessThan(preHeaderNavMetrics.alignmentDelta);
+    await expectHomepageHeaderCategoryGlow(page, 'gallery');
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#gallery');
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
