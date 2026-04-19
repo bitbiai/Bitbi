@@ -11,6 +11,18 @@ const MODELS_OVERLAY_PATHS = [
   '/admin/index.html',
 ];
 
+const STATIC_SHARED_HEADER_PATHS = [
+  '/legal/privacy.html',
+  '/legal/imprint.html',
+  '/legal/datenschutz.html',
+  '/admin/index.html',
+  '/account/profile.html',
+  '/account/image-studio.html',
+  '/account/forgot-password.html',
+  '/account/reset-password.html',
+  '/account/verify-email.html',
+];
+
 let expectedHomepageModelCatalog = null;
 
 async function getExpectedHomepageModelCatalog() {
@@ -1763,6 +1775,27 @@ test.describe('Shared MODELS overlay', () => {
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+  });
+
+  test('shared-header subpages ship the full static header shell before JS enhancement', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+
+    try {
+      for (const pathname of STATIC_SHARED_HEADER_PATHS) {
+        await page.goto(pathname);
+
+        const nav = page.locator('.site-nav__links');
+        await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
+        await expect(page.locator('#mobileMenuBtn')).toHaveCount(1);
+        await expect(page.locator('#mobileNav')).toHaveCount(1);
+        await expect
+          .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+          .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+      }
+    } finally {
+      await context.close();
+    }
   });
 
   test('shared subpage mobile menu keeps Video before Sound Lab', async ({ page }) => {
