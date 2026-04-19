@@ -1122,99 +1122,99 @@
         display: none;
     }
 
-    .home-categories__panel:not(.is-active) {
-        display: none;
-    }
+    @media (min-width: 1024px) {
+        .home-categories.is-ready {
+            isolation: isolate;
+            overflow-anchor: none;
+        }
 
-    .home-categories.is-ready {
-        isolation: isolate;
-    }
+        .home-categories.is-ready .home-categories__viewport {
+            overflow: hidden;
+            perspective: 1800px;
+            pointer-events: none;
+            overflow-anchor: none;
+            transition: height 0.52s var(--ease-smooth);
+        }
 
-    .home-categories.is-ready .home-categories__viewport {
-        overflow: hidden;
-        perspective: 1800px;
-        pointer-events: none;
-        transition: height 0.52s var(--ease-smooth);
-    }
+        .home-categories.is-ready .home-categories__nav {
+            display: block;
+            position: absolute;
+            inset: 0;
+            z-index: 8;
+            pointer-events: none;
+        }
 
-    .home-categories.is-ready .home-categories__nav {
-        display: block;
-        position: absolute;
-        inset: 0;
-        z-index: 8;
-        pointer-events: none;
-    }
+        .home-categories.is-ready .home-categories__panel {
+            display: none;
+            position: absolute;
+            inset-block-start: 0;
+            inset-inline: 0;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transform-origin: center center;
+            will-change: transform, opacity;
+        }
 
-    .home-categories.is-ready .home-categories__panel {
-        display: none;
-        position: absolute;
-        inset-block-start: 0;
-        inset-inline: 0;
-        opacity: 0;
-        visibility: hidden;
-        pointer-events: none;
-        transform-origin: center center;
-        will-change: transform, opacity;
-    }
+        .home-categories.is-ready .home-categories__panel.is-active {
+            display: block;
+            position: relative;
+            inset: auto;
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transform: translateX(0) rotateY(0deg) scale(1);
+            z-index: 3;
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-active {
-        display: block;
-        position: relative;
-        inset: auto;
-        opacity: 1;
-        visibility: visible;
-        pointer-events: auto;
-        transform: translateX(0) rotateY(0deg) scale(1);
-        z-index: 3;
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-current,
+        .home-categories.is-ready .home-categories__panel.is-transition-next {
+            display: block;
+            visibility: visible;
+            inset-block-start: 0;
+            inset-inline: 0;
+            transition:
+                transform 0.56s var(--ease-smooth),
+                opacity 0.32s var(--ease-default);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-current,
-    .home-categories.is-ready .home-categories__panel.is-transition-next {
-        display: block;
-        visibility: visible;
-        inset-block-start: 0;
-        inset-inline: 0;
-        transition:
-            transform 0.56s var(--ease-smooth),
-            opacity 0.32s var(--ease-default);
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-current {
+            opacity: 1;
+            transform: translateX(0) rotateY(0deg) scale(1);
+            z-index: 3;
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-current {
-        opacity: 1;
-        transform: translateX(0) rotateY(0deg) scale(1);
-        z-index: 3;
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-current.is-leave-left {
+            opacity: 0.04;
+            transform: translateX(-108%) rotateY(14deg) scale(0.96);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-current.is-leave-left {
-        opacity: 0.04;
-        transform: translateX(-108%) rotateY(14deg) scale(0.96);
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-current.is-leave-right {
+            opacity: 0.04;
+            transform: translateX(108%) rotateY(-14deg) scale(0.96);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-current.is-leave-right {
-        opacity: 0.04;
-        transform: translateX(108%) rotateY(-14deg) scale(0.96);
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-next {
+            opacity: 0.04;
+            z-index: 2;
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-next {
-        opacity: 0.04;
-        z-index: 2;
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-next.is-from-left {
+            transform: translateX(-108%) rotateY(14deg) scale(0.96);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-next.is-from-left {
-        transform: translateX(-108%) rotateY(14deg) scale(0.96);
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-next.is-from-right {
+            transform: translateX(108%) rotateY(-14deg) scale(0.96);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-next.is-from-right {
-        transform: translateX(108%) rotateY(-14deg) scale(0.96);
-    }
+        .home-categories.is-ready .home-categories__panel.is-transition-next.is-enter-active {
+            opacity: 1;
+            transform: translateX(0) rotateY(0deg) scale(1);
+        }
 
-    .home-categories.is-ready .home-categories__panel.is-transition-next.is-enter-active {
-        opacity: 1;
-        transform: translateX(0) rotateY(0deg) scale(1);
-    }
-
-    .home-categories.is-ready.is-transitioning .home-categories__arrow {
-        pointer-events: none;
+        .home-categories.is-ready.is-transitioning .home-categories__arrow {
+            pointer-events: none;
+        }
     }
 
     .site-nav__links .site-nav__link[data-category-link] {

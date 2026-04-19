@@ -116,6 +116,14 @@ async function openHomepageSoundLab(page) {
   const stage = page.locator('#homeCategories');
   await expect(stage).toBeVisible();
 
+  const stageMode = await stage.getAttribute('data-stage-mode');
+  if (stageMode !== 'desktop') {
+    const soundLab = page.locator('#soundlab');
+    await soundLab.scrollIntoViewIfNeeded();
+    await expect(soundLab).toBeVisible();
+    return;
+  }
+
   const current = await stage.getAttribute('data-active-category');
   if (current === 'sound') return;
 

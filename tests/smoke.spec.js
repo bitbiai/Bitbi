@@ -163,30 +163,35 @@ async function waitForHomepageCategoryAlignment(page) {
 
 async function switchHomepageCategory(page, targetCategory) {
   const stage = page.locator('#homeCategories');
-  const targetHash = {
+  const targetSelector = {
     gallery: '#gallery',
     video: '#video-creations',
     sound: '#soundlab',
+  }[targetCategory];
+  const targetLabel = {
+    gallery: 'Gallery',
+    video: 'Video',
+    sound: 'Sound Lab',
   }[targetCategory];
 
   await expect(stage).toBeVisible();
   await waitForHomepageCategoryStage(page);
 
-  if (!targetHash) {
+  if (!targetSelector || !targetLabel) {
     throw new Error(`Unknown homepage category "${targetCategory}"`);
+  }
+
+  const stageMode = await stage.getAttribute('data-stage-mode');
+  if (stageMode !== 'desktop') {
+    await page.locator(targetSelector).scrollIntoViewIfNeeded();
+    await expect(page.locator(targetSelector)).toBeVisible();
+    return;
   }
 
   const currentCategory = await stage.getAttribute('data-active-category');
   if (currentCategory === targetCategory) return;
 
-  await page.evaluate((hash) => {
-    if (window.location.hash === hash) {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      return;
-    }
-    window.location.hash = hash;
-  }, targetHash);
-
+  await page.locator('#navbar .site-nav__links').getByRole('link', { name: targetLabel }).click();
   await expectActiveHomepageCategory(page, targetCategory);
   await waitForHomepageCategoryStage(page);
 }
@@ -392,6 +397,7 @@ test.describe('Homepage', () => {
     const prevButton = stage.locator('[data-category-nav="prev"]');
     const nextButton = stage.locator('[data-category-nav="next"]');
 
+    await expect(stage).toHaveAttribute('data-stage-mode', 'desktop');
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
@@ -471,7 +477,6 @@ test.describe('Homepage', () => {
     expect(midHeaderNavMetrics.isTransitioning).toBe(true);
     expect(midHeaderNavMetrics.alignmentDelta).toBeLessThanOrEqual(8);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
-    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#gallery');
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
@@ -491,6 +496,38 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'video');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
+  });
+
+  test('mobile homepage categories remain stacked in document flow with no desktop carousel controls', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    const stage = page.locator('#homeCategories');
+    await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
+    await expect(stage).not.toHaveClass(/is-ready/);
+    await expect(stage.locator('[data-category-nav="prev"]')).toBeHidden();
+    await expect(stage.locator('[data-category-nav="next"]')).toBeHidden();
+
+    const layout = await page.evaluate(() => {
+      return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
+        const element = document.querySelector(selector);
+        const rect = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+        return {
+          id: element.id,
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          display: styles.display,
+          position: styles.position,
+        };
+      });
+    });
+
+    expect(layout.map((entry) => entry.id)).toEqual(['gallery', 'video-creations', 'soundlab']);
+    expect(layout.every((entry) => entry.display !== 'none')).toBe(true);
+    expect(layout.every((entry) => entry.position !== 'absolute')).toBe(true);
+    expect(layout[0].bottom).toBeLessThanOrEqual(layout[1].top);
+    expect(layout[1].bottom).toBeLessThanOrEqual(layout[2].top);
   });
 
   test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {

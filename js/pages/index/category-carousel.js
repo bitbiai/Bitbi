@@ -22,9 +22,21 @@ const CATEGORY_META = {
 };
 
 const TRANSITION_MS = 560;
+const DESKTOP_STAGE_MEDIA = '(min-width: 1024px)';
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
+}
+
+function bindMediaQueryChange(query, listener) {
+    if (!query) return;
+    if (typeof query.addEventListener === 'function') {
+        query.addEventListener('change', listener);
+        return;
+    }
+    if (typeof query.addListener === 'function') {
+        query.addListener(listener);
+    }
 }
 
 function setPanelInert(panel, inert) {
@@ -42,6 +54,7 @@ export function initCategoryCarousel() {
     const prevButton = stage?.querySelector('[data-category-nav="prev"]');
     const nextButton = stage?.querySelector('[data-category-nav="next"]');
     const navbar = document.getElementById('navbar');
+    const desktopStageQuery = window.matchMedia?.(DESKTOP_STAGE_MEDIA);
     const categoryLinks = new Map(
         CATEGORY_ORDER.map((key) => [key, Array.from(document.querySelectorAll(`[data-category-link="${key}"]`))]),
     );
@@ -60,6 +73,7 @@ export function initCategoryCarousel() {
     let pendingCategory = null;
     let transitionTimer = 0;
     let scrollFrame = 0;
+    let desktopStageEnabled = false;
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -90,6 +104,16 @@ export function initCategoryCarousel() {
     }
 
     function updateArrowState() {
+        if (!desktopStageEnabled) {
+            prevButton.hidden = true;
+            prevButton.disabled = true;
+            prevButton.removeAttribute('title');
+            nextButton.hidden = true;
+            nextButton.disabled = true;
+            nextButton.removeAttribute('title');
+            return;
+        }
+
         const prevTarget = activeCategory === 'video'
             ? 'gallery'
             : activeCategory === 'sound'
@@ -126,7 +150,7 @@ export function initCategoryCarousel() {
 
     function getStageAlignmentDelta() {
         const navBottom = navbar?.getBoundingClientRect().bottom || 0;
-        const stageTop = stage.getBoundingClientRect().top;
+        const stageTop = viewport.getBoundingClientRect().top;
         return stageTop - navBottom;
     }
 
@@ -199,6 +223,16 @@ export function initCategoryCarousel() {
     }
 
     function updateCategoryLinkState() {
+        if (!desktopStageEnabled) {
+            categoryLinks.forEach((links) => {
+                links.forEach((link) => {
+                    link.classList.remove('is-active-category');
+                    link.removeAttribute('aria-current');
+                });
+            });
+            return;
+        }
+
         const highlightedCategory = pendingCategory || activeCategory;
         categoryLinks.forEach((links, key) => {
             const isActive = key === highlightedCategory;
@@ -213,11 +247,55 @@ export function initCategoryCarousel() {
         });
     }
 
-    function syncHashForCategory(category) {
-        const nextHash = CATEGORY_META[category]?.hash;
-        if (nextHash && window.location.hash !== nextHash) {
-            window.history.replaceState(window.history.state, '', nextHash);
+    function clearCategoryHash() {
+        if (!resolveCategoryFromHash(window.location.hash)) return;
+        window.history.replaceState(
+            window.history.state,
+            '',
+            `${window.location.pathname}${window.location.search}`,
+        );
+    }
+
+    function setStackedStageState() {
+        stopStageAlignmentAnimation();
+        window.clearTimeout(transitionTimer);
+        transitionTimer = 0;
+        isTransitioning = false;
+        pendingCategory = null;
+        desktopStageEnabled = false;
+        stage.classList.remove('is-ready', 'is-transitioning');
+        stage.dataset.stageMode = 'stacked';
+        viewport.style.height = '';
+
+        panels.forEach((panel) => {
+            clearPanelState(panel);
+            panel.setAttribute('aria-hidden', 'false');
+            setPanelInert(panel, false);
+        });
+
+        stage.dataset.activeCategory = activeCategory;
+        updateArrowState();
+        updateCategoryLinkState();
+    }
+
+    function setDesktopStageState() {
+        desktopStageEnabled = true;
+        stage.classList.add('is-ready');
+        stage.classList.remove('is-transitioning');
+        stage.dataset.stageMode = 'desktop';
+        activeCategory = resolveCategoryFromHash(window.location.hash) || activeCategory || 'video';
+        viewport.style.height = '';
+        applyCategoryState();
+        updateCategoryLinkState();
+    }
+
+    function syncStageMode() {
+        const shouldUseDesktopStage = !!desktopStageQuery?.matches;
+        if (shouldUseDesktopStage) {
+            setDesktopStageState();
+            return;
         }
+        setStackedStageState();
     }
 
     function finishTransition(nextCategory) {
@@ -235,16 +313,22 @@ export function initCategoryCarousel() {
         });
     }
 
-    function setActiveCategory(nextCategory, { syncHash = false, alignStage = false } = {}) {
+    function setActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
         if (!CATEGORY_META[nextCategory]) {
-            if (syncHash) syncHashForCategory(activeCategory);
+            return;
+        }
+
+        if (!desktopStageEnabled) {
+            activeCategory = nextCategory;
+            stage.dataset.activeCategory = nextCategory;
+            if (clearHash) clearCategoryHash();
             return;
         }
 
         if (isTransitioning) return;
 
         if (nextCategory === activeCategory) {
-            if (syncHash) syncHashForCategory(nextCategory);
+            if (clearHash) clearCategoryHash();
             pendingCategory = null;
             updateCategoryLinkState();
             if (alignStage) {
@@ -267,7 +351,7 @@ export function initCategoryCarousel() {
             pendingCategory = null;
             applyCategoryState();
             updateCategoryLinkState();
-            if (syncHash) syncHashForCategory(nextCategory);
+            if (clearHash) clearCategoryHash();
             if (alignStage) alignStageToHeaderEdge();
             return;
         }
@@ -299,15 +383,15 @@ export function initCategoryCarousel() {
 
         viewport.style.height = `${currentHeight}px`;
 
-        if (syncHash) syncHashForCategory(nextCategory);
+        if (clearHash) clearCategoryHash();
 
         requestAnimationFrame(() => {
-            if (alignStage) {
-                animateStageAlignment();
-            }
             currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
             nextPanel.classList.add('is-enter-active');
             viewport.style.height = `${nextHeight}px`;
+            if (alignStage) {
+                animateStageAlignment();
+            }
         });
 
         transitionTimer = window.setTimeout(() => {
@@ -319,31 +403,37 @@ export function initCategoryCarousel() {
         const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
         const nextCategory = CATEGORY_ORDER[currentIndex + delta];
         if (!nextCategory) return;
-        setActiveCategory(nextCategory, { syncHash: true, alignStage: true });
+        setActiveCategory(nextCategory, { alignStage: true, clearHash: true });
     }
 
-    prevButton.addEventListener('click', () => move(-1));
-    nextButton.addEventListener('click', () => move(1));
+    prevButton.addEventListener('click', () => {
+        if (!desktopStageEnabled) return;
+        move(-1);
+    });
+    nextButton.addEventListener('click', () => {
+        if (!desktopStageEnabled) return;
+        move(1);
+    });
 
     document.addEventListener('click', (event) => {
         const anchor = event.target.closest('a[data-category-link]');
         if (!anchor) return;
+        if (!desktopStageEnabled) return;
 
         const nextCategory = anchor.dataset.categoryLink;
         if (!nextCategory) return;
 
         event.preventDefault();
-        setActiveCategory(nextCategory, { syncHash: true, alignStage: true });
+        setActiveCategory(nextCategory, { alignStage: true, clearHash: true });
     }, true);
 
     window.addEventListener('hashchange', () => {
+        if (!desktopStageEnabled) return;
         const nextCategory = resolveCategoryFromHash(window.location.hash);
         if (!nextCategory) return;
         setActiveCategory(nextCategory, { alignStage: true });
     });
 
-    stage.classList.add('is-ready');
-    applyCategoryState();
-    updateCategoryLinkState();
-
+    bindMediaQueryChange(desktopStageQuery, syncStageMode);
+    syncStageMode();
 }
