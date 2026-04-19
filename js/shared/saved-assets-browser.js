@@ -199,6 +199,21 @@ function buildImagePreviewPlaceholder(asset) {
     return placeholder;
 }
 
+function buildSoundPlayIndicator() {
+    const indicator = document.createElement('div');
+    indicator.className = 'studio__asset-play-indicator';
+    indicator.dataset.playing = 'false';
+    indicator.setAttribute('aria-hidden', 'true');
+
+    for (let index = 0; index < 4; index += 1) {
+        const bar = document.createElement('span');
+        bar.className = 'studio__asset-play-bar';
+        indicator.appendChild(bar);
+    }
+
+    return indicator;
+}
+
 function normalizeFolders(result) {
     return {
         folders: Array.isArray(result?.folders) ? result.folders : [],
@@ -320,6 +335,8 @@ export function createSavedAssetsBrowser({
     let assetDeck = null;
     let folderLoadSeq = 0;
     let assetLoadSeq = 0;
+    let activeSoundAudio = null;
+    let activeSoundIndicator = null;
 
     function showMsg(text, type) {
         if (!$galleryMsg) return;
@@ -331,6 +348,46 @@ export function createSavedAssetsBrowser({
         if (!$galleryMsg) return;
         $galleryMsg.textContent = '';
         $galleryMsg.className = 'studio__msg';
+    }
+
+    function setSoundIndicatorState(indicator, isActive) {
+        if (!indicator) return;
+        indicator.dataset.playing = isActive ? 'true' : 'false';
+        indicator.classList.toggle('is-active', !!isActive);
+    }
+
+    function clearActiveSoundIndicator() {
+        if (activeSoundIndicator) {
+            setSoundIndicatorState(activeSoundIndicator, false);
+        }
+        activeSoundAudio = null;
+        activeSoundIndicator = null;
+    }
+
+    function bindSoundPlaybackIndicator(audio, indicator) {
+        if (!audio || !indicator) return;
+
+        const activate = () => {
+            if (activeSoundAudio && activeSoundAudio !== audio) {
+                setSoundIndicatorState(activeSoundIndicator, false);
+            }
+            activeSoundAudio = audio;
+            activeSoundIndicator = indicator;
+            setSoundIndicatorState(indicator, true);
+        };
+
+        const deactivate = () => {
+            if (activeSoundAudio === audio) {
+                activeSoundAudio = null;
+                activeSoundIndicator = null;
+            }
+            setSoundIndicatorState(indicator, false);
+        };
+
+        audio.addEventListener('play', activate);
+        audio.addEventListener('pause', deactivate);
+        audio.addEventListener('ended', deactivate);
+        audio.addEventListener('emptied', deactivate);
     }
 
     function notifyFoldersChange() {
@@ -365,6 +422,7 @@ export function createSavedAssetsBrowser({
 
     function renderEmptyState(message = emptyStateMessage) {
         currentAssets = [];
+        clearActiveSoundIndicator();
         $assetGrid.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
@@ -696,11 +754,15 @@ export function createSavedAssetsBrowser({
         item.appendChild(preview);
 
         if (isSound && asset.file_url) {
+            const playIndicator = buildSoundPlayIndicator();
+            item.appendChild(playIndicator);
+
             const audio = document.createElement('audio');
             audio.className = 'studio__asset-audio';
             audio.controls = true;
             audio.preload = 'none';
             audio.src = asset.file_url;
+            bindSoundPlaybackIndicator(audio, playIndicator);
             item.appendChild(audio);
         } else if (isVideo && asset.poster_url) {
             const posterImg = document.createElement('img');
@@ -817,6 +879,7 @@ export function createSavedAssetsBrowser({
         const folderId = (!isAllAssets && !isUnfoldered && filterValue) ? filterValue : null;
 
         $assetGrid.style.display = '';
+        clearActiveSoundIndicator();
         $assetGrid.innerHTML = '';
         const loading = document.createElement('div');
         loading.className = 'studio__gallery-empty';

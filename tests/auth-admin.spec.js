@@ -22,6 +22,15 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function getCssColorAlpha(color) {
+  const match = String(color || '').match(/rgba?\(([^)]+)\)/i);
+  if (!match) return 1;
+  const parts = match[1].split(',').map((part) => part.trim());
+  if (parts.length < 4) return 1;
+  const alpha = Number.parseFloat(parts[3]);
+  return Number.isFinite(alpha) ? alpha : 1;
+}
+
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   const folders = cloneJson(folderPayload.folders || []);
   const assetMap = new Map();
@@ -2026,6 +2035,212 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__asset-video')).toHaveCount(1);
     await expect(page.locator('.studio__asset-video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
     await expect(page.locator('.studio__asset-open').first()).toHaveAttribute('href', /\/api\/ai\/text-assets\//);
+  });
+
+  test('account Image Studio keeps mobile file cards solid and limits sound playback animation to the active card', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [
+          { id: 'folder-mobile-cards', name: 'Mobile Cards', slug: 'mobile-cards', created_at: '2026-04-10T09:00:00.000Z' },
+        ],
+        counts: {
+          'folder-mobile-cards': 4,
+        },
+        unfolderedCount: 0,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'txt-mobile-1',
+            asset_type: 'text',
+            folder_id: 'folder-mobile-cards',
+            title: 'Launch Notes',
+            file_name: 'launch-notes.txt',
+            source_module: 'compare',
+            mime_type: 'text/plain; charset=utf-8',
+            size_bytes: 512,
+            preview_text: 'A concise release note summary for the mobile card stack.',
+            created_at: '2026-04-10T12:05:00.000Z',
+            file_url: '/api/ai/text-assets/txt-mobile-1/file',
+          },
+          {
+            id: 'snd-mobile-1',
+            asset_type: 'sound',
+            folder_id: 'folder-mobile-cards',
+            title: 'Signal Drift',
+            file_name: 'signal-drift.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 204800,
+            preview_text: 'A slow gold-tinted synth loop for the first mobile sound card.',
+            created_at: '2026-04-10T12:06:00.000Z',
+            file_url: '/api/ai/text-assets/snd-mobile-1/file',
+          },
+          {
+            id: 'snd-mobile-2',
+            asset_type: 'sound',
+            folder_id: 'folder-mobile-cards',
+            title: 'Orbit Pulse',
+            file_name: 'orbit-pulse.mp3',
+            source_module: 'text',
+            mime_type: 'audio/mpeg',
+            size_bytes: 198400,
+            preview_text: 'A brighter loop used to prove only one card animates at a time.',
+            created_at: '2026-04-10T12:07:00.000Z',
+            file_url: '/api/ai/text-assets/snd-mobile-2/file',
+          },
+          {
+            id: 'vid-mobile-1',
+            asset_type: 'video',
+            folder_id: 'folder-mobile-cards',
+            title: 'Orbit Walkthrough',
+            file_name: 'orbit-walkthrough.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 4096000,
+            preview_text: 'This video description should stay hidden on the mobile card.',
+            created_at: '2026-04-10T12:08:00.000Z',
+            file_url: '/api/ai/text-assets/vid-mobile-1/file',
+          },
+        ],
+        unfoldered: [],
+        folders: {
+          'folder-mobile-cards': [
+            {
+              id: 'txt-mobile-1',
+              asset_type: 'text',
+              folder_id: 'folder-mobile-cards',
+              title: 'Launch Notes',
+              file_name: 'launch-notes.txt',
+              source_module: 'compare',
+              mime_type: 'text/plain; charset=utf-8',
+              size_bytes: 512,
+              preview_text: 'A concise release note summary for the mobile card stack.',
+              created_at: '2026-04-10T12:05:00.000Z',
+              file_url: '/api/ai/text-assets/txt-mobile-1/file',
+            },
+            {
+              id: 'snd-mobile-1',
+              asset_type: 'sound',
+              folder_id: 'folder-mobile-cards',
+              title: 'Signal Drift',
+              file_name: 'signal-drift.mp3',
+              source_module: 'text',
+              mime_type: 'audio/mpeg',
+              size_bytes: 204800,
+              preview_text: 'A slow gold-tinted synth loop for the first mobile sound card.',
+              created_at: '2026-04-10T12:06:00.000Z',
+              file_url: '/api/ai/text-assets/snd-mobile-1/file',
+            },
+            {
+              id: 'snd-mobile-2',
+              asset_type: 'sound',
+              folder_id: 'folder-mobile-cards',
+              title: 'Orbit Pulse',
+              file_name: 'orbit-pulse.mp3',
+              source_module: 'text',
+              mime_type: 'audio/mpeg',
+              size_bytes: 198400,
+              preview_text: 'A brighter loop used to prove only one card animates at a time.',
+              created_at: '2026-04-10T12:07:00.000Z',
+              file_url: '/api/ai/text-assets/snd-mobile-2/file',
+            },
+            {
+              id: 'vid-mobile-1',
+              asset_type: 'video',
+              folder_id: 'folder-mobile-cards',
+              title: 'Orbit Walkthrough',
+              file_name: 'orbit-walkthrough.mp4',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              size_bytes: 4096000,
+              preview_text: 'This video description should stay hidden on the mobile card.',
+              created_at: '2026-04-10T12:08:00.000Z',
+              file_url: '/api/ai/text-assets/vid-mobile-1/file',
+            },
+          ],
+        },
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(4);
+
+    const textCardColor = await page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').evaluate(
+      (node) => getComputedStyle(node).backgroundColor,
+    );
+    const soundCardColor = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]').evaluate(
+      (node) => getComputedStyle(node).backgroundColor,
+    );
+    const videoCardColor = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"]').evaluate(
+      (node) => getComputedStyle(node).backgroundColor,
+    );
+    expect(getCssColorAlpha(textCardColor)).toBeGreaterThan(0.9);
+    expect(getCssColorAlpha(soundCardColor)).toBeGreaterThan(0.9);
+    expect(getCssColorAlpha(videoCardColor)).toBeGreaterThan(0.9);
+
+    const videoPreviewDisplay = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-preview').evaluate(
+      (node) => getComputedStyle(node).display,
+    );
+    const soundPreviewDisplay = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-preview').evaluate(
+      (node) => getComputedStyle(node).display,
+    );
+    expect(videoPreviewDisplay).toBe('none');
+    expect(soundPreviewDisplay).not.toBe('none');
+
+    const soundCardStructure = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]').evaluate((card) => {
+      const preview = card.querySelector('.studio__asset-preview');
+      const indicator = card.querySelector('.studio__asset-play-indicator');
+      return {
+        previewNextClass: preview?.nextElementSibling?.className || '',
+        indicatorNextClass: indicator?.nextElementSibling?.className || '',
+      };
+    });
+    expect(soundCardStructure.previewNextClass).toContain('studio__asset-play-indicator');
+    expect(soundCardStructure.indicatorNextClass).toContain('studio__asset-audio');
+
+    const firstIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-play-indicator');
+    const secondIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-play-indicator');
+    const firstAudio = page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-audio');
+    const secondAudio = page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-audio');
+
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+
+    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'true');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+
+    await secondAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'true');
+
+    await secondAudio.evaluate((audio) => audio.dispatchEvent(new Event('pause')));
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+
+    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'true');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+
+    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('ended')));
+    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
+    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-open')).toHaveAttribute(
+      'href',
+      /\/api\/ai\/text-assets\/snd-mobile-1\/file$/,
+    );
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-open')).toHaveAttribute(
+      'href',
+      /\/api\/ai\/text-assets\/vid-mobile-1\/file$/,
+    );
   });
 
   test('account Image Studio lets the owner publish and unpublish a saved image into Mempics', async ({
