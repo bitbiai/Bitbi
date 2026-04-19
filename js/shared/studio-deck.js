@@ -17,7 +17,7 @@ function ensureModal() {
     modal.className = 'modal-overlay';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-label', 'Image preview');
+    modal.setAttribute('aria-label', 'Asset preview');
     modal.innerHTML =
         '<div class="modal-content">' +
             '<div class="modal-card">' +
@@ -44,11 +44,35 @@ function ensureModal() {
     return modal;
 }
 
-function openStudioModal(imgSrc, title, originalUrl = imgSrc) {
+function applyModalOpenState() {
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    focusTrapCleanup = setupFocusTrap(modal);
+}
+
+function resetStudioModalContent() {
     const m = ensureModal();
-    const imgContainer = m.querySelector('.studio-modal__image');
-    imgContainer.style.background = '#0D1B2A';
-    imgContainer.innerHTML = '';
+    const mediaContainer = m.querySelector('.studio-modal__image');
+    const openLink = m.querySelector('.studio-modal__open');
+    const playingVideo = mediaContainer.querySelector('video');
+    if (playingVideo) {
+        playingVideo.pause();
+        playingVideo.removeAttribute('src');
+        playingVideo.load();
+    }
+    mediaContainer.innerHTML = '';
+    mediaContainer.style.background = '#0D1B2A';
+    m.classList.remove('studio-modal--video');
+    openLink.hidden = false;
+    openLink.removeAttribute('hidden');
+    openLink.onclick = null;
+    return m;
+}
+
+export function openStudioImageModal(imgSrc, title, originalUrl = imgSrc) {
+    const m = ensureModal();
+    const imgContainer = resetStudioModalContent().querySelector('.studio-modal__image');
+    m.setAttribute('aria-label', 'Image preview');
 
     const img = new Image();
     img.src = imgSrc;
@@ -69,13 +93,45 @@ function openStudioModal(imgSrc, title, originalUrl = imgSrc) {
         e.preventDefault();
     };
 
-    m.classList.add('active');
-    document.body.style.overflow = 'hidden';
-    focusTrapCleanup = setupFocusTrap(m);
+    applyModalOpenState();
+}
+
+export function openStudioVideoModal({
+    videoUrl,
+    title,
+    posterUrl = '',
+} = {}) {
+    if (!videoUrl) return;
+    const m = ensureModal();
+    const mediaContainer = resetStudioModalContent().querySelector('.studio-modal__image');
+    const openLink = m.querySelector('.studio-modal__open');
+    m.classList.add('studio-modal--video');
+    m.setAttribute('aria-label', 'Video preview');
+    mediaContainer.style.background = '#000';
+
+    const video = document.createElement('video');
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    video.className = 'studio-modal__video';
+    video.src = videoUrl;
+    if (posterUrl) {
+        video.poster = posterUrl;
+    }
+    video.setAttribute('webkit-playsinline', 'true');
+    mediaContainer.appendChild(video);
+
+    m.querySelector('.studio-modal__title').textContent = title || 'Saved video';
+    openLink.hidden = true;
+    openLink.setAttribute('hidden', '');
+
+    applyModalOpenState();
 }
 
 function closeStudioModal() {
     if (!modal) return;
+    resetStudioModalContent();
     modal.classList.remove('active');
     document.body.style.overflow = '';
     if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
@@ -337,6 +393,7 @@ export function initStudioDeck(grid) {
         onClick(e) {
             const item = e.target.closest('.studio__image-item');
             if (!item) return;
+            if (item.dataset.assetType && item.dataset.assetType !== 'image') return;
             if (e.target.closest('a')) return;
             if (e.target.closest('button') && !e.target.closest('.studio__image-delete')) return;
             if (e.target.closest('audio')) return;
@@ -344,17 +401,12 @@ export function initStudioDeck(grid) {
             if (e.target.closest('.studio__image-delete')) return;
             if (e.target.closest('.studio__image-check')) return;
             if (grid.dataset.selectMode) return;
-            const openUrl = item.dataset.openUrl;
-            if (openUrl) {
-                window.open(openUrl, '_blank', 'noopener,noreferrer');
-                return;
-            }
             const previewUrl = item.dataset.previewUrl || item.dataset.originalUrl;
             const originalUrl = item.dataset.originalUrl || previewUrl;
             const img = item.querySelector('img');
             const title = item.title || img?.alt || 'Saved image';
             if (!previewUrl) return;
-            openStudioModal(previewUrl, title, originalUrl);
+            openStudioImageModal(previewUrl, title, originalUrl);
         },
     });
 }

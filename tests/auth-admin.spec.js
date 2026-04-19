@@ -31,6 +31,14 @@ function getCssColorAlpha(color) {
   return Number.isFinite(alpha) ? alpha : 1;
 }
 
+async function expectStudioModalClosed(page) {
+  await expect
+    .poll(() => page.evaluate(
+      () => document.querySelector('#studioImageModal')?.classList.contains('active') ?? false,
+    ))
+    .toBe(false);
+}
+
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   const folders = cloneJson(folderPayload.folders || []);
   const assetMap = new Map();
@@ -1897,6 +1905,14 @@ test.describe('Image Studio (authenticated)', () => {
   test('account Image Studio shows mixed saved assets inside the shared folder world', async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      window.__studioOpenCalls = [];
+      window.open = (...args) => {
+        window.__studioOpenCalls.push(args);
+        return null;
+      };
+    });
+
     await mockAuthenticatedImageStudio(page, [], {
       folderPayload: {
         folders: [
@@ -2032,15 +2048,48 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
     await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
     await expect(page.locator('.studio__image-item--video')).toContainText('Launch Walkthrough');
-    await expect(page.locator('.studio__asset-video')).toHaveCount(1);
-    await expect(page.locator('.studio__asset-video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
-    await expect(page.locator('.studio__asset-open').first()).toHaveAttribute('href', /\/api\/ai\/text-assets\//);
+    await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-preview')).toHaveCount(0);
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger')).toHaveCount(1);
+
+    const desktopVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-1"]').evaluate((card) => {
+      const title = card.querySelector('.studio__asset-title')?.getBoundingClientRect();
+      const trigger = card.querySelector('.studio__asset-video-trigger')?.getBoundingClientRect();
+      return {
+        titleBottom: title?.bottom ?? 0,
+        triggerTop: trigger?.top ?? 0,
+      };
+    });
+    expect(desktopVideoLayout.titleBottom).toBeLessThanOrEqual(desktopVideoLayout.triggerTop + 1);
+
+    await page.locator('#studioImageGrid [data-asset-id="txt-1"]').click();
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls[0]?.[0] || '')).toMatch(/\/api\/ai\/text-assets\/txt-1\/file$/);
+
+    await page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-title').click();
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
+    await expectStudioModalClosed(page);
+
+    await page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-title').click();
+    await expectStudioModalClosed(page);
+
+    await page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger').click();
+    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
+    await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
+    await page.locator('#studioImageModal .modal-close').click();
   });
 
   test('account Image Studio keeps mobile file cards solid and limits sound playback animation to the active card', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      window.__studioOpenCalls = [];
+      window.open = (...args) => {
+        window.__studioOpenCalls.push(args);
+        return null;
+      };
+    });
     await mockAuthenticatedImageStudio(page, [], {
       folderPayload: {
         folders: [
@@ -2171,6 +2220,7 @@ test.describe('Image Studio (authenticated)', () => {
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(4);
+    await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
 
     const textCardColor = await page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').evaluate(
       (node) => getComputedStyle(node).backgroundColor,
@@ -2185,13 +2235,10 @@ test.describe('Image Studio (authenticated)', () => {
     expect(getCssColorAlpha(soundCardColor)).toBeGreaterThan(0.9);
     expect(getCssColorAlpha(videoCardColor)).toBeGreaterThan(0.9);
 
-    const videoPreviewDisplay = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-preview').evaluate(
-      (node) => getComputedStyle(node).display,
-    );
+    await expect(page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-preview')).toHaveCount(0);
     const soundPreviewDisplay = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-preview').evaluate(
       (node) => getComputedStyle(node).display,
     );
-    expect(videoPreviewDisplay).toBe('none');
     expect(soundPreviewDisplay).not.toBe('none');
 
     const soundCardStructure = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]').evaluate((card) => {
@@ -2204,6 +2251,41 @@ test.describe('Image Studio (authenticated)', () => {
     });
     expect(soundCardStructure.previewNextClass).toContain('studio__asset-play-indicator');
     expect(soundCardStructure.indicatorNextClass).toContain('studio__asset-audio');
+
+    const mobileVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"]').evaluate((card) => {
+      const title = card.querySelector('.studio__asset-title')?.getBoundingClientRect();
+      const trigger = card.querySelector('.studio__asset-video-trigger')?.getBoundingClientRect();
+      return {
+        titleBottom: title?.bottom ?? 0,
+        triggerTop: trigger?.top ?? 0,
+      };
+    });
+    expect(mobileVideoLayout.titleBottom).toBeLessThanOrEqual(mobileVideoLayout.triggerTop + 1);
+
+    const originalUrl = page.url();
+    await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-title').click();
+    await expectStudioModalClosed(page);
+    await expect.poll(() => page.url()).toBe(originalUrl);
+
+    await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-video-trigger').click();
+    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
+    await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute(
+      'src',
+      /\/api\/ai\/text-assets\/vid-mobile-1\/file$/,
+    );
+    await expect.poll(() => page.url()).toBe(originalUrl);
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(0);
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    await page.locator('#studioImageModal .modal-close').click();
+
+    await page.locator('#studioImageGrid [data-asset-id="txt-mobile-1"]').evaluate((node) => node.click());
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls[0]?.[0] || '')).toMatch(
+      /\/api\/ai\/text-assets\/txt-mobile-1\/file$/,
+    );
+
+    await page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-title').evaluate((node) => node.click());
+    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
 
     const firstIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-play-indicator');
     const secondIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-play-indicator');
@@ -2232,15 +2314,6 @@ test.describe('Image Studio (authenticated)', () => {
     await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('ended')));
     await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
     await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
-
-    await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-open')).toHaveAttribute(
-      'href',
-      /\/api\/ai\/text-assets\/snd-mobile-1\/file$/,
-    );
-    await expect(page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-open')).toHaveAttribute(
-      'href',
-      /\/api\/ai\/text-assets\/vid-mobile-1\/file$/,
-    );
   });
 
   test('account Image Studio lets the owner publish and unpublish a saved image into Mempics', async ({

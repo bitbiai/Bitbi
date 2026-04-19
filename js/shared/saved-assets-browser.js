@@ -14,7 +14,11 @@ import {
     apiAiSetImagePublication,
     apiAiSetTextAssetPublication,
 } from './auth-api.js?v=__ASSET_VERSION__';
-import { initStudioDeck, initStudioFolderDeck } from './studio-deck.js?v=__ASSET_VERSION__';
+import {
+    initStudioDeck,
+    initStudioFolderDeck,
+    openStudioVideoModal,
+} from './studio-deck.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';
@@ -390,6 +394,24 @@ export function createSavedAssetsBrowser({
         audio.addEventListener('emptied', deactivate);
     }
 
+    function openExternalAsset(url) {
+        if (!url) return;
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    function openTextAsset(asset) {
+        openExternalAsset(asset?.file_url || '');
+    }
+
+    function openVideoAsset(asset) {
+        if (!asset?.file_url) return;
+        openStudioVideoModal({
+            videoUrl: asset.file_url,
+            title: getFileTitle(asset),
+            posterUrl: asset.poster_url || '',
+        });
+    }
+
     function notifyFoldersChange() {
         if (typeof onFoldersChange !== 'function') return;
         onFoldersChange({
@@ -735,7 +757,6 @@ export function createSavedAssetsBrowser({
         item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}`;
         item.dataset.assetId = asset.id;
         item.dataset.assetType = isSound ? 'sound' : isVideo ? 'video' : 'text';
-        item.dataset.openUrl = asset.file_url || '';
         item.title = getFileTitle(asset);
 
         const badge = document.createElement('span');
@@ -748,10 +769,12 @@ export function createSavedAssetsBrowser({
         title.textContent = getFileTitle(asset);
         item.appendChild(title);
 
-        const preview = document.createElement('p');
-        preview.className = 'studio__asset-preview';
-        preview.textContent = getFilePreview(asset);
-        item.appendChild(preview);
+        if (!isVideo) {
+            const preview = document.createElement('p');
+            preview.className = 'studio__asset-preview';
+            preview.textContent = getFilePreview(asset);
+            item.appendChild(preview);
+        }
 
         if (isSound && asset.file_url) {
             const playIndicator = buildSoundPlayIndicator();
@@ -764,24 +787,50 @@ export function createSavedAssetsBrowser({
             audio.src = asset.file_url;
             bindSoundPlaybackIndicator(audio, playIndicator);
             item.appendChild(audio);
-        } else if (isVideo && asset.poster_url) {
-            const posterImg = document.createElement('img');
-            posterImg.className = 'studio__asset-poster';
-            posterImg.src = asset.poster_url;
-            posterImg.alt = getFileTitle(asset);
-            posterImg.loading = 'lazy';
-            posterImg.decoding = 'async';
-            if (asset.poster_width) posterImg.width = asset.poster_width;
-            if (asset.poster_height) posterImg.height = asset.poster_height;
-            item.appendChild(posterImg);
-        } else if (isVideo && asset.file_url) {
-            const video = document.createElement('video');
-            video.className = 'studio__asset-video';
-            video.controls = true;
-            video.preload = 'metadata';
-            video.playsInline = true;
-            video.src = asset.file_url;
-            item.appendChild(video);
+        } else if (isVideo) {
+            const videoTrigger = document.createElement('button');
+            videoTrigger.type = 'button';
+            videoTrigger.className = 'studio__asset-video-trigger';
+            videoTrigger.setAttribute('aria-label', `Open video ${getFileTitle(asset)}`);
+            videoTrigger.disabled = !asset.file_url;
+            videoTrigger.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (selectMode) {
+                    toggleSelection(item);
+                    return;
+                }
+                openVideoAsset(asset);
+            });
+
+            if (asset.poster_url) {
+                const posterImg = document.createElement('img');
+                posterImg.className = 'studio__asset-poster';
+                posterImg.src = asset.poster_url;
+                posterImg.alt = getFileTitle(asset);
+                posterImg.loading = 'lazy';
+                posterImg.decoding = 'async';
+                if (asset.poster_width) posterImg.width = asset.poster_width;
+                if (asset.poster_height) posterImg.height = asset.poster_height;
+                videoTrigger.appendChild(posterImg);
+            } else {
+                const fallback = document.createElement('div');
+                fallback.className = 'studio__asset-video-fallback';
+
+                const fallbackIcon = document.createElement('span');
+                fallbackIcon.className = 'studio__asset-video-fallback-icon';
+                fallbackIcon.setAttribute('aria-hidden', 'true');
+                fallbackIcon.textContent = '\u25B6';
+
+                const fallbackLabel = document.createElement('span');
+                fallbackLabel.className = 'studio__asset-video-fallback-label';
+                fallbackLabel.textContent = 'Play video';
+
+                fallback.append(fallbackIcon, fallbackLabel);
+                videoTrigger.appendChild(fallback);
+            }
+
+            item.appendChild(videoTrigger);
         }
 
         const meta = document.createElement('div');
@@ -831,14 +880,6 @@ export function createSavedAssetsBrowser({
             actions.appendChild(pubBtn);
         }
 
-        const openLink = document.createElement('a');
-        openLink.className = 'studio__asset-open';
-        openLink.href = asset.file_url || '#';
-        openLink.target = '_blank';
-        openLink.rel = 'noopener noreferrer';
-        openLink.textContent = isSound ? 'Open File' : isVideo ? 'Open Video' : 'Open';
-        actions.appendChild(openLink);
-
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
         deleteButton.className = 'studio__image-delete studio__image-delete--inline';
@@ -864,6 +905,24 @@ export function createSavedAssetsBrowser({
             showMsg(isSound ? 'Sound file deleted.' : isVideo ? 'Video asset deleted.' : 'Asset deleted.', 'success');
         });
         actions.appendChild(deleteButton);
+
+        if (!isSound && !isVideo && asset.file_url) {
+            item.setAttribute('role', 'button');
+            item.tabIndex = 0;
+            item.setAttribute('aria-label', `Open ${getFileTitle(asset)}`);
+            item.addEventListener('click', (event) => {
+                if (event.defaultPrevented) return;
+                if (selectMode) return;
+                if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
+                openTextAsset(asset);
+            });
+            item.addEventListener('keydown', (event) => {
+                if (selectMode) return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                openTextAsset(asset);
+            });
+        }
 
         item.appendChild(actions);
         appendSelectionCheck(item);
