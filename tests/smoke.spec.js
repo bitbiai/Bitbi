@@ -347,6 +347,80 @@ test.describe('Homepage', () => {
     await page.locator('.filter-btn[data-filter="mempics"]').click();
   });
 
+  test('homepage Gallery fits five cards across on wide desktop while preserving the mobile layout', async ({ page }) => {
+    const items = Array.from({ length: 5 }, (_, index) => {
+      const id = `mempic-${index + 1}`;
+      return {
+        id,
+        slug: id,
+        title: `Mempics ${index + 1}`,
+        caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+        category: 'mempics',
+        thumb: {
+          url: `/api/gallery/mempics/${id}/thumb`,
+          w: 320,
+          h: 320,
+        },
+        preview: {
+          url: `/api/gallery/mempics/${id}/medium`,
+          w: 1280,
+          h: 1280,
+        },
+        full: {
+          url: `/api/gallery/mempics/${id}/file`,
+        },
+      };
+    });
+
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+
+    const galleryCards = page.locator('#galleryGrid .gallery-item:not(.locked-area)');
+    await expect(galleryCards).toHaveCount(5);
+    await expect(galleryCards.first()).toBeVisible();
+
+    const wideLayout = await page.evaluate(() => {
+      const grid = document.getElementById('galleryGrid');
+      const style = window.getComputedStyle(grid);
+      return {
+        columns: style.gridTemplateColumns.split(' ').filter(Boolean).length,
+        overflow: grid.scrollWidth - grid.clientWidth,
+      };
+    });
+
+    expect(wideLayout.columns).toBe(5);
+    expect(wideLayout.overflow).toBeLessThanOrEqual(2);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const mobileLayout = await page.evaluate(() => {
+      const grid = document.getElementById('galleryGrid');
+      const style = window.getComputedStyle(grid);
+      return style.gridTemplateColumns.split(' ').filter(Boolean).length;
+    });
+
+    expect(mobileLayout).toBe(1);
+  });
+
   test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {
     const favoriteRequests = [];
 

@@ -1543,7 +1543,11 @@
     }
 
     @media (min-width: 1024px) {
-        .grid-gallery { grid-template-columns: repeat(3, 1fr); }
+        .grid-gallery { grid-template-columns: repeat(4, 1fr); }
+    }
+
+    @media (min-width: 1280px) {
+        .grid-gallery { grid-template-columns: repeat(5, 1fr); }
     }
 
     .grid-form {
