@@ -264,14 +264,116 @@ test.describe('Homepage', () => {
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
-  test('contact form shell is present', async ({ page }) => {
+  test('contact drawer is collapsed by default on desktop and preserves submit behavior when expanded', async ({ page }) => {
+    let contactPayload = null;
+
+    await page.route('https://contact.bitbi.ai/', async (route) => {
+      contactPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
     await page.goto('/');
+
+    const trigger = page.locator('#contactDrawerTrigger');
+    const panel = page.locator('#contactDrawerPanel');
     const form = page.locator('#contactForm');
-    await expect(form).toBeAttached();
-    await expect(form.locator('input[name="name"]')).toBeAttached();
-    await expect(form.locator('input[name="email"]')).toBeAttached();
-    await expect(form.locator('textarea[name="message"]')).toBeAttached();
-    await expect(form.locator('button[type="submit"]')).toBeAttached();
+    const submit = form.locator('button[type="submit"]');
+
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
+
+    const collapsedState = await page.evaluate(() => {
+      const panelEl = document.getElementById('contactDrawerPanel');
+      const panelInner = panelEl?.querySelector('.contact-drawer__panel-inner');
+      return {
+        panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
+        inert: panelInner?.hasAttribute('inert') || false,
+      };
+    });
+
+    expect(collapsedState.panelHeight).toBeLessThanOrEqual(2);
+    expect(collapsedState.inert).toBe(true);
+
+    await trigger.click();
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel).toHaveAttribute('aria-hidden', 'false');
+    await expect(form).toBeVisible();
+    await expect(form.locator('input[name="name"]')).toBeVisible();
+    await expect(form.locator('input[name="email"]')).toBeVisible();
+    await expect(form.locator('textarea[name="message"]')).toBeVisible();
+    await expect(submit).toBeVisible();
+
+    await form.locator('input[name="name"]').fill('Ada Lovelace');
+    await form.locator('input[name="email"]').fill('ada@bitbi.ai');
+    await form.locator('input[name="subject"]').fill('Drawer contact test');
+    await form.locator('textarea[name="message"]').fill('This verifies the homepage contact drawer keeps the submit flow intact.');
+    await submit.click();
+
+    await expect.poll(() => contactPayload).toEqual({
+      name: 'Ada Lovelace',
+      email: 'ada@bitbi.ai',
+      subject: 'Drawer contact test',
+      message: 'This verifies the homepage contact drawer keeps the submit flow intact.',
+      website: '',
+    });
+    await expect(submit).toHaveText('Sent!');
+
+    await trigger.click();
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
+
+    await expect.poll(async () => {
+      const recollapsedState = await page.evaluate(() => {
+        const panelEl = document.getElementById('contactDrawerPanel');
+        const panelInner = panelEl?.querySelector('.contact-drawer__panel-inner');
+        return {
+          panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
+          inert: panelInner?.hasAttribute('inert') || false,
+        };
+      });
+      expect(recollapsedState.inert).toBe(true);
+      return recollapsedState.panelHeight;
+    }).toBeLessThanOrEqual(2);
+  });
+
+  test('contact drawer stays collapsed by default on mobile and toggles open cleanly', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    const trigger = page.locator('#contactDrawerTrigger');
+    const panel = page.locator('#contactDrawerPanel');
+    const form = page.locator('#contactForm');
+
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
+
+    const mobileCollapsedState = await page.evaluate(() => {
+      const panelEl = document.getElementById('contactDrawerPanel');
+      return Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100;
+    });
+    expect(mobileCollapsedState).toBeLessThanOrEqual(2);
+
+    await trigger.click();
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel).toHaveAttribute('aria-hidden', 'false');
+    await expect(form).toBeVisible();
+    await expect(form.locator('input[name="name"]')).toBeVisible();
+    await expect(form.locator('input[name="email"]')).toBeVisible();
+    await expect(form.locator('textarea[name="message"]')).toBeVisible();
+
+    await trigger.click();
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
   });
 
   test('gallery has Explore/Create mode toggle', async ({ page }) => {

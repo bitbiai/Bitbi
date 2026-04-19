@@ -348,36 +348,55 @@
 <!-- CONTACT -->
 <div class="section-divider" aria-hidden="true"></div>
 <section id="contact" class="section" aria-label="Contact">
-    <div class="section__inner--narrow" style="margin-inline:auto">
-        <div class="section__header--md reveal">
-            <div style="text-align:center">
-                <span class="section__label section__label--gold">Contact</span>
-                <h2 class="section__title gt-gold-cyan" style="margin-block-start:var(--space-3)">Say Hello</h2>
-                <p class="section__desc">Want to collaborate or just say hi? Drop a message below.</p>
+    <div class="section__inner--narrow contact-drawer" style="margin-inline:auto">
+        <h2 class="contact-drawer__heading reveal">
+            <button
+                type="button"
+                id="contactDrawerTrigger"
+                class="contact-drawer__trigger glass"
+                aria-expanded="false"
+                aria-controls="contactDrawerPanel"
+            >
+                <span class="contact-drawer__copy">
+                    <span class="section__label section__label--gold contact-drawer__eyebrow">Contact</span>
+                    <span class="contact-drawer__title gt-gold-cyan">Say Hello</span>
+                    <span class="contact-drawer__hint">Open the drawer to collaborate, ask a question, or send a note.</span>
+                </span>
+                <span class="contact-drawer__chevron" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m6 9 6 6 6-6"/>
+                    </svg>
+                </span>
+            </button>
+        </h2>
+        <div id="contactDrawerPanel" class="contact-drawer__panel" aria-hidden="true">
+            <div class="contact-drawer__panel-inner">
+                <div class="contact-drawer__form-shell">
+                    <form id="contactForm" class="glass rounded-2xl contact-form" style="padding:var(--space-6)">
+                        <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
+                            <label for="hp_website">Website</label>
+                            <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
+                        </div>
+                        <div class="grid-form">
+                            <div>
+                                <label for="contactName" class="sr-only">Name</label>
+                                <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
+                            </div>
+                            <div>
+                                <label for="contactEmail" class="sr-only">Email</label>
+                                <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
+                            </div>
+                        </div>
+                        <label for="contactSubject" class="sr-only">Subject</label>
+                        <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
+                        <label for="contactMessage" class="sr-only">Your message</label>
+                        <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
+                        <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
+                        <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
+                    </form>
+                </div>
             </div>
         </div>
-        <form id="contactForm" class="glass rounded-2xl contact-form reveal" style="padding:var(--space-6)">
-            <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
-                <label for="hp_website">Website</label>
-                <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
-            </div>
-            <div class="grid-form">
-                <div>
-                    <label for="contactName" class="sr-only">Name</label>
-                    <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
-                </div>
-                <div>
-                    <label for="contactEmail" class="sr-only">Email</label>
-                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
-                </div>
-            </div>
-            <label for="contactSubject" class="sr-only">Subject</label>
-            <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
-            <label for="contactMessage" class="sr-only">Your message</label>
-            <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
-            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
-            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
-        </form>
     </div>
 </section>
 
