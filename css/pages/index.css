@@ -740,6 +740,47 @@
         }
     }
 
+    /* --- Mobile Video Deck --- */
+    .vid-deck-dots { display: none; }
+
+    @media (max-width: 639px) {
+        .vid-deck {
+            display: grid;
+            touch-action: pan-y;
+        }
+
+        .vid-deck > .video-card {
+            grid-row: 1;
+            grid-column: 1;
+            transition: transform 0.45s var(--ease-smooth), opacity 0.45s var(--ease-smooth);
+        }
+
+        .vid-deck-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-block: var(--space-2);
+        }
+
+        .vid-deck-dot {
+            width: 8px;
+            height: 8px;
+            padding: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .vid-deck-dot.active {
+            background: rgba(255, 179, 0, 0.45);
+            border-color: rgba(255, 179, 0, 0.25);
+            transform: scale(1.3);
+        }
+    }
+
     /* --- Audio Seek Bar Hit Targets ---
        Expand the clickable/touchable area to ~24px while keeping
        the visible track at its slim 3-4px height.
@@ -1075,6 +1116,10 @@
         }
 
         .snd-deck > * {
+            transition: none;
+        }
+
+        .vid-deck > * {
             transition: none;
         }
 

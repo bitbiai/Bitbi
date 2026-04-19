@@ -5,6 +5,7 @@
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createStarButton } from '../../shared/favorites.js';
+import { initMobileCardDeck } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
 
@@ -23,6 +24,14 @@ export function initVideoGallery() {
     grid.id = 'videoGrid';
     grid.className = 'grid-video';
     container.appendChild(grid);
+    const deck = initMobileCardDeck(grid, {
+        cardClass: 'video-card',
+        dotsLabel: 'Video cards',
+        itemLabel: 'video',
+        deckClass: 'vid-deck',
+        dotsClass: 'vid-deck-dots',
+        dotClass: 'vid-deck-dot',
+    });
 
     /* ── Modal ── */
     const modal = buildVideoModal();
@@ -254,6 +263,10 @@ export function initVideoGallery() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal.root.classList.contains('active')) closeVideoModal();
     });
+
+    window.addEventListener('pagehide', () => {
+        deck.destroy();
+    }, { once: true });
 
     render();
 }

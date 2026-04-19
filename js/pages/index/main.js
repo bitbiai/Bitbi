@@ -5,7 +5,7 @@
 
 import { initMobileNav } from './navbar.js';
 import { initGallery } from './gallery.js';
-import { initVideoGallery } from './video-gallery.js';
+import { initVideoGallery } from './video-gallery.js?v=__ASSET_VERSION__';
 import { initSoundLab } from './soundlab.js';
 import { initSmoothScroll } from './smooth-scroll.js';
 import { initScrollReveal } from '../../shared/scroll-reveal.js';

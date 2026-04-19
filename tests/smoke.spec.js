@@ -27,6 +27,54 @@ async function expectModelsOverlayOpenState(page) {
   await expect(overlay).toContainText('Pixverse V6');
 }
 
+async function dispatchHorizontalTouchSwipe(page, selector, {
+  startXFactor = 0.82,
+  endXFactor = 0.18,
+  yFactor = 0.5,
+} = {}) {
+  await page.evaluate(async ({ selector, startXFactor, endXFactor, yFactor }) => {
+    const element = document.querySelector(selector);
+    if (!element) throw new Error(`Missing swipe target: ${selector}`);
+
+    const rect = element.getBoundingClientRect();
+    const startX = rect.left + (rect.width * startXFactor);
+    const endX = rect.left + (rect.width * endXFactor);
+    const midX = rect.left + (rect.width * 0.5);
+    const y = rect.top + (rect.height * yFactor);
+
+    const fire = (type, x, clientY) => {
+      const touch = {
+        identifier: 1,
+        target: element,
+        clientX: x,
+        clientY,
+        pageX: x + window.scrollX,
+        pageY: clientY + window.scrollY,
+        screenX: x,
+        screenY: clientY,
+      };
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', {
+        value: type === 'touchend' ? [] : [touch],
+      });
+      Object.defineProperty(event, 'targetTouches', {
+        value: type === 'touchend' ? [] : [touch],
+      });
+      Object.defineProperty(event, 'changedTouches', {
+        value: [touch],
+      });
+      element.dispatchEvent(event);
+    };
+
+    fire('touchstart', startX, y);
+    fire('touchmove', midX, y);
+    fire('touchmove', endX, y);
+    fire('touchend', endX, y);
+
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, { selector, startXFactor, endXFactor, yFactor });
+}
+
 // ---------------------------------------------------------------------------
 // Homepage
 // ---------------------------------------------------------------------------
@@ -335,6 +383,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/');
+    await expect(page.locator('#videoGrid')).not.toHaveClass(/vid-deck/);
 
     const mempicStar = page.locator('#galleryGrid .gallery-item .fav-star').first();
     await expect(mempicStar).toBeVisible();
@@ -391,6 +440,153 @@ test.describe('Homepage', () => {
       },
     });
     await expect(videoCardStar).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('mobile Video category uses the same swipe deck interaction pattern as Gallery and Sound Lab', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const consoleErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on('pageerror', (error) => {
+      consoleErrors.push(error.message);
+    });
+
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.route('**/api/favorites', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, favorites: [] }),
+      });
+    });
+
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: { items: [] },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'vid-1',
+                slug: 'mobile-video-1',
+                title: 'First Orbit',
+                caption: 'Swipe card one.',
+                category: 'memvids',
+                file: { url: '/api/gallery/memvids/vid-1/file' },
+                poster: { url: '/api/gallery/memvids/vid-1/poster', w: 1280, h: 720 },
+              },
+              {
+                id: 'vid-2',
+                slug: 'mobile-video-2',
+                title: 'Second Signal',
+                caption: 'Swipe card two.',
+                category: 'memvids',
+                file: { url: '/api/gallery/memvids/vid-2/file' },
+                poster: { url: '/api/gallery/memvids/vid-2/poster', w: 1280, h: 720 },
+              },
+              {
+                id: 'vid-3',
+                slug: 'mobile-video-3',
+                title: 'Final Cut',
+                caption: 'Swipe card three.',
+                category: 'memvids',
+                file: { url: '/api/gallery/memvids/vid-3/file' },
+                poster: { url: '/api/gallery/memvids/vid-3/poster', w: 1280, h: 720 },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.goto('/');
+
+    const grid = page.locator('#videoGrid');
+    const dots = page.locator('.vid-deck-dots .vid-deck-dot');
+
+    await expect(grid).toHaveClass(/vid-deck/);
+    await expect(grid.locator('.video-card')).toHaveCount(3);
+    await expect(dots).toHaveCount(3);
+    await expect(dots.nth(0)).toHaveClass(/active/);
+
+    const initialActiveIndex = await page.evaluate(() => (
+      Array.from(document.querySelectorAll('#videoGrid .video-card')).findIndex((card) => {
+        const style = window.getComputedStyle(card);
+        return style.pointerEvents !== 'none';
+      })
+    ));
+    expect(initialActiveIndex).toBe(0);
+
+    await dispatchHorizontalTouchSwipe(page, '#videoGrid');
+    await expect(dots.nth(1)).toHaveClass(/active/);
+
+    const swipedActiveIndex = await page.evaluate(() => (
+      Array.from(document.querySelectorAll('#videoGrid .video-card')).findIndex((card) => {
+        const style = window.getComputedStyle(card);
+        return style.pointerEvents !== 'none';
+      })
+    ));
+    expect(swipedActiveIndex).toBe(1);
+
+    await grid.locator('.video-card').nth(1).click();
+    await grid.locator('.video-card').nth(1).click();
+    await expect(page.locator('#videoModal')).toHaveClass(/active/);
+    await expect(page.locator('#videoModalTitle')).toHaveText('Second Signal');
+    await expect(page.locator('#videoModal video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/vid-2\/file$/);
+    await page.locator('.video-modal-close').click();
+
+    await dots.nth(0).click();
+    await expect(dots.nth(0)).toHaveClass(/active/);
+
+    const resetActiveIndex = await page.evaluate(() => (
+      Array.from(document.querySelectorAll('#videoGrid .video-card')).findIndex((card) => {
+        const style = window.getComputedStyle(card);
+        return style.pointerEvents !== 'none';
+      })
+    ));
+    expect(resetActiveIndex).toBe(0);
+    expect(consoleErrors).toEqual([]);
   });
 
   test('Sound Lab expands to five columns on wide desktops and steps down on smaller desktop widths', async ({ page }) => {

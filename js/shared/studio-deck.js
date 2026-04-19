@@ -97,7 +97,16 @@ function closeStudioModal() {
  * @param {Function}    [opts.onClick]  — optional grid click handler (bubbling phase)
  * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
  */
-function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehind }) {
+function _createDeck(grid, {
+    cardClass,
+    dotsLabel,
+    itemLabel,
+    onClick,
+    hideBehind,
+    deckClass = 'studio-deck',
+    dotsClass = 'studio-deck-dots',
+    dotClass = 'studio-deck-dot',
+}) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
     let isDeck = false;
@@ -151,13 +160,13 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehin
         const all = getCards();
         if (all.length <= 1) return;
         dotsEl = document.createElement('div');
-        dotsEl.className = 'studio-deck-dots';
+        dotsEl.className = dotsClass;
         dotsEl.setAttribute('role', 'tablist');
         dotsEl.setAttribute('aria-label', dotsLabel);
         all.forEach((_, i) => {
             const d = document.createElement('button');
             d.type = 'button';
-            d.className = 'studio-deck-dot' + (i === active ? ' active' : '');
+            d.className = dotClass + (i === active ? ' active' : '');
             d.setAttribute('role', 'tab');
             d.setAttribute('aria-selected', i === active ? 'true' : 'false');
             d.setAttribute('aria-label', `Show ${itemLabel} ${i + 1}`);
@@ -169,7 +178,7 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehin
 
     function syncDots() {
         if (!dotsEl) return;
-        const dots = dotsEl.querySelectorAll('.studio-deck-dot');
+        const dots = dotsEl.querySelectorAll(`.${dotClass}`);
         const all = getCards();
         if (dots.length !== all.length) { buildDots(); return; }
         dots.forEach((d, i) => {
@@ -195,14 +204,14 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehin
         if (isDeck) return;
         isDeck = true;
         active = 0;
-        grid.classList.add('studio-deck');
+        grid.classList.add(deckClass);
         renderDeck();
     }
 
     function disengage() {
         if (!isDeck) return;
         isDeck = false;
-        grid.classList.remove('studio-deck');
+        grid.classList.remove(deckClass);
         Array.from(grid.children).forEach(c => {
             c.style.transform = '';
             c.style.opacity = '';
@@ -292,15 +301,17 @@ function _createDeck(grid, { cardClass, dotsLabel, itemLabel, onClick, hideBehin
     observer.observe(grid, { childList: true });
 
     /* ── Media query ── */
-    mql.addEventListener('change', e => {
+    const handleMediaChange = (e) => {
         if (e.matches) engage(); else disengage();
-    });
+    };
+    mql.addEventListener('change', handleMediaChange);
     if (mql.matches) engage();
 
     return {
         refresh() { if (isDeck) renderDeck(); },
         destroy() {
             observer.disconnect();
+            mql.removeEventListener('change', handleMediaChange);
             disengage();
         },
         setVisible(visible) {
@@ -366,4 +377,16 @@ export function initStudioFolderDeck(grid) {
         itemLabel: 'folder',
         hideBehind: true,
     });
+}
+
+/**
+ * Attach the shared mobile card-deck behaviour to any card grid.
+ * Used by homepage sections that need the same swipe stack pattern.
+ *
+ * @param {HTMLElement} grid
+ * @param {object} options
+ * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
+ */
+export function initMobileCardDeck(grid, options) {
+    return _createDeck(grid, options);
 }
