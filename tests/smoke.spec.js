@@ -127,6 +127,39 @@ async function waitForHomepageCategoryStage(page) {
     .not.toContain('is-transitioning');
 }
 
+async function readHomepageCategoryStageMetrics(page) {
+  return page.evaluate(() => {
+    const stage = document.getElementById('homeCategories');
+    const navbar = document.getElementById('navbar');
+    const prev = stage?.querySelector('[data-category-nav="prev"]:not([hidden])');
+    const next = stage?.querySelector('[data-category-nav="next"]:not([hidden])');
+    const stageRect = stage?.getBoundingClientRect();
+    const navRect = navbar?.getBoundingClientRect();
+
+    const readArrow = (button) => {
+      if (!button || !stageRect) return null;
+      const rect = button.getBoundingClientRect();
+      return {
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100,
+        centerRatio: Math.round((((rect.top + (rect.height / 2)) - stageRect.top) / stageRect.height) * 1000) / 1000,
+      };
+    };
+
+    return {
+      alignmentDelta: Math.round(Math.abs((stageRect?.top || 0) - (navRect?.bottom || 0)) * 100) / 100,
+      prev: readArrow(prev),
+      next: readArrow(next),
+    };
+  });
+}
+
+async function waitForHomepageCategoryAlignment(page) {
+  await expect
+    .poll(async () => (await readHomepageCategoryStageMetrics(page)).alignmentDelta)
+    .toBeLessThanOrEqual(2);
+}
+
 async function switchHomepageCategory(page, targetCategory) {
   const stage = page.locator('#homeCategories');
   const targetHash = {
@@ -284,9 +317,20 @@ test.describe('Homepage', () => {
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
 
+    const initialStageMetrics = await readHomepageCategoryStageMetrics(page);
+    [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
+      expect(arrowMetrics.width).toBeGreaterThan(63);
+      expect(arrowMetrics.width).toBeLessThan(66.5);
+      expect(arrowMetrics.height).toBeGreaterThan(63);
+      expect(arrowMetrics.height).toBeLessThan(66.5);
+      expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
+      expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
+    });
+
     await prevButton.click();
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
     await expect(prevButton).toBeHidden();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
@@ -294,15 +338,22 @@ test.describe('Homepage', () => {
     await nextButton.click();
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
 
     await nextButton.click();
     await expectActiveHomepageCategory(page, 'sound');
     await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeHidden();
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+
+    await prevButton.click();
+    await expectActiveHomepageCategory(page, 'video');
+    await waitForHomepageCategoryStage(page);
+    await waitForHomepageCategoryAlignment(page);
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
     await expectActiveHomepageCategory(page, 'gallery');

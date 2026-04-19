@@ -41,6 +41,7 @@ export function initCategoryCarousel() {
     const viewport = stage?.querySelector('.home-categories__viewport');
     const prevButton = stage?.querySelector('[data-category-nav="prev"]');
     const nextButton = stage?.querySelector('[data-category-nav="next"]');
+    const navbar = document.getElementById('navbar');
 
     if (!stage || !viewport || !prevButton || !nextButton) return;
 
@@ -118,6 +119,19 @@ export function initCategoryCarousel() {
         }
     }
 
+    function alignStageToHeaderEdge() {
+        const navBottom = navbar?.getBoundingClientRect().bottom || 0;
+        const stageTop = window.scrollY + stage.getBoundingClientRect().top;
+        const nextScrollTop = Math.max(0, stageTop - navBottom);
+
+        if (Math.abs(window.scrollY - nextScrollTop) <= 1) return;
+
+        window.scrollTo({
+            top: nextScrollTop,
+            behavior: 'auto',
+        });
+    }
+
     function applyCategoryState() {
         panels.forEach((panel, key) => {
             const isActive = key === activeCategory;
@@ -139,19 +153,23 @@ export function initCategoryCarousel() {
         }
     }
 
-    function finishTransition(nextCategory) {
+    function finishTransition(nextCategory, { alignStage = false } = {}) {
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
-        isTransitioning = false;
-        stage.classList.remove('is-transitioning');
         activeCategory = nextCategory;
         applyCategoryState();
+        if (alignStage) {
+            alignStageToHeaderEdge();
+        }
+        isTransitioning = false;
+        stage.classList.remove('is-transitioning');
+        updateArrowState();
         requestAnimationFrame(() => {
             viewport.style.height = '';
         });
     }
 
-    function setActiveCategory(nextCategory, { syncHash = false } = {}) {
+    function setActiveCategory(nextCategory, { syncHash = false, alignStage = false } = {}) {
         if (!CATEGORY_META[nextCategory] || nextCategory === activeCategory) {
             if (syncHash) syncHashForCategory(nextCategory || activeCategory);
             return;
@@ -167,6 +185,7 @@ export function initCategoryCarousel() {
             activeCategory = nextCategory;
             applyCategoryState();
             if (syncHash) syncHashForCategory(nextCategory);
+            if (alignStage) alignStageToHeaderEdge();
             return;
         }
 
@@ -204,7 +223,7 @@ export function initCategoryCarousel() {
         });
 
         transitionTimer = window.setTimeout(() => {
-            finishTransition(nextCategory);
+            finishTransition(nextCategory, { alignStage });
         }, TRANSITION_MS + 50);
     }
 
@@ -212,7 +231,7 @@ export function initCategoryCarousel() {
         const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
         const nextCategory = CATEGORY_ORDER[currentIndex + delta];
         if (!nextCategory) return;
-        setActiveCategory(nextCategory, { syncHash: true });
+        setActiveCategory(nextCategory, { syncHash: true, alignStage: true });
     }
 
     prevButton.addEventListener('click', () => move(-1));
