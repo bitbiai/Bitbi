@@ -7623,9 +7623,12 @@ test.describe('Worker routes', () => {
     });
   }
 
-  async function runSharedBulkMoveRequest(assetIds, folderId = 'f01daaab') {
+  async function runSharedBulkMoveRequest(assetIds, folderId = 'f01daaab', mutateEnv = null) {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createSharedBulkMoveEnv();
+    if (typeof mutateEnv === 'function') {
+      await mutateEnv(env);
+    }
     const token = await seedSession(env, 'bulk-move-user');
     const response = await authWorker.fetch(
       authJsonRequest('/api/ai/assets/bulk-move', 'PATCH', {
@@ -7641,9 +7644,12 @@ test.describe('Worker routes', () => {
     return { env, response };
   }
 
-  async function runSharedBulkDeleteRequest(assetIds) {
+  async function runSharedBulkDeleteRequest(assetIds, mutateEnv = null) {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createSharedBulkDeleteEnv();
+    if (typeof mutateEnv === 'function') {
+      await mutateEnv(env);
+    }
     const token = await seedSession(env, 'bulk-delete-user');
     const response = await authWorker.fetch(
       authJsonRequest('/api/ai/assets/bulk-delete', 'POST', {
@@ -7852,6 +7858,24 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef').folder_id).toBeNull();
   });
 
+  test('AI assets bulk move returns 409 with the conflict contract when final-state guard fails', async () => {
+    const { env, response } = await runSharedBulkMoveRequest(
+      ['1ab100cd'],
+      'f01daaab',
+      (testEnv) => {
+        testEnv.DB.batch = async () => {
+          throw new Error("bad JSON path: '$['");
+        };
+      }
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Move failed. Some assets may have been deleted or the folder removed.',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBeNull();
+  });
+
   test('AI assets bulk delete removes one image through the shared route', async () => {
     const { env, response } = await runSharedBulkDeleteRequest(['1ab100cd']);
     expect(response.status).toBe(200);
@@ -7904,6 +7928,23 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiTextAssets.find((row) => row.id === 'abc100ef')).toBeTruthy();
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
     expect(env.USER_IMAGES.objects.size).toBe(5);
+  });
+
+  test('AI assets bulk delete returns 409 with the conflict contract when final-state guard fails', async () => {
+    const { env, response } = await runSharedBulkDeleteRequest(
+      ['1ab100cd'],
+      (testEnv) => {
+        testEnv.DB.batch = async () => {
+          throw new Error("bad JSON path: '$['");
+        };
+      }
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Delete failed. Some assets may have already been removed.',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeTruthy();
   });
 
   test('AI folder rename updates only the logical folder name and slug', async () => {
