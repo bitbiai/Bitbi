@@ -471,6 +471,54 @@ class MockD1 {
       return this.state.users.find((row) => row.id === userId) || null;
     }
 
+    if (query === 'SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users ORDER BY created_at DESC LIMIT 100') {
+      return {
+        results: this.state.users
+          .slice()
+          .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+          .slice(0, 100)
+          .map((row) => ({
+            id: row.id,
+            email: row.email,
+            role: row.role,
+            status: row.status,
+            created_at: row.created_at,
+            updated_at: row.updated_at ?? null,
+            email_verified_at: row.email_verified_at ?? null,
+            verification_method: row.verification_method ?? null,
+          })),
+      };
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS totalUsers, COALESCE(SUM(CASE WHEN role = \'admin\' THEN 1 ELSE 0 END), 0) AS admins,')) {
+      const users = this.state.users || [];
+      const nowMs = Date.now();
+      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+      let admins = 0;
+      let activeUsers = 0;
+      let disabledUsers = 0;
+      let verifiedUsers = 0;
+      let recentRegistrations = 0;
+      for (const row of users) {
+        if (row.role === 'admin') admins += 1;
+        if (row.status === 'active') activeUsers += 1;
+        if (row.status === 'disabled') disabledUsers += 1;
+        if (row.email_verified_at && row.verification_method !== 'legacy_auto') verifiedUsers += 1;
+        const createdMs = Date.parse(String(row.created_at || ''));
+        if (Number.isFinite(createdMs) && (nowMs - createdMs) <= sevenDaysMs) {
+          recentRegistrations += 1;
+        }
+      }
+      return {
+        totalUsers: users.length,
+        admins,
+        activeUsers,
+        disabledUsers,
+        verifiedUsers,
+        recentRegistrations,
+      };
+    }
+
     if (query === 'DELETE FROM sessions WHERE user_id = ?') {
       const [userId] = bindings;
       const before = this.state.sessions.length;
