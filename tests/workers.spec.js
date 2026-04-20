@@ -80,6 +80,16 @@ function authJsonRequest(pathname, method, body, headers = {}) {
   });
 }
 
+function expectExactKeys(value, expectedKeys) {
+  expect(Object.keys(value || {}).sort()).toEqual([...expectedKeys].sort());
+}
+
+function expectHasKeys(value, requiredKeys) {
+  for (const key of requiredKeys) {
+    expect(value).toHaveProperty(key);
+  }
+}
+
 function createContractUser({ id = 'admin-ai-user', role = 'admin' } = {}) {
   return {
     id,
@@ -978,6 +988,355 @@ test.describe('Wallet SIWE routes', () => {
 });
 
 test.describe('Worker routes', () => {
+  test.describe('Auth/Admin/AI response contracts (locked)', () => {
+    test('GET /api/me returns the anonymous contract shape when not authenticated', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.80',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['loggedIn', 'user']);
+      expect(body.loggedIn).toBe(false);
+      expect(body.user).toBe(null);
+    });
+
+    test('GET /api/me returns the authenticated contract shape when logged in', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const user = {
+        id: 'contract-me-user',
+        email: 'contract-me@example.com',
+        password_hash: 'unused',
+        created_at: nowIso(),
+        status: 'active',
+        role: 'user',
+        email_verified_at: nowIso(),
+        verification_method: 'email_verified',
+      };
+      const env = createAuthTestEnv({
+        users: [user],
+        profiles: [{
+          user_id: user.id,
+          display_name: 'Contract User',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          created_at: nowIso(),
+          updated_at: nowIso(),
+          has_avatar: 0,
+        }],
+      });
+      const sessionToken = await seedSession(env, user.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.81',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['loggedIn', 'user']);
+      expect(body.loggedIn).toBe(true);
+      expect(body.user).toBeTruthy();
+      expectExactKeys(body.user, [
+        'id',
+        'email',
+        'createdAt',
+        'status',
+        'role',
+        'verificationMethod',
+        'display_name',
+        'has_avatar',
+        'avatar_url',
+      ]);
+      expect(body.user).toMatchObject({
+        id: user.id,
+        email: user.email,
+        status: 'active',
+        role: 'user',
+        verificationMethod: 'email_verified',
+        display_name: 'Contract User',
+        has_avatar: false,
+        avatar_url: null,
+      });
+      expect(typeof body.user.createdAt).toBe('string');
+    });
+
+    test('GET /api/admin/users returns unauthorized error contract when unauthenticated', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.82',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'error']);
+      expect(body).toEqual({
+        ok: false,
+        error: 'Not authenticated.',
+      });
+    });
+
+    test('GET /api/admin/users returns forbidden error contract for non-admin users', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const user = createContractUser({ id: 'contract-non-admin', role: 'user' });
+      const env = createAuthTestEnv({ users: [user] });
+      const sessionToken = await seedSession(env, user.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.83',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'error']);
+      expect(body).toEqual({
+        ok: false,
+        error: 'Admin privileges required.',
+      });
+    });
+
+    test('GET /api/admin/users returns the stable admin listing contract', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('contract-admin');
+      const member = createContractUser({ id: 'contract-member', role: 'user' });
+      const env = createAuthTestEnv({ users: [admin, member] });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.84',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'users']);
+      expect(body.ok).toBe(true);
+      expect(Array.isArray(body.users)).toBe(true);
+      expect(body.users.length).toBeGreaterThanOrEqual(2);
+      const first = body.users[0];
+      expectExactKeys(first, [
+        'id',
+        'email',
+        'role',
+        'status',
+        'created_at',
+        'updated_at',
+        'email_verified_at',
+        'verification_method',
+      ]);
+      expect(typeof first.id).toBe('string');
+      expect(typeof first.email).toBe('string');
+      expect(['admin', 'user']).toContain(first.role);
+    });
+
+    test('GET /api/admin/stats returns the stable stats contract for admins', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('contract-stats-admin');
+      const member = createContractUser({ id: 'contract-stats-member', role: 'user' });
+      const env = createAuthTestEnv({ users: [admin, member] });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/stats', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.85',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'stats']);
+      expect(body.ok).toBe(true);
+      expectExactKeys(body.stats, [
+        'totalUsers',
+        'admins',
+        'activeUsers',
+        'disabledUsers',
+        'verifiedUsers',
+        'recentRegistrations',
+      ]);
+      for (const key of Object.keys(body.stats)) {
+        expect(typeof body.stats[key]).toBe('number');
+      }
+    });
+
+    test('GET /api/ai/assets returns unauthorized error contract when unauthenticated', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/assets', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.86',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'error']);
+      expect(body).toEqual({
+        ok: false,
+        error: 'Not authenticated.',
+      });
+    });
+
+    test('GET /api/ai/assets returns the stable mixed-asset contract for authenticated users', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const user = createContractUser({ id: 'contract-assets-user', role: 'user' });
+      const imageId = 'aa11bb22';
+      const textAssetId = 'cc33dd44';
+      const env = createAuthTestEnv({
+        users: [user],
+        aiImages: [{
+          id: imageId,
+          user_id: user.id,
+          folder_id: null,
+          r2_key: `users/${user.id}/folders/roots/${imageId}.png`,
+          prompt: 'Contract image',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 1234,
+          created_at: nowIso(),
+          visibility: 'private',
+          published_at: null,
+          derivatives_status: 'pending',
+          derivatives_version: 1,
+        }],
+        aiTextAssets: [{
+          id: textAssetId,
+          user_id: user.id,
+          folder_id: null,
+          r2_key: `users/${user.id}/folders/roots/${textAssetId}.txt`,
+          title: 'Contract text asset',
+          file_name: 'contract-text-asset.txt',
+          source_module: 'text',
+          mime_type: 'text/plain',
+          size_bytes: 128,
+          preview_text: 'hello contract',
+          metadata_json: '{}',
+          created_at: nowIso(),
+          visibility: 'private',
+          published_at: null,
+          poster_r2_key: null,
+          poster_width: null,
+          poster_height: null,
+        }],
+      });
+      const sessionToken = await seedSession(env, user.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/assets', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.87',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'data']);
+      expectExactKeys(body.data, ['assets']);
+      expect(Array.isArray(body.data.assets)).toBe(true);
+      expect(body.data.assets.length).toBe(2);
+
+      const imageAsset = body.data.assets.find((asset) => asset.id === imageId);
+      expect(imageAsset).toBeTruthy();
+      expectHasKeys(imageAsset, [
+        'id',
+        'asset_type',
+        'folder_id',
+        'title',
+        'prompt',
+        'model',
+        'steps',
+        'seed',
+        'created_at',
+        'file_url',
+        'thumb_url',
+        'medium_url',
+        'visibility',
+        'is_public',
+        'published_at',
+      ]);
+      expect(imageAsset).toMatchObject({
+        id: imageId,
+        asset_type: 'image',
+        file_url: `/api/ai/images/${imageId}/file`,
+        visibility: 'private',
+        is_public: false,
+        published_at: null,
+      });
+      expect([null, `/api/ai/images/${imageId}/thumb`]).toContain(imageAsset.thumb_url);
+      expect([null, `/api/ai/images/${imageId}/medium`]).toContain(imageAsset.medium_url);
+
+      const textAsset = body.data.assets.find((asset) => asset.id === textAssetId);
+      expect(textAsset).toBeTruthy();
+      expectHasKeys(textAsset, [
+        'id',
+        'asset_type',
+        'folder_id',
+        'title',
+        'file_name',
+        'source_module',
+        'mime_type',
+        'size_bytes',
+        'preview_text',
+        'created_at',
+        'file_url',
+        'visibility',
+        'is_public',
+        'published_at',
+      ]);
+      expect(textAsset).toMatchObject({
+        id: textAssetId,
+        asset_type: 'text',
+        file_url: `/api/ai/text-assets/${textAssetId}/file`,
+        visibility: 'private',
+        is_public: false,
+        published_at: null,
+      });
+    });
+  });
+
   test('auth email validation uses bounded string checks', async () => {
     const { isValidEmail } = await loadRequestModule();
 
