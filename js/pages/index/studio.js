@@ -125,10 +125,18 @@ async function handleGenerate() {
     const seed  = $seed.value  ? Number($seed.value)  : null;
     const model = $model?.value || DEFAULT_AI_IMAGE_MODEL;
 
-    const res = await apiAiGenerateImage(prompt, steps, seed, model);
-
-    $generateBtn.disabled = false;
-    $generateBtn.textContent = 'Generate';
+    let res;
+    try {
+        res = await apiAiGenerateImage(prompt, steps, seed, model);
+    } catch (error) {
+        console.warn('Gallery studio generate failed:', error);
+        $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
+        showMsg($genMsg, 'Generation failed. Please try again.', 'error');
+        return;
+    } finally {
+        $generateBtn.disabled = false;
+        $generateBtn.textContent = 'Generate';
+    }
 
     if (!res.ok) {
         $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
@@ -176,17 +184,24 @@ async function handleSave() {
     $saveBtn.textContent = 'Saving\u2026';
 
     const folderId = $folderSelect.value || null;
-    const res = await apiAiSaveImage(
-        currentImageData,
-        currentMeta.prompt,
-        currentMeta.model,
-        currentMeta.steps,
-        currentMeta.seed,
-        folderId,
-    );
-
-    $saveBtn.disabled = false;
-    $saveBtn.textContent = 'Save';
+    let res;
+    try {
+        res = await apiAiSaveImage(
+            currentImageData,
+            currentMeta.prompt,
+            currentMeta.model,
+            currentMeta.steps,
+            currentMeta.seed,
+            folderId,
+        );
+    } catch (error) {
+        console.warn('Gallery studio save failed:', error);
+        showMsg($genMsg, 'Save failed. Please try again.', 'error');
+        return;
+    } finally {
+        $saveBtn.disabled = false;
+        $saveBtn.textContent = 'Save';
+    }
 
     if (!res.ok) {
         showMsg($genMsg, res.error, 'error');

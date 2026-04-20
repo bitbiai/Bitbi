@@ -1928,6 +1928,67 @@ test.describe('Image Studio (authenticated)', () => {
     }));
   });
 
+  test('homepage create studio recovers button state and shows errors when generate/save requests abort', async ({
+    page,
+  }) => {
+    const requests = [];
+    await mockAuthenticatedImageStudio(page, requests);
+
+    await page.unroute('**/api/ai/generate-image');
+    await page.route('**/api/ai/generate-image', async (route) => {
+      await route.abort('failed');
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#galStudioPrompt').fill('abort generate request');
+    await page.locator('#galStudioGenerate').click();
+
+    await expect(page.locator('#galStudioGenerate')).toHaveText('Generate');
+    await expect(page.locator('#galStudioGenerate')).toBeEnabled();
+    await expect(page.locator('#galStudioGenMsg')).toContainText(/network error|request cancelled|generation failed/i);
+
+    await page.unroute('**/api/ai/generate-image');
+    await page.route('**/api/ai/generate-image', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            mimeType: 'image/png',
+            prompt: body.prompt,
+            model: body.model || '@cf/black-forest-labs/flux-1-schnell',
+            steps: body.steps ?? 4,
+            seed: body.seed ?? null,
+          },
+        }),
+      });
+    });
+
+    await page.locator('#galStudioGenerate').click();
+    await expect(page.locator('#galStudioPreview img')).toBeVisible();
+    await expect(page.locator('#galStudioSaveBtn')).toBeEnabled();
+
+    await page.unroute('**/api/ai/images/save');
+    await page.route('**/api/ai/images/save', async (route) => {
+      await route.abort('failed');
+    });
+
+    await page.locator('#galStudioSaveBtn').click();
+    await expect(page.locator('#galStudioSaveBtn')).toHaveText('Save');
+    await expect(page.locator('#galStudioSaveBtn')).toBeEnabled();
+    await expect(page.locator('#galStudioGenMsg')).toContainText(/network error|request cancelled|save failed/i);
+  });
+
   test('account Image Studio shows mixed saved assets inside the shared folder world', async ({
     page,
   }) => {
