@@ -1,11 +1,3 @@
-import { handleQuota } from "./ai/quota.js";
-import { handleGetFolders } from "./ai/folders-read.js";
-import { handleGetAssets, handleGetImages } from "./ai/assets-read.js";
-import {
-  handleCreateFolder,
-  handleDeleteFolder,
-  handleRenameFolder,
-} from "./ai/folders-write.js";
 import {
   handleGetImageDerivative,
   handleGetImageFile,
@@ -26,7 +18,6 @@ import {
 } from "./ai/text-assets-write.js";
 import { handleBulkDeleteAssets, handleBulkMoveAssets } from "./ai/bulk-assets.js";
 import { handleBulkDelete, handleBulkMove } from "./ai/bulk-images.js";
-
 // ── Main dispatcher ──
 export async function handleAI(ctx) {
   const { pathname, method } = ctx;
