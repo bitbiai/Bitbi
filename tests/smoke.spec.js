@@ -1053,6 +1053,7 @@ test.describe('Homepage', () => {
   });
 
   test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {
+    const mempicVersion = 'vpubmempic';
     await page.route('**/api/gallery/mempics**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -1068,17 +1069,17 @@ test.describe('Homepage', () => {
                 caption: 'Published by Ada Member on 2026-04-12.',
                 category: 'mempics',
                 thumb: {
-                  url: '/api/gallery/mempics/a1b2c3d4/thumb',
+                  url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/thumb`,
                   w: 320,
                   h: 320,
                 },
                 preview: {
-                  url: '/api/gallery/mempics/a1b2c3d4/medium',
+                  url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/medium`,
                   w: 1280,
                   h: 1280,
                 },
                 full: {
-                  url: '/api/gallery/mempics/a1b2c3d4/file',
+                  url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`,
                 },
               },
             ],
@@ -1087,7 +1088,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+    await page.route(/\/api\/gallery\/mempics\/[^/]+(?:\/[^/]+)?\/(thumb|medium|file)$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'image/png',
@@ -1109,7 +1110,7 @@ test.describe('Homepage', () => {
     await mempicsCard.click();
     await expect(page.locator('#modalTitle')).toHaveText('Mempics');
     await expect(page.locator('#modalCaption')).toHaveText('Published by Ada Member on 2026-04-12.');
-    await expect(page.locator('#modalFullLink')).toHaveAttribute('href', '/api/gallery/mempics/a1b2c3d4/file');
+    await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`);
     await page.locator('.modal-close').click();
 
     await page.locator('.filter-btn[data-filter="mempics"]').click();
@@ -1192,6 +1193,7 @@ test.describe('Homepage', () => {
 
   test('homepage favorites reuse the shared flow for Mempics cards and video modal cards', async ({ page }) => {
     const favoriteRequests = [];
+    const memvidVersion = 'vpubmemvid';
 
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1572,6 +1574,7 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     const favoriteRequests = [];
+    const memvidVersion = 'vpubmemvid';
 
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1632,8 +1635,8 @@ test.describe('Homepage', () => {
                 title: 'Launch Walkthrough',
                 caption: 'Player-safe controls.',
                 category: 'memvids',
-                file: { url: '/api/gallery/memvids/vid-modal-1/file' },
-                poster: { url: '/api/gallery/memvids/vid-modal-1/poster', w: 1280, h: 720 },
+                file: { url: `/api/gallery/memvids/vid-modal-1/${memvidVersion}/file` },
+                poster: { url: `/api/gallery/memvids/vid-modal-1/${memvidVersion}/poster`, w: 1280, h: 720 },
               },
             ],
           },
@@ -1695,7 +1698,7 @@ test.describe('Homepage', () => {
         item_type: 'video',
         item_id: 'vid-modal-1',
         title: 'Launch Walkthrough',
-        thumb_url: '/api/gallery/memvids/vid-modal-1/poster',
+        thumb_url: `/api/gallery/memvids/vid-modal-1/${memvidVersion}/poster`,
       },
     });
 

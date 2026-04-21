@@ -1,4 +1,9 @@
 import { json } from "../lib/response.js";
+import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
+import {
+  buildPublicMempicUrl,
+  buildPublicMempicVersion,
+} from "../../../../js/shared/public-media-contract.mjs";
 
 const DEFAULT_MEMPICS_LIMIT = 60;
 const MAX_MEMPICS_LIMIT = 120;
@@ -30,6 +35,7 @@ function getPublicMempicCaption(displayName, publishedAt) {
 }
 
 function toPublicMempicRecord(row) {
+  const version = buildPublicMempicVersion(row);
   return {
     id: row.id,
     slug: `mempic-${row.id}`,
@@ -37,31 +43,33 @@ function toPublicMempicRecord(row) {
     caption: getPublicMempicCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "mempics",
     thumb: {
-      url: `/api/gallery/mempics/${row.id}/thumb`,
+      url: buildPublicMempicUrl(row.id, version, "thumb"),
       w: Number(row.thumb_width) || 320,
       h: Number(row.thumb_height) || 320,
     },
     preview: {
-      url: `/api/gallery/mempics/${row.id}/medium`,
+      url: buildPublicMempicUrl(row.id, version, "medium"),
       w: Number(row.medium_width) || Number(row.thumb_width) || 1280,
       h: Number(row.medium_height) || Number(row.thumb_height) || 1280,
     },
     full: {
-      url: `/api/gallery/mempics/${row.id}/file`,
+      url: buildPublicMempicUrl(row.id, version, "file"),
     },
   };
 }
 
-function buildPublicImageHeaders(contentType, size) {
-  const headers = new Headers();
-  headers.set("Content-Type", contentType || "image/webp");
-  headers.set("Cache-Control", "no-store");
-  headers.set("X-Content-Type-Options", "nosniff");
-  if (size) {
-    headers.set("Content-Length", String(size));
-  }
-  return headers;
-}
+const PUBLIC_MEMPIC_SELECT = `SELECT created_at,
+                                     published_at,
+                                     r2_key,
+                                     thumb_key,
+                                     medium_key,
+                                     thumb_mime_type,
+                                     medium_mime_type,
+                                     derivatives_version,
+                                     derivatives_ready_at
+                              FROM ai_images
+                              WHERE id = ?
+                                AND visibility = 'public'`;
 
 async function handleListMempics(ctx) {
   const { env, url } = ctx;
@@ -70,10 +78,15 @@ async function handleListMempics(ctx) {
     `SELECT ai_images.id,
             ai_images.created_at,
             ai_images.published_at,
+            ai_images.r2_key,
+            ai_images.thumb_key,
+            ai_images.medium_key,
             ai_images.thumb_width,
             ai_images.thumb_height,
             ai_images.medium_width,
             ai_images.medium_height,
+            ai_images.derivatives_version,
+            ai_images.derivatives_ready_at,
             profiles.display_name AS owner_display_name
      FROM ai_images
      LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
@@ -95,13 +108,27 @@ async function handleListMempics(ctx) {
   });
 }
 
-async function handleGetMempicFile(ctx, imageId) {
+async function getPublicMempicRouteRow(env, imageId) {
+  return env.DB.prepare(PUBLIC_MEMPIC_SELECT).bind(imageId).first();
+}
+
+function hasMatchingPublicMempicVersion(row, version) {
+  return version === buildPublicMempicVersion(row);
+}
+
+async function handleGetMempicFile(ctx, imageId, version) {
   const { env } = ctx;
-  const row = await env.DB.prepare(
-    "SELECT r2_key FROM ai_images WHERE id = ? AND visibility = 'public'"
-  ).bind(imageId).first();
+  const row = await getPublicMempicRouteRow(env, imageId);
 
   if (!row?.r2_key) {
+    return json({ ok: false, error: "Image not found." }, { status: 404 });
+  }
+
+  if (!version) {
+    return buildPublicMediaAliasRedirect(buildPublicMempicUrl(imageId, buildPublicMempicVersion(row), "file"));
+  }
+
+  if (!hasMatchingPublicMempicVersion(row, version)) {
     return json({ ok: false, error: "Image not found." }, { status: 404 });
   }
 
@@ -113,27 +140,36 @@ async function handleGetMempicFile(ctx, imageId) {
   return new Response(
     object.body,
     {
-      headers: buildPublicImageHeaders(
+      headers: buildPublicMediaHeaders(
         object.httpMetadata?.contentType || "image/png",
-        object.size
+        object.size,
+        { immutable: true }
       ),
     }
   );
 }
 
-async function handleGetMempicDerivative(ctx, imageId, variant) {
+async function handleGetMempicDerivative(ctx, imageId, variant, version) {
   const { env } = ctx;
-  const select =
-    variant === "thumb"
-      ? "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND thumb_key IS NOT NULL"
-      : "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND medium_key IS NOT NULL";
+  const row = await getPublicMempicRouteRow(env, imageId);
+  const derivativeKey = variant === "thumb" ? row?.thumb_key : row?.medium_key;
+  const mimeType = variant === "thumb" ? row?.thumb_mime_type : row?.medium_mime_type;
 
-  const row = await env.DB.prepare(select).bind(imageId).first();
-  if (!row?.derivative_key) {
+  if (!derivativeKey) {
     return json({ ok: false, error: "Image not found." }, { status: 404 });
   }
 
-  const object = await env.USER_IMAGES.get(row.derivative_key);
+  if (!version) {
+    return buildPublicMediaAliasRedirect(
+      buildPublicMempicUrl(imageId, buildPublicMempicVersion(row), variant)
+    );
+  }
+
+  if (!hasMatchingPublicMempicVersion(row, version)) {
+    return json({ ok: false, error: "Image not found." }, { status: 404 });
+  }
+
+  const object = await env.USER_IMAGES.get(derivativeKey);
   if (!object) {
     return json({ ok: false, error: "Image not found." }, { status: 404 });
   }
@@ -141,9 +177,10 @@ async function handleGetMempicDerivative(ctx, imageId, variant) {
   return new Response(
     object.body,
     {
-      headers: buildPublicImageHeaders(
-        row.mime_type || object.httpMetadata?.contentType || "image/webp",
-        object.size
+      headers: buildPublicMediaHeaders(
+        mimeType || object.httpMetadata?.contentType || "image/webp",
+        object.size,
+        { immutable: true }
       ),
     }
   );
@@ -156,19 +193,34 @@ export async function handleGallery(ctx) {
     return handleListMempics(ctx);
   }
 
+  const versionedFileMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/([^/]+)\/file$/);
+  if (versionedFileMatch && method === "GET") {
+    return handleGetMempicFile(ctx, versionedFileMatch[1], versionedFileMatch[2]);
+  }
+
   const fileMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/file$/);
   if (fileMatch && method === "GET") {
-    return handleGetMempicFile(ctx, fileMatch[1]);
+    return handleGetMempicFile(ctx, fileMatch[1], null);
+  }
+
+  const versionedThumbMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/([^/]+)\/thumb$/);
+  if (versionedThumbMatch && method === "GET") {
+    return handleGetMempicDerivative(ctx, versionedThumbMatch[1], "thumb", versionedThumbMatch[2]);
   }
 
   const thumbMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/thumb$/);
   if (thumbMatch && method === "GET") {
-    return handleGetMempicDerivative(ctx, thumbMatch[1], "thumb");
+    return handleGetMempicDerivative(ctx, thumbMatch[1], "thumb", null);
+  }
+
+  const versionedMediumMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/([^/]+)\/medium$/);
+  if (versionedMediumMatch && method === "GET") {
+    return handleGetMempicDerivative(ctx, versionedMediumMatch[1], "medium", versionedMediumMatch[2]);
   }
 
   const mediumMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/medium$/);
   if (mediumMatch && method === "GET") {
-    return handleGetMempicDerivative(ctx, mediumMatch[1], "medium");
+    return handleGetMempicDerivative(ctx, mediumMatch[1], "medium", null);
   }
 
   return null;

@@ -3240,7 +3240,10 @@ test.describe('Profile page (authenticated)', () => {
   test('mempics and video favorites render in the profile sidebar and open the matching viewer surfaces', async ({
     page,
   }) => {
-    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+    const mempicVersion = 'vpubmempic';
+    const memvidVersion = 'vpubmemvid';
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+(?:\/[^/]+)?\/(thumb|medium|file)$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'image/png',
@@ -3272,14 +3275,14 @@ test.describe('Profile page (authenticated)', () => {
           item_type: 'mempics',
           item_id: 'a1b2c3d4',
           title: 'Mempics',
-          thumb_url: '/api/gallery/mempics/a1b2c3d4/thumb',
+          thumb_url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/thumb`,
           created_at: '2026-04-10T12:00:00.000Z',
         },
         {
           item_type: 'video',
           item_id: 'bada55e1',
           title: 'Launch Walkthrough',
-          thumb_url: '/api/gallery/memvids/bada55e1/poster',
+          thumb_url: `/api/gallery/memvids/bada55e1/${memvidVersion}/poster`,
           created_at: '2026-04-10T11:59:00.000Z',
         },
       ],
@@ -3291,16 +3294,16 @@ test.describe('Profile page (authenticated)', () => {
 
     await expect(page.locator('.profile__favorites')).not.toContainText('AI Creations');
     await expect(page.locator('[data-favorites-type="video"] .favorites__group-label')).toHaveText('Memvids');
-    await expect(page.locator('[data-favorites-type="mempics"] [data-fav-key="mempics:a1b2c3d4"] img')).toHaveAttribute('src', /\/api\/gallery\/mempics\/a1b2c3d4\/thumb$/);
-    await expect(page.locator('[data-favorites-type="video"] [data-fav-key="video:bada55e1"] img')).toHaveAttribute('src', /\/api\/gallery\/memvids\/bada55e1\/poster$/);
+    await expect(page.locator('[data-favorites-type="mempics"] [data-fav-key="mempics:a1b2c3d4"] img')).toHaveAttribute('src', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/thumb$`));
+    await expect(page.locator('[data-favorites-type="video"] [data-fav-key="video:bada55e1"] img')).toHaveAttribute('src', new RegExp(`/api/gallery/memvids/bada55e1/${memvidVersion}/poster$`));
 
     await page.locator('[data-fav-key="mempics:a1b2c3d4"]').click();
-    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', /\/api\/gallery\/mempics\/a1b2c3d4\/medium$/);
-    await expect(page.locator('#favViewer .fav-viewer__full-link')).toHaveAttribute('href', /\/api\/gallery\/mempics\/a1b2c3d4\/file$/);
+    await expect(page.locator('#favViewer .fav-viewer__image img')).toHaveAttribute('src', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/medium$`));
+    await expect(page.locator('#favViewer .fav-viewer__full-link')).toHaveAttribute('href', new RegExp(`/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file$`));
     await page.locator('#favViewerClose').click();
 
     await page.locator('[data-fav-key="video:bada55e1"]').click();
-    await expect(page.locator('#favViewer .fav-viewer__image video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/bada55e1\/file$/);
+    await expect(page.locator('#favViewer .fav-viewer__image video')).toHaveAttribute('src', new RegExp(`/api/gallery/memvids/bada55e1/${memvidVersion}/file$`));
     await expect(page.locator('#favViewer .fav-viewer__title')).toHaveText('Launch Walkthrough');
 
     await page.locator('#favViewer .fav-viewer__fav-star').click();

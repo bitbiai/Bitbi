@@ -1,4 +1,9 @@
 import { json } from "../lib/response.js";
+import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
+import {
+  buildPublicMemvidUrl,
+  buildPublicMemvidVersion,
+} from "../../../../js/shared/public-media-contract.mjs";
 
 const DEFAULT_MEMVIDS_LIMIT = 60;
 const MAX_MEMVIDS_LIMIT = 120;
@@ -27,6 +32,7 @@ function getPublicMemvidCaption(displayName, publishedAt) {
 
 function toPublicMemvidRecord(row) {
   const meta = parseMetadataJson(row.metadata_json);
+  const version = buildPublicMemvidVersion(row);
   const record = {
     id: row.id,
     slug: `memvid-${row.id}`,
@@ -35,13 +41,13 @@ function toPublicMemvidRecord(row) {
     category: "memvids",
     mime_type: row.mime_type || "video/mp4",
     file: {
-      url: `/api/gallery/memvids/${row.id}/file`,
+      url: buildPublicMemvidUrl(row.id, version, "file"),
     },
     duration_seconds: meta.duration_seconds ?? null,
   };
   if (row.poster_r2_key) {
     record.poster = {
-      url: `/api/gallery/memvids/${row.id}/poster`,
+      url: buildPublicMemvidUrl(row.id, version, "poster"),
       w: row.poster_width ?? null,
       h: row.poster_height ?? null,
     };
@@ -58,16 +64,15 @@ function parseMetadataJson(raw) {
   }
 }
 
-function buildPublicVideoHeaders(contentType, size) {
-  const headers = new Headers();
-  headers.set("Content-Type", contentType || "video/mp4");
-  headers.set("Cache-Control", "no-store");
-  headers.set("X-Content-Type-Options", "nosniff");
-  if (size) {
-    headers.set("Content-Length", String(size));
-  }
-  return headers;
-}
+const PUBLIC_MEMVID_SELECT = `SELECT created_at,
+                                     published_at,
+                                     r2_key,
+                                     mime_type,
+                                     poster_r2_key
+                              FROM ai_text_assets
+                              WHERE id = ?
+                                AND visibility = 'public'
+                                AND source_module = 'video'`;
 
 async function handleListMemvids(ctx) {
   const { env, url } = ctx;
@@ -79,6 +84,7 @@ async function handleListMemvids(ctx) {
             ai_text_assets.metadata_json,
             ai_text_assets.created_at,
             ai_text_assets.published_at,
+            ai_text_assets.r2_key,
             ai_text_assets.poster_r2_key,
             ai_text_assets.poster_width,
             ai_text_assets.poster_height,
@@ -101,13 +107,27 @@ async function handleListMemvids(ctx) {
   });
 }
 
-async function handleGetMemvidFile(ctx, videoId) {
+async function getPublicMemvidRouteRow(env, videoId) {
+  return env.DB.prepare(PUBLIC_MEMVID_SELECT).bind(videoId).first();
+}
+
+function hasMatchingPublicMemvidVersion(row, version) {
+  return version === buildPublicMemvidVersion(row);
+}
+
+async function handleGetMemvidFile(ctx, videoId, version) {
   const { env } = ctx;
-  const row = await env.DB.prepare(
-    "SELECT r2_key, mime_type FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'video'"
-  ).bind(videoId).first();
+  const row = await getPublicMemvidRouteRow(env, videoId);
 
   if (!row?.r2_key) {
+    return json({ ok: false, error: "Video not found." }, { status: 404 });
+  }
+
+  if (!version) {
+    return buildPublicMediaAliasRedirect(buildPublicMemvidUrl(videoId, buildPublicMemvidVersion(row), "file"));
+  }
+
+  if (!hasMatchingPublicMemvidVersion(row, version)) {
     return json({ ok: false, error: "Video not found." }, { status: 404 });
   }
 
@@ -119,21 +139,30 @@ async function handleGetMemvidFile(ctx, videoId) {
   return new Response(
     object.body,
     {
-      headers: buildPublicVideoHeaders(
+      headers: buildPublicMediaHeaders(
         row.mime_type || object.httpMetadata?.contentType || "video/mp4",
-        object.size
+        object.size,
+        { immutable: true }
       ),
     }
   );
 }
 
-async function handleGetMemvidPoster(ctx, videoId) {
+async function handleGetMemvidPoster(ctx, videoId, version) {
   const { env } = ctx;
-  const row = await env.DB.prepare(
-    "SELECT poster_r2_key FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'video' AND poster_r2_key IS NOT NULL"
-  ).bind(videoId).first();
+  const row = await getPublicMemvidRouteRow(env, videoId);
 
   if (!row?.poster_r2_key) {
+    return json({ ok: false, error: "Poster not found." }, { status: 404 });
+  }
+
+  if (!version) {
+    return buildPublicMediaAliasRedirect(
+      buildPublicMemvidUrl(videoId, buildPublicMemvidVersion(row), "poster")
+    );
+  }
+
+  if (!hasMatchingPublicMemvidVersion(row, version)) {
     return json({ ok: false, error: "Poster not found." }, { status: 404 });
   }
 
@@ -142,14 +171,16 @@ async function handleGetMemvidPoster(ctx, videoId) {
     return json({ ok: false, error: "Poster not found." }, { status: 404 });
   }
 
-  const headers = new Headers();
-  headers.set("Content-Type", object.httpMetadata?.contentType || "image/webp");
-  headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-  headers.set("X-Content-Type-Options", "nosniff");
-  if (object.size) {
-    headers.set("Content-Length", String(object.size));
-  }
-  return new Response(object.body, { headers });
+  return new Response(
+    object.body,
+    {
+      headers: buildPublicMediaHeaders(
+        object.httpMetadata?.contentType || "image/webp",
+        object.size,
+        { immutable: true }
+      ),
+    }
+  );
 }
 
 export async function handleVideoGallery(ctx) {
@@ -159,14 +190,24 @@ export async function handleVideoGallery(ctx) {
     return handleListMemvids(ctx);
   }
 
+  const versionedFileMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/([^/]+)\/file$/);
+  if (versionedFileMatch && method === "GET") {
+    return handleGetMemvidFile(ctx, versionedFileMatch[1], versionedFileMatch[2]);
+  }
+
   const fileMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/file$/);
   if (fileMatch && method === "GET") {
-    return handleGetMemvidFile(ctx, fileMatch[1]);
+    return handleGetMemvidFile(ctx, fileMatch[1], null);
+  }
+
+  const versionedPosterMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/([^/]+)\/poster$/);
+  if (versionedPosterMatch && method === "GET") {
+    return handleGetMemvidPoster(ctx, versionedPosterMatch[1], versionedPosterMatch[2]);
   }
 
   const posterMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/poster$/);
   if (posterMatch && method === "GET") {
-    return handleGetMemvidPoster(ctx, posterMatch[1]);
+    return handleGetMemvidPoster(ctx, posterMatch[1], null);
   }
 
   return null;
