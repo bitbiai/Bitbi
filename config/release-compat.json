@@ -1,6 +1,6 @@
 {
   "authWorker": {
-    "currentSchemaMigration": "0025_add_media_favorite_types.sql",
+    "currentSchemaMigration": "0026_add_cursor_pagination_support.sql",
     "requiredBindings": {
       "d1": ["DB"],
       "images": "IMAGES",
