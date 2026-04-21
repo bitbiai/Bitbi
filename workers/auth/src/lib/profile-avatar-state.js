@@ -9,15 +9,34 @@ function toAvatarPresence(value) {
   return !!Number(value);
 }
 
-export async function persistAvatarPresence(env, userId, hasAvatar, updatedAt = nowIso()) {
+export async function persistAvatarPresence(
+  env,
+  userId,
+  hasAvatar,
+  {
+    updatedAt = nowIso(),
+    avatarUpdatedAt = hasAvatar ? updatedAt : null,
+  } = {}
+) {
   await env.DB.prepare(
-    `INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, has_avatar, created_at, updated_at)
-     VALUES (?, '', '', '', '', ?, ?, ?)
+    `INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, has_avatar, avatar_updated_at, created_at, updated_at)
+     VALUES (?, '', '', '', '', ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        has_avatar = excluded.has_avatar,
+       avatar_updated_at = CASE
+         WHEN excluded.has_avatar = 0 THEN NULL
+         WHEN excluded.avatar_updated_at IS NOT NULL THEN excluded.avatar_updated_at
+         ELSE profiles.avatar_updated_at
+       END,
        updated_at = excluded.updated_at`
   )
-    .bind(userId, hasAvatar ? 1 : 0, updatedAt, updatedAt)
+    .bind(
+      userId,
+      hasAvatar ? 1 : 0,
+      avatarUpdatedAt,
+      updatedAt,
+      updatedAt
+    )
     .run();
 }
 
@@ -32,6 +51,6 @@ export async function resolveCachedAvatarPresence(env, userId, storedState) {
     return false;
   }
   const hasAvatar = !!object;
-  await persistAvatarPresence(env, userId, hasAvatar);
+  await persistAvatarPresence(env, userId, hasAvatar, { avatarUpdatedAt: null });
   return hasAvatar;
 }

@@ -1,4 +1,11 @@
 import { json } from "../lib/response.js";
+import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationErrorResponse,
+  readCursorString,
+  resolvePaginationLimit,
+} from "../lib/pagination.js";
 import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
 import {
   buildPublicMemvidUrl,
@@ -7,12 +14,7 @@ import {
 
 const DEFAULT_MEMVIDS_LIMIT = 60;
 const MAX_MEMVIDS_LIMIT = 120;
-
-function toSafeLimit(value) {
-  const limit = Number(value);
-  if (!Number.isFinite(limit)) return DEFAULT_MEMVIDS_LIMIT;
-  return Math.min(Math.max(Math.floor(limit), 1), MAX_MEMVIDS_LIMIT);
-}
+const PUBLIC_MEMVIDS_CURSOR_TYPE = "public_memvids";
 
 function getPublicMemvidOwnerLabel(displayName) {
   const normalized = String(displayName || "")
@@ -76,33 +78,95 @@ const PUBLIC_MEMVID_SELECT = `SELECT created_at,
 
 async function handleListMemvids(ctx) {
   const { env, url } = ctx;
-  const limit = toSafeLimit(url.searchParams.get("limit"));
+  const appliedLimit = resolvePaginationLimit(url.searchParams.get("limit"), {
+    defaultValue: DEFAULT_MEMVIDS_LIMIT,
+    maxValue: MAX_MEMVIDS_LIMIT,
+  });
+
+  let cursor = null;
+  try {
+    cursor = await decodePaginationCursor(env, url.searchParams.get("cursor"), PUBLIC_MEMVIDS_CURSOR_TYPE);
+    if (cursor) {
+      cursor = {
+        o: readCursorString(cursor, "o"),
+        c: readCursorString(cursor, "c"),
+        i: readCursorString(cursor, "i"),
+      };
+    }
+  } catch {
+    return paginationErrorResponse("Invalid cursor.");
+  }
+
+  const cursorClause = cursor
+    ? `WHERE (
+         order_at < ?
+         OR (
+           order_at = ?
+           AND (
+             created_at < ?
+             OR (created_at = ? AND id < ?)
+           )
+         )
+       )`
+    : "";
+  const cursorBindings = cursor
+    ? [cursor.o, cursor.o, cursor.c, cursor.c, cursor.i]
+    : [];
+
   const rows = await env.DB.prepare(
-    `SELECT ai_text_assets.id,
-            ai_text_assets.title,
-            ai_text_assets.mime_type,
-            ai_text_assets.metadata_json,
-            ai_text_assets.created_at,
-            ai_text_assets.published_at,
-            ai_text_assets.r2_key,
-            ai_text_assets.poster_r2_key,
-            ai_text_assets.poster_width,
-            ai_text_assets.poster_height,
-            profiles.display_name AS owner_display_name
-     FROM ai_text_assets
-     LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id
-     WHERE ai_text_assets.visibility = 'public'
-       AND ai_text_assets.source_module = 'video'
-     ORDER BY COALESCE(ai_text_assets.published_at, ai_text_assets.created_at) DESC,
-              ai_text_assets.created_at DESC,
-              ai_text_assets.id DESC
+    `SELECT id,
+            title,
+            mime_type,
+            metadata_json,
+            created_at,
+            published_at,
+            order_at,
+            r2_key,
+            poster_r2_key,
+            poster_width,
+            poster_height,
+            owner_display_name
+     FROM (
+       SELECT ai_text_assets.id,
+              ai_text_assets.title,
+              ai_text_assets.mime_type,
+              ai_text_assets.metadata_json,
+              ai_text_assets.created_at,
+              ai_text_assets.published_at,
+              COALESCE(ai_text_assets.published_at, ai_text_assets.created_at) AS order_at,
+              ai_text_assets.r2_key,
+              ai_text_assets.poster_r2_key,
+              ai_text_assets.poster_width,
+              ai_text_assets.poster_height,
+              profiles.display_name AS owner_display_name
+       FROM ai_text_assets
+       LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id
+       WHERE ai_text_assets.visibility = 'public'
+         AND ai_text_assets.source_module = 'video'
+     ) AS memvids
+     ${cursorClause}
+     ORDER BY order_at DESC, created_at DESC, id DESC
      LIMIT ?`
-  ).bind(limit).all();
+  ).bind(...cursorBindings, appliedLimit + 1).all();
+
+  const resultRows = rows.results || [];
+  const hasMore = resultRows.length > appliedLimit;
+  const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
+  const last = items[items.length - 1];
 
   return json({
     ok: true,
     data: {
-      items: (rows.results || []).map((row) => toPublicMemvidRecord(row)),
+      items: items.map((row) => toPublicMemvidRecord(row)),
+      next_cursor: hasMore
+        ? await encodePaginationCursor(env, PUBLIC_MEMVIDS_CURSOR_TYPE, {
+            o: last.order_at,
+            c: last.created_at,
+            i: last.id,
+          })
+        : null,
+      has_more: hasMore,
+      applied_limit: appliedLimit,
     },
   });
 }

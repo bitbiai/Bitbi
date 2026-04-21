@@ -1,4 +1,11 @@
 import { json } from "../lib/response.js";
+import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationErrorResponse,
+  readCursorString,
+  resolvePaginationLimit,
+} from "../lib/pagination.js";
 import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
 import {
   buildPublicMempicUrl,
@@ -7,12 +14,7 @@ import {
 
 const DEFAULT_MEMPICS_LIMIT = 60;
 const MAX_MEMPICS_LIMIT = 120;
-
-function toSafeLimit(value) {
-  const limit = Number(value);
-  if (!Number.isFinite(limit)) return DEFAULT_MEMPICS_LIMIT;
-  return Math.min(Math.max(Math.floor(limit), 1), MAX_MEMPICS_LIMIT);
-}
+const PUBLIC_MEMPICS_CURSOR_TYPE = "public_mempics";
 
 function getPublicMempicTitle() {
   return "Mempics";
@@ -73,37 +75,101 @@ const PUBLIC_MEMPIC_SELECT = `SELECT created_at,
 
 async function handleListMempics(ctx) {
   const { env, url } = ctx;
-  const limit = toSafeLimit(url.searchParams.get("limit"));
+  const appliedLimit = resolvePaginationLimit(url.searchParams.get("limit"), {
+    defaultValue: DEFAULT_MEMPICS_LIMIT,
+    maxValue: MAX_MEMPICS_LIMIT,
+  });
+
+  let cursor = null;
+  try {
+    cursor = await decodePaginationCursor(env, url.searchParams.get("cursor"), PUBLIC_MEMPICS_CURSOR_TYPE);
+    if (cursor) {
+      cursor = {
+        o: readCursorString(cursor, "o"),
+        c: readCursorString(cursor, "c"),
+        i: readCursorString(cursor, "i"),
+      };
+    }
+  } catch {
+    return paginationErrorResponse("Invalid cursor.");
+  }
+
+  const cursorClause = cursor
+    ? `WHERE (
+         order_at < ?
+         OR (
+           order_at = ?
+           AND (
+             created_at < ?
+             OR (created_at = ? AND id < ?)
+           )
+         )
+       )`
+    : "";
+  const cursorBindings = cursor
+    ? [cursor.o, cursor.o, cursor.c, cursor.c, cursor.i]
+    : [];
+
   const rows = await env.DB.prepare(
-    `SELECT ai_images.id,
-            ai_images.created_at,
-            ai_images.published_at,
-            ai_images.r2_key,
-            ai_images.thumb_key,
-            ai_images.medium_key,
-            ai_images.thumb_width,
-            ai_images.thumb_height,
-            ai_images.medium_width,
-            ai_images.medium_height,
-            ai_images.derivatives_version,
-            ai_images.derivatives_ready_at,
-            profiles.display_name AS owner_display_name
-     FROM ai_images
-     LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
-     WHERE ai_images.visibility = 'public'
-       AND ai_images.derivatives_status = 'ready'
-       AND ai_images.thumb_key IS NOT NULL
-       AND ai_images.medium_key IS NOT NULL
-     ORDER BY COALESCE(ai_images.published_at, ai_images.created_at) DESC,
-              ai_images.created_at DESC,
-              ai_images.id DESC
+    `SELECT id,
+            created_at,
+            published_at,
+            order_at,
+            r2_key,
+            thumb_key,
+            medium_key,
+            thumb_width,
+            thumb_height,
+            medium_width,
+            medium_height,
+            derivatives_version,
+            derivatives_ready_at,
+            owner_display_name
+     FROM (
+       SELECT ai_images.id,
+              ai_images.created_at,
+              ai_images.published_at,
+              COALESCE(ai_images.published_at, ai_images.created_at) AS order_at,
+              ai_images.r2_key,
+              ai_images.thumb_key,
+              ai_images.medium_key,
+              ai_images.thumb_width,
+              ai_images.thumb_height,
+              ai_images.medium_width,
+              ai_images.medium_height,
+              ai_images.derivatives_version,
+              ai_images.derivatives_ready_at,
+              profiles.display_name AS owner_display_name
+       FROM ai_images
+       LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
+       WHERE ai_images.visibility = 'public'
+         AND ai_images.derivatives_status = 'ready'
+         AND ai_images.thumb_key IS NOT NULL
+         AND ai_images.medium_key IS NOT NULL
+     ) AS mempics
+     ${cursorClause}
+     ORDER BY order_at DESC, created_at DESC, id DESC
      LIMIT ?`
-  ).bind(limit).all();
+  ).bind(...cursorBindings, appliedLimit + 1).all();
+
+  const resultRows = rows.results || [];
+  const hasMore = resultRows.length > appliedLimit;
+  const items = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
+  const last = items[items.length - 1];
 
   return json({
     ok: true,
     data: {
-      items: (rows.results || []).map((row) => toPublicMempicRecord(row)),
+      items: items.map((row) => toPublicMempicRecord(row)),
+      next_cursor: hasMore
+        ? await encodePaginationCursor(env, PUBLIC_MEMPICS_CURSOR_TYPE, {
+            o: last.order_at,
+            c: last.created_at,
+            i: last.id,
+          })
+        : null,
+      has_more: hasMore,
+      applied_limit: appliedLimit,
     },
   });
 }

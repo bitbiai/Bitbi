@@ -18,9 +18,25 @@ let focusTrapCleanup = null;
 export function initGallery() {
     const grid = document.getElementById('galleryGrid');
     const modal = document.getElementById('galleryModal');
+    const $pagination = document.getElementById('galleryPagination');
     if (!grid || !modal) return;
     let renderSeq = 0;
     let mempicsPromise = null;
+    const mempicsState = {
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+        loaded: false,
+        loadingMore: false,
+    };
+
+    const $paginationStatus = document.createElement('div');
+    $paginationStatus.className = 'browse-pagination__status';
+    const $loadMore = document.createElement('button');
+    $loadMore.type = 'button';
+    $loadMore.className = 'browse-pagination__btn';
+    $loadMore.textContent = 'Load More';
+    $pagination?.append($paginationStatus, $loadMore);
 
     function renderGalleryState(message) {
         const empty = document.createElement('div');
@@ -29,19 +45,52 @@ export function initGallery() {
         grid.appendChild(empty);
     }
 
-    async function fetchMempics() {
+    function updateMempicsPagination(filter, errorMessage = '') {
+        if (!$pagination) return;
+        if (filter !== MEMPICS_CATEGORY) {
+            $pagination.style.display = 'none';
+            return;
+        }
+        if (errorMessage) {
+            $pagination.style.display = '';
+            $paginationStatus.textContent = errorMessage;
+            $loadMore.style.display = 'none';
+            $loadMore.disabled = false;
+            return;
+        }
+        if (!mempicsState.items.length) {
+            $pagination.style.display = 'none';
+            return;
+        }
+        $pagination.style.display = '';
+        $paginationStatus.textContent = mempicsState.hasMore
+            ? `Showing ${mempicsState.items.length} Mempics.`
+            : `Showing all ${mempicsState.items.length} Mempics.`;
+        $loadMore.style.display = mempicsState.hasMore ? '' : 'none';
+        $loadMore.disabled = mempicsState.loadingMore;
+        $loadMore.textContent = mempicsState.loadingMore ? 'Loading...' : 'Load More';
+    }
+
+    async function fetchMempics(cursor = null) {
         if (mempicsPromise) return mempicsPromise;
         mempicsPromise = (async () => {
             try {
-                const res = await fetch(`/api/gallery/mempics?limit=${MEMPICS_LIMIT}`, {
+                const params = new URLSearchParams();
+                params.set('limit', String(MEMPICS_LIMIT));
+                if (cursor) params.set('cursor', cursor);
+                const res = await fetch(`/api/gallery/mempics?${params}`, {
                     credentials: 'same-origin',
                 });
                 const data = await res.json().catch(() => null);
                 if (!res.ok) {
                     throw new Error(data?.error || `Error ${res.status}`);
                 }
-                const items = Array.isArray(data?.data?.items) ? data.data.items : [];
-                return items.map((item) => ({ ...item, favoriteType: 'mempics' }));
+                return {
+                    items: (Array.isArray(data?.data?.items) ? data.data.items : [])
+                        .map((item) => ({ ...item, favoriteType: 'mempics' })),
+                    nextCursor: typeof data?.data?.next_cursor === 'string' ? data.data.next_cursor : null,
+                    hasMore: data?.data?.has_more === true,
+                };
             } catch (error) {
                 console.warn('mempics:', error);
                 throw error;
@@ -50,6 +99,35 @@ export function initGallery() {
             }
         })();
         return mempicsPromise;
+    }
+
+    async function ensureMempicsLoaded() {
+        if (mempicsState.loaded) return;
+        const page = await fetchMempics();
+        mempicsState.items = page.items;
+        mempicsState.nextCursor = page.nextCursor;
+        mempicsState.hasMore = page.hasMore;
+        mempicsState.loaded = true;
+    }
+
+    async function loadMoreMempics() {
+        if (!mempicsState.hasMore || mempicsState.loadingMore) return;
+        mempicsState.loadingMore = true;
+        updateMempicsPagination(MEMPICS_CATEGORY);
+        let errorMessage = '';
+        try {
+            const page = await fetchMempics(mempicsState.nextCursor);
+            mempicsState.items = mempicsState.items.concat(page.items);
+            mempicsState.nextCursor = page.nextCursor;
+            mempicsState.hasMore = page.hasMore;
+            render(MEMPICS_CATEGORY);
+        } catch (error) {
+            errorMessage = 'Could not load more Mempics right now.';
+            console.warn('mempics load more:', error);
+        } finally {
+            mempicsState.loadingMore = false;
+            updateMempicsPagination(MEMPICS_CATEGORY, errorMessage);
+        }
     }
 
     function buildGalleryCard(item) {
@@ -125,6 +203,7 @@ export function initGallery() {
 
     async function render(filter) {
         const seq = ++renderSeq;
+        updateMempicsPagination(filter);
         /* Preserve exclusive cards injected by locked-sections.js */
         const exclusiveCards = Array.from(grid.querySelectorAll('.locked-area.gallery-item'));
         exclusiveCards.forEach(card => card.remove());
@@ -137,6 +216,7 @@ export function initGallery() {
                 card.style.display = '';
                 grid.appendChild(card);
             });
+            updateMempicsPagination(filter);
             return;
         }
 
@@ -150,11 +230,13 @@ export function initGallery() {
         if (filter === MEMPICS_CATEGORY) {
             renderGalleryState('Loading Mempics…');
             try {
-                list = await fetchMempics();
+                await ensureMempicsLoaded();
+                list = mempicsState.items.slice();
             } catch {
                 if (seq !== renderSeq) return;
                 Array.from(grid.querySelectorAll('.gallery-empty-state')).forEach((node) => node.remove());
                 renderGalleryState('Could not load Mempics right now.');
+                updateMempicsPagination(filter, 'Could not load Mempics right now.');
                 return;
             }
             if (seq !== renderSeq) return;
@@ -165,15 +247,20 @@ export function initGallery() {
 
         if (!list.length) {
             renderGalleryState(filter === MEMPICS_CATEGORY ? 'No Mempics published yet.' : 'Nothing to show here yet.');
+            updateMempicsPagination(filter);
             return;
         }
 
         list.forEach((item) => {
             grid.appendChild(buildGalleryCard(item));
         });
+        updateMempicsPagination(filter);
     }
 
     render('mempics');
+    $loadMore?.addEventListener('click', () => {
+        loadMoreMempics();
+    });
 
     /* Listen for exclusive filter from locked-sections.js */
     grid.addEventListener('gallery:filter', (e) => {

@@ -66,6 +66,7 @@ async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   const folders = cloneJson(folderPayload.folders || []);
   const assetMap = new Map();
+  const PAGE_LIMIT = 60;
   const seedAssets = []
     .concat(assetsPayload.all || [])
     .concat(assetsPayload.unfoldered || [])
@@ -84,7 +85,11 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
     }
     return assets
       .slice()
-      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      .sort((a, b) => (
+        String(b.created_at || '').localeCompare(String(a.created_at || ''))
+        || String(b.asset_type || '').localeCompare(String(a.asset_type || ''))
+        || String(b.id || '').localeCompare(String(a.id || ''))
+      ));
   }
 
   function counts() {
@@ -113,6 +118,44 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
       const folderId = url.searchParams.get('folder_id') || null;
       const onlyUnfoldered = url.searchParams.get('only_unfoldered') === '1';
       return listAssets({ folderId, onlyUnfoldered });
+    },
+    page(url) {
+      const folderId = url.searchParams.get('folder_id') || null;
+      const onlyUnfoldered = url.searchParams.get('only_unfoldered') === '1';
+      const cursor = url.searchParams.get('cursor') || null;
+      const all = listAssets({ folderId, onlyUnfoldered });
+      let filtered = all;
+
+      if (cursor) {
+        const [createdAt, assetType, id] = cursor.split('|');
+        filtered = all.filter((asset) => (
+          String(asset.created_at || '') < createdAt
+          || (
+            String(asset.created_at || '') === createdAt
+            && (
+              String(asset.asset_type || '') < assetType
+              || (
+                String(asset.asset_type || '') === assetType
+                && String(asset.id || '') < id
+              )
+            )
+          )
+        ));
+      }
+
+      const slice = filtered.slice(0, PAGE_LIMIT + 1);
+      const hasMore = slice.length > PAGE_LIMIT;
+      const items = hasMore ? slice.slice(0, PAGE_LIMIT) : slice;
+      const last = items[items.length - 1];
+
+      return {
+        assets: cloneJson(items),
+        has_more: hasMore,
+        next_cursor: hasMore && last
+          ? `${last.created_at}|${last.asset_type || ''}|${last.id}`
+          : null,
+        applied_limit: PAGE_LIMIT,
+      };
     },
     getAsset(id) {
       const asset = assetMap.get(id);
@@ -920,7 +963,7 @@ async function mockAdminAiLab(page, captures = {}) {
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        data: { assets: assetStore.list(url) },
+        data: assetStore.page(url),
       }),
     });
   });
@@ -1243,7 +1286,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
-        data: { assets: assetStore.list(url) },
+        data: assetStore.page(url),
       }),
     });
   });
@@ -1773,6 +1816,122 @@ test.describe('Account pages (unauthenticated)', () => {
   });
 });
 
+test.describe('Admin users pagination', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('admin users table loads more results with the current cursor', async ({ page }) => {
+    await page.route('**/api/admin/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          user: {
+            id: 'admin-1',
+            email: 'admin@bitbi.ai',
+            role: 'admin',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/users**', async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      const payload = cursor === 'users-page-2'
+        ? {
+            ok: true,
+            users: [
+              {
+                id: 'user-3',
+                email: 'user-3@example.com',
+                role: 'user',
+                status: 'active',
+                created_at: '2026-04-10T10:00:00.000Z',
+                updated_at: '2026-04-10T10:00:00.000Z',
+                email_verified_at: '2026-04-10T10:00:00.000Z',
+                verification_method: 'email_verified',
+              },
+            ],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 50,
+          }
+        : {
+            ok: true,
+            users: [
+              {
+                id: 'user-1',
+                email: 'user-1@example.com',
+                role: 'user',
+                status: 'active',
+                created_at: '2026-04-12T10:00:00.000Z',
+                updated_at: '2026-04-12T10:00:00.000Z',
+                email_verified_at: '2026-04-12T10:00:00.000Z',
+                verification_method: 'email_verified',
+              },
+              {
+                id: 'user-2',
+                email: 'user-2@example.com',
+                role: 'user',
+                status: 'active',
+                created_at: '2026-04-11T10:00:00.000Z',
+                updated_at: '2026-04-11T10:00:00.000Z',
+                email_verified_at: '2026-04-11T10:00:00.000Z',
+                verification_method: 'email_verified',
+              },
+            ],
+            next_cursor: 'users-page-2',
+            has_more: true,
+            applied_limit: 50,
+          };
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(payload),
+      });
+    });
+
+    await page.route('**/api/admin/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          stats: {
+            totalUsers: 3,
+            activeUsers: 3,
+            admins: 1,
+            verifiedUsers: 3,
+            disabledUsers: 0,
+            recentRegistrations: 3,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/avatars/latest', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, avatars: [] }),
+      });
+    });
+
+    const response = await page.goto('/admin/index.html#users');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#userTbody tr')).toHaveCount(2);
+    await expect(page.locator('#userPagination')).toContainText('Showing 2 users.');
+    await page.locator('#userLoadMoreBtn').click();
+    await expect(page.locator('#userTbody tr')).toHaveCount(3);
+    await expect(page.locator('#userPagination')).toContainText('Showing all 3 users.');
+    await expect(page.locator('#userLoadMoreBtn')).toBeHidden();
+  });
+});
+
 test.describe('Global header auth identity', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
@@ -1862,6 +2021,149 @@ test.describe('Global header auth identity', () => {
     await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe('Homepage public browse pagination', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('homepage exposes load more for public Mempics and Memvids', async ({ page }) => {
+    const mempicsPages = {
+      first: {
+        ok: true,
+        data: {
+          items: [
+            {
+              id: 'mempic-1',
+              title: 'Mempics',
+              caption: 'Published by Ada on 2026-04-12.',
+              category: 'mempics',
+              thumb: { url: '/api/gallery/mempics/mempic-1/thumb', w: 320, h: 320 },
+              preview: { url: '/api/gallery/mempics/mempic-1/medium', w: 1280, h: 1280 },
+              full: { url: '/api/gallery/mempics/mempic-1/file' },
+            },
+            {
+              id: 'mempic-2',
+              title: 'Mempics',
+              caption: 'Published by Ada on 2026-04-11.',
+              category: 'mempics',
+              thumb: { url: '/api/gallery/mempics/mempic-2/thumb', w: 320, h: 320 },
+              preview: { url: '/api/gallery/mempics/mempic-2/medium', w: 1280, h: 1280 },
+              full: { url: '/api/gallery/mempics/mempic-2/file' },
+            },
+          ],
+          next_cursor: 'mempics-page-2',
+          has_more: true,
+          applied_limit: 60,
+        },
+      },
+      second: {
+        ok: true,
+        data: {
+          items: [
+            {
+              id: 'mempic-3',
+              title: 'Mempics',
+              caption: 'Published by Ada on 2026-04-10.',
+              category: 'mempics',
+              thumb: { url: '/api/gallery/mempics/mempic-3/thumb', w: 320, h: 320 },
+              preview: { url: '/api/gallery/mempics/mempic-3/medium', w: 1280, h: 1280 },
+              full: { url: '/api/gallery/mempics/mempic-3/file' },
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+          applied_limit: 60,
+        },
+      },
+    };
+
+    const memvidPages = {
+      first: {
+        ok: true,
+        data: {
+          items: [
+            {
+              id: 'memvid-1',
+              title: 'Memvid One',
+              caption: 'Published by Ada on 2026-04-12.',
+              file: { url: '/api/gallery/memvids/memvid-1/file' },
+              poster: { url: '/api/gallery/memvids/memvid-1/poster', w: 1280, h: 720 },
+            },
+            {
+              id: 'memvid-2',
+              title: 'Memvid Two',
+              caption: 'Published by Ada on 2026-04-11.',
+              file: { url: '/api/gallery/memvids/memvid-2/file' },
+              poster: { url: '/api/gallery/memvids/memvid-2/poster', w: 1280, h: 720 },
+            },
+          ],
+          next_cursor: 'memvids-page-2',
+          has_more: true,
+          applied_limit: 60,
+        },
+      },
+      second: {
+        ok: true,
+        data: {
+          items: [
+            {
+              id: 'memvid-3',
+              title: 'Memvid Three',
+              caption: 'Published by Ada on 2026-04-10.',
+              file: { url: '/api/gallery/memvids/memvid-3/file' },
+              poster: { url: '/api/gallery/memvids/memvid-3/poster', w: 1280, h: 720 },
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+          applied_limit: 60,
+        },
+      },
+    };
+
+    await page.route('**/api/gallery/mempics**', async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      const body = cursor === 'mempics-page-2' ? mempicsPages.second : mempicsPages.first;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids**', async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      const body = cursor === 'memvids-page-2' ? memvidPages.second : memvidPages.first;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await expect(page.locator('#galleryGrid .gallery-item:visible')).toHaveCount(2);
+    await expect(page.locator('#galleryPagination')).toContainText('Showing 2 Mempics.');
+    await page.locator('#galleryPagination .browse-pagination__btn').click();
+    await expect(page.locator('#galleryGrid .gallery-item:visible')).toHaveCount(3);
+    await expect(page.locator('#galleryPagination')).toContainText('Showing all 3 Mempics.');
+    await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'video');
+    await expect(page.locator('#videoGrid .video-card')).toHaveCount(2);
+    await expect(page.locator('#videoPagination')).toContainText('Showing 2 Memvids.');
+    await page.locator('#videoPagination .browse-pagination__btn').click();
+    await expect(page.locator('#videoGrid .video-card')).toHaveCount(3);
+    await expect(page.locator('#videoPagination')).toContainText('Showing all 3 Memvids.');
+    await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
   });
 });
 
@@ -2164,6 +2466,46 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
     await expect(page.locator('#studioImageModal .studio-modal__video')).toHaveAttribute('src', /\/api\/ai\/text-assets\/vid-1\/file$/);
     await page.locator('#studioImageModal .modal-close').click();
+  });
+
+  test('account Image Studio exposes load more for saved assets and appends the next page', async ({
+    page,
+  }) => {
+    const manyAssets = Array.from({ length: 61 }, (_, index) => ({
+      id: `img-page-${index + 1}`,
+      asset_type: 'image',
+      folder_id: null,
+      title: `Paged Asset ${index + 1}`,
+      prompt: `Paged Asset ${index + 1}`,
+      preview_text: `Paged Asset ${index + 1}`,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+      seed: index + 1,
+      created_at: new Date(Date.UTC(2026, 3, 30, 12, 0, 0) - (index * 60_000)).toISOString(),
+      file_url: `/api/ai/images/img-page-${index + 1}/file`,
+      original_url: `/api/ai/images/img-page-${index + 1}/file`,
+      thumb_url: `/api/ai/images/img-page-${index + 1}/thumb`,
+      medium_url: `/api/ai/images/img-page-${index + 1}/medium`,
+    }));
+
+    await mockAuthenticatedImageStudio(page, [], {
+      assetsPayload: {
+        all: manyAssets,
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(60);
+    await expect(page.locator('.studio__pagination')).toContainText('Showing 60 saved assets.');
+    await expect(page.locator('.studio__pagination-btn')).toBeVisible();
+
+    await page.locator('.studio__pagination-btn').click();
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(61);
+    await expect(page.locator('.studio__pagination')).toContainText('Showing all 61 saved assets.');
+    await expect(page.locator('.studio__pagination-btn')).toBeHidden();
   });
 
   test('account Image Studio keeps saved-assets type badges compact on desktop and mobile', async ({

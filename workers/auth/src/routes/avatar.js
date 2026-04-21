@@ -7,6 +7,7 @@ import { readJsonBody } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import { logUserActivity } from "../lib/activity.js";
+import { nowIso } from "../lib/tokens.js";
 import {
   AI_IMAGE_DERIVATIVE_ON_DEMAND_COOLDOWN_MS,
   AI_IMAGE_DERIVATIVE_VERSION,
@@ -205,7 +206,11 @@ async function handleSavedAssetAvatarSelection(ctx, session, imageId, ip, correl
   await env.PRIVATE_MEDIA.put(avatarKey(session.user.id), resolved.body, {
     httpMetadata: { contentType: resolved.mimeType || "image/webp" },
   });
-  await persistAvatarPresence(env, session.user.id, true);
+  const avatarUpdatedAt = nowIso();
+  await persistAvatarPresence(env, session.user.id, true, {
+    updatedAt: avatarUpdatedAt,
+    avatarUpdatedAt,
+  });
   logDiagnostic({
     service: "bitbi-auth",
     component: "avatar",
@@ -326,7 +331,11 @@ export async function handleUploadAvatar(ctx) {
   await env.PRIVATE_MEDIA.put(avatarKey(session.user.id), buffer, {
     httpMetadata: { contentType: file.type },
   });
-  await persistAvatarPresence(env, session.user.id, true);
+  const avatarUpdatedAt = nowIso();
+  await persistAvatarPresence(env, session.user.id, true, {
+    updatedAt: avatarUpdatedAt,
+    avatarUpdatedAt,
+  });
   logDiagnostic({
     service: "bitbi-auth",
     component: "avatar",
@@ -354,7 +363,10 @@ export async function handleDeleteAvatar(ctx) {
   if (session instanceof Response) return session;
 
   await env.PRIVATE_MEDIA.delete(avatarKey(session.user.id));
-  await persistAvatarPresence(env, session.user.id, false);
+  await persistAvatarPresence(env, session.user.id, false, {
+    updatedAt: nowIso(),
+    avatarUpdatedAt: null,
+  });
   logDiagnostic({
     service: "bitbi-auth",
     component: "avatar",

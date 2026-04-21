@@ -13,9 +13,17 @@ let focusTrapCleanup = null;
 
 export function initVideoGallery() {
     const container = document.getElementById('videoExplore');
+    const $pagination = document.getElementById('videoPagination');
     if (!container) return;
 
     let memvidsPromise = null;
+    const memvidsState = {
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+        loaded: false,
+        loadingMore: false,
+    };
 
     /* Replace the teaser placeholder with a live grid */
     container.innerHTML = '';
@@ -33,6 +41,14 @@ export function initVideoGallery() {
         dotClass: 'vid-deck-dot',
     });
 
+    const $paginationStatus = document.createElement('div');
+    $paginationStatus.className = 'browse-pagination__status';
+    const $loadMore = document.createElement('button');
+    $loadMore.type = 'button';
+    $loadMore.className = 'browse-pagination__btn';
+    $loadMore.textContent = 'Load More';
+    $pagination?.append($paginationStatus, $loadMore);
+
     /* ── Modal ── */
     const modal = buildVideoModal();
     document.body.appendChild(modal.root);
@@ -44,18 +60,47 @@ export function initVideoGallery() {
         grid.appendChild(el);
     }
 
-    async function fetchMemvids() {
+    function updateMemvidsPagination(errorMessage = '') {
+        if (!$pagination) return;
+        if (errorMessage) {
+            $pagination.style.display = '';
+            $paginationStatus.textContent = errorMessage;
+            $loadMore.style.display = 'none';
+            $loadMore.disabled = false;
+            return;
+        }
+        if (!memvidsState.items.length) {
+            $pagination.style.display = 'none';
+            return;
+        }
+        $pagination.style.display = '';
+        $paginationStatus.textContent = memvidsState.hasMore
+            ? `Showing ${memvidsState.items.length} Memvids.`
+            : `Showing all ${memvidsState.items.length} Memvids.`;
+        $loadMore.style.display = memvidsState.hasMore ? '' : 'none';
+        $loadMore.disabled = memvidsState.loadingMore;
+        $loadMore.textContent = memvidsState.loadingMore ? 'Loading...' : 'Load More';
+    }
+
+    async function fetchMemvids(cursor = null) {
         if (memvidsPromise) return memvidsPromise;
         memvidsPromise = (async () => {
             try {
-                const res = await fetch(`/api/gallery/memvids?limit=${MEMVIDS_LIMIT}`, {
+                const params = new URLSearchParams();
+                params.set('limit', String(MEMVIDS_LIMIT));
+                if (cursor) params.set('cursor', cursor);
+                const res = await fetch(`/api/gallery/memvids?${params}`, {
                     credentials: 'same-origin',
                 });
                 const data = await res.json().catch(() => null);
                 if (!res.ok) {
                     throw new Error(data?.error || `Error ${res.status}`);
                 }
-                return Array.isArray(data?.data?.items) ? data.data.items : [];
+                return {
+                    items: Array.isArray(data?.data?.items) ? data.data.items : [],
+                    nextCursor: typeof data?.data?.next_cursor === 'string' ? data.data.next_cursor : null,
+                    hasMore: data?.data?.has_more === true,
+                };
             } catch (error) {
                 console.warn('memvids:', error);
                 throw error;
@@ -64,6 +109,15 @@ export function initVideoGallery() {
             }
         })();
         return memvidsPromise;
+    }
+
+    async function ensureMemvidsLoaded() {
+        if (memvidsState.loaded) return;
+        const page = await fetchMemvids();
+        memvidsState.items = page.items;
+        memvidsState.nextCursor = page.nextCursor;
+        memvidsState.hasMore = page.hasMore;
+        memvidsState.loaded = true;
     }
 
     function buildVideoCard(item) {
@@ -138,13 +192,16 @@ export function initVideoGallery() {
     async function render() {
         grid.innerHTML = '';
         renderState('Loading Memvids\u2026');
+        updateMemvidsPagination();
 
         let items;
         try {
-            items = await fetchMemvids();
+            await ensureMemvidsLoaded();
+            items = memvidsState.items.slice();
         } catch {
             grid.innerHTML = '';
             renderState('Could not load Memvids right now.');
+            updateMemvidsPagination('Could not load Memvids right now.');
             return;
         }
 
@@ -152,12 +209,34 @@ export function initVideoGallery() {
 
         if (!items.length) {
             renderState('No Memvids published yet.');
+            updateMemvidsPagination();
             return;
         }
 
         items.forEach((item) => {
             grid.appendChild(buildVideoCard(item));
         });
+        updateMemvidsPagination();
+    }
+
+    async function loadMoreMemvids() {
+        if (!memvidsState.hasMore || memvidsState.loadingMore) return;
+        memvidsState.loadingMore = true;
+        updateMemvidsPagination();
+        let errorMessage = '';
+        try {
+            const page = await fetchMemvids(memvidsState.nextCursor);
+            memvidsState.items = memvidsState.items.concat(page.items);
+            memvidsState.nextCursor = page.nextCursor;
+            memvidsState.hasMore = page.hasMore;
+            render();
+        } catch (error) {
+            errorMessage = 'Could not load more Memvids right now.';
+            console.warn('memvids load more:', error);
+        } finally {
+            memvidsState.loadingMore = false;
+            updateMemvidsPagination(errorMessage);
+        }
     }
 
     /* ── Video Modal ── */
@@ -267,6 +346,10 @@ export function initVideoGallery() {
     window.addEventListener('pagehide', () => {
         deck.destroy();
     }, { once: true });
+
+    $loadMore?.addEventListener('click', () => {
+        loadMoreMemvids();
+    });
 
     render();
 }

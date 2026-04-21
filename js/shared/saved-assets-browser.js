@@ -26,6 +26,7 @@ const MAX_BULK_SELECT = 50;
 const MAX_FOLDER_NAME_LENGTH = 100;
 const MAX_IMAGE_NAME_LENGTH = 1000;
 const MAX_FILE_ASSET_NAME_LENGTH = 120;
+const SAVED_ASSET_PAGE_LIMIT = 60;
 const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -341,6 +342,24 @@ export function createSavedAssetsBrowser({
     let assetLoadSeq = 0;
     let activeSoundAudio = null;
     let activeSoundIndicator = null;
+    let assetNextCursor = null;
+    let assetHasMore = false;
+    let assetLoadingMore = false;
+
+    const $assetPagination = document.createElement('div');
+    $assetPagination.className = 'studio__pagination';
+    $assetPagination.style.display = 'none';
+
+    const $assetPaginationStatus = document.createElement('div');
+    $assetPaginationStatus.className = 'studio__pagination-status';
+
+    const $assetLoadMore = document.createElement('button');
+    $assetLoadMore.type = 'button';
+    $assetLoadMore.className = 'studio__pagination-btn';
+    $assetLoadMore.textContent = 'Load More';
+
+    $assetPagination.append($assetPaginationStatus, $assetLoadMore);
+    $assetGrid.insertAdjacentElement('afterend', $assetPagination);
 
     function showMsg(text, type) {
         if (!$galleryMsg) return;
@@ -444,12 +463,36 @@ export function createSavedAssetsBrowser({
 
     function renderEmptyState(message = emptyStateMessage) {
         currentAssets = [];
+        assetNextCursor = null;
+        assetHasMore = false;
+        assetLoadingMore = false;
         clearActiveSoundIndicator();
         $assetGrid.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
         empty.textContent = message;
         $assetGrid.appendChild(empty);
+        updateAssetPaginationUi();
+    }
+
+    function updateAssetPaginationUi() {
+        const shouldShow = !folderViewActive && (currentAssets.length > 0 || assetLoadingMore || assetHasMore);
+        $assetPagination.style.display = shouldShow ? '' : 'none';
+        if (!shouldShow) return;
+
+        if (assetLoadingMore) {
+            $assetPaginationStatus.textContent = 'Loading more assets...';
+        } else if (assetHasMore) {
+            $assetPaginationStatus.textContent = `Showing ${currentAssets.length} saved assets.`;
+        } else {
+            $assetPaginationStatus.textContent = currentAssets.length
+                ? `Showing all ${currentAssets.length} saved assets.`
+                : '';
+        }
+
+        $assetLoadMore.style.display = assetHasMore ? '' : 'none';
+        $assetLoadMore.disabled = assetLoadingMore;
+        $assetLoadMore.textContent = assetLoadingMore ? 'Loading…' : 'Load More';
     }
 
     function appendSelectionCheck(item) {
@@ -591,12 +634,14 @@ export function createSavedAssetsBrowser({
         hideDeleteFolderForm();
         hideRenameForm();
         folderViewActive = true;
+        assetLoadingMore = false;
         $galleryFilter.value = '';
         $folderGrid.style.display = '';
         $assetGrid.style.display = 'none';
         folderDeck?.setVisible(true);
         assetDeck?.setVisible(false);
         $folderBack?.classList.remove('visible');
+        updateAssetPaginationUi();
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);
         $folderGrid.innerHTML = '';
@@ -929,7 +974,7 @@ export function createSavedAssetsBrowser({
         return item;
     }
 
-    async function loadGallery() {
+    async function loadGallery({ append = false } = {}) {
         if (selectMode) exitSelectMode();
         const requestId = ++assetLoadSeq;
         const filterValue = $galleryFilter.value;
@@ -938,19 +983,38 @@ export function createSavedAssetsBrowser({
         const folderId = (!isAllAssets && !isUnfoldered && filterValue) ? filterValue : null;
 
         $assetGrid.style.display = '';
-        clearActiveSoundIndicator();
-        $assetGrid.innerHTML = '';
-        const loading = document.createElement('div');
-        loading.className = 'studio__gallery-empty';
-        loading.textContent = 'Loading…';
-        $assetGrid.appendChild(loading);
+        if (!append) {
+            assetLoadingMore = false;
+            assetNextCursor = null;
+            assetHasMore = false;
+            clearActiveSoundIndicator();
+            $assetGrid.innerHTML = '';
+            const loading = document.createElement('div');
+            loading.className = 'studio__gallery-empty';
+            loading.textContent = 'Loading…';
+            $assetGrid.appendChild(loading);
+            updateAssetPaginationUi();
+        } else {
+            assetLoadingMore = true;
+            updateAssetPaginationUi();
+        }
 
-        let assets;
+        let page;
         try {
-            assets = await apiAiGetAssets(folderId, { onlyUnfoldered: isUnfoldered });
+            page = await apiAiGetAssets(folderId, {
+                onlyUnfoldered: isUnfoldered,
+                limit: SAVED_ASSET_PAGE_LIMIT,
+                cursor: append ? assetNextCursor : null,
+            });
         } catch (error) {
             console.warn('Failed to load gallery:', error);
             if (requestId !== assetLoadSeq) return;
+            assetLoadingMore = false;
+            if (append) {
+                updateAssetPaginationUi();
+                showMsg('Could not load more saved assets.', 'error');
+                return;
+            }
             currentAssets = [];
             renderEmptyState();
             showMsg('Could not load saved assets.', 'error');
@@ -960,7 +1024,14 @@ export function createSavedAssetsBrowser({
         if (requestId !== assetLoadSeq) return;
         hideMsg();
 
-        currentAssets = Array.isArray(assets) ? assets.slice() : [];
+        const assets = Array.isArray(page?.assets) ? page.assets : [];
+        assetNextCursor = page?.nextCursor || null;
+        assetHasMore = page?.hasMore === true;
+        assetLoadingMore = false;
+
+        currentAssets = append
+            ? currentAssets.concat(assets)
+            : assets.slice();
         if (currentAssets.length === 0) {
             renderEmptyState(emptyStateMessage);
             return;
@@ -971,6 +1042,7 @@ export function createSavedAssetsBrowser({
             $assetGrid.appendChild(isImageAsset(asset) ? buildImageCard(asset) : buildFileCard(asset));
         });
         assetDeck?.refresh();
+        updateAssetPaginationUi();
     }
 
     function openFolder(folderId) {
@@ -984,6 +1056,7 @@ export function createSavedAssetsBrowser({
         $folderBack?.classList.add('visible');
         $galleryFilter.value = folderId;
         loadGallery();
+        updateAssetPaginationUi();
     }
 
     function openAllAssets() {
@@ -997,6 +1070,7 @@ export function createSavedAssetsBrowser({
         $folderBack?.classList.add('visible');
         $galleryFilter.value = ALL_ASSETS;
         loadGallery();
+        updateAssetPaginationUi();
     }
 
     function exitSelectMode() {
@@ -1395,6 +1469,10 @@ export function createSavedAssetsBrowser({
         $bulkMoveConfirm?.addEventListener('click', handleBulkMoveConfirm);
         $bulkMoveCancel?.addEventListener('click', () => {
             $bulkMoveForm?.classList.remove('visible');
+        });
+        $assetLoadMore.addEventListener('click', () => {
+            if (!assetHasMore || assetLoadingMore) return;
+            loadGallery({ append: true });
         });
 
         $assetGrid.addEventListener('click', (event) => {

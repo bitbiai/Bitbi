@@ -95,12 +95,12 @@ function expectHasKeys(value, requiredKeys) {
   }
 }
 
-function createContractUser({ id = 'admin-ai-user', role = 'admin' } = {}) {
+function createContractUser({ id = 'admin-ai-user', role = 'admin', email, created_at } = {}) {
   return {
     id,
-    email: `${id}@example.com`,
+    email: email || `${id}@example.com`,
     password_hash: 'unused',
-    created_at: nowIso(),
+    created_at: created_at || nowIso(),
     status: 'active',
     role,
     email_verified_at: nowIso(),
@@ -1146,10 +1146,12 @@ test.describe('Worker routes', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expectExactKeys(body, ['ok', 'users']);
+      expectExactKeys(body, ['ok', 'users', 'next_cursor', 'has_more', 'applied_limit']);
       expect(body.ok).toBe(true);
       expect(Array.isArray(body.users)).toBe(true);
       expect(body.users.length).toBeGreaterThanOrEqual(2);
+      expect(typeof body.has_more).toBe('boolean');
+      expect(typeof body.applied_limit).toBe('number');
       const first = body.users[0];
       expectExactKeys(first, [
         'id',
@@ -1164,6 +1166,206 @@ test.describe('Worker routes', () => {
       expect(typeof first.id).toBe('string');
       expect(typeof first.email).toBe('string');
       expect(['admin', 'user']).toContain(first.role);
+    });
+
+    test('GET /api/admin/users paginates stably for admin search results', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('page-admin');
+      const env = createAuthTestEnv({
+        users: [
+          admin,
+          createContractUser({ id: 'user-1', role: 'user', email: 'match-1@example.com', created_at: '2026-04-10T10:00:00.000Z' }),
+          createContractUser({ id: 'user-2', role: 'user', email: 'match-2@example.com', created_at: '2026-04-10T10:00:00.000Z' }),
+          createContractUser({ id: 'user-3', role: 'user', email: 'match-3@example.com', created_at: '2026-04-09T10:00:00.000Z' }),
+          createContractUser({ id: 'user-4', role: 'user', email: 'other@example.com', created_at: '2026-04-08T10:00:00.000Z' }),
+        ],
+      });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const firstRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users?search=match&limit=2', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.181',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(firstRes.status).toBe(200);
+      const firstBody = await firstRes.json();
+      expect(firstBody.applied_limit).toBe(2);
+      expect(firstBody.has_more).toBe(true);
+      expect(firstBody.users.map((user) => user.id)).toEqual(['user-2', 'user-1']);
+      expect(typeof firstBody.next_cursor).toBe('string');
+
+      const secondRes = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users?search=match&limit=2&cursor=${encodeURIComponent(firstBody.next_cursor)}`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.181',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(secondRes.status).toBe(200);
+      const secondBody = await secondRes.json();
+      expect(secondBody.users.map((user) => user.id)).toEqual(['user-3']);
+      expect(secondBody.has_more).toBe(false);
+      expect(secondBody.next_cursor).toBeNull();
+
+      const invalidCursorRes = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users?search=other&cursor=${encodeURIComponent(firstBody.next_cursor)}`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.181',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidCursorRes.status).toBe(400);
+      await expect(invalidCursorRes.json()).resolves.toEqual({
+        ok: false,
+        error: 'Invalid cursor.',
+        code: 'validation_error',
+      });
+    });
+
+    test('targeted paginated list routes clamp and default limits safely', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('limit-admin');
+      const member = createContractUser({ id: 'limit-member', role: 'user', email: 'limit-member@example.com' });
+      const env = createAuthTestEnv({
+        users: [admin, member],
+        aiImages: [
+          {
+            id: 'feed1001',
+            user_id: member.id,
+            folder_id: null,
+            r2_key: `users/${member.id}/folders/root/feed1001.png`,
+            prompt: 'Paged image',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 1,
+            created_at: '2026-04-12T10:00:00.000Z',
+            visibility: 'public',
+            published_at: '2026-04-13T10:00:00.000Z',
+            derivatives_status: 'ready',
+            derivatives_version: 1,
+            thumb_key: `users/${member.id}/derivatives/v1/feed1001/thumb.webp`,
+            medium_key: `users/${member.id}/derivatives/v1/feed1001/medium.webp`,
+          },
+        ],
+        aiTextAssets: [
+          {
+            id: 'feed2001',
+            user_id: member.id,
+            folder_id: null,
+            r2_key: `users/${member.id}/folders/root/feed2001.mp4`,
+            title: 'Paged video',
+            file_name: 'paged-video.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 128,
+            preview_text: 'Paged video asset',
+            metadata_json: '{}',
+            created_at: '2026-04-12T09:00:00.000Z',
+            visibility: 'public',
+            published_at: '2026-04-13T09:00:00.000Z',
+            poster_r2_key: null,
+            poster_width: null,
+            poster_height: null,
+          },
+        ],
+      });
+      const adminSessionToken = await seedSession(env, admin.id);
+      const memberSessionToken = await seedSession(env, member.id);
+
+      const adminClampRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users?limit=0', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminSessionToken}`,
+          'CF-Connecting-IP': '203.0.113.183',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(adminClampRes.status).toBe(200);
+      expect((await adminClampRes.json()).applied_limit).toBe(1);
+
+      const assetsClampRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/assets?limit=999', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${memberSessionToken}`,
+          'CF-Connecting-IP': '203.0.113.184',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(assetsClampRes.status).toBe(200);
+      expect((await assetsClampRes.json()).data.applied_limit).toBe(100);
+
+      const mempicsDefaultRes = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/gallery/mempics?limit=not-a-number'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(mempicsDefaultRes.status).toBe(200);
+      expect((await mempicsDefaultRes.json()).data.applied_limit).toBe(60);
+
+      const memvidClampRes = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/gallery/memvids?limit=999'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(memvidClampRes.status).toBe(200);
+      expect((await memvidClampRes.json()).data.applied_limit).toBe(120);
+    });
+
+    test('GET /api/admin/avatars/latest uses DB-backed recency without scanning R2', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('avatar-admin');
+      const env = createAuthTestEnv({
+        users: [
+          admin,
+          createContractUser({ id: 'ava-1', role: 'user', email: 'ava-1@example.com' }),
+          createContractUser({ id: 'ava-2', role: 'user', email: 'ava-2@example.com' }),
+          createContractUser({ id: 'ava-3', role: 'user', email: 'ava-3@example.com' }),
+          createContractUser({ id: 'ava-4', role: 'user', email: 'ava-4@example.com' }),
+          createContractUser({ id: 'ava-5', role: 'user', email: 'ava-5@example.com' }),
+        ],
+        profiles: [
+          { user_id: 'ava-1', display_name: 'One', bio: '', website: '', youtube_url: '', has_avatar: 1, avatar_updated_at: '2026-04-10T10:00:00.000Z', created_at: '2026-04-01T00:00:00.000Z', updated_at: '2026-04-10T10:00:00.000Z' },
+          { user_id: 'ava-2', display_name: 'Two', bio: '', website: '', youtube_url: '', has_avatar: 1, avatar_updated_at: '2026-04-12T10:00:00.000Z', created_at: '2026-04-01T00:00:00.000Z', updated_at: '2026-04-12T10:00:00.000Z' },
+          { user_id: 'ava-3', display_name: 'Three', bio: '', website: '', youtube_url: '', has_avatar: 1, avatar_updated_at: '2026-04-11T10:00:00.000Z', created_at: '2026-04-01T00:00:00.000Z', updated_at: '2026-04-11T10:00:00.000Z' },
+          { user_id: 'ava-4', display_name: 'Four', bio: '', website: '', youtube_url: '', has_avatar: 1, avatar_updated_at: '2026-04-09T10:00:00.000Z', created_at: '2026-04-01T00:00:00.000Z', updated_at: '2026-04-09T10:00:00.000Z' },
+          { user_id: 'ava-5', display_name: 'Five', bio: '', website: '', youtube_url: '', has_avatar: 1, avatar_updated_at: '2026-04-08T10:00:00.000Z', created_at: '2026-04-01T00:00:00.000Z', updated_at: '2026-04-08T10:00:00.000Z' },
+        ],
+        privateMedia: {
+          'avatars/ava-1': { body: new TextEncoder().encode('1').buffer },
+          'avatars/ava-2': { body: new TextEncoder().encode('2').buffer },
+          'avatars/ava-3': { body: new TextEncoder().encode('3').buffer },
+          'avatars/ava-4': { body: new TextEncoder().encode('4').buffer },
+          'avatars/ava-5': { body: new TextEncoder().encode('5').buffer },
+        },
+      });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/avatars/latest', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.183',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.avatars.map((avatar) => avatar.userId)).toEqual(['ava-2', 'ava-3', 'ava-1', 'ava-4']);
+      expect(env.PRIVATE_MEDIA.listCalls).toHaveLength(0);
     });
 
     test('GET /api/admin/stats returns the stable stats contract for admins', async () => {
@@ -1279,9 +1481,11 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expectExactKeys(body, ['ok', 'data']);
-      expectExactKeys(body.data, ['assets']);
+      expectExactKeys(body.data, ['assets', 'next_cursor', 'has_more', 'applied_limit']);
       expect(Array.isArray(body.data.assets)).toBe(true);
       expect(body.data.assets.length).toBe(2);
+      expect(typeof body.data.has_more).toBe('boolean');
+      expect(typeof body.data.applied_limit).toBe('number');
 
       const imageAsset = body.data.assets.find((asset) => asset.id === imageId);
       expect(imageAsset).toBeTruthy();
@@ -1338,6 +1542,161 @@ test.describe('Worker routes', () => {
         visibility: 'private',
         is_public: false,
         published_at: null,
+      });
+    });
+
+    test('GET /api/ai/assets paginates mixed member assets without duplicates across page boundaries', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const user = createContractUser({ id: 'page-assets-user', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [user],
+        aiImages: [
+          {
+            id: 'fff10001',
+            user_id: user.id,
+            folder_id: null,
+            r2_key: `users/${user.id}/folders/root/fff10001.png`,
+            prompt: 'Newest image',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 1,
+            created_at: '2026-04-12T10:00:00.000Z',
+            visibility: 'private',
+            published_at: null,
+            derivatives_status: 'ready',
+            derivatives_version: 1,
+          },
+          {
+            id: 'ccc10001',
+            user_id: user.id,
+            folder_id: null,
+            r2_key: `users/${user.id}/folders/root/ccc10001.png`,
+            prompt: 'Older image',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 2,
+            created_at: '2026-04-10T10:00:00.000Z',
+            visibility: 'private',
+            published_at: null,
+            derivatives_status: 'ready',
+            derivatives_version: 1,
+          },
+        ],
+        aiTextAssets: [
+          {
+            id: 'eee10001',
+            user_id: user.id,
+            folder_id: null,
+            r2_key: `users/${user.id}/folders/root/eee10001.mp4`,
+            title: 'Newest video',
+            file_name: 'newest-video.mp4',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            size_bytes: 42,
+            preview_text: 'Newest video asset',
+            metadata_json: '{}',
+            created_at: '2026-04-12T10:00:00.000Z',
+            visibility: 'private',
+            published_at: null,
+            poster_r2_key: null,
+            poster_width: null,
+            poster_height: null,
+          },
+          {
+            id: 'ddd10001',
+            user_id: user.id,
+            folder_id: null,
+            r2_key: `users/${user.id}/folders/root/ddd10001.txt`,
+            title: 'Middle text',
+            file_name: 'middle-text.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: 24,
+            preview_text: 'Middle text asset',
+            metadata_json: '{}',
+            created_at: '2026-04-11T10:00:00.000Z',
+            visibility: 'private',
+            published_at: null,
+            poster_r2_key: null,
+            poster_width: null,
+            poster_height: null,
+          },
+        ],
+      });
+      const sessionToken = await seedSession(env, user.id);
+
+      const firstRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/assets?limit=2', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.182',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(firstRes.status).toBe(200);
+      const firstBody = await firstRes.json();
+      expect(firstBody.data.applied_limit).toBe(2);
+      expect(firstBody.data.has_more).toBe(true);
+      expect(firstBody.data.assets.map((asset) => asset.id)).toEqual(['fff10001', 'eee10001']);
+
+      const secondRes = await authWorker.fetch(
+        authJsonRequest(`/api/ai/assets?limit=2&cursor=${encodeURIComponent(firstBody.data.next_cursor)}`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.182',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(secondRes.status).toBe(200);
+      const secondBody = await secondRes.json();
+      expect(secondBody.data.assets.map((asset) => asset.id)).toEqual(['ddd10001', 'ccc10001']);
+      expect(secondBody.data.has_more).toBe(false);
+      expect(secondBody.data.next_cursor).toBeNull();
+      expect(new Set([
+        ...firstBody.data.assets.map((asset) => asset.id),
+        ...secondBody.data.assets.map((asset) => asset.id),
+      ]).size).toBe(4);
+
+      const invalidCursorRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/assets?cursor=not-a-real-cursor', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.182',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidCursorRes.status).toBe(400);
+      await expect(invalidCursorRes.json()).resolves.toEqual({
+        ok: false,
+        error: 'Invalid cursor.',
+        code: 'validation_error',
+      });
+
+      const tamperedCursor = Buffer.from(JSON.stringify({
+        v: 1,
+        t: 'member_assets',
+        s: 'all',
+        c: 42,
+        r: 'not-a-rank',
+        i: null,
+      })).toString('base64url');
+      const tamperedCursorRes = await authWorker.fetch(
+        authJsonRequest(`/api/ai/assets?cursor=${encodeURIComponent(tamperedCursor)}`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.182',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(tamperedCursorRes.status).toBe(400);
+      await expect(tamperedCursorRes.json()).resolves.toEqual({
+        ok: false,
+        error: 'Invalid cursor.',
+        code: 'validation_error',
       });
     });
   });
@@ -4520,7 +4879,7 @@ test.describe('Worker routes', () => {
       loggedIn: true,
       user: {
         id: 'legacy-cookie-user',
-        email: 'legacy-cookie-user@example.com',
+        email: 'legacy@example.com',
       },
     });
   });
@@ -7306,6 +7665,9 @@ test.describe('Worker routes', () => {
       },
     });
     expect(body.data.items).toHaveLength(2);
+    expect(body.data.applied_limit).toBe(10);
+    expect(body.data.has_more).toBe(false);
+    expect(body.data.next_cursor).toBeNull();
     expect(body.data.items[0].prompt).toBeUndefined();
     expect(body.data.items[0].user_id).toBeUndefined();
     expect(body.data.items[0].folder_id).toBeUndefined();
@@ -7314,6 +7676,76 @@ test.describe('Worker routes', () => {
     expect(body.data.items[1].user_id).toBeUndefined();
     expect(body.data.items[1].folder_id).toBeUndefined();
     expect(body.data.items[1].r2_key).toBeUndefined();
+  });
+
+  test('public Mempics pagination keeps ordering stable across page boundaries', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-a', role: 'user' })],
+      aiImages: [
+        {
+          id: 'a1000001',
+          user_id: 'artist-a',
+          folder_id: null,
+          r2_key: 'users/artist-a/folders/public/a1000001.png',
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-12T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-a/derivatives/v1/a1000001/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/a1000001/medium.webp',
+        },
+        {
+          id: 'a1000000',
+          user_id: 'artist-a',
+          folder_id: null,
+          r2_key: 'users/artist-a/folders/public/a1000000.png',
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-12T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-a/derivatives/v1/a1000000/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/a1000000/medium.webp',
+        },
+        {
+          id: '91000000',
+          user_id: 'artist-a',
+          folder_id: null,
+          r2_key: 'users/artist-a/folders/public/91000000.png',
+          created_at: '2026-04-09T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-11T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/artist-a/derivatives/v1/91000000/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/91000000/medium.webp',
+        },
+      ],
+    });
+
+    const firstRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics?limit=2'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(200);
+    const firstBody = await firstRes.json();
+    expect(firstBody.data.items.map((item) => item.id)).toEqual(['a1000001', 'a1000000']);
+    expect(firstBody.data.has_more).toBe(true);
+    expect(typeof firstBody.data.next_cursor).toBe('string');
+
+    const secondRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai/api/gallery/mempics?limit=2&cursor=${encodeURIComponent(firstBody.data.next_cursor)}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(200);
+    const secondBody = await secondRes.json();
+    expect(secondBody.data.items.map((item) => item.id)).toEqual(['91000000']);
+    expect(secondBody.data.has_more).toBe(false);
+    expect(secondBody.data.next_cursor).toBeNull();
   });
 
   test('public Mempic immutable URLs stop serving bytes after derivative state changes', async () => {
@@ -7447,6 +7879,9 @@ test.describe('Worker routes', () => {
     await expect(listRes.json()).resolves.toMatchObject({
       ok: true,
       data: {
+        applied_limit: 10,
+        has_more: false,
+        next_cursor: null,
         items: [
           {
             id: 'bada55e1',
@@ -7490,6 +7925,76 @@ test.describe('Worker routes', () => {
     );
     expect(posterRes.status).toBe(200);
     expect(posterRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  test('public Memvids pagination keeps ordering stable across page boundaries', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'video-owner', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'b0000002',
+          user_id: 'video-owner',
+          title: 'Newest video',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: '{}',
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/video-owner/folders/video/b0000002.mp4',
+          poster_r2_key: null,
+        },
+        {
+          id: 'b0000001',
+          user_id: 'video-owner',
+          title: 'Second newest',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: '{}',
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/video-owner/folders/video/b0000001.mp4',
+          poster_r2_key: null,
+        },
+        {
+          id: 'a0000001',
+          user_id: 'video-owner',
+          title: 'Older video',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: '{}',
+          created_at: '2026-04-11T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-13T10:00:00.000Z',
+          r2_key: 'users/video-owner/folders/video/a0000001.mp4',
+          poster_r2_key: null,
+        },
+      ],
+    });
+
+    const firstRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=2'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(200);
+    const firstBody = await firstRes.json();
+    expect(firstBody.data.items.map((item) => item.id)).toEqual(['b0000002', 'b0000001']);
+    expect(firstBody.data.has_more).toBe(true);
+    expect(typeof firstBody.data.next_cursor).toBe('string');
+
+    const secondRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai/api/gallery/memvids?limit=2&cursor=${encodeURIComponent(firstBody.data.next_cursor)}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(200);
+    const secondBody = await secondRes.json();
+    expect(secondBody.data.items.map((item) => item.id)).toEqual(['a0000001']);
+    expect(secondBody.data.has_more).toBe(false);
+    expect(secondBody.data.next_cursor).toBeNull();
   });
 
   function createSharedBulkMoveEnv() {

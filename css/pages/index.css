@@ -62,6 +62,48 @@
         color: rgba(255, 255, 255, 0.38);
     }
 
+    .browse-pagination {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-3);
+        padding-block-start: var(--space-6);
+    }
+
+    .browse-pagination__status {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.46);
+        text-align: center;
+    }
+
+    .browse-pagination__btn {
+        min-width: 11rem;
+        padding: 0.85rem 1.5rem;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 240, 255, 0.24);
+        background: rgba(0, 240, 255, 0.08);
+        color: rgba(255, 255, 255, 0.88);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transition: background 0.2s var(--ease-default), border-color 0.2s var(--ease-default), transform 0.2s var(--ease-default);
+    }
+
+    .browse-pagination__btn:hover {
+        background: rgba(0, 240, 255, 0.14);
+        border-color: rgba(0, 240, 255, 0.34);
+        transform: translateY(-1px);
+    }
+
+    .browse-pagination__btn:disabled {
+        opacity: 0.6;
+        cursor: wait;
+        transform: none;
+    }
+
     /* --- Gallery Mode Toggle (Explore / Create) �� Premium neon-glass hero controls --- */
     .gallery-mode {
         display: flex;

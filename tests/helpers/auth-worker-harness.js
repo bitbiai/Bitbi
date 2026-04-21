@@ -308,6 +308,7 @@ class MockD1 {
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
       has_avatar: row.has_avatar ?? null,
+      avatar_updated_at: row.avatar_updated_at ?? null,
       ...row,
     }));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
@@ -471,12 +472,45 @@ class MockD1 {
       return this.state.users.find((row) => row.id === userId) || null;
     }
 
-    if (query === 'SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users ORDER BY created_at DESC LIMIT 100') {
+    if (
+      query.startsWith('SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users')
+      && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
+    ) {
+      let index = 0;
+      let search = null;
+      let cursor = null;
+      if (query.includes('WHERE email LIKE ?')) {
+        search = String(bindings[index++] || '').replace(/^%|%$/g, '');
+      }
+      if (query.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
+        const createdAt = bindings[index++];
+        index += 1;
+        cursor = {
+          created_at: createdAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = bindings[index];
+      let rows = this.state.users.slice();
+      if (search) {
+        rows = rows.filter((row) => String(row.email || '').includes(search));
+      }
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.created_at || '') < cursor.created_at
+          || (
+            String(row.created_at || '') === cursor.created_at
+            && String(row.id || '') < String(cursor.id || '')
+          )
+        ));
+      }
       return {
-        results: this.state.users
-          .slice()
-          .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-          .slice(0, 100)
+        results: rows
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || ''))
+            || String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, limit)
           .map((row) => ({
             id: row.id,
             email: row.email,
@@ -486,8 +520,31 @@ class MockD1 {
             updated_at: row.updated_at ?? null,
             email_verified_at: row.email_verified_at ?? null,
             verification_method: row.verification_method ?? null,
-          })),
+        })),
       };
+    }
+
+    if (
+      query === 'SELECT u.id, u.email, p.display_name, p.avatar_updated_at FROM profiles p INNER JOIN users u ON u.id = p.user_id WHERE COALESCE(p.has_avatar, 0) = 1 AND p.avatar_updated_at IS NOT NULL ORDER BY p.avatar_updated_at DESC, p.user_id DESC LIMIT 4'
+    ) {
+      const results = (this.state.profiles || [])
+        .filter((row) => Number(row.has_avatar || 0) === 1 && row.avatar_updated_at)
+        .slice()
+        .sort((a, b) => (
+          String(b.avatar_updated_at || '').localeCompare(String(a.avatar_updated_at || ''))
+          || String(b.user_id || '').localeCompare(String(a.user_id || ''))
+        ))
+        .slice(0, 4)
+        .map((profile) => {
+          const user = this.state.users.find((row) => row.id === profile.user_id);
+          return {
+            id: profile.user_id,
+            email: user?.email ?? null,
+            display_name: profile.display_name ?? null,
+            avatar_updated_at: profile.avatar_updated_at,
+          };
+        });
+      return { results };
     }
 
     if (query.startsWith('SELECT COUNT(*) AS totalUsers, COALESCE(SUM(CASE WHEN role = \'admin\' THEN 1 ELSE 0 END), 0) AS admins,')) {
@@ -725,6 +782,7 @@ class MockD1 {
           website,
           youtube_url: youtubeUrl,
           has_avatar: null,
+          avatar_updated_at: null,
           created_at: createdAt,
           updated_at: updatedAt,
         });
@@ -732,11 +790,12 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, has_avatar, created_at, updated_at) VALUES')) {
-      const [userId, hasAvatar, createdAt, updatedAt] = bindings;
+    if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, has_avatar, avatar_updated_at, created_at, updated_at) VALUES')) {
+      const [userId, hasAvatar, avatarUpdatedAt, createdAt, updatedAt] = bindings;
       const existing = this.state.profiles.find((row) => row.user_id === userId);
       if (existing) {
         existing.has_avatar = hasAvatar;
+        existing.avatar_updated_at = hasAvatar ? (avatarUpdatedAt ?? existing.avatar_updated_at ?? null) : null;
         existing.updated_at = updatedAt;
       } else {
         this.state.profiles.push({
@@ -746,6 +805,7 @@ class MockD1 {
           website: '',
           youtube_url: '',
           has_avatar: hasAvatar,
+          avatar_updated_at: hasAvatar ? (avatarUpdatedAt ?? null) : null,
           created_at: createdAt,
           updated_at: updatedAt,
         });
@@ -1205,15 +1265,189 @@ class MockD1 {
       };
     }
 
+    if (
+      query.includes('UNION ALL')
+      && query.includes('FROM ai_images')
+      && query.includes('FROM ai_text_assets')
+      && query.includes('asset_kind_rank')
+      && query.includes('ORDER BY created_at DESC, asset_kind_rank DESC, id DESC LIMIT ?')
+    ) {
+      let index = 0;
+      const imageUserId = bindings[index++];
+      let imageFolderId = null;
+      if (query.includes('FROM ai_images WHERE user_id = ? AND folder_id = ?')) {
+        imageFolderId = bindings[index++];
+      }
+      const textUserId = bindings[index++];
+      let textFolderId = null;
+      if (query.includes('FROM ai_text_assets WHERE user_id = ? AND folder_id = ?')) {
+        textFolderId = bindings[index++];
+      }
+      let cursor = null;
+      if (query.includes('asset_kind_rank < ?')) {
+        const createdAt = bindings[index++];
+        index += 1;
+        const rank = Number(bindings[index++]);
+        index += 1;
+        cursor = {
+          created_at: createdAt,
+          rank,
+          id: bindings[index++],
+        };
+      }
+      const limit = bindings[index];
+
+      let rows = this.state.aiImages
+        .filter((row) => row.user_id === imageUserId)
+        .filter((row) => {
+          if (query.includes('FROM ai_images WHERE user_id = ? AND folder_id IS NULL')) {
+            return row.folder_id == null;
+          }
+          if (query.includes('FROM ai_images WHERE user_id = ? AND folder_id = ?')) {
+            return row.folder_id === imageFolderId;
+          }
+          return true;
+        })
+        .map((row) => ({
+          id: row.id,
+          folder_id: row.folder_id,
+          prompt: row.prompt,
+          model: row.model,
+          steps: row.steps,
+          seed: row.seed,
+          created_at: row.created_at,
+          visibility: row.visibility,
+          published_at: row.published_at,
+          thumb_key: row.thumb_key,
+          medium_key: row.medium_key,
+          thumb_width: row.thumb_width,
+          thumb_height: row.thumb_height,
+          medium_width: row.medium_width,
+          medium_height: row.medium_height,
+          derivatives_status: row.derivatives_status,
+          derivatives_version: row.derivatives_version,
+          title: null,
+          file_name: null,
+          source_module: null,
+          mime_type: null,
+          size_bytes: null,
+          preview_text: null,
+          poster_r2_key: null,
+          poster_width: null,
+          poster_height: null,
+          asset_kind_rank: 2,
+        }));
+
+      rows = rows.concat(
+        this.state.aiTextAssets
+          .filter((row) => row.user_id === textUserId)
+          .filter((row) => {
+            if (query.includes('FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL')) {
+              return row.folder_id == null;
+            }
+            if (query.includes('FROM ai_text_assets WHERE user_id = ? AND folder_id = ?')) {
+              return row.folder_id === textFolderId;
+            }
+            return true;
+          })
+          .map((row) => ({
+            id: row.id,
+            folder_id: row.folder_id,
+            prompt: null,
+            model: null,
+            steps: null,
+            seed: null,
+            created_at: row.created_at,
+            visibility: row.visibility || 'private',
+            published_at: row.published_at ?? null,
+            thumb_key: null,
+            medium_key: null,
+            thumb_width: null,
+            thumb_height: null,
+            medium_width: null,
+            medium_height: null,
+            derivatives_status: null,
+            derivatives_version: null,
+            title: row.title,
+            file_name: row.file_name,
+            source_module: row.source_module,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            preview_text: row.preview_text,
+            poster_r2_key: row.poster_r2_key ?? null,
+            poster_width: row.poster_width ?? null,
+            poster_height: row.poster_height ?? null,
+            asset_kind_rank: 1,
+          }))
+      );
+
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.created_at || '') < cursor.created_at
+          || (
+            String(row.created_at || '') === cursor.created_at
+            && (
+              Number(row.asset_kind_rank || 0) < cursor.rank
+              || (
+                Number(row.asset_kind_rank || 0) === cursor.rank
+                && String(row.id || '') < String(cursor.id || '')
+              )
+            )
+          )
+        ));
+      }
+
+      rows = rows
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || Number(b.asset_kind_rank || 0) - Number(a.asset_kind_rank || 0)
+          || String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, limit);
+
+      return { results: rows };
+    }
+
     if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at') && query.includes('FROM ai_images WHERE user_id = ?')) {
-      const [userId, maybeFolderId] = bindings;
+      let index = 0;
+      const userId = bindings[index++];
+      let folderId = null;
+      if (query.includes('AND folder_id = ?')) {
+        folderId = bindings[index++];
+      }
+      let cursor = null;
+      if (query.includes('AND ( created_at < ? OR ( created_at = ? AND id < ? ) )')) {
+        const createdAt = bindings[index++];
+        index += 1;
+        cursor = {
+          created_at: createdAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = query.endsWith('LIMIT ?') ? bindings[index] : 200;
+
       let rows = this.state.aiImages.filter((row) => row.user_id === userId);
       if (query.includes('AND folder_id IS NULL')) {
         rows = rows.filter((row) => row.folder_id == null);
       } else if (query.includes('AND folder_id = ?')) {
-        rows = rows.filter((row) => row.folder_id === maybeFolderId);
+        rows = rows.filter((row) => row.folder_id === folderId);
       }
-      rows = rows.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200);
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.created_at || '') < cursor.created_at
+          || (
+            String(row.created_at || '') === cursor.created_at
+            && String(row.id || '') < String(cursor.id || '')
+          )
+        ));
+      }
+      rows = rows
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, limit);
       return {
         results: rows.map((row) => ({
           id: row.id,
@@ -1252,19 +1486,51 @@ class MockD1 {
       && query.includes('ai_images.thumb_key IS NOT NULL')
       && query.includes('ai_images.medium_key IS NOT NULL')
     ) {
-      const [limit] = bindings;
-      const rows = this.state.aiImages
+      let index = 0;
+      let cursor = null;
+      if (query.includes('order_at < ?')) {
+        const orderAt = bindings[index++];
+        index += 1;
+        const createdAt = bindings[index++];
+        index += 1;
+        cursor = {
+          order_at: orderAt,
+          created_at: createdAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = bindings[index];
+      let rows = this.state.aiImages
         .filter((row) =>
           row.visibility === 'public'
           && row.derivatives_status === 'ready'
           && row.thumb_key != null
           && row.medium_key != null
         )
-        .slice()
+        .map((row) => ({
+          ...row,
+          order_at: row.published_at || row.created_at || '',
+        }));
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.order_at || '') < cursor.order_at
+          || (
+            String(row.order_at || '') === cursor.order_at
+            && (
+              String(row.created_at || '') < cursor.created_at
+              || (
+                String(row.created_at || '') === cursor.created_at
+                && String(row.id || '') < String(cursor.id || '')
+              )
+            )
+          )
+        ));
+      }
+      rows = rows
         .sort((a, b) => {
-          const aOrder = String(a.published_at || a.created_at || '');
-          const bOrder = String(b.published_at || b.created_at || '');
-          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id));
+          const aOrder = String(a.order_at || '');
+          const bOrder = String(b.order_at || '');
+          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || ''));
         })
         .slice(0, limit);
       return {
@@ -1272,6 +1538,7 @@ class MockD1 {
           id: row.id,
           created_at: row.created_at,
           published_at: row.published_at,
+          order_at: row.order_at,
           r2_key: row.r2_key,
           thumb_key: row.thumb_key,
           medium_key: row.medium_key,
@@ -1310,14 +1577,46 @@ class MockD1 {
       && query.includes("WHERE ai_text_assets.visibility = 'public'")
       && query.includes("AND ai_text_assets.source_module = 'video'")
     ) {
-      const [limit] = bindings;
-      const rows = this.state.aiTextAssets
+      let index = 0;
+      let cursor = null;
+      if (query.includes('order_at < ?')) {
+        const orderAt = bindings[index++];
+        index += 1;
+        const createdAt = bindings[index++];
+        index += 1;
+        cursor = {
+          order_at: orderAt,
+          created_at: createdAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = bindings[index];
+      let rows = this.state.aiTextAssets
         .filter((row) => row.visibility === 'public' && row.source_module === 'video')
-        .slice()
+        .map((row) => ({
+          ...row,
+          order_at: row.published_at || row.created_at || '',
+        }));
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.order_at || '') < cursor.order_at
+          || (
+            String(row.order_at || '') === cursor.order_at
+            && (
+              String(row.created_at || '') < cursor.created_at
+              || (
+                String(row.created_at || '') === cursor.created_at
+                && String(row.id || '') < String(cursor.id || '')
+              )
+            )
+          )
+        ));
+      }
+      rows = rows
         .sort((a, b) => {
-          const aOrder = String(a.published_at || a.created_at || '');
-          const bOrder = String(b.published_at || b.created_at || '');
-          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id));
+          const aOrder = String(a.order_at || '');
+          const bOrder = String(b.order_at || '');
+          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id || '').localeCompare(String(a.id || ''));
         })
         .slice(0, limit);
       return {
@@ -1328,6 +1627,7 @@ class MockD1 {
           metadata_json: row.metadata_json,
           created_at: row.created_at,
           published_at: row.published_at,
+          order_at: row.order_at,
           r2_key: row.r2_key,
           poster_r2_key: row.poster_r2_key ?? null,
           poster_width: row.poster_width ?? null,
@@ -1352,14 +1652,44 @@ class MockD1 {
     }
 
     if (query.includes('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at') && query.includes('FROM ai_text_assets WHERE user_id = ?')) {
-      const [userId, maybeFolderId] = bindings;
+      let index = 0;
+      const userId = bindings[index++];
+      let folderId = null;
+      if (query.includes('AND folder_id = ?')) {
+        folderId = bindings[index++];
+      }
+      let cursor = null;
+      if (query.includes('AND ( created_at < ? OR ( created_at = ? AND id < ? ) )')) {
+        const createdAt = bindings[index++];
+        index += 1;
+        cursor = {
+          created_at: createdAt,
+          id: bindings[index++],
+        };
+      }
+      const limit = query.endsWith('LIMIT ?') ? bindings[index] : 200;
       let rows = this.state.aiTextAssets.filter((row) => row.user_id === userId);
       if (query.includes('AND folder_id IS NULL')) {
         rows = rows.filter((row) => row.folder_id == null);
       } else if (query.includes('AND folder_id = ?')) {
-        rows = rows.filter((row) => row.folder_id === maybeFolderId);
+        rows = rows.filter((row) => row.folder_id === folderId);
       }
-      rows = rows.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200);
+      if (cursor) {
+        rows = rows.filter((row) => (
+          String(row.created_at || '') < cursor.created_at
+          || (
+            String(row.created_at || '') === cursor.created_at
+            && String(row.id || '') < String(cursor.id || '')
+          )
+        ));
+      }
+      rows = rows
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, limit);
       return {
         results: rows.map((row) => ({
           id: row.id,

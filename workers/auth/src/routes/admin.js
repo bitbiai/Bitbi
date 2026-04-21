@@ -4,10 +4,21 @@ import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
 import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationErrorResponse,
+  readCursorString,
+  resolvePaginationLimit,
+} from "../lib/pagination.js";
+import {
   buildAiImageCleanupQueueInsertSql,
   listAiImageObjectKeys,
 } from "../lib/ai-image-derivatives.js";
 import { handleAdminAI } from "./admin-ai.js";
+
+const ADMIN_USERS_CURSOR_TYPE = "admin_users";
+const DEFAULT_ADMIN_USERS_LIMIT = 50;
+const MAX_ADMIN_USERS_LIMIT = 100;
 
 function isMissingTextAssetTableError(error) {
   return String(error || "").includes("no such table") && String(error || "").includes("ai_text_assets");
@@ -25,6 +36,10 @@ function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
     JSON.stringify(meta),
     now
   );
+}
+
+function normalizeAdminUserSearch(value) {
+  return String(value || "").trim();
 }
 
 export async function handleAdmin(ctx) {
@@ -57,36 +72,69 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
-    const search = url.searchParams.get("search");
+    const appliedLimit = resolvePaginationLimit(url.searchParams.get("limit"), {
+      defaultValue: DEFAULT_ADMIN_USERS_LIMIT,
+      maxValue: MAX_ADMIN_USERS_LIMIT,
+    });
+    const search = normalizeAdminUserSearch(url.searchParams.get("search"));
 
-    let rows;
-    if (search) {
-      rows = await env.DB.prepare(
-        `
-        SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method
-        FROM users
-        WHERE email LIKE ?
-        ORDER BY created_at DESC
-        LIMIT 100
-        `
-      )
-        .bind(`%${search}%`)
-        .all();
-    } else {
-      rows = await env.DB.prepare(
-        `
-        SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method
-        FROM users
-        ORDER BY created_at DESC
-        LIMIT 100
-        `
-      )
-        .all();
+    let cursor = null;
+    try {
+      cursor = await decodePaginationCursor(env, url.searchParams.get("cursor"), ADMIN_USERS_CURSOR_TYPE);
+      if (cursor) {
+        cursor = {
+          q: readCursorString(cursor, "q", { allowEmpty: true }),
+          c: readCursorString(cursor, "c"),
+          i: readCursorString(cursor, "i"),
+        };
+      }
+    } catch {
+      return paginationErrorResponse("Invalid cursor.");
     }
+    if (cursor && cursor.q !== search) {
+      return paginationErrorResponse("Invalid cursor.");
+    }
+
+    const conditions = [];
+    const bindings = [];
+
+    if (search) {
+      conditions.push("email LIKE ?");
+      bindings.push(`%${search}%`);
+    }
+    if (cursor) {
+      conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+      bindings.push(cursor.c, cursor.c, cursor.i);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = await env.DB.prepare(
+      `SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method
+       FROM users
+       ${whereClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`
+    )
+      .bind(...bindings, appliedLimit + 1)
+      .all();
+
+    const resultRows = rows.results || [];
+    const hasMore = resultRows.length > appliedLimit;
+    const users = hasMore ? resultRows.slice(0, appliedLimit) : resultRows;
+    const last = users[users.length - 1];
 
     return json({
       ok: true,
-      users: rows.results,
+      users,
+      next_cursor: hasMore
+        ? await encodePaginationCursor(env, ADMIN_USERS_CURSOR_TYPE, {
+            q: search,
+            c: last.created_at,
+            i: last.id,
+          })
+        : null,
+      has_more: hasMore,
+      applied_limit: appliedLimit,
     });
   }
 
@@ -392,42 +440,26 @@ export async function handleAdmin(ctx) {
     const result = await requireAdmin(request, env);
     if (result instanceof Response) return result;
 
-    const listed = await env.PRIVATE_MEDIA.list({ prefix: "avatars/", limit: 1000 });
+    const rows = await env.DB.prepare(
+      `SELECT u.id, u.email, p.display_name, p.avatar_updated_at
+       FROM profiles p
+       INNER JOIN users u ON u.id = p.user_id
+       WHERE COALESCE(p.has_avatar, 0) = 1
+         AND p.avatar_updated_at IS NOT NULL
+       ORDER BY p.avatar_updated_at DESC, p.user_id DESC
+       LIMIT 4`
+    ).all();
 
-    if (!listed.objects.length) {
+    if (!(rows.results || []).length) {
       return json({ ok: true, avatars: [] });
     }
 
-    const newest = listed.objects
-      .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
-      .slice(0, 4);
-
-    const userIds = newest.map((obj) => obj.key.replace("avatars/", ""));
-    const placeholders = userIds.map(() => "?").join(",");
-    const users = await env.DB.prepare(
-      `SELECT u.id, u.email, p.display_name
-       FROM users u
-       LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE u.id IN (${placeholders})`
-    )
-      .bind(...userIds)
-      .all();
-
-    const userMap = new Map();
-    for (const u of users.results) {
-      userMap.set(u.id, u);
-    }
-
-    const avatars = newest.map((obj) => {
-      const userId = obj.key.replace("avatars/", "");
-      const user = userMap.get(userId);
-      return {
-        userId,
-        email: user?.email || null,
-        displayName: user?.display_name || null,
-        uploadedAt: obj.uploaded.toISOString(),
-      };
-    });
+    const avatars = (rows.results || []).map((row) => ({
+      userId: row.id,
+      email: row.email || null,
+      displayName: row.display_name || null,
+      uploadedAt: row.avatar_updated_at,
+    }));
 
     return json({ ok: true, avatars });
   }

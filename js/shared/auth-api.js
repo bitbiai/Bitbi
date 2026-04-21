@@ -109,8 +109,12 @@ export function apiAdminMe() {
     return request('GET', '/admin/me');
 }
 
-export function apiAdminUsers(search) {
-    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+export function apiAdminUsers(search, { limit, cursor } = {}) {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/users${qs}`);
 }
 
@@ -283,13 +287,27 @@ export async function apiAiGetImages(folderId, { onlyUnfoldered } = {}) {
     return Array.isArray(res.data?.data?.images) ? res.data.data.images : [];
 }
 
-export async function apiAiGetAssets(folderId, { onlyUnfoldered } = {}) {
+export async function apiAiGetAssets(folderId, { onlyUnfoldered, limit, cursor } = {}) {
     const params = new URLSearchParams();
     if (onlyUnfoldered) params.set('only_unfoldered', '1');
     else if (folderId) params.set('folder_id', folderId);
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
     const qs = params.toString() ? `?${params}` : '';
     const res = await request('GET', `/ai/assets${qs}`);
-    return Array.isArray(res.data?.data?.assets) ? res.data.data.assets : [];
+    if (!res.ok) {
+        const error = new Error(res.error || 'Could not load saved assets.');
+        error.code = res.code || null;
+        error.status = res.status || 500;
+        throw error;
+    }
+    const data = res.data?.data;
+    return {
+        assets: Array.isArray(data?.assets) ? data.assets : [],
+        nextCursor: typeof data?.next_cursor === 'string' ? data.next_cursor : null,
+        hasMore: data?.has_more === true,
+        appliedLimit: Number.isFinite(Number(data?.applied_limit)) ? Number(data.applied_limit) : null,
+    };
 }
 
 export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) {

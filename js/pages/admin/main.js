@@ -46,6 +46,9 @@ const $mobileList  = document.getElementById('userMobileList');
 const $mobileSec   = document.getElementById('mobileSection');
 const $searchForm  = document.getElementById('searchForm');
 const $searchInput = document.getElementById('searchInput');
+const $userPagination = document.getElementById('userPagination');
+const $userPaginationStatus = document.getElementById('userPaginationStatus');
+const $userLoadMoreBtn = document.getElementById('userLoadMoreBtn');
 
 /* Avatar dropdown refs */
 const $avatarDropdown = document.getElementById('avatarDropdown');
@@ -131,6 +134,10 @@ function createActionBtn(label, onClick, danger) {
 let currentSection = 'dashboard';
 let dashboardVersion = 0;
 let usersVersion = 0;
+let usersEntries = [];
+let usersNextCursor = null;
+let usersHasMore = false;
+const USERS_LIMIT = 50;
 let statsCache = null;    // { stats, fetchedAt }
 const STATS_TTL = 30_000; // 30 seconds
 
@@ -846,6 +853,7 @@ function renderUsers(users) {
         $table.style.display = 'none';
         $mobileSec.style.display = 'none';
         $empty.style.display = '';
+        updateUsersPagination([]);
         return;
     }
 
@@ -926,32 +934,78 @@ function renderUsers(users) {
         // Mobile card
         $mobileList.appendChild(buildMobileCard(user));
     }
+
+    updateUsersPagination(users);
+}
+
+function updateUsersPagination(users) {
+    if (!$userPagination || !$userPaginationStatus || !$userLoadMoreBtn) return;
+    if (!users || users.length === 0) {
+        $userPagination.style.display = 'none';
+        $userPaginationStatus.textContent = '';
+        return;
+    }
+
+    $userPagination.style.display = '';
+    $userPaginationStatus.textContent = usersHasMore
+        ? `Showing ${users.length} users.`
+        : `Showing all ${users.length} users.`;
+    $userLoadMoreBtn.disabled = false;
+    $userLoadMoreBtn.textContent = 'Load more users';
+    $userLoadMoreBtn.style.display = usersHasMore ? '' : 'none';
 }
 
 /* ═══════════════════════════════════════════════════════════
    Users — Load
    ═══════════════════════════════════════════════════════════ */
-async function loadUsers(search) {
+async function loadUsers(search, { append = false } = {}) {
     const myVersion = ++usersVersion;
+    const normalizedSearch = search?.trim() || '';
 
-    $loading.style.display = '';
-    $empty.style.display = 'none';
-    $table.style.display = 'none';
-    $mobileSec.style.display = 'none';
+    if (!append) {
+        usersEntries = [];
+        usersNextCursor = null;
+        usersHasMore = false;
+        $loading.style.display = '';
+        $empty.style.display = 'none';
+        $table.style.display = 'none';
+        $mobileSec.style.display = 'none';
+        if ($userPagination) $userPagination.style.display = 'none';
+    } else if ($userLoadMoreBtn) {
+        $userLoadMoreBtn.disabled = true;
+        $userLoadMoreBtn.textContent = 'Loading...';
+    }
 
-    const res = await apiAdminUsers(search || undefined);
+    const res = await apiAdminUsers(normalizedSearch || undefined, {
+        limit: USERS_LIMIT,
+        cursor: append ? usersNextCursor : undefined,
+    });
 
     // Ignore stale response if a newer load was initiated
     if (myVersion !== usersVersion) return;
 
-    $loading.style.display = 'none';
+    if (!append) {
+        $loading.style.display = 'none';
+    } else if ($userLoadMoreBtn) {
+        $userLoadMoreBtn.disabled = false;
+        $userLoadMoreBtn.textContent = 'Load more users';
+    }
 
     if (!res.ok) {
         showToast(res.error, 'error');
         return;
     }
 
-    renderUsers(res.data?.users ?? res.data);
+    const users = Array.isArray(res.data?.users)
+        ? res.data.users
+        : Array.isArray(res.data)
+            ? res.data
+            : [];
+    usersEntries = append ? usersEntries.concat(users) : users;
+    usersNextCursor = typeof res.data?.next_cursor === 'string' ? res.data.next_cursor : null;
+    usersHasMore = res.data?.has_more === true;
+
+    renderUsers(usersEntries);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1123,6 +1177,11 @@ async function init() {
     $searchForm.addEventListener('submit', (e) => {
         e.preventDefault();
         loadUsers($searchInput.value.trim());
+    });
+
+    $userLoadMoreBtn?.addEventListener('click', () => {
+        if (!usersHasMore || !usersNextCursor) return;
+        loadUsers($searchInput.value.trim(), { append: true });
     });
 
     // Activity mode switch
