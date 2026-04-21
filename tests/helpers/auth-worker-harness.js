@@ -1245,7 +1245,13 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith("SELECT ai_images.id, ai_images.created_at, ai_images.published_at, ai_images.thumb_width, ai_images.thumb_height, ai_images.medium_width, ai_images.medium_height, profiles.display_name AS owner_display_name FROM ai_images LEFT JOIN profiles ON profiles.user_id = ai_images.user_id WHERE ai_images.visibility = 'public'")) {
+    if (
+      query.includes('FROM ai_images LEFT JOIN profiles ON profiles.user_id = ai_images.user_id')
+      && query.includes("WHERE ai_images.visibility = 'public'")
+      && query.includes('ai_images.derivatives_status = \'ready\'')
+      && query.includes('ai_images.thumb_key IS NOT NULL')
+      && query.includes('ai_images.medium_key IS NOT NULL')
+    ) {
       const [limit] = bindings;
       const rows = this.state.aiImages
         .filter((row) =>
@@ -1266,40 +1272,81 @@ class MockD1 {
           id: row.id,
           created_at: row.created_at,
           published_at: row.published_at,
+          r2_key: row.r2_key,
+          thumb_key: row.thumb_key,
+          medium_key: row.medium_key,
           owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
           thumb_width: row.thumb_width,
           thumb_height: row.thumb_height,
           medium_width: row.medium_width,
           medium_height: row.medium_height,
+          derivatives_version: row.derivatives_version,
+          derivatives_ready_at: row.derivatives_ready_at,
         })),
       };
     }
 
-    if (query === "SELECT r2_key FROM ai_images WHERE id = ? AND visibility = 'public'") {
+    if (query === "SELECT created_at, published_at, r2_key, thumb_key, medium_key, thumb_mime_type, medium_mime_type, derivatives_version, derivatives_ready_at FROM ai_images WHERE id = ? AND visibility = 'public'") {
       const [imageId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
-      return row ? { r2_key: row.r2_key } : null;
+      return row
+        ? {
+            created_at: row.created_at,
+            published_at: row.published_at,
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            thumb_mime_type: row.thumb_mime_type,
+            medium_mime_type: row.medium_mime_type,
+            derivatives_version: row.derivatives_version,
+            derivatives_ready_at: row.derivatives_ready_at,
+          }
+        : null;
     }
 
     if (
-      query === "SELECT thumb_key AS derivative_key, thumb_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND thumb_key IS NOT NULL" ||
-      query === "SELECT medium_key AS derivative_key, medium_mime_type AS mime_type FROM ai_images WHERE id = ? AND visibility = 'public' AND medium_key IS NOT NULL"
+      query.includes('FROM ai_text_assets')
+      && query.includes('LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id')
+      && query.includes("WHERE ai_text_assets.visibility = 'public'")
+      && query.includes("AND ai_text_assets.source_module = 'video'")
     ) {
-      const [imageId] = bindings;
-      const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
-      if (!row) return null;
-      if (query.startsWith('SELECT thumb_key')) {
-        return row.thumb_key
-          ? {
-              derivative_key: row.thumb_key,
-              mime_type: row.thumb_mime_type,
-            }
-          : null;
-      }
-      return row.medium_key
+      const [limit] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.visibility === 'public' && row.source_module === 'video')
+        .slice()
+        .sort((a, b) => {
+          const aOrder = String(a.published_at || a.created_at || '');
+          const bOrder = String(b.published_at || b.created_at || '');
+          return bOrder.localeCompare(aOrder) || String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(b.id).localeCompare(String(a.id));
+        })
+        .slice(0, limit);
+      return {
+        results: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          mime_type: row.mime_type,
+          metadata_json: row.metadata_json,
+          created_at: row.created_at,
+          published_at: row.published_at,
+          r2_key: row.r2_key,
+          poster_r2_key: row.poster_r2_key ?? null,
+          poster_width: row.poster_width ?? null,
+          poster_height: row.poster_height ?? null,
+          owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
+        })),
+      };
+    }
+
+    if (query === "SELECT created_at, published_at, r2_key, mime_type, poster_r2_key FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'video'") {
+      const [assetId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.visibility === 'public' && item.source_module === 'video');
+      return row
         ? {
-            derivative_key: row.medium_key,
-            mime_type: row.medium_mime_type,
+            created_at: row.created_at,
+            published_at: row.published_at,
+            r2_key: row.r2_key,
+            mime_type: row.mime_type,
+            poster_r2_key: row.poster_r2_key ?? null,
           }
         : null;
     }

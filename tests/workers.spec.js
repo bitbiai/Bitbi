@@ -25,6 +25,11 @@ async function loadObservabilityModule() {
   return import(observabilityPath);
 }
 
+async function loadPublicMediaContractModule() {
+  const contractPath = pathToFileURL(path.join(process.cwd(), 'js/shared/public-media-contract.mjs')).href;
+  return import(contractPath);
+}
+
 async function loadWalletTestModules() {
   const accounts = await import('viem/accounts');
   return {
@@ -1357,6 +1362,7 @@ test.describe('Worker routes', () => {
   });
 
   test('profile update normalizes plain-text fields and keeps URL validation separate', async () => {
+    const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -4818,7 +4824,9 @@ test.describe('Worker routes', () => {
       { input: ' /assets/images/1.jpg ', stored: '/assets/images/1.jpg' },
       { input: ' /api/soundlab-thumbs/thumb-bitbi ', stored: '/api/soundlab-thumbs/thumb-bitbi' },
       { input: ' /api/gallery/mempics/a1b2c3d4/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/thumb' },
+      { input: ' /api/gallery/mempics/a1b2c3d4/vpubthumb/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb' },
       { input: ' /api/gallery/memvids/bada55e1/poster ', stored: '/api/gallery/memvids/bada55e1/poster' },
+      { input: ' /api/gallery/memvids/bada55e1/vpubposter/poster ', stored: '/api/gallery/memvids/bada55e1/vpubposter/poster' },
       {
         input: ' https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp ',
         stored: 'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
@@ -4910,13 +4918,13 @@ test.describe('Worker routes', () => {
         item_type: 'mempics',
         item_id: 'a1b2c3d4',
         title: 'Mempics',
-        thumb_url: '/api/gallery/mempics/a1b2c3d4/thumb',
+        thumb_url: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb',
       },
       {
         item_type: 'video',
         item_id: 'bada55e1',
         title: 'Launch Walkthrough',
-        thumb_url: '/api/gallery/memvids/bada55e1/poster',
+        thumb_url: '/api/gallery/memvids/bada55e1/vpubposter/poster',
       },
     ];
 
@@ -6930,6 +6938,7 @@ test.describe('Worker routes', () => {
     expect(fileRes.status).toBe(200);
     expect(await fileRes.text()).toBe('Compare Notes');
     expect(fileRes.headers.get('content-type')).toContain('text/plain');
+    expect(fileRes.headers.get('cache-control')).toBe('private, max-age=3600');
 
     const videoRes = await authWorker.fetch(
       authJsonRequest('/api/ai/text-assets/abe100ab/file', 'GET', undefined, {
@@ -6944,6 +6953,7 @@ test.describe('Worker routes', () => {
   });
 
   test('owner can publish and unpublish their own saved image asset without changing ownership or folder state', async () => {
+    const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'mempic-owner', role: 'user' })],
@@ -7019,13 +7029,24 @@ test.describe('Worker routes', () => {
     });
     expect(typeof env.DB.state.aiImages[0].published_at).toBe('string');
 
-    const publicFileRes = await authWorker.fetch(
+    const version = buildPublicMempicVersion(env.DB.state.aiImages[0]);
+
+    const publicFileAliasRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/gallery/mempics/abc123ef/file'),
       env,
       createExecutionContext().execCtx
     );
+    expect(publicFileAliasRes.status).toBe(302);
+    expect(publicFileAliasRes.headers.get('cache-control')).toBe('no-store');
+    expect(publicFileAliasRes.headers.get('location')).toBe(buildPublicMempicUrl('abc123ef', version, 'file'));
+
+    const publicFileRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMempicUrl('abc123ef', version, 'file')}`),
+      env,
+      createExecutionContext().execCtx
+    );
     expect(publicFileRes.status).toBe(200);
-    expect(publicFileRes.headers.get('cache-control')).toBe('no-store');
+    expect(publicFileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
 
     const unpublishRes = await authWorker.fetch(
       authJsonRequest('/api/ai/images/abc123ef/publication', 'PATCH', {
@@ -7062,6 +7083,13 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
     expect(hiddenRes.status).toBe(404);
+
+    const staleVersionRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMempicUrl('abc123ef', version, 'file')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(staleVersionRes.status).toBe(404);
   });
 
   test('non-owner cannot publish or unpublish another user’s saved image asset', async () => {
@@ -7122,6 +7150,7 @@ test.describe('Worker routes', () => {
   });
 
   test('public Mempics listing returns only explicitly published ready images and exposes only safe public fields', async () => {
+    const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -7240,17 +7269,17 @@ test.describe('Worker routes', () => {
             caption: 'Published by Ada Member on 2026-04-10.',
             category: 'mempics',
             thumb: {
-              url: '/api/gallery/mempics/a1b2c3d4/thumb',
+              url: buildPublicMempicUrl('a1b2c3d4', buildPublicMempicVersion(env.DB.state.aiImages[0]), 'thumb'),
               w: 320,
               h: 256,
             },
             preview: {
-              url: '/api/gallery/mempics/a1b2c3d4/medium',
+              url: buildPublicMempicUrl('a1b2c3d4', buildPublicMempicVersion(env.DB.state.aiImages[0]), 'medium'),
               w: 1280,
               h: 1024,
             },
             full: {
-              url: '/api/gallery/mempics/a1b2c3d4/file',
+              url: buildPublicMempicUrl('a1b2c3d4', buildPublicMempicVersion(env.DB.state.aiImages[0]), 'file'),
             },
           },
           {
@@ -7260,17 +7289,17 @@ test.describe('Worker routes', () => {
             caption: 'Published by a bitbi member on 2026-04-08.',
             category: 'mempics',
             thumb: {
-              url: '/api/gallery/mempics/c0ffee12/thumb',
+              url: buildPublicMempicUrl('c0ffee12', buildPublicMempicVersion(env.DB.state.aiImages[1]), 'thumb'),
               w: 320,
               h: 320,
             },
             preview: {
-              url: '/api/gallery/mempics/c0ffee12/medium',
+              url: buildPublicMempicUrl('c0ffee12', buildPublicMempicVersion(env.DB.state.aiImages[1]), 'medium'),
               w: 1280,
               h: 1280,
             },
             full: {
-              url: '/api/gallery/mempics/c0ffee12/file',
+              url: buildPublicMempicUrl('c0ffee12', buildPublicMempicVersion(env.DB.state.aiImages[1]), 'file'),
             },
           },
         ],
@@ -7285,6 +7314,182 @@ test.describe('Worker routes', () => {
     expect(body.data.items[1].user_id).toBeUndefined();
     expect(body.data.items[1].folder_id).toBeUndefined();
     expect(body.data.items[1].r2_key).toBeUndefined();
+  });
+
+  test('public Mempic immutable URLs stop serving bytes after derivative state changes', async () => {
+    const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-a', role: 'user' })],
+      aiImages: [
+        {
+          id: 'a1b2c3d4',
+          user_id: 'artist-a',
+          folder_id: null,
+          r2_key: 'users/artist-a/folders/public/a1b2c3d4.png',
+          created_at: '2026-04-09T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T09:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          derivatives_ready_at: '2026-04-10T09:05:00.000Z',
+          thumb_key: 'users/artist-a/derivatives/v1/a1b2c3d4/thumb.webp',
+          medium_key: 'users/artist-a/derivatives/v1/a1b2c3d4/medium.webp',
+          thumb_mime_type: 'image/webp',
+          medium_mime_type: 'image/webp',
+        },
+      ],
+      userImages: {
+        'users/artist-a/folders/public/a1b2c3d4.png': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(0),
+          httpMetadata: { contentType: 'image/png' },
+        },
+        'users/artist-a/derivatives/v1/a1b2c3d4/thumb.webp': {
+          body: new TextEncoder().encode('thumb-v1').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'users/artist-a/derivatives/v1/a1b2c3d4/medium.webp': {
+          body: new TextEncoder().encode('medium-v1').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const firstVersion = buildPublicMempicVersion(env.DB.state.aiImages[0]);
+    const firstThumbRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMempicUrl('a1b2c3d4', firstVersion, 'thumb')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstThumbRes.status).toBe(200);
+    expect(firstThumbRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    env.DB.state.aiImages[0].derivatives_ready_at = '2026-04-12T10:00:00.000Z';
+    env.USER_IMAGES.objects.set('users/artist-a/derivatives/v1/a1b2c3d4/thumb.webp', {
+      body: new TextEncoder().encode('thumb-v2').buffer,
+      httpMetadata: { contentType: 'image/webp' },
+      size: 8,
+      uploaded: new Date(),
+    });
+
+    const staleThumbRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMempicUrl('a1b2c3d4', firstVersion, 'thumb')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(staleThumbRes.status).toBe(404);
+
+    const nextVersion = buildPublicMempicVersion(env.DB.state.aiImages[0]);
+    expect(nextVersion).not.toBe(firstVersion);
+
+    const freshThumbRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMempicUrl('a1b2c3d4', nextVersion, 'thumb')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(freshThumbRes.status).toBe(200);
+    expect(await freshThumbRes.text()).toBe('thumb-v2');
+  });
+
+  test('public Memvid file and poster routes use immutable versioned URLs while legacy aliases stay compatibility redirects', async () => {
+    const { buildPublicMemvidUrl, buildPublicMemvidVersion } = await loadPublicMediaContractModule();
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'video-owner', role: 'user' })],
+      profiles: [
+        {
+          user_id: 'video-owner',
+          display_name: 'Ada Member',
+          bio: '',
+          website: '',
+          youtube_url: '',
+          created_at: '2026-04-01T00:00:00.000Z',
+          updated_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+      aiTextAssets: [
+        {
+          id: 'bada55e1',
+          user_id: 'video-owner',
+          title: 'Launch Walkthrough',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          metadata_json: JSON.stringify({ duration_seconds: 11 }),
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+          r2_key: 'users/video-owner/folders/video/launch.mp4',
+          poster_r2_key: 'users/video-owner/derivatives/v1/bada55e1/poster.webp',
+          poster_width: 1280,
+          poster_height: 720,
+        },
+      ],
+      userImages: {
+        'users/video-owner/folders/video/launch.mp4': {
+          body: new TextEncoder().encode('video-v1').buffer,
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        'users/video-owner/derivatives/v1/bada55e1/poster.webp': {
+          body: new TextEncoder().encode('poster-v1').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const version = buildPublicMemvidVersion(env.DB.state.aiTextAssets[0]);
+
+    const listRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    await expect(listRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: 'bada55e1',
+            file: { url: buildPublicMemvidUrl('bada55e1', version, 'file') },
+            poster: { url: buildPublicMemvidUrl('bada55e1', version, 'poster') },
+          },
+        ],
+      },
+    });
+
+    const aliasFileRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids/bada55e1/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(aliasFileRes.status).toBe(302);
+    expect(aliasFileRes.headers.get('cache-control')).toBe('no-store');
+    expect(aliasFileRes.headers.get('location')).toBe(buildPublicMemvidUrl('bada55e1', version, 'file'));
+
+    const aliasPosterRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memvids/bada55e1/poster'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(aliasPosterRes.status).toBe(302);
+    expect(aliasPosterRes.headers.get('cache-control')).toBe('no-store');
+    expect(aliasPosterRes.headers.get('location')).toBe(buildPublicMemvidUrl('bada55e1', version, 'poster'));
+
+    const fileRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemvidUrl('bada55e1', version, 'file')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(fileRes.status).toBe(200);
+    expect(fileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    const posterRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemvidUrl('bada55e1', version, 'poster')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(posterRes.status).toBe(200);
+    expect(posterRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
   function createSharedBulkMoveEnv() {

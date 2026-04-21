@@ -35,6 +35,12 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
+import {
+    buildPublicMempicUrl,
+    buildPublicMemvidUrl,
+    getPublicMempicVersionFromUrl,
+    getPublicMemvidVersionFromUrl,
+} from '../../shared/public-media-contract.mjs';
 import { createAdminAiLab } from '../admin/ai-lab.js?v=__ASSET_VERSION__';
 import { buildSoundLabTrack, getSoundLabTrackBySlug } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
 import {
@@ -949,14 +955,26 @@ function createFavoriteViewerImage(url, alt) {
 }
 
 function buildMempicFavoritePreviewUrl(fav) {
+    const version = getPublicMempicVersionFromUrl(fav?.thumb_url);
+    if (version) {
+        return buildPublicMempicUrl(String(fav.item_id || ''), version, 'medium');
+    }
     return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/medium`;
 }
 
 function buildMempicFavoriteFullUrl(fav) {
+    const version = getPublicMempicVersionFromUrl(fav?.thumb_url);
+    if (version) {
+        return buildPublicMempicUrl(String(fav.item_id || ''), version, 'file');
+    }
     return `/api/gallery/mempics/${encodeURIComponent(String(fav.item_id || ''))}/file`;
 }
 
 function buildVideoFavoriteFileUrl(fav) {
+    const version = getPublicMemvidVersionFromUrl(fav?.thumb_url);
+    if (version) {
+        return buildPublicMemvidUrl(String(fav.item_id || ''), version, 'file');
+    }
     return `/api/gallery/memvids/${encodeURIComponent(String(fav.item_id || ''))}/file`;
 }
 
