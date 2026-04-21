@@ -10,19 +10,12 @@ import {
   readCursorString,
   resolvePaginationLimit,
 } from "../lib/pagination.js";
-import {
-  buildAiImageCleanupQueueInsertSql,
-  listAiImageObjectKeys,
-} from "../lib/ai-image-derivatives.js";
 import { handleAdminAI } from "./admin-ai.js";
+import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
 const DEFAULT_ADMIN_USERS_LIMIT = 50;
 const MAX_ADMIN_USERS_LIMIT = 100;
-
-function isMissingTextAssetTableError(error) {
-  return String(error || "").includes("no such table") && String(error || "").includes("ai_text_assets");
-}
 
 function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
   return env.DB.prepare(
@@ -542,68 +535,33 @@ export async function handleAdmin(ctx) {
     }
 
     const now = nowIso();
-    let r2Keys = [];
-    let textAssetsEnabled = true;
     try {
-      const images = await env.DB.prepare(
-        "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE user_id = ?"
-      ).bind(targetUserId).all();
-      r2Keys = (images.results || []).flatMap((row) => listAiImageObjectKeys(row));
-
-      try {
-        const textAssets = await env.DB.prepare(
-          "SELECT r2_key FROM ai_text_assets WHERE user_id = ?"
-        ).bind(targetUserId).all();
-        r2Keys = r2Keys.concat((textAssets.results || []).map((row) => row.r2_key));
-      } catch (error) {
-        if (isMissingTextAssetTableError(error)) {
-          textAssetsEnabled = false;
-        } else {
-          throw error;
-        }
+      await deleteAllUserAiAssets({
+        env,
+        userId: targetUserId,
+        createdAt: now,
+        additionalStatements: [
+          env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
+          env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
+          env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
+          env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
+          env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
+          auditStatement(env, result.user.id, "delete_user", targetUserId, {
+            deletedUserId: targetUserId,
+            target_email: targetUser.email,
+            target_role: targetUser.role,
+            target_status: targetUser.status,
+            actor_email: result.user.email,
+          }, now),
+        ],
+      });
+    } catch (error) {
+      if (!(error instanceof AiAssetLifecycleError)) {
+        throw error;
       }
-
-      const statements = [
-        env.DB.prepare(
-          buildAiImageCleanupQueueInsertSql("user_id = ?")
-        ).bind(targetUserId, now, now, now),
-        env.DB.prepare("DELETE FROM ai_images WHERE user_id = ?").bind(targetUserId),
-      ];
-
-      if (textAssetsEnabled) {
-        statements.push(
-          env.DB.prepare(
-            `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-             SELECT r2_key, 'pending', ?
-             FROM ai_text_assets
-             WHERE user_id = ?`
-          ).bind(now, targetUserId),
-          env.DB.prepare("DELETE FROM ai_text_assets WHERE user_id = ?").bind(targetUserId)
-        );
-      }
-
-      statements.push(
-        env.DB.prepare("DELETE FROM ai_folders WHERE user_id = ?").bind(targetUserId),
-        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(targetUserId),
-        env.DB.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").bind(targetUserId),
-        env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
-        env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
-        env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
-        auditStatement(env, result.user.id, "delete_user", targetUserId, {
-          deletedUserId: targetUserId,
-          target_email: targetUser.email,
-          target_role: targetUser.role,
-          target_status: targetUser.status,
-          actor_email: result.user.email,
-        }, now),
-      );
-
-      await env.DB.batch(statements);
-    } catch (e) {
-      const unavailable = String(e).includes("no such table");
       return json(
-        { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Failed to delete user. Please try again." },
-        { status: unavailable ? 503 : 500 }
+        { ok: false, error: error.message },
+        { status: error.status }
       );
     }
 
@@ -612,22 +570,6 @@ export async function handleAdmin(ctx) {
       await env.PRIVATE_MEDIA.delete(`avatars/${targetUserId}`);
     } catch (e) {
       console.error("Admin delete: avatar cleanup failed", e);
-    }
-
-    const cleanedKeys = [];
-    for (const key of r2Keys) {
-      try {
-        await env.USER_IMAGES.delete(key);
-        cleanedKeys.push(key);
-      } catch { /* leave queue entry for scheduled retry */ }
-    }
-    if (cleanedKeys.length > 0) {
-      try {
-        const ph = cleanedKeys.map(() => "?").join(",");
-        await env.DB.prepare(
-          `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
-        ).bind(...cleanedKeys).run();
-      } catch { /* non-critical — scheduled cleanup will retry idempotently */ }
     }
 
     return json({

@@ -1185,6 +1185,18 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+          })),
+      };
+    }
+
     if (query === 'SELECT r2_key FROM ai_images WHERE folder_id = ? AND user_id = ?') {
       const [folderId, userId] = bindings;
       return {

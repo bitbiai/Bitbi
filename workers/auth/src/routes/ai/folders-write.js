@@ -2,13 +2,11 @@ import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { readJsonBody } from "../../lib/request.js";
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
-import { buildAiImageCleanupQueueInsertSql } from "../../lib/ai-image-derivatives.js";
 import {
-  flattenAiImageKeys,
   hasControlCharacters,
-  isMissingTextAssetTableError,
   slugify,
 } from "./helpers.js";
+import { AiAssetLifecycleError, deleteUserAiFolder } from "./lifecycle.js";
 
 const MAX_FOLDER_NAME_LENGTH = 100;
 
@@ -110,105 +108,20 @@ export async function handleDeleteFolder(ctx, folderId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const markResult = await env.DB.prepare(
-    "UPDATE ai_folders SET status = 'deleting' WHERE id = ? AND user_id = ? AND status IN ('active', 'deleting')"
-  ).bind(folderId, session.user.id).run();
-
-  if (!markResult.meta.changes) {
-    return json({ ok: false, error: "Folder not found." }, { status: 404 });
-  }
-
-  let r2Keys = [];
-  let textAssetsEnabled = true;
-  const ts = nowIso();
   try {
-    const images = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE folder_id = ? AND user_id = ?"
-    ).bind(folderId, session.user.id).all();
-    r2Keys = flattenAiImageKeys(images);
-
-    try {
-      const textAssets = await env.DB.prepare(
-        "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
-      ).bind(folderId, session.user.id).all();
-      for (const row of textAssets.results || []) {
-        r2Keys.push(row.r2_key);
-        if (row.poster_r2_key) r2Keys.push(row.poster_r2_key);
-      }
-    } catch (error) {
-      if (isMissingTextAssetTableError(error)) {
-        textAssetsEnabled = false;
-      } else {
-        throw error;
-      }
+    await deleteUserAiFolder({
+      env,
+      userId: session.user.id,
+      folderId,
+    });
+  } catch (error) {
+    if (!(error instanceof AiAssetLifecycleError)) {
+      throw error;
     }
-
-    const statements = [
-      env.DB.prepare(
-        buildAiImageCleanupQueueInsertSql("folder_id = ? AND user_id = ?")
-      ).bind(folderId, session.user.id, ts, ts, ts),
-    ];
-
-    if (textAssetsEnabled) {
-      statements.push(
-        env.DB.prepare(
-          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-           SELECT r2_key, 'pending', ?
-           FROM ai_text_assets
-           WHERE folder_id = ? AND user_id = ?`
-        ).bind(ts, folderId, session.user.id),
-        env.DB.prepare(
-          `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-           SELECT poster_r2_key, 'pending', ?
-           FROM ai_text_assets
-           WHERE folder_id = ? AND user_id = ? AND poster_r2_key IS NOT NULL`
-        ).bind(ts, folderId, session.user.id)
-      );
-    }
-
-    statements.push(
-      env.DB.prepare("DELETE FROM ai_images WHERE folder_id = ? AND user_id = ?").bind(folderId, session.user.id)
-    );
-
-    if (textAssetsEnabled) {
-      statements.push(
-        env.DB.prepare("DELETE FROM ai_text_assets WHERE folder_id = ? AND user_id = ?").bind(folderId, session.user.id)
-      );
-    }
-
-    statements.push(
-      env.DB.prepare("DELETE FROM ai_folders WHERE id = ? AND user_id = ?").bind(folderId, session.user.id)
-    );
-
-    await env.DB.batch(statements);
-  } catch (e) {
-    try {
-      await env.DB.prepare(
-        "UPDATE ai_folders SET status = 'active' WHERE id = ? AND user_id = ? AND status = 'deleting'"
-      ).bind(folderId, session.user.id).run();
-    } catch {}
-    const unavailable = String(e).includes("no such table");
     return json(
-      { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Failed to delete folder. Please try again." },
-      { status: unavailable ? 503 : 500 }
+      { ok: false, error: error.message },
+      { status: error.status }
     );
-  }
-
-  const cleanedKeys = [];
-  for (const key of r2Keys) {
-    try {
-      await env.USER_IMAGES.delete(key);
-      cleanedKeys.push(key);
-    } catch {}
-  }
-
-  if (cleanedKeys.length > 0) {
-    try {
-      const ph = cleanedKeys.map(() => "?").join(",");
-      await env.DB.prepare(
-        `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
-      ).bind(...cleanedKeys).run();
-    } catch {}
   }
 
   return json({ ok: true });

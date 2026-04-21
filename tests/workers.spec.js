@@ -5916,6 +5916,62 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
   });
 
+  test('AI text asset delete keeps durable cleanup entries for the file and poster when inline cleanup fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-text-delete', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'abc123ef',
+          user_id: 'artist-text-delete',
+          folder_id: null,
+          r2_key: 'users/artist-text-delete/folders/unsorted/abc123ef.txt',
+          poster_r2_key: 'users/artist-text-delete/derivatives/v1/abc123ef/poster.webp',
+          title: 'Research Notes',
+          file_name: 'research-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 128,
+          preview_text: 'Research notes',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        'users/artist-text-delete/folders/unsorted/abc123ef.txt': {
+          body: new TextEncoder().encode('notes').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+          failDelete: true,
+        },
+        'users/artist-text-delete/derivatives/v1/abc123ef/poster.webp': {
+          body: new TextEncoder().encode('poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+          failDelete: true,
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-text-delete');
+    const deleteRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc123ef', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(deleteRes.status).toBe(200);
+    await expect(deleteRes.json()).resolves.toMatchObject({ ok: true });
+    expect(env.DB.state.aiTextAssets.some((row) => row.id === 'abc123ef')).toBe(false);
+    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
+      'users/artist-text-delete/derivatives/v1/abc123ef/poster.webp',
+      'users/artist-text-delete/folders/unsorted/abc123ef.txt',
+    ]);
+    expect(env.USER_IMAGES.objects.has('users/artist-text-delete/folders/unsorted/abc123ef.txt')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/artist-text-delete/derivatives/v1/abc123ef/poster.webp')).toBe(true);
+  });
+
   test('AI save image enqueues a derivative job after the original and row are persisted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -8172,6 +8228,47 @@ test.describe('Worker routes', () => {
     return { env, response };
   }
 
+  async function runLegacyBulkMoveRequest(imageIds, folderId = 'f01daaab', mutateEnv = null) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createSharedBulkMoveEnv();
+    if (typeof mutateEnv === 'function') {
+      await mutateEnv(env);
+    }
+    const token = await seedSession(env, 'bulk-move-user');
+    const response = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/bulk-move', 'PATCH', {
+        image_ids: imageIds,
+        folder_id: folderId,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    return { env, response };
+  }
+
+  async function runLegacyBulkDeleteRequest(imageIds, mutateEnv = null) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createSharedBulkDeleteEnv();
+    if (typeof mutateEnv === 'function') {
+      await mutateEnv(env);
+    }
+    const token = await seedSession(env, 'bulk-delete-user');
+    const response = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/bulk-delete', 'POST', {
+        image_ids: imageIds,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    return { env, response };
+  }
+
   function createRenameEnv() {
     return createAuthTestEnv({
       users: [createContractUser({ id: 'rename-user', role: 'user' })],
@@ -8384,6 +8481,24 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBeNull();
   });
 
+  test('AI image bulk move uses the shared lifecycle guard for the legacy image-only route', async () => {
+    const { env, response } = await runLegacyBulkMoveRequest(
+      ['1ab100cd'],
+      'f01daaab',
+      (testEnv) => {
+        testEnv.DB.batch = async () => {
+          throw new Error("bad JSON path: '$['");
+        };
+      }
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Move failed. Some images may have been deleted or the folder removed.',
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd').folder_id).toBeNull();
+  });
+
   test('AI assets bulk delete removes one image through the shared route', async () => {
     const { env, response } = await runSharedBulkDeleteRequest(['1ab100cd']);
     expect(response.status).toBe(200);
@@ -8453,6 +8568,35 @@ test.describe('Worker routes', () => {
       error: 'Delete failed. Some assets may have already been removed.',
     });
     expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeTruthy();
+  });
+
+  test('AI image bulk delete keeps durable cleanup entries for original and derivatives through the legacy image-only route', async () => {
+    const { env, response } = await runLegacyBulkDeleteRequest(
+      ['1ab100cd'],
+      (testEnv) => {
+        for (const key of [
+          'users/bulk-delete-user/folders/unsorted/original.png',
+          'users/bulk-delete-user/derivatives/v1/1ab100cd/thumb.webp',
+          'users/bulk-delete-user/derivatives/v1/1ab100cd/medium.webp',
+        ]) {
+          testEnv.USER_IMAGES.failDeleteKeys.add(key);
+        }
+      }
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { deleted: 1 },
+    });
+    expect(env.DB.state.aiImages.find((row) => row.id === '1ab100cd')).toBeUndefined();
+    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
+      'users/bulk-delete-user/derivatives/v1/1ab100cd/medium.webp',
+      'users/bulk-delete-user/derivatives/v1/1ab100cd/thumb.webp',
+      'users/bulk-delete-user/folders/unsorted/original.png',
+    ]);
+    expect(env.USER_IMAGES.objects.has('users/bulk-delete-user/folders/unsorted/original.png')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/bulk-delete-user/derivatives/v1/1ab100cd/thumb.webp')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/bulk-delete-user/derivatives/v1/1ab100cd/medium.webp')).toBe(true);
   });
 
   test('AI folder rename updates only the logical folder name and slug', async () => {
@@ -9322,6 +9466,57 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.has('users/artist-2/folders/unsorted/deadbeef.png')).toBe(true);
   });
 
+  test('AI scheduled cleanup remains idempotent after a partial inline delete failure is retried later', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-2b', role: 'user' })],
+      aiImages: [
+        {
+          id: 'decafbad',
+          user_id: 'artist-2b',
+          folder_id: null,
+          r2_key: 'users/artist-2b/folders/unsorted/decafbad.png',
+          prompt: 'existing image',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: null,
+          created_at: nowIso(),
+        },
+      ],
+      userImages: {
+        'users/artist-2b/folders/unsorted/decafbad.png': {
+          body: new Uint8Array([4, 5, 6]).buffer,
+          httpMetadata: { contentType: 'image/png' },
+          failDelete: true,
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-2b');
+    const deleteRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/decafbad', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(deleteRes.status).toBe(200);
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(1);
+    expect(env.USER_IMAGES.objects.has('users/artist-2b/folders/unsorted/decafbad.png')).toBe(true);
+
+    env.USER_IMAGES.failDeleteKeys.delete('users/artist-2b/folders/unsorted/decafbad.png');
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    expect(env.USER_IMAGES.objects.has('users/artist-2b/folders/unsorted/decafbad.png')).toBe(false);
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    expect(env.USER_IMAGES.objects.has('users/artist-2b/folders/unsorted/decafbad.png')).toBe(false);
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+  });
+
   test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -9377,6 +9572,7 @@ test.describe('Worker routes', () => {
           user_id: 'artist-3',
           folder_id: 'abc123ef',
           r2_key: 'users/artist-3/folders/archive/text/txt33-notes.txt',
+          poster_r2_key: 'users/artist-3/derivatives/v1/txt33/poster.webp',
           title: 'Compare Notes',
           file_name: 'compare-notes.txt',
           source_module: 'compare',
@@ -9403,6 +9599,11 @@ test.describe('Worker routes', () => {
           httpMetadata: { contentType: 'text/plain; charset=utf-8' },
           failDelete: true,
         },
+        'users/artist-3/derivatives/v1/txt33/poster.webp': {
+          body: new TextEncoder().encode('poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+          failDelete: true,
+        },
       },
     });
 
@@ -9422,6 +9623,7 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiImages).toHaveLength(0);
     expect(env.DB.state.aiTextAssets).toHaveLength(0);
     expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
+      'users/artist-3/derivatives/v1/txt33/poster.webp',
       'users/artist-3/folders/archive/aa11.png',
       'users/artist-3/folders/archive/bb22.png',
       'users/artist-3/folders/archive/text/txt33-notes.txt',
@@ -9429,6 +9631,7 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/aa11.png')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/bb22.png')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/artist-3/folders/archive/text/txt33-notes.txt')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/artist-3/derivatives/v1/txt33/poster.webp')).toBe(true);
   });
 
   test('contact worker: accepts allowed origin and rejects forbidden origin', async () => {
@@ -9726,6 +9929,23 @@ test.describe('Worker routes', () => {
           created_at: nowIso(),
         },
       ],
+      aiTextAssets: [
+        {
+          id: 'aa55bb66',
+          user_id: 'feedface',
+          folder_id: 'c0ffee12',
+          r2_key: 'users/feedface/folders/projects/aa55bb66.txt',
+          poster_r2_key: 'users/feedface/derivatives/v1/aa55bb66/poster.webp',
+          title: 'Storyboard',
+          file_name: 'storyboard.txt',
+          source_module: 'text',
+          mime_type: 'text/plain; charset=utf-8',
+          size_bytes: 96,
+          preview_text: 'Storyboard',
+          metadata_json: '{}',
+          created_at: nowIso(),
+        },
+      ],
       aiGenerationLog: [
         {
           id: 'gen-1',
@@ -9747,6 +9967,16 @@ test.describe('Worker routes', () => {
         'users/feedface/folders/projects/ab12cd34.png': {
           body: new Uint8Array([7, 8, 9]).buffer,
           httpMetadata: { contentType: 'image/png' },
+          failDelete: true,
+        },
+        'users/feedface/folders/projects/aa55bb66.txt': {
+          body: new TextEncoder().encode('storyboard').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+          failDelete: true,
+        },
+        'users/feedface/derivatives/v1/aa55bb66/poster.webp': {
+          body: new TextEncoder().encode('poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
           failDelete: true,
         },
       },
@@ -9781,12 +10011,17 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.favorites.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiFolders.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiImages.some((row) => row.user_id === 'feedface')).toBe(false);
+    expect(env.DB.state.aiTextAssets.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.aiGenerationLog.some((row) => row.user_id === 'feedface')).toBe(false);
     expect(env.DB.state.userActivityLog.some((row) => row.user_id === 'feedface')).toBe(true);
-    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key)).toEqual([
+    expect(env.DB.state.r2CleanupQueue.map((row) => row.r2_key).sort()).toEqual([
+      'users/feedface/derivatives/v1/aa55bb66/poster.webp',
+      'users/feedface/folders/projects/aa55bb66.txt',
       'users/feedface/folders/projects/ab12cd34.png',
     ]);
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/ab12cd34.png')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/aa55bb66.txt')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/feedface/derivatives/v1/aa55bb66/poster.webp')).toBe(true);
     expect(env.PRIVATE_MEDIA.objects.has('avatars/feedface')).toBe(false);
     expect(env.DB.state.adminAuditLog.at(-1).action).toBe('delete_user');
   });

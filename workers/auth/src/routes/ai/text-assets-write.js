@@ -1,7 +1,6 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { readJsonBody } from "../../lib/request.js";
-import { nowIso } from "../../lib/tokens.js";
 import { saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import {
@@ -11,6 +10,7 @@ import {
   getRemoteMediaPolicyLogFields,
 } from "../../../../../js/shared/remote-media-policy.mjs";
 import { buildRenamedFileName, hasControlCharacters, isMissingTextAssetTableError } from "./helpers.js";
+import { AiAssetLifecycleError, deleteUserAiTextAsset } from "./lifecycle.js";
 
 const MAX_PROMPT_LENGTH = 1000;
 const MAX_SAVED_FILE_TITLE_LENGTH = 120;
@@ -204,79 +204,20 @@ export async function handleDeleteTextAsset(ctx, assetId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  let row;
   try {
-    row = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?"
-    ).bind(assetId, session.user.id).first();
+    await deleteUserAiTextAsset({
+      env,
+      userId: session.user.id,
+      assetId,
+    });
   } catch (error) {
-    if (isMissingTextAssetTableError(error)) {
-      return json({ ok: false, error: "Text asset service unavailable." }, { status: 503 });
+    if (!(error instanceof AiAssetLifecycleError)) {
+      throw error;
     }
-    throw error;
-  }
-
-  if (!row) {
-    return json({ ok: false, error: "Text asset not found." }, { status: 404 });
-  }
-
-  const ts = nowIso();
-  let batchResults;
-  try {
-    const batchStmts = [
-      env.DB.prepare(
-        `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ?
-         FROM ai_text_assets
-         WHERE id = ? AND user_id = ?`
-      ).bind(ts, assetId, session.user.id),
-    ];
-    if (row.poster_r2_key) {
-      batchStmts.push(
-        env.DB.prepare(
-          "INSERT INTO r2_cleanup_queue (r2_key, status, created_at) VALUES (?, 'pending', ?)"
-        ).bind(row.poster_r2_key, ts)
-      );
-    }
-    batchStmts.push(
-      env.DB.prepare(
-        "DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?"
-      ).bind(assetId, session.user.id)
-    );
-    batchResults = await env.DB.batch(batchStmts);
-  } catch (error) {
-    const unavailable = String(error).includes("no such table");
     return json(
-      {
-        ok: false,
-        error: unavailable ? "Text asset service unavailable. Please try again later." : "Delete failed. Please try again.",
-      },
-      { status: unavailable ? 503 : 500 }
+      { ok: false, error: error.message },
+      { status: error.status }
     );
-  }
-
-  const deleteStmtIndex = row.poster_r2_key ? 2 : 1;
-  const deleted = batchResults[deleteStmtIndex].meta.changes || 0;
-  if (deleted !== 1) {
-    return json(
-      { ok: false, error: "Delete failed. Text asset may have already been removed." },
-      { status: 409 }
-    );
-  }
-
-  try {
-    await env.USER_IMAGES.delete(row.r2_key);
-    if (row.poster_r2_key) {
-      await env.USER_IMAGES.delete(row.poster_r2_key);
-    }
-    const keysToClean = [row.r2_key, row.poster_r2_key].filter(Boolean);
-    for (const key of keysToClean) {
-      await env.DB.prepare(
-        "DELETE FROM r2_cleanup_queue WHERE r2_key = ? AND status = 'pending'"
-      ).bind(key).run();
-    }
-  } catch {
-    // Leave queue entries for scheduled retry.
   }
 
   return json({ ok: true });

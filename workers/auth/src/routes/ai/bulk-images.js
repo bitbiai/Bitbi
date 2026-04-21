@@ -1,8 +1,11 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { readJsonBody } from "../../lib/request.js";
-import { nowIso } from "../../lib/tokens.js";
-import { buildAiImageCleanupQueueInsertSql, listAiImageObjectKeys } from "../../lib/ai-image-derivatives.js";
+import {
+  AiAssetLifecycleError,
+  deleteUserAiImages,
+  moveUserAiImages,
+} from "./lifecycle.js";
 
 export async function handleBulkMove(ctx) {
   const { request, env } = ctx;
@@ -32,48 +35,36 @@ export async function handleBulkMove(ctx) {
   }
 
   if (folderId) {
-    const folder = await env.DB.prepare(
-      "SELECT id FROM ai_folders WHERE id = ? AND user_id = ?"
-    ).bind(folderId, session.user.id).first();
-    if (!folder) {
-      return json({ ok: false, error: "Folder not found." }, { status: 404 });
+    try {
+      const result = await moveUserAiImages({
+        env,
+        userId: session.user.id,
+        imageIds,
+        folderId,
+      });
+      return json({ ok: true, data: { moved: result.moved } });
+    } catch (error) {
+      if (!(error instanceof AiAssetLifecycleError)) {
+        throw error;
+      }
+      return json({ ok: false, error: error.message }, { status: error.status });
     }
   }
 
-  const placeholders = imageIds.map(() => "?").join(",");
-  const check = await env.DB.prepare(
-    `SELECT COUNT(*) AS cnt FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
-  ).bind(...imageIds, session.user.id).first();
-
-  if (!check || check.cnt !== imageIds.length) {
-    return json({ ok: false, error: "One or more images not found." }, { status: 404 });
+  try {
+    const result = await moveUserAiImages({
+      env,
+      userId: session.user.id,
+      imageIds,
+      folderId: null,
+    });
+    return json({ ok: true, data: { moved: result.moved } });
+  } catch (error) {
+    if (!(error instanceof AiAssetLifecycleError)) {
+      throw error;
+    }
+    return json({ ok: false, error: error.message }, { status: error.status });
   }
-
-  const valuesList = imageIds.map(() => "(?)").join(",");
-  if (folderId) {
-    await env.DB.prepare(
-      `WITH requested(id) AS (VALUES ${valuesList})
-       UPDATE ai_images
-       SET folder_id = ?
-       WHERE user_id = ?
-         AND id IN (SELECT id FROM requested)
-         AND (SELECT COUNT(*) FROM requested) =
-             (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))
-         AND EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ?)`
-    ).bind(...imageIds, folderId, session.user.id, session.user.id, folderId, session.user.id).run();
-  } else {
-    await env.DB.prepare(
-      `WITH requested(id) AS (VALUES ${valuesList})
-       UPDATE ai_images
-       SET folder_id = NULL
-       WHERE user_id = ?
-         AND id IN (SELECT id FROM requested)
-         AND (SELECT COUNT(*) FROM requested) =
-             (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
-    ).bind(...imageIds, session.user.id, session.user.id).run();
-  }
-
-  return json({ ok: true, data: { moved: imageIds.length } });
 }
 
 export async function handleBulkDelete(ctx) {
@@ -97,82 +88,17 @@ export async function handleBulkDelete(ctx) {
     }
   }
 
-  const placeholders = imageIds.map(() => "?").join(",");
-  const snapshot = await env.DB.prepare(
-    `SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
-  ).bind(...imageIds, session.user.id).all();
-
-  if (!snapshot.results || snapshot.results.length !== imageIds.length) {
-    return json({ ok: false, error: "One or more images not found." }, { status: 404 });
-  }
-
-  const valuesList = imageIds.map(() => "(?)").join(",");
-  const ts = nowIso();
-
-  let batchResults;
   try {
-    batchResults = await env.DB.batch([
-      env.DB.prepare(
-        `WITH requested(id) AS (VALUES ${valuesList})
-         , matches AS (
-           SELECT r2_key, thumb_key, medium_key
-           FROM ai_images
-           WHERE user_id = ?
-             AND id IN (SELECT id FROM requested)
-             AND (SELECT COUNT(*) FROM requested) =
-                 (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))
-         )
-         INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ? FROM matches
-         UNION ALL
-         SELECT thumb_key, 'pending', ? FROM matches WHERE thumb_key IS NOT NULL
-         UNION ALL
-         SELECT medium_key, 'pending', ? FROM matches WHERE medium_key IS NOT NULL`
-      ).bind(...imageIds, session.user.id, session.user.id, ts, ts, ts),
-
-      env.DB.prepare(
-        `WITH requested(id) AS (VALUES ${valuesList})
-         DELETE FROM ai_images
-         WHERE user_id = ?
-           AND id IN (SELECT id FROM requested)
-           AND (SELECT COUNT(*) FROM requested) =
-               (SELECT COUNT(*) FROM ai_images WHERE user_id = ? AND id IN (SELECT id FROM requested))`
-      ).bind(...imageIds, session.user.id, session.user.id),
-    ]);
-  } catch (e) {
-    console.error("Bulk delete: atomic batch failed", e);
-    const msg = String(e).includes("no such table")
-      ? "Service temporarily unavailable. Please try again later."
-      : "Delete failed. Please try again.";
-    return json({ ok: false, error: msg }, { status: 503 });
+    const result = await deleteUserAiImages({
+      env,
+      userId: session.user.id,
+      imageIds,
+    });
+    return json({ ok: true, data: { deleted: result.deleted } });
+  } catch (error) {
+    if (!(error instanceof AiAssetLifecycleError)) {
+      throw error;
+    }
+    return json({ ok: false, error: error.message }, { status: error.status });
   }
-
-  const deleted = batchResults[1].meta.changes || 0;
-  if (deleted !== imageIds.length) {
-    return json(
-      { ok: false, error: "Delete failed. Some images may have already been removed." },
-      { status: 409 }
-    );
-  }
-
-  const cleanedKeys = [];
-  for (const row of snapshot.results) {
-    try {
-      for (const key of listAiImageObjectKeys(row)) {
-        await env.USER_IMAGES.delete(key);
-        cleanedKeys.push(key);
-      }
-    } catch {}
-  }
-
-  if (cleanedKeys.length > 0) {
-    try {
-      const ph = cleanedKeys.map(() => "?").join(",");
-      await env.DB.prepare(
-        `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
-      ).bind(...cleanedKeys).run();
-    } catch {}
-  }
-
-  return json({ ok: true, data: { deleted } });
 }

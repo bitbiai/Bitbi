@@ -5,13 +5,12 @@ import { addMinutesIso, nowIso, randomTokenHex } from "../../lib/tokens.js";
 import { isSharedRateLimited, rateLimitResponse } from "../../lib/rate-limit.js";
 import {
   AI_IMAGE_DERIVATIVE_VERSION,
-  buildAiImageCleanupQueueInsertSql,
   enqueueAiImageDerivativeJob,
-  listAiImageObjectKeys,
 } from "../../lib/ai-image-derivatives.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
+import { AiAssetLifecycleError, deleteUserAiImage } from "./lifecycle.js";
 
 const { DEFAULT_AI_IMAGE_MODEL, resolveAiImageModel } = aiImageModels;
 
@@ -562,51 +561,20 @@ export async function handleDeleteImage(ctx, imageId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const row = await env.DB.prepare(
-    "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE id = ? AND user_id = ?"
-  ).bind(imageId, session.user.id).first();
-
-  if (!row) {
-    return json({ ok: false, error: "Image not found." }, { status: 404 });
-  }
-
-  const ts = nowIso();
-  let batchResults;
   try {
-    batchResults = await env.DB.batch([
-      env.DB.prepare(
-        buildAiImageCleanupQueueInsertSql("id = ? AND user_id = ?")
-      ).bind(imageId, session.user.id, ts, ts, ts),
-      env.DB.prepare(
-        "DELETE FROM ai_images WHERE id = ? AND user_id = ?"
-      ).bind(imageId, session.user.id),
-    ]);
-  } catch (e) {
-    const unavailable = String(e).includes("no such table");
-    return json(
-      { ok: false, error: unavailable ? "Service temporarily unavailable. Please try again later." : "Delete failed. Please try again." },
-      { status: unavailable ? 503 : 500 }
-    );
-  }
-
-  const deleted = batchResults[1].meta.changes || 0;
-  if (deleted !== 1) {
-    return json(
-      { ok: false, error: "Delete failed. Image may have already been removed." },
-      { status: 409 }
-    );
-  }
-
-  try {
-    const objectKeys = listAiImageObjectKeys(row);
-    for (const key of objectKeys) {
-      await env.USER_IMAGES.delete(key);
+    await deleteUserAiImage({
+      env,
+      userId: session.user.id,
+      imageId,
+    });
+  } catch (error) {
+    if (!(error instanceof AiAssetLifecycleError)) {
+      throw error;
     }
-    const ph = objectKeys.map(() => "?").join(",");
-    await env.DB.prepare(
-      `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${ph}) AND status = 'pending'`
-    ).bind(...objectKeys).run();
-  } catch {}
-
+    return json(
+      { ok: false, error: error.message },
+      { status: error.status }
+    );
+  }
   return json({ ok: true });
 }
