@@ -11,6 +11,12 @@ import {
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  REMOTE_MEDIA_URL_POLICY_CODE,
+  attachRemoteMediaPolicyContext,
+  buildRemoteMediaUrlRejectedMessage,
+  getRemoteMediaPolicyLogFields,
+} from "../../../../js/shared/remote-media-policy.mjs";
 
 const SAVE_TEXT_ASSET_LIMITS = {
   titleMax: 120,
@@ -221,19 +227,6 @@ function optionalHexId(value, field) {
   if (!normalized) return null;
   if (!/^[a-f0-9]+$/.test(normalized)) {
     throw new InputError(`${field} is invalid.`, 400, "validation_error");
-  }
-  return normalized;
-}
-
-function requiredHttpUrl(value, field, maxLength) {
-  const normalized = requiredString(value, field, maxLength);
-  try {
-    const parsed = new URL(normalized);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      throw new Error("invalid_protocol");
-    }
-  } catch {
-    throw new InputError(`${field} must be a valid HTTP(S) URL.`, 400, "validation_error");
   }
   return normalized;
 }
@@ -507,56 +500,27 @@ function validateSavedMusicData(data) {
 
 function validateSavedVideoData(data) {
   const input = ensurePlainObject(data, "data");
-  const result = {
-    videoUrl: requiredHttpUrl(input.videoUrl, "data.videoUrl", 2048),
-    prompt: optionalString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
-    model: optionalModelSummary(input.model, "data.model"),
-    duration: optionalInteger(
-      input.duration,
-      "data.duration",
-      LIMITS.video.minDuration,
-      LIMITS.video.maxDuration,
-      null
+  const candidateUrl =
+    typeof input.videoUrl === "string" && input.videoUrl.trim()
+      ? input.videoUrl.trim()
+      : null;
+
+  const error = attachRemoteMediaPolicyContext(
+    new InputError(
+      buildRemoteMediaUrlRejectedMessage(
+        "data.videoUrl",
+        "Download the generated video in the browser until a trusted Bitbi video-ingest contract exists."
+      ),
+      400,
+      REMOTE_MEDIA_URL_POLICY_CODE
     ),
-    aspect_ratio: optionalEnum(
-      input.aspect_ratio,
-      "data.aspect_ratio",
-      LIMITS.video.allowedAspectRatios,
-      null
-    ),
-    quality: optionalEnum(
-      input.quality,
-      "data.quality",
-      LIMITS.video.allowedQualities,
-      null
-    ),
-    resolution: optionalEnum(
-      input.resolution,
-      "data.resolution",
-      LIMITS.video.allowedResolutions,
-      null
-    ),
-    seed: optionalInteger(input.seed, "data.seed", 0, LIMITS.video.maxSeed, null),
-    generate_audio: optionalBoolean(input.generate_audio, "data.generate_audio", null),
-    hasImageInput: optionalBoolean(input.hasImageInput, "data.hasImageInput", null),
-    hasEndImageInput: optionalBoolean(input.hasEndImageInput, "data.hasEndImageInput", null),
-    workflow: optionalEnum(
-      input.workflow,
-      "data.workflow",
-      ["text_to_video", "image_to_video", "start_end_to_video"],
-      null
-    ),
-    warnings: optionalWarnings(input.warnings),
-    elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
-    receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),
-  };
-  if (typeof input.posterBase64 === "string" && input.posterBase64.length > 0) {
-    if (input.posterBase64.length > 2_800_000) {
-      throw new InputError("data.posterBase64 exceeds the 2 MB limit.", 400, "validation_error");
+    candidateUrl,
+    {
+      field: "data.videoUrl",
+      reason: "remote_video_save_url_rejected",
     }
-    result.posterBase64 = input.posterBase64;
-  }
-  return result;
+  );
+  throw error;
 }
 
 function validateSaveTextAssetPayload(body) {
@@ -628,7 +592,21 @@ export async function handleAdminAiSaveTextAssetRequest({
     });
     return withCorrelationId(json({ ok: true, data: saved }, { status: 201 }), correlationId);
   } catch (error) {
-    if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+    if (error instanceof InputError) {
+      if (error.code === REMOTE_MEDIA_URL_POLICY_CODE) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "admin-ai-save-text-asset",
+          event: "admin_ai_text_asset_rejected_remote_url",
+          level: "warn",
+          correlationId,
+          admin_user_id: adminUserId,
+          source_module: body?.sourceModule || null,
+          ...getRemoteMediaPolicyLogFields(error),
+        });
+      }
+      return inputErrorResponse(error, correlationId);
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "admin-ai-save-text-asset",

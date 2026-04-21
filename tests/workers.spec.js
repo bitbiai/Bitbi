@@ -2886,6 +2886,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro start/end-frame workflows without sending unsupported fields', async () => {
+      const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==';
       let capturedPayload = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
         aiRun: async (_modelId, payload) => {
@@ -2897,8 +2898,8 @@ test.describe('Worker routes', () => {
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-video', 'POST', {
           model: 'vidu/q3-pro',
-          start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
-          end_image: 'https://cdn.example.com/frame/end.png',
+          start_image: dataUri,
+          end_image: dataUri,
           duration: 6,
           resolution: '720p',
           audio: true,
@@ -2922,8 +2923,8 @@ test.describe('Worker routes', () => {
         workflow: 'start_end_to_video',
       }));
       expect(capturedPayload).toEqual({
-        start_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==',
-        end_image: 'https://cdn.example.com/frame/end.png',
+        start_image: dataUri,
+        end_image: dataUri,
         duration: 6,
         resolution: '720p',
         audio: true,
@@ -2936,6 +2937,29 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.generate_audio).toBeUndefined();
       expect(capturedPayload.image_input).toBeUndefined();
       expect(capturedPayload.workflow).toBeUndefined();
+    });
+
+    test('POST /api/admin/ai/test-video rejects vidu/q3-pro remote frame URLs', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'vidu/q3-pro',
+          start_image: 'https://cdn.example.com/frame/start.png?token=abc',
+          duration: 6,
+          resolution: '720p',
+          audio: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+        error: expect.stringContaining('start_image cannot be a remote URL'),
+      }));
     });
 
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro image-to-video (start_image only) without sending Pixverse fields', async () => {
@@ -2998,12 +3022,13 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-video rejects vidu/q3-pro end_image without start_image', async () => {
+      const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==';
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-video', 'POST', {
           model: 'vidu/q3-pro',
-          end_image: 'https://cdn.example.com/frame/end.png',
+          end_image: dataUri,
           duration: 5,
           resolution: '720p',
         }, authHeaders),
@@ -3724,7 +3749,7 @@ test.describe('Worker routes', () => {
             model: 'vidu/q3-pro',
             prompt: 'Blend these frames together.',
             start_image: dataUri,
-            end_image: 'https://cdn.example.com/frame/end.png',
+            end_image: dataUri,
             duration: 6,
             resolution: '720p',
             audio: false,
@@ -3753,7 +3778,7 @@ test.describe('Worker routes', () => {
           audio: false,
           images: [
             dataUri,
-            'https://cdn.example.com/frame/end.png',
+            dataUri,
           ],
         });
         expect(capturedCreateBody.start_image).toBeUndefined();
@@ -3915,24 +3940,16 @@ test.describe('Worker routes', () => {
       }));
     });
 
-    test('POST /api/admin/ai/proxy-video streams video bytes from the upstream URL', async () => {
+    test('POST /api/admin/ai/proxy-video is hard-disabled and never fetches the supplied URL', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const env = createAuthTestEnv({
         users: [createAdminUser('admin-proxy-video')],
       });
 
-      const fakeVideoBytes = new Uint8Array([
-        0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
-        0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
-      ]);
       const originalFetch = global.fetch;
+      let fetchCount = 0;
       global.fetch = async (url, opts) => {
-        if (typeof url === 'string' && url.startsWith('https://cdn.vidu.example.com/')) {
-          return new Response(fakeVideoBytes, {
-            status: 200,
-            headers: { 'content-type': 'video/mp4' },
-          });
-        }
+        fetchCount += 1;
         return originalFetch(url, opts);
       };
 
@@ -3950,57 +3967,19 @@ test.describe('Worker routes', () => {
           createExecutionContext().execCtx
         );
 
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toBe('video/mp4');
-        expect(res.headers.get('cache-control')).toBe('no-store');
-        const body = new Uint8Array(await res.arrayBuffer());
-        expect(body).toEqual(fakeVideoBytes);
+        expect(res.status).toBe(410);
+        await expect(res.json()).resolves.toEqual(expect.objectContaining({
+          ok: false,
+          code: 'remote_url_not_allowed',
+          error: expect.stringContaining('admin remote video proxy is disabled'),
+        }));
+        expect(fetchCount).toBe(0);
       } finally {
         global.fetch = originalFetch;
       }
     });
 
-    test('POST /api/admin/ai/proxy-video rejects non-video content types', async () => {
-      const authWorker = await loadWorker('workers/auth/src/index.js');
-      const env = createAuthTestEnv({
-        users: [createAdminUser('admin-proxy-nonvideo')],
-      });
-
-      const originalFetch = global.fetch;
-      global.fetch = async (url, opts) => {
-        if (typeof url === 'string' && url.startsWith('https://bad.example.com/')) {
-          return new Response('<html></html>', {
-            status: 200,
-            headers: { 'content-type': 'text/html' },
-          });
-        }
-        return originalFetch(url, opts);
-      };
-
-      try {
-        const token = await seedSession(env, 'admin-proxy-nonvideo');
-        const res = await authWorker.fetch(
-          authJsonRequest('/api/admin/ai/proxy-video', 'POST', {
-            url: 'https://bad.example.com/page.html',
-          }, {
-            Origin: 'https://bitbi.ai',
-            Cookie: `bitbi_session=${token}`,
-            'CF-Connecting-IP': '203.0.113.81',
-          }),
-          env,
-          createExecutionContext().execCtx
-        );
-
-        expect(res.status).toBe(422);
-        const body = await res.json();
-        expect(body.ok).toBe(false);
-        expect(body.error).toContain('video content');
-      } finally {
-        global.fetch = originalFetch;
-      }
-    });
-
-    test('POST /api/admin/ai/proxy-video rejects missing URL field', async () => {
+    test('POST /api/admin/ai/proxy-video still returns the disabled policy when url is missing', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const env = createAuthTestEnv({
         users: [createAdminUser('admin-proxy-nourl')],
@@ -4017,10 +3996,11 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
 
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.ok).toBe(false);
-      expect(body.error).toContain('url is required');
+      expect(res.status).toBe(410);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+      }));
     });
 
     test('POST /api/admin/ai/proxy-video rejects unauthenticated requests', async () => {
@@ -6111,34 +6091,16 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('admin AI save-text-asset downloads MP4 video output into the video subdirectory', async () => {
+  test('admin AI save-text-asset rejects remote video save requests before any fetch occurs', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createAdminUser('admin-save-video')],
-      aiFolders: [
-        {
-          id: 'feed7788',
-          user_id: 'admin-save-video',
-          name: 'Clips',
-          slug: 'clips',
-          status: 'active',
-          created_at: nowIso(),
-        },
-      ],
     });
 
-    const fakeVideoBytes = new Uint8Array([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
-      0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
-    ]);
     const originalFetch = global.fetch;
+    let fetchCount = 0;
     global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        return new Response(fakeVideoBytes, {
-          status: 200,
-          headers: { 'content-type': 'video/mp4' },
-        });
-      }
+      fetchCount += 1;
       return originalFetch(url, opts);
     };
 
@@ -6147,7 +6109,6 @@ test.describe('Worker routes', () => {
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
           title: 'Family Walk',
-          folderId: 'feed7788',
           sourceModule: 'video',
           data: {
             videoUrl: 'https://cdn.example.com/video/family-walk.mp4',
@@ -6172,125 +6133,82 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
 
-      expect(res.status).toBe(201);
-      await expect(res.json()).resolves.toMatchObject({
-        ok: true,
-        data: {
-          folder_id: 'feed7788',
-          source_module: 'video',
-          mime_type: 'video/mp4',
-          file_name: expect.stringMatching(/\.mp4$/),
-        },
-      });
-
-      expect(env.DB.state.aiTextAssets).toHaveLength(1);
-      const row = env.DB.state.aiTextAssets[0];
-      expect(row.folder_id).toBe('feed7788');
-      expect(row.source_module).toBe('video');
-      expect(row.mime_type).toBe('video/mp4');
-      expect(row.r2_key).toContain('/video/');
-      expect(row.r2_key).toMatch(/\.mp4$/);
-
-      const metadata = JSON.parse(row.metadata_json);
-      expect(metadata.prompt).toBe('A family walking through a sunlit park.');
-      expect(metadata.upstream_url).toBe('https://cdn.example.com/video/family-walk.mp4');
-      expect(metadata.mime_type).toBe('video/mp4');
-      expect(metadata.size_bytes).toBe(fakeVideoBytes.byteLength);
-
-      expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
-      const object = env.USER_IMAGES.objects.get(row.r2_key);
-      expect(object.httpMetadata.contentType).toBe('video/mp4');
-      expect(object.size).toBe(fakeVideoBytes.byteLength);
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+        error: expect.stringContaining('data.videoUrl cannot be a remote URL'),
+      }));
+      expect(fetchCount).toBe(0);
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.size).toBe(0);
     } finally {
       global.fetch = originalFetch;
     }
   });
 
-  test('admin AI save-text-asset preserves vidu/q3-pro resolution and workflow metadata through the video pipeline', async () => {
+  test('admin AI save-text-asset rejects remote video URLs before any oversized or wrong-type download can start', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-vidu-video')],
+      users: [createAdminUser('admin-save-video-nofetch')],
     });
 
-    const fakeVideoBytes = new Uint8Array([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
-      0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
-    ]);
     const originalFetch = global.fetch;
-    global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        return new Response(fakeVideoBytes, {
-          status: 200,
-          headers: { 'content-type': 'video/mp4' },
-        });
-      }
-      return originalFetch(url, opts);
+    let fetchCount = 0;
+    global.fetch = async () => {
+      fetchCount += 1;
+      return new Response('not a video', {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain',
+          'content-length': String(100_000_000),
+        },
+      });
     };
 
     try {
-      const token = await seedSession(env, 'admin-save-vidu-video');
+      const token = await seedSession(env, 'admin-save-video-nofetch');
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-          title: 'Frame Blend',
+          title: 'Unreachable Upstream',
           sourceModule: 'video',
           data: {
-            videoUrl: 'https://cdn.example.com/video/frame-blend.mp4',
-            prompt: null,
-            model: { id: 'vidu/q3-pro', label: 'Vidu Q3 Pro', vendor: 'Vidu' },
-            duration: 6,
-            resolution: '1080p',
-            generate_audio: false,
-            hasImageInput: true,
-            hasEndImageInput: true,
-            workflow: 'start_end_to_video',
-            warnings: ['Mock Vidu warning'],
-            elapsedMs: 912,
-            receivedAt: nowIso(),
+            videoUrl: 'https://cdn.example.com/video/oversized.mp4',
           },
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
-          'CF-Connecting-IP': '203.0.113.52',
+          'CF-Connecting-IP': '203.0.113.41',
         }),
         env,
         createExecutionContext().execCtx
       );
 
-      expect(res.status).toBe(201);
-      await expect(res.json()).resolves.toMatchObject({
-        ok: true,
-        data: {
-          source_module: 'video',
-          mime_type: 'video/mp4',
-        },
-      });
-
-      expect(env.DB.state.aiTextAssets).toHaveLength(1);
-      const metadata = JSON.parse(env.DB.state.aiTextAssets[0].metadata_json);
-      expect(metadata.prompt).toBeNull();
-      expect(metadata.resolution).toBe('1080p');
-      expect(metadata.workflow).toBe('start_end_to_video');
-      expect(metadata.has_image_input).toBe(true);
-      expect(metadata.has_end_image_input).toBe(true);
-      expect(metadata.generate_audio).toBe(false);
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+      }));
+      expect(fetchCount).toBe(0);
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
     } finally {
       global.fetch = originalFetch;
     }
   });
 
-  test('admin AI save-text-asset rejects video saves with a missing upstream URL', async () => {
+  test('admin AI save-text-asset rejects video saves even when the remote URL targets localhost-style infrastructure', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-video-missing')],
+      users: [createAdminUser('admin-save-video-localhost')],
     });
 
-    const token = await seedSession(env, 'admin-save-video-missing');
+    const token = await seedSession(env, 'admin-save-video-localhost');
     const res = await authWorker.fetch(
       authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-        title: 'Broken Video Save',
+        title: 'Loopback Video',
         sourceModule: 'video',
         data: {
-          prompt: 'Missing video URL.',
+          videoUrl: 'https://127.0.0.1/internal/video.mp4',
         },
       }, {
         Origin: 'https://bitbi.ai',
@@ -6304,200 +6222,10 @@ test.describe('Worker routes', () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual(expect.objectContaining({
       ok: false,
-      code: 'validation_error',
-      error: expect.stringContaining('videoUrl'),
+      code: 'remote_url_not_allowed',
+      error: expect.stringContaining('data.videoUrl cannot be a remote URL'),
     }));
-  });
-
-  test('admin AI save-text-asset rejects upstream video responses with non-video content types', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-video-badtype')],
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        return new Response('not a video', {
-          status: 200,
-          headers: { 'content-type': 'text/plain' },
-        });
-      }
-      return originalFetch(url, opts);
-    };
-
-    try {
-      const token = await seedSession(env, 'admin-save-video-badtype');
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-          title: 'Bad Type',
-          sourceModule: 'video',
-          data: {
-            videoUrl: 'https://cdn.example.com/video/bad-type.mp4',
-            prompt: 'Bad upstream content type.',
-          },
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-          'CF-Connecting-IP': '203.0.113.43',
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(422);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
-        ok: false,
-        code: 'validation_error',
-        error: expect.stringContaining('unexpected content-type'),
-      }));
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  test('admin AI save-text-asset surfaces upstream video download failures', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-video-upstream')],
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        throw new Error('network down');
-      }
-      return originalFetch(url, opts);
-    };
-
-    try {
-      const token = await seedSession(env, 'admin-save-video-upstream');
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-          title: 'Fetch Failure',
-          sourceModule: 'video',
-          data: {
-            videoUrl: 'https://cdn.example.com/video/fetch-failure.mp4',
-            prompt: 'Fetch failure.',
-          },
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-          'CF-Connecting-IP': '203.0.113.44',
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(502);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
-        ok: false,
-        code: 'upstream_fetch_error',
-        error: 'Failed to download video from the provided URL.',
-      }));
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  test('admin AI save-text-asset rejects empty downloaded video payloads', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-video-empty')],
-    });
-
-    const originalFetch = global.fetch;
-    global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        return new Response(new Uint8Array(0), {
-          status: 200,
-          headers: { 'content-type': 'video/mp4' },
-        });
-      }
-      return originalFetch(url, opts);
-    };
-
-    try {
-      const token = await seedSession(env, 'admin-save-video-empty');
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-          title: 'Empty Video',
-          sourceModule: 'video',
-          data: {
-            videoUrl: 'https://cdn.example.com/video/empty.mp4',
-            prompt: 'Empty payload.',
-          },
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-          'CF-Connecting-IP': '203.0.113.45',
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(400);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
-        ok: false,
-        code: 'validation_error',
-        error: 'Video payload is empty.',
-      }));
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  test('admin AI save-text-asset surfaces R2 write failures for video saves', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createAdminUser('admin-save-video-r2')],
-    });
-
-    const originalFetch = global.fetch;
-    const originalPut = env.USER_IMAGES.put.bind(env.USER_IMAGES);
-    global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://cdn.example.com/video/')) {
-        return new Response(new Uint8Array([0, 1, 2, 3]), {
-          status: 200,
-          headers: { 'content-type': 'video/mp4' },
-        });
-      }
-      return originalFetch(url, opts);
-    };
-    env.USER_IMAGES.put = async (...args) => {
-      throw new Error('R2 unavailable');
-    };
-
-    try {
-      const token = await seedSession(env, 'admin-save-video-r2');
-      const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
-          title: 'Video R2 Failure',
-          sourceModule: 'video',
-          data: {
-            videoUrl: 'https://cdn.example.com/video/r2-failure.mp4',
-            prompt: 'R2 failure.',
-          },
-        }, {
-          Origin: 'https://bitbi.ai',
-          Cookie: `bitbi_session=${token}`,
-          'CF-Connecting-IP': '203.0.113.46',
-        }),
-        env,
-        createExecutionContext().execCtx
-      );
-
-      expect(res.status).toBe(500);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
-        ok: false,
-        code: 'storage_error',
-        error: 'Failed to store video asset.',
-      }));
-      expect(env.DB.state.aiTextAssets).toHaveLength(0);
-    } finally {
-      env.USER_IMAGES.put = originalPut;
-      global.fetch = originalFetch;
-    }
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
   });
 
   test('admin AI save-text-asset saves music output as a binary MP3 in the audio subdirectory', async () => {
@@ -6873,31 +6601,16 @@ test.describe('Worker routes', () => {
     expect(json.ok).toBe(false);
   });
 
-  test('member audio save via audioUrl fetches server-side and stores MP3 in R2', async () => {
+  test('member audio save rejects remote audioUrl payloads before any fetch occurs', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'member-audio-url', role: 'user' })],
-      aiFolders: [
-        {
-          id: 'af00e001',
-          user_id: 'member-audio-url',
-          name: 'URL Music',
-          slug: 'url-music',
-          status: 'active',
-          created_at: nowIso(),
-        },
-      ],
     });
 
-    const fakeAudioBytes = new Uint8Array([0xff, 0xfb, 0x90, 0x00, 0x01, 0x02, 0x03]);
     const originalFetch = global.fetch;
+    let fetchCount = 0;
     global.fetch = async (url, opts) => {
-      if (typeof url === 'string' && url.startsWith('https://oss.example.com/')) {
-        return new Response(fakeAudioBytes, {
-          status: 200,
-          headers: { 'content-type': 'audio/mpeg' },
-        });
-      }
+      fetchCount += 1;
       return originalFetch(url, opts);
     };
 
@@ -6908,8 +6621,6 @@ test.describe('Worker routes', () => {
           title: 'URL-based Track',
           audioUrl: 'https://oss.example.com/music/track.mp3',
           mimeType: 'audio/mpeg',
-          prompt: 'A chill beat',
-          folder_id: 'af00e001',
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
@@ -6919,33 +6630,60 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
 
-      const json = await res.json();
-      expect(json).toMatchObject({ ok: true });
-      expect(res.status).toBe(201);
-      expect(json.data).toMatchObject({
-          folder_id: 'af00e001',
-          source_module: 'music',
-          mime_type: 'audio/mpeg',
-          file_name: expect.stringMatching(/\.mp3$/),
-      });
-
-      expect(env.DB.state.aiTextAssets).toHaveLength(1);
-      const row = env.DB.state.aiTextAssets[0];
-      expect(row.user_id).toBe('member-audio-url');
-      expect(row.source_module).toBe('music');
-      expect(row.r2_key).toContain('/audio/');
-
-      const stored = env.USER_IMAGES.objects.get(row.r2_key);
-      expect(stored).toBeDefined();
-      expect(stored.httpMetadata.contentType).toBe('audio/mpeg');
-      /* Verify the stored size matches the fetched payload */
-      expect(stored.size).toBe(fakeAudioBytes.byteLength);
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+        error: expect.stringContaining('audioUrl cannot be a remote URL'),
+      }));
+      expect(fetchCount).toBe(0);
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.size).toBe(0);
     } finally {
       global.fetch = originalFetch;
     }
   });
 
-  test('member audio save via audioUrl rejects non-HTTP URLs', async () => {
+  test('member audio save does not follow redirecting remote URLs because remote fetch is disabled', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-redirect', role: 'user' })],
+    });
+
+    const originalFetch = global.fetch;
+    let fetchCount = 0;
+    global.fetch = async () => {
+      fetchCount += 1;
+      return Response.redirect('https://127.0.0.1/internal/audio.mp3', 302);
+    };
+
+    try {
+      const token = await seedSession(env, 'member-audio-redirect');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Redirect Audio',
+          audioUrl: 'https://cdn.example.com/music.mp3',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.60',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+      }));
+      expect(fetchCount).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('member audio save rejects non-HTTPS schemes in audioUrl payloads', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'member-audio-badurl', role: 'user' })],
@@ -6966,9 +6704,69 @@ test.describe('Worker routes', () => {
     );
 
     expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
-    expect(json.error).toMatch(/HTTP/i);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'remote_url_not_allowed',
+      error: expect.stringContaining('audioUrl cannot be a remote URL'),
+    }));
+  });
+
+  test('member audio save rejects insecure http audioUrl payloads', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-httpurl', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-httpurl');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'Insecure URL',
+        audioUrl: 'http://cdn.example.com/music.mp3',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.62',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'remote_url_not_allowed',
+      error: expect.stringContaining('audioUrl cannot be a remote URL'),
+    }));
+  });
+
+  test('member audio save rejects private and localhost-style remote targets', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-privateurl', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'member-audio-privateurl');
+    for (const audioUrl of ['https://localhost/music.mp3', 'https://10.0.0.15:8443/music.mp3']) {
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Private URL',
+          audioUrl,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.63',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'remote_url_not_allowed',
+        error: expect.stringContaining('audioUrl cannot be a remote URL'),
+      }));
+    }
   });
 
   test('AI assets route returns mixed image, text, sound, and video assets from the shared folder world', async () => {

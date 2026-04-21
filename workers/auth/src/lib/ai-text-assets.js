@@ -1,6 +1,11 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
 import { logDiagnostic, getErrorFields } from "../../../../js/shared/worker-observability.mjs";
+import {
+  REMOTE_MEDIA_URL_POLICY_CODE,
+  attachRemoteMediaPolicyContext,
+  buildRemoteMediaUrlRejectedMessage,
+} from "../../../../js/shared/remote-media-policy.mjs";
 
 export const AI_TEXT_ASSET_MIME_TYPE = "text/plain; charset=utf-8";
 export const AI_TEXT_ASSET_MAX_BYTES = 220_000;
@@ -405,34 +410,24 @@ async function buildMusicAssetFields(safeTitle, payload, now) {
   if (payload.audioBase64) {
     bytes = Uint8Array.from(atob(payload.audioBase64), (ch) => ch.charCodeAt(0));
   } else if (payload.audioUrl) {
-    let res;
-    try {
-      res = await fetch(payload.audioUrl, { redirect: "follow" });
-    } catch (fetchErr) {
-      const error = new Error("Failed to fetch audio from the provided URL.");
-      error.status = 502;
-      error.code = "upstream_fetch_error";
-      throw error;
-    }
-    if (!res.ok) {
-      const error = new Error(`Audio URL returned HTTP ${res.status}.`);
-      error.status = 502;
-      error.code = "upstream_fetch_error";
-      throw error;
-    }
-    const contentType = res.headers.get("content-type") || "";
-    if (contentType && !contentType.startsWith("audio/") && !contentType.startsWith("application/octet-stream")) {
-      const error = new Error(`Audio URL returned unexpected content-type: ${contentType}`);
-      error.status = 422;
-      error.code = "validation_error";
-      throw error;
-    }
-    if (contentType && contentType.startsWith("audio/")) {
-      mimeType = contentType.split(";")[0].trim();
-    }
-    bytes = new Uint8Array(await res.arrayBuffer());
+    const error = attachRemoteMediaPolicyContext(
+      new Error(
+        buildRemoteMediaUrlRejectedMessage(
+          "audioUrl",
+          "Submit inline audio bytes via audioBase64 instead."
+        )
+      ),
+      payload.audioUrl,
+      {
+        field: "audioUrl",
+        reason: "remote_audio_save_url_rejected",
+      }
+    );
+    error.status = 400;
+    error.code = REMOTE_MEDIA_URL_POLICY_CODE;
+    throw error;
   } else {
-    const error = new Error("Either audioBase64 or audioUrl is required.");
+    const error = new Error("audioBase64 is required.");
     error.status = 400;
     error.code = "validation_error";
     throw error;
@@ -458,78 +453,22 @@ async function buildMusicAssetFields(safeTitle, payload, now) {
 }
 
 async function buildVideoAssetFields(safeTitle, payload, now) {
-  let res;
-  try {
-    res = await fetch(payload.videoUrl, { redirect: "follow" });
-  } catch {
-    const error = new Error("Failed to download video from the provided URL.");
-    error.status = 502;
-    error.code = "upstream_fetch_error";
-    throw error;
-  }
-
-  if (!res.ok) {
-    const error = new Error(`Video URL returned HTTP ${res.status}.`);
-    error.status = 502;
-    error.code = "upstream_fetch_error";
-    throw error;
-  }
-
-  const contentType = res.headers.get("content-type") || "";
-  const mimeType = resolveFetchedVideoMimeType(contentType, payload.videoUrl, res.url);
-  if (!mimeType) {
-    const error = new Error(
-      `Video URL returned unexpected content-type: ${contentType || "missing"}.`
-    );
-    error.status = 422;
-    error.code = "validation_error";
-    throw error;
-  }
-
-  const contentLength = Number(res.headers.get("content-length") || 0);
-  if (Number.isFinite(contentLength) && contentLength > AI_VIDEO_ASSET_MAX_BYTES) {
-    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
-    error.status = 400;
-    error.code = "validation_error";
-    throw error;
-  }
-
-  let bytes;
-  try {
-    bytes = new Uint8Array(await res.arrayBuffer());
-  } catch {
-    const error = new Error("Failed to read downloaded video bytes.");
-    error.status = 502;
-    error.code = "upstream_fetch_error";
-    throw error;
-  }
-
-  if (bytes.byteLength > AI_VIDEO_ASSET_MAX_BYTES) {
-    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
-    error.status = 400;
-    error.code = "validation_error";
-    throw error;
-  }
-  if (bytes.byteLength === 0) {
-    const error = new Error("Video payload is empty.");
-    error.status = 400;
-    error.code = "validation_error";
-    throw error;
-  }
-
-  const previewText = truncatePreview(payload.prompt || safeTitle || "Video generation");
-  const metadata = buildVideoMetadata(payload, now, {
-    mimeType,
-    sizeBytes: bytes.byteLength,
-  });
-
-  return {
-    bytes,
-    mimeType,
-    ext: "mp4",
-    previewText,
-    metadata,
-  };
+  const error = attachRemoteMediaPolicyContext(
+    new Error(
+      buildRemoteMediaUrlRejectedMessage(
+        "data.videoUrl",
+        "Download the provider result in the browser until a trusted Bitbi video-ingest contract exists."
+      )
+    ),
+    payload?.videoUrl,
+    {
+      field: "data.videoUrl",
+      reason: "remote_video_save_url_rejected",
+    }
+  );
+  error.status = 400;
+  error.code = REMOTE_MEDIA_URL_POLICY_CODE;
+  throw error;
 }
 
 export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {

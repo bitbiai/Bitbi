@@ -1,3 +1,9 @@
+import {
+  REMOTE_MEDIA_URL_POLICY_CODE,
+  attachRemoteMediaPolicyContext,
+  buildRemoteMediaUrlRejectedMessage,
+} from "./remote-media-policy.mjs";
+
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
     super(message);
@@ -676,7 +682,7 @@ function assertOnlyAllowedFields(input, allowedFields, modelId) {
   );
 }
 
-function optionalVideoImageReference(value, field, { allowRemoteUrl = false } = {}) {
+function optionalVideoImageReference(value, field) {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") {
     throw new AdminAiValidationError(`${field} must be a string.`, 400, "validation_error");
@@ -702,19 +708,26 @@ function optionalVideoImageReference(value, field, { allowRemoteUrl = false } = 
     return trimmed;
   }
 
-  if (allowRemoteUrl && /^https?:\/\//i.test(trimmed)) {
-    if (trimmed.length > ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength) {
-      throw new AdminAiValidationError(
-        `${field} must be at most ${ADMIN_AI_LIMITS.video.maxRemoteImageUrlLength} characters.`,
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(trimmed)) {
+    throw attachRemoteMediaPolicyContext(
+      new AdminAiValidationError(
+        buildRemoteMediaUrlRejectedMessage(
+          field,
+          "Upload the source frame as a data URI image instead."
+        ),
         400,
-        "validation_error"
-      );
-    }
-    return trimmed;
+        REMOTE_MEDIA_URL_POLICY_CODE
+      ),
+      trimmed,
+      {
+        field,
+        reason: "remote_video_input_url_rejected",
+      }
+    );
   }
 
   throw new AdminAiValidationError(
-    `${field} must be a data URI image${allowRemoteUrl ? " or a public http(s) URL" : ""}.`,
+    `${field} must be a data URI image.`,
     400,
     "validation_error"
   );
@@ -1143,12 +1156,8 @@ export function validateAdminAiVideoBody(body) {
     );
 
     const prompt = optionalString(input.prompt, "prompt", selectedModel.maxPromptLength);
-    const start_image = optionalVideoImageReference(input.start_image, "start_image", {
-      allowRemoteUrl: true,
-    });
-    const end_image = optionalVideoImageReference(input.end_image, "end_image", {
-      allowRemoteUrl: true,
-    });
+    const start_image = optionalVideoImageReference(input.start_image, "start_image");
+    const end_image = optionalVideoImageReference(input.end_image, "end_image");
     const duration = optionalInteger(
       input.duration,
       "duration",

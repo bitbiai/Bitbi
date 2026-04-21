@@ -3761,6 +3761,10 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiMusicRun').click();
 
     await expect(page.locator('#aiMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#aiMusicSave')).toBeHidden();
+    await expect(page.locator('#aiMusicPreview')).toContainText(
+      'Server-side save is disabled for security',
+    );
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
     await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Hold the light inside the circuit');
     expect(musicRequests[0]).toEqual(expect.objectContaining({
@@ -4017,15 +4021,12 @@ test.describe('Admin AI Lab', () => {
     await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoPrompt').fill('Save this video output');
     await page.locator('#aiVideoRun').click();
-    await expect(page.locator('#aiVideoSave')).toBeVisible();
-    await page.locator('#aiVideoSave').click();
-    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
-    await page.locator('#aiLabSaveInput').fill('Video Save');
-    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
-    await page.locator('#aiLabSaveConfirm').click();
-    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+    await expect(page.locator('#aiVideoSave')).toBeHidden();
+    await expect(page.locator('#aiVideoPreview')).toContainText(
+      'Server-side save is disabled for security',
+    );
 
-    expect(saveTextAssetRequests).toHaveLength(5);
+    expect(saveTextAssetRequests).toHaveLength(4);
     expect(saveTextAssetRequests[0]).toEqual(expect.objectContaining({
       sourceModule: 'text',
       folderId: 'folder-launches',
@@ -4064,22 +4065,9 @@ test.describe('Admin AI Lab', () => {
       folderId: 'folder-research',
     }));
     expect(saveTextAssetRequests[3].data.transcript.length).toBeGreaterThanOrEqual(2);
-    expect(saveTextAssetRequests[4]).toEqual(expect.objectContaining({
-      title: 'Video Save',
-      sourceModule: 'video',
-      folderId: 'folder-launches',
-    }));
-    expect(saveTextAssetRequests[4].data).toEqual(expect.objectContaining({
-      videoUrl: 'https://example.com/generated-video.mp4',
-      prompt: 'Save this video output',
-      duration: 5,
-      aspect_ratio: '16:9',
-      quality: '720p',
-      generate_audio: true,
-      hasImageInput: false,
-    }));
-
-    await expect(page.locator('#aiLabStatus')).toContainText('Video asset saved to the shared folder structure.');
+    await expect(page.locator('#aiVideoPreview')).toContainText(
+      'Server-side save is disabled for security',
+    );
   });
 
   test('reuses the existing image save flow for AI Lab image results', async ({

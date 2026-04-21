@@ -12,7 +12,13 @@ import {
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
 } from "../../../../js/shared/admin-ai-contract.mjs";
-import { withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
+import { logDiagnostic, withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
+import {
+  REMOTE_MEDIA_URL_POLICY_CODE,
+  attachRemoteMediaPolicyContext,
+  buildRemoteMediaUrlRejectedMessage,
+  getRemoteMediaPolicyLogFields,
+} from "../../../../js/shared/remote-media-policy.mjs";
 import {
   proxyLiveAgentToAiLab,
   proxyToAiLab,
@@ -86,7 +92,20 @@ export async function handleAdminAI(ctx) {
         correlationId
       );
     } catch (error) {
-      if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof InputError) {
+        if (error.code === REMOTE_MEDIA_URL_POLICY_CODE) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "admin-ai-video",
+            event: "admin_ai_video_rejected_remote_url",
+            level: "warn",
+            correlationId,
+            admin_user_id: result.user.id,
+            ...getRemoteMediaPolicyLogFields(error),
+          });
+        }
+        return inputErrorResponse(error, correlationId);
+      }
       throw error;
     }
   }
@@ -256,60 +275,31 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     const rawUrl = typeof body.url === "string" ? body.url.trim() : "";
-    if (!rawUrl) {
-      return withCorrelationId(
-        json({ ok: false, error: "url is required.", code: "validation_error" }, { status: 400 }),
-        correlationId
-      );
-    }
-
-    let parsed;
-    try {
-      parsed = new URL(rawUrl);
-    } catch {
-      return withCorrelationId(
-        json({ ok: false, error: "url is not a valid URL.", code: "validation_error" }, { status: 400 }),
-        correlationId
-      );
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return withCorrelationId(
-        json({ ok: false, error: "url must use HTTPS.", code: "validation_error" }, { status: 400 }),
-        correlationId
-      );
-    }
-
-    let upstream;
-    try {
-      upstream = await fetch(rawUrl, { redirect: "follow" });
-    } catch {
-      return withCorrelationId(
-        json({ ok: false, error: "Failed to fetch the video URL.", code: "upstream_error" }, { status: 502 }),
-        correlationId
-      );
-    }
-    if (!upstream.ok) {
-      return withCorrelationId(
-        json({ ok: false, error: `Upstream returned HTTP ${upstream.status}.`, code: "upstream_error" }, { status: 502 }),
-        correlationId
-      );
-    }
-
-    const ct = (upstream.headers.get("content-type") || "").toLowerCase();
-    if (!ct.startsWith("video/")) {
-      return withCorrelationId(
-        json({ ok: false, error: `URL did not return video content (${ct || "missing"}).`, code: "validation_error" }, { status: 422 }),
-        correlationId
-      );
-    }
-
-    return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        "Content-Type": ct,
-        "Cache-Control": "no-store",
-      },
+    const error = attachRemoteMediaPolicyContext(
+      new InputError(
+        buildRemoteMediaUrlRejectedMessage(
+          "url",
+          "The admin remote video proxy is disabled. Stream or download the provider URL directly in the browser instead."
+        ),
+        410,
+        REMOTE_MEDIA_URL_POLICY_CODE
+      ),
+      rawUrl,
+      {
+        field: "url",
+        reason: "admin_proxy_video_disabled",
+      }
+    );
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-ai-proxy-video",
+      event: "admin_ai_proxy_video_rejected",
+      level: "warn",
+      correlationId,
+      admin_user_id: result.user.id,
+      ...getRemoteMediaPolicyLogFields(error),
     });
+    return inputErrorResponse(error, correlationId);
   }
 
   if (pathname.startsWith("/api/admin/ai/")) {

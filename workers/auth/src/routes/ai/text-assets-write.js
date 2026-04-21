@@ -4,6 +4,12 @@ import { readJsonBody } from "../../lib/request.js";
 import { nowIso } from "../../lib/tokens.js";
 import { saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
+import {
+  REMOTE_MEDIA_URL_POLICY_CODE,
+  attachRemoteMediaPolicyContext,
+  buildRemoteMediaUrlRejectedMessage,
+  getRemoteMediaPolicyLogFields,
+} from "../../../../../js/shared/remote-media-policy.mjs";
 import { buildRenamedFileName, hasControlCharacters, isMissingTextAssetTableError } from "./helpers.js";
 
 const MAX_PROMPT_LENGTH = 1000;
@@ -75,8 +81,36 @@ export async function handleSaveAudio(ctx) {
   if (session instanceof Response) return session;
 
   const body = await readJsonBody(request);
-  if (!body || (!body.audioBase64 && !body.audioUrl)) {
-    return respond({ ok: false, error: "Audio data is required (audioBase64 or audioUrl)." }, { status: 400 });
+  if (body?.audioUrl !== undefined && body?.audioUrl !== null && body?.audioUrl !== "") {
+    const error = attachRemoteMediaPolicyContext(
+      new Error(
+        buildRemoteMediaUrlRejectedMessage(
+          "audioUrl",
+          "Submit inline audio bytes via audioBase64 instead."
+        )
+      ),
+      body.audioUrl,
+      {
+        field: "audioUrl",
+        reason: "remote_audio_save_url_rejected",
+      }
+    );
+    error.status = 400;
+    error.code = REMOTE_MEDIA_URL_POLICY_CODE;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-audio",
+      event: "ai_audio_save_rejected_remote_url",
+      level: "warn",
+      correlationId,
+      user_id: session.user.id,
+      ...getRemoteMediaPolicyLogFields(error),
+    });
+    return respond({ ok: false, error: error.message, code: error.code }, { status: error.status });
+  }
+
+  if (!body || !body.audioBase64) {
+    return respond({ ok: false, error: "Audio data is required (audioBase64)." }, { status: 400 });
   }
 
   const title = String(body.title || "").trim();
@@ -91,20 +125,6 @@ export async function handleSaveAudio(ctx) {
     return respond({ ok: false, error: "audioBase64 must be a non-empty string." }, { status: 400 });
   }
 
-  if (body.audioUrl) {
-    if (typeof body.audioUrl !== "string") {
-      return respond({ ok: false, error: "audioUrl must be a string." }, { status: 400 });
-    }
-    try {
-      const parsed = new URL(body.audioUrl);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        return respond({ ok: false, error: "audioUrl must be an HTTP(S) URL." }, { status: 400 });
-      }
-    } catch {
-      return respond({ ok: false, error: "audioUrl must be a valid URL." }, { status: 400 });
-    }
-  }
-
   const mimeType = String(body.mimeType || "audio/mpeg").trim();
   if (!mimeType.startsWith("audio/")) {
     return respond({ ok: false, error: "mimeType must be an audio MIME type." }, { status: 400 });
@@ -117,7 +137,6 @@ export async function handleSaveAudio(ctx) {
 
   const payload = {
     audioBase64: body.audioBase64 || null,
-    audioUrl: body.audioUrl || null,
     mimeType,
     prompt: body.prompt ? String(body.prompt).slice(0, MAX_PROMPT_LENGTH) : null,
     model: body.model || null,

@@ -1826,7 +1826,13 @@ export function createAdminAiLab({ showToast } = {}) {
     async function openSaveModal(task) {
         const intent = getSaveIntent(task);
         if (!intent) {
-            if (showToast) showToast('Nothing available to save yet.', 'error');
+            const unavailableMessage = task === 'music'
+                ? 'This audio result can be previewed or downloaded, but remote URL saves are disabled for security.'
+                : task === 'video'
+                    ? 'Video save is disabled until a trusted Bitbi video-ingest contract exists.'
+                    : 'Nothing available to save yet.';
+            setStatus(unavailableMessage, 'error');
+            if (showToast) showToast(unavailableMessage, 'error');
             return;
         }
 
@@ -2898,7 +2904,7 @@ export function createAdminAiLab({ showToast } = {}) {
     function renderMusicPreview(payload, result) {
         const audioSource = getMusicAudioSource(payload);
         refs.music.download.hidden = !audioSource;
-        refs.music.save.hidden = !audioSource;
+        refs.music.save.hidden = !getMusicSaveIntent();
 
         if (!audioSource) {
             if (result?.status === 'loading' && !payload) {
@@ -2927,7 +2933,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const note = document.createElement('div');
         note.className = 'admin-ai__music-player-note';
         note.textContent = payload.audioUrl
-            ? 'Streaming from a temporary provider URL. Download while it is still available.'
+            ? 'Streaming from a temporary provider URL. Server-side save is disabled for security; download while it is still available.'
             : 'Inline audio buffer ready for preview and download.';
 
         head.append(title, note);
@@ -3127,17 +3133,7 @@ export function createAdminAiLab({ showToast } = {}) {
         try {
             const res = await fetch(url);
             if (res.ok) return URL.createObjectURL(await res.blob());
-        } catch { /* CORS or network — try proxy */ }
-
-        try {
-            const res = await fetch('/api/admin/ai/proxy-video', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url }),
-            });
-            if (res.ok) return URL.createObjectURL(await res.blob());
-        } catch { /* proxy unavailable */ }
+        } catch { /* CORS or network */ }
 
         return null;
     }
@@ -3153,7 +3149,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!refs.video.preview) return;
         const videoUrl = payload?.videoUrl || null;
         refs.video.download.hidden = !videoUrl;
-        refs.video.save.hidden = !videoUrl;
+        refs.video.save.hidden = !getVideoSaveIntent();
 
         revokePreviewBlobUrl();
 
@@ -3203,12 +3199,12 @@ export function createAdminAiLab({ showToast } = {}) {
             if (blobUrl) {
                 state._previewBlobUrl = blobUrl;
                 video.src = blobUrl;
-                note.textContent = 'Preview loaded. Use Save or Download to keep.';
+                note.textContent = 'Preview loaded. Download locally to keep it; server-side save is disabled for security.';
             } else {
                 video.crossOrigin = '';
                 video.dataset.corsDisabled = '1';
                 video.src = videoUrl;
-                note.textContent = 'Streaming from provider URL. Poster capture may be unavailable.';
+                note.textContent = 'Streaming from provider URL only. Server-side save is disabled for security; poster capture may be unavailable.';
             }
         });
     }

@@ -140,7 +140,7 @@ export function buildMusicSaveIntent({
     receivedAt,
 }) {
     const result = response?.result;
-    if (!result?.audioBase64 && !result?.audioUrl) return null;
+    if (!result?.audioBase64) return null;
     return {
         type: 'text',
         sourceModule: 'music',
@@ -151,7 +151,6 @@ export function buildMusicSaveIntent({
         note: 'The audio file is stored as an MP3 alongside your existing saved assets.',
         payload: {
             audioBase64: result.audioBase64 || null,
-            audioUrl: result.audioUrl || null,
             mimeType: result.mimeType || 'audio/mpeg',
             prompt: result.prompt || prompt || '',
             model: response?.model || null,
@@ -174,39 +173,12 @@ export function buildMusicSaveIntent({
 }
 
 export function buildVideoSaveIntent({
-    response,
-    prompt,
-    warnings,
-    receivedAt,
+    response: _response,
+    prompt: _prompt,
+    warnings: _warnings,
+    receivedAt: _receivedAt,
 }) {
-    const result = response?.result;
-    if (!result?.videoUrl) return null;
-    return {
-        type: 'video',
-        sourceModule: 'video',
-        modalTitle: 'Save Video Result',
-        description: 'Download the generated MP4 server-side and save it into your existing folder structure.',
-        confirmLabel: 'Save Video',
-        defaultTitle: buildSaveTitle(prompt, 'AI Lab Video'),
-        note: 'The auth worker stores the final MP4 in your own saved-assets storage and records the run metadata beside it.',
-        payload: {
-            videoUrl: result.videoUrl,
-            prompt: result.prompt || prompt || null,
-            model: response?.model || null,
-            duration: result.duration,
-            aspect_ratio: result.aspect_ratio,
-            quality: result.quality,
-            resolution: result.resolution,
-            seed: result.seed,
-            generate_audio: result.generate_audio,
-            hasImageInput: result.hasImageInput,
-            hasEndImageInput: result.hasEndImageInput,
-            workflow: result.workflow,
-            warnings,
-            elapsedMs: response?.elapsedMs || null,
-            receivedAt,
-        },
-    };
+    return null;
 }
 
 function deriveTranscriptFromDom(transcriptRoot) {
