@@ -175,6 +175,7 @@ async function waitForHomepageCategoryAlignment(page) {
 
 async function switchHomepageCategory(page, targetCategory) {
   const stage = page.locator('#homeCategories');
+  const desktopCategoryNav = page.locator('#navbar .site-nav__links');
   const targetSelector = {
     gallery: '#gallery',
     video: '#video-creations',
@@ -193,8 +194,7 @@ async function switchHomepageCategory(page, targetCategory) {
     throw new Error(`Unknown homepage category "${targetCategory}"`);
   }
 
-  const stageMode = await stage.getAttribute('data-stage-mode');
-  if (stageMode !== 'desktop') {
+  if (!(await desktopCategoryNav.isVisible())) {
     await page.locator(targetSelector).scrollIntoViewIfNeeded();
     await expect(page.locator(targetSelector)).toBeVisible();
     return;
@@ -203,7 +203,7 @@ async function switchHomepageCategory(page, targetCategory) {
   const currentCategory = await stage.getAttribute('data-active-category');
   if (currentCategory === targetCategory) return;
 
-  await page.locator('#navbar .site-nav__links').getByRole('link', { name: targetLabel }).click();
+  await desktopCategoryNav.getByRole('link', { name: targetLabel }).click();
   await expectActiveHomepageCategory(page, targetCategory);
   await waitForHomepageCategoryStage(page);
 }
