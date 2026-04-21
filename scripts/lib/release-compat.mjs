@@ -1,6 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 
+const MANUAL_PREREQUISITE_KINDS = new Set([
+  "secret",
+  "cloudflare_feature",
+  "cloudflare_queue",
+  "dashboard_rule",
+  "transform_rule",
+  "dashboard_setting",
+]);
+const DEPLOY_STEP_TYPES = new Set(["schema-checkpoint", "worker", "static"]);
+
 function stripJsonComments(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -20,12 +30,16 @@ export function extractLatestMigrationFilename(files) {
   return sorted[sorted.length - 1] || null;
 }
 
-function hasNamedBinding(rows, binding) {
-  return Array.isArray(rows) && rows.some((entry) => entry?.binding === binding);
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function findServiceBinding(rows, binding) {
+function findNamedBinding(rows, binding) {
   return Array.isArray(rows) ? rows.find((entry) => entry?.binding === binding) || null : null;
+}
+
+function findQueueConsumer(rows, queueName) {
+  return Array.isArray(rows) ? rows.find((entry) => entry?.queue === queueName) || null : null;
 }
 
 function includesRouteLiteral(source, value) {
@@ -39,75 +53,479 @@ function workflowRequiresJob(workflowSource, jobName, needsMatcher) {
   return needsMatcher.test(match[1]);
 }
 
-export function validateReleaseCompatibility(context) {
+function pathExists(context, relativePath) {
+  if (typeof context?.pathExists === "function") {
+    return context.pathExists(relativePath);
+  }
+  return true;
+}
+
+function getReleaseSection(manifest) {
+  return isPlainObject(manifest?.release) ? manifest.release : {};
+}
+
+function getWorkers(manifest) {
+  const workers = getReleaseSection(manifest).workers;
+  return isPlainObject(workers) ? workers : {};
+}
+
+function getSchemaCheckpoints(manifest) {
+  const schemaCheckpoints = getReleaseSection(manifest).schemaCheckpoints;
+  return isPlainObject(schemaCheckpoints) ? schemaCheckpoints : {};
+}
+
+function getWorkerManifest(manifest, workerId) {
+  return getWorkers(manifest)[workerId] || null;
+}
+
+function hasManifestBinding(workerManifest, bindingName) {
+  const bindings = workerManifest?.bindings || {};
+  if (bindings.ai === bindingName || bindings.images === bindingName) return true;
+  if (isPlainObject(bindings.d1) && bindingName in bindings.d1) return true;
+  if (isPlainObject(bindings.r2) && bindingName in bindings.r2) return true;
+  if (isPlainObject(bindings.services) && bindingName in bindings.services) return true;
+  if (isPlainObject(bindings.queues?.producers) && bindingName in bindings.queues.producers) return true;
+  return false;
+}
+
+function hasManifestQueue(workerManifest, queueName) {
+  const queueBindings = workerManifest?.bindings?.queues;
+  if (!queueBindings) return false;
+
+  for (const producer of Object.values(queueBindings.producers || {})) {
+    if (producer?.queue === queueName) return true;
+  }
+  for (const consumer of queueBindings.consumers || []) {
+    if (consumer?.queue === queueName) return true;
+  }
+  return false;
+}
+
+function validateReleaseManifestShape(manifest) {
   const issues = [];
-  const {
-    manifest,
-    migrationFiles,
-    authWrangler,
-    aiWrangler,
-    authApiSource,
-    authAdminAiSource,
-    authAdminAiProxySource,
-    aiIndexSource,
-    workflowSource,
-  } = context;
-  const authAdminAiImplementationSource = [authAdminAiSource, authAdminAiProxySource]
+  if (manifest?.schemaVersion !== 1) {
+    issues.push(
+      `Release manifest schemaVersion must be 1, found ${JSON.stringify(manifest?.schemaVersion)}.`
+    );
+  }
+
+  const release = getReleaseSection(manifest);
+  if (!isPlainObject(release) || Object.keys(release).length === 0) {
+    issues.push("Release manifest is missing the top-level release contract section.");
+    return issues;
+  }
+
+  if (!isPlainObject(release.schemaCheckpoints) || Object.keys(release.schemaCheckpoints).length === 0) {
+    issues.push("Release manifest must declare at least one schema checkpoint.");
+  }
+  if (!isPlainObject(release.workers) || Object.keys(release.workers).length === 0) {
+    issues.push("Release manifest must declare at least one validated worker.");
+  }
+  if (!Array.isArray(release.deployOrder) || release.deployOrder.length === 0) {
+    issues.push("Release manifest must declare a non-empty deployOrder.");
+  }
+  if (!Array.isArray(release.manualPrerequisites) || release.manualPrerequisites.length === 0) {
+    issues.push(
+      "Release manifest must declare manualPrerequisites for remaining manual-only Cloudflare state."
+    );
+  }
+
+  return issues;
+}
+
+function validateSchemaCheckpointContracts(manifest, context) {
+  const issues = [];
+  for (const [checkpointId, checkpointManifest] of Object.entries(getSchemaCheckpoints(manifest))) {
+    if (!checkpointManifest?.migrationDirectory || typeof checkpointManifest.migrationDirectory !== "string") {
+      issues.push(`Release manifest schema checkpoint "${checkpointId}" is missing migrationDirectory.`);
+      continue;
+    }
+    if (!checkpointManifest?.latest || typeof checkpointManifest.latest !== "string") {
+      issues.push(`Release manifest schema checkpoint "${checkpointId}" is missing latest.`);
+      continue;
+    }
+    const checkpointContext = context?.schemaCheckpoints?.[checkpointId];
+    if (!checkpointContext?.exists) {
+      issues.push(
+        `Release manifest schema checkpoint "${checkpointId}" references missing migration directory "${checkpointManifest.migrationDirectory}".`
+      );
+      continue;
+    }
+    const latestMigration = extractLatestMigrationFilename(checkpointContext.files || []);
+    if (!latestMigration) {
+      issues.push(`No ${checkpointId} migrations were found in "${checkpointManifest.migrationDirectory}".`);
+      continue;
+    }
+    if (checkpointManifest.latest !== latestMigration) {
+      issues.push(
+        `Release manifest schema checkpoint "${checkpointId}" is ${checkpointManifest.latest}, but the latest ${checkpointId} migration is ${latestMigration}.`
+      );
+    }
+  }
+  return issues;
+}
+
+function validateWorkerContracts(manifest, context) {
+  const issues = [];
+  const workerConfigs = context?.workerConfigs || {};
+
+  for (const [workerId, workerManifest] of Object.entries(getWorkers(manifest))) {
+    if (!workerManifest?.wranglerPath || typeof workerManifest.wranglerPath !== "string") {
+      issues.push(`Release manifest worker "${workerId}" is missing wranglerPath.`);
+      continue;
+    }
+    if (!workerManifest?.name || typeof workerManifest.name !== "string") {
+      issues.push(`Release manifest worker "${workerId}" is missing name.`);
+      continue;
+    }
+
+    const workerConfig = workerConfigs[workerId];
+    if (!pathExists(context, workerManifest.wranglerPath) || !workerConfig?.exists) {
+      issues.push(
+        `Release manifest worker "${workerId}" references missing wrangler config "${workerManifest.wranglerPath}".`
+      );
+      continue;
+    }
+
+    const wrangler = workerConfig.wrangler;
+    if (!wrangler || typeof wrangler !== "object") {
+      issues.push(`Failed to load wrangler config for worker "${workerId}".`);
+      continue;
+    }
+
+    if (wrangler.name !== workerManifest.name) {
+      issues.push(
+        `Worker "${workerId}" wrangler name is "${wrangler.name}" but the release manifest requires "${workerManifest.name}".`
+      );
+    }
+
+    for (const variableName of workerManifest.vars || []) {
+      if (!(variableName in (wrangler.vars || {}))) {
+        issues.push(`Worker "${workerId}" is missing required wrangler var "${variableName}".`);
+      }
+    }
+
+    const bindings = workerManifest.bindings || {};
+    if (bindings.ai && wrangler.ai?.binding !== bindings.ai) {
+      issues.push(`Worker "${workerId}" AI binding must be "${bindings.ai}".`);
+    }
+    if (bindings.images && wrangler.images?.binding !== bindings.images) {
+      issues.push(`Worker "${workerId}" IMAGES binding must be "${bindings.images}".`);
+    }
+
+    for (const [binding, spec] of Object.entries(bindings.d1 || {})) {
+      const row = findNamedBinding(wrangler.d1_databases, binding);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing D1 binding "${binding}".`);
+        continue;
+      }
+      if (spec?.databaseName && row.database_name !== spec.databaseName) {
+        issues.push(
+          `Worker "${workerId}" D1 binding "${binding}" targets "${row.database_name}" but the release manifest requires "${spec.databaseName}".`
+        );
+      }
+    }
+
+    for (const [binding, spec] of Object.entries(bindings.r2 || {})) {
+      const row = findNamedBinding(wrangler.r2_buckets, binding);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing R2 binding "${binding}".`);
+        continue;
+      }
+      if (spec?.bucketName && row.bucket_name !== spec.bucketName) {
+        issues.push(
+          `Worker "${workerId}" R2 binding "${binding}" targets "${row.bucket_name}" but the release manifest requires "${spec.bucketName}".`
+        );
+      }
+    }
+
+    for (const [binding, spec] of Object.entries(bindings.services || {})) {
+      const row = findNamedBinding(wrangler.services, binding);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing service binding "${binding}".`);
+        continue;
+      }
+      if (spec?.service && row.service !== spec.service) {
+        issues.push(
+          `Worker "${workerId}" service binding "${binding}" targets "${row.service}" but the release manifest requires "${spec.service}".`
+        );
+      }
+
+      if (spec?.worker) {
+        const targetWorkerManifest = getWorkerManifest(manifest, spec.worker);
+        if (!targetWorkerManifest) {
+          issues.push(
+            `Worker "${workerId}" service binding "${binding}" references unknown worker "${spec.worker}".`
+          );
+          continue;
+        }
+        if (targetWorkerManifest.name !== spec.service) {
+          issues.push(
+            `Worker "${workerId}" service binding "${binding}" expects service "${spec.service}" but worker "${spec.worker}" is declared as "${targetWorkerManifest.name}".`
+          );
+        }
+        const targetWorkerConfig = workerConfigs[spec.worker];
+        if (targetWorkerConfig?.exists && targetWorkerConfig?.wrangler?.name !== spec.service) {
+          issues.push(
+            `Worker "${spec.worker}" wrangler name is "${targetWorkerConfig.wrangler.name}" but service binding "${binding}" requires "${spec.service}".`
+          );
+        }
+      }
+    }
+
+    for (const [binding, spec] of Object.entries(bindings.queues?.producers || {})) {
+      const row = findNamedBinding(wrangler.queues?.producers, binding);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing queue producer binding "${binding}".`);
+        continue;
+      }
+      if (spec?.queue && row.queue !== spec.queue) {
+        issues.push(
+          `Worker "${workerId}" queue producer binding "${binding}" targets "${row.queue}" but the release manifest requires "${spec.queue}".`
+        );
+      }
+    }
+
+    for (const consumerSpec of bindings.queues?.consumers || []) {
+      const row = findQueueConsumer(wrangler.queues?.consumers, consumerSpec?.queue);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing queue consumer for "${consumerSpec?.queue}".`);
+        continue;
+      }
+      for (const fieldName of ["max_batch_size", "max_batch_timeout", "max_retries"]) {
+        if (
+          typeof consumerSpec?.[fieldName] === "number" &&
+          row?.[fieldName] !== consumerSpec[fieldName]
+        ) {
+          issues.push(
+            `Worker "${workerId}" queue consumer "${consumerSpec.queue}" must set ${fieldName}=${consumerSpec[fieldName]}.`
+          );
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+function validateDeployOrder(manifest) {
+  const issues = [];
+  const release = getReleaseSection(manifest);
+  const steps = Array.isArray(release.deployOrder) ? release.deployOrder : [];
+  const stepIds = new Map();
+  const stepIndexes = new Map();
+  const workerStepIds = new Map();
+  const checkpointStepIds = new Map();
+
+  for (const [index, step] of steps.entries()) {
+    if (!step?.id || typeof step.id !== "string") {
+      issues.push(`Release manifest deployOrder entry at index ${index} is missing id.`);
+      continue;
+    }
+    if (stepIds.has(step.id)) {
+      issues.push(`Release manifest deployOrder reuses step id "${step.id}".`);
+      continue;
+    }
+    stepIds.set(step.id, step);
+    stepIndexes.set(step.id, index);
+
+    if (!DEPLOY_STEP_TYPES.has(step.type)) {
+      issues.push(`Release manifest deploy step "${step.id}" has unsupported type "${step.type}".`);
+      continue;
+    }
+
+    if (step.type === "worker") {
+      if (!step.worker || typeof step.worker !== "string") {
+        issues.push(`Release manifest deploy step "${step.id}" is missing worker.`);
+        continue;
+      }
+      if (!getWorkerManifest(manifest, step.worker)) {
+        issues.push(`Release manifest deploy step "${step.id}" references unknown worker "${step.worker}".`);
+        continue;
+      }
+      if (workerStepIds.has(step.worker)) {
+        issues.push(
+          `Release manifest deployOrder defines multiple deploy steps for worker "${step.worker}".`
+        );
+      } else {
+        workerStepIds.set(step.worker, step.id);
+      }
+    }
+
+    if (step.type === "schema-checkpoint") {
+      if (!step.checkpoint || typeof step.checkpoint !== "string") {
+        issues.push(`Release manifest deploy step "${step.id}" is missing checkpoint.`);
+        continue;
+      }
+      if (!getSchemaCheckpoints(manifest)[step.checkpoint]) {
+        issues.push(
+          `Release manifest deploy step "${step.id}" references unknown schema checkpoint "${step.checkpoint}".`
+        );
+        continue;
+      }
+      if (checkpointStepIds.has(step.checkpoint)) {
+        issues.push(
+          `Release manifest deployOrder defines multiple deploy steps for schema checkpoint "${step.checkpoint}".`
+        );
+      } else {
+        checkpointStepIds.set(step.checkpoint, step.id);
+      }
+    }
+  }
+
+  for (const workerId of Object.keys(getWorkers(manifest))) {
+    if (!workerStepIds.has(workerId)) {
+      issues.push(`Release manifest deployOrder is missing a deploy step for worker "${workerId}".`);
+    }
+  }
+  for (const checkpointId of Object.keys(getSchemaCheckpoints(manifest))) {
+    if (!checkpointStepIds.has(checkpointId)) {
+      issues.push(
+        `Release manifest deployOrder is missing a deploy step for schema checkpoint "${checkpointId}".`
+      );
+    }
+  }
+
+  for (const step of steps) {
+    if (!step?.id || !stepIds.has(step.id)) continue;
+    const dependsOn = Array.isArray(step.dependsOn) ? step.dependsOn : [];
+    for (const dependencyId of dependsOn) {
+      if (!stepIds.has(dependencyId)) {
+        issues.push(
+          `Release manifest deploy step "${step.id}" depends on unknown step "${dependencyId}".`
+        );
+        continue;
+      }
+      if ((stepIndexes.get(dependencyId) ?? -1) >= (stepIndexes.get(step.id) ?? -1)) {
+        issues.push(
+          `Release manifest deploy step "${step.id}" must appear after dependency "${dependencyId}".`
+        );
+      }
+    }
+  }
+
+  for (const [workerId, workerManifest] of Object.entries(getWorkers(manifest))) {
+    const workerStepId = workerStepIds.get(workerId);
+    if (!workerStepId) continue;
+    const workerStep = stepIds.get(workerStepId);
+    const dependsOn = new Set(Array.isArray(workerStep?.dependsOn) ? workerStep.dependsOn : []);
+
+    for (const serviceSpec of Object.values(workerManifest.bindings?.services || {})) {
+      if (!serviceSpec?.worker) continue;
+      const dependencyStepId = workerStepIds.get(serviceSpec.worker);
+      if (dependencyStepId && !dependsOn.has(dependencyStepId)) {
+        issues.push(
+          `Release manifest deploy step "${workerStepId}" must depend on "${dependencyStepId}" because worker "${workerId}" binds service worker "${serviceSpec.worker}".`
+        );
+      }
+    }
+
+    const workerDatabaseNames = new Set(
+      Object.values(workerManifest.bindings?.d1 || {})
+        .map((spec) => spec?.databaseName)
+        .filter((value) => typeof value === "string" && value.length > 0)
+    );
+    for (const [checkpointId, checkpointManifest] of Object.entries(getSchemaCheckpoints(manifest))) {
+      if (!checkpointManifest?.databaseName || !workerDatabaseNames.has(checkpointManifest.databaseName)) {
+        continue;
+      }
+      const checkpointStepId = checkpointStepIds.get(checkpointId);
+      if (checkpointStepId && !dependsOn.has(checkpointStepId)) {
+        issues.push(
+          `Release manifest deploy step "${workerStepId}" must depend on "${checkpointStepId}" because worker "${workerId}" uses D1 database "${checkpointManifest.databaseName}".`
+        );
+      }
+    }
+  }
+
+  return issues;
+}
+
+function validateManualPrerequisites(manifest, context) {
+  const issues = [];
+  const release = getReleaseSection(manifest);
+  const manualPrerequisites = Array.isArray(release.manualPrerequisites)
+    ? release.manualPrerequisites
+    : [];
+  const seenIds = new Set();
+
+  for (const entry of manualPrerequisites) {
+    if (!entry?.id || typeof entry.id !== "string") {
+      issues.push("Release manifest manualPrerequisites entries must have an id.");
+      continue;
+    }
+    if (seenIds.has(entry.id)) {
+      issues.push(`Release manifest manualPrerequisites reuses id "${entry.id}".`);
+      continue;
+    }
+    seenIds.add(entry.id);
+
+    if (!MANUAL_PREREQUISITE_KINDS.has(entry.kind)) {
+      issues.push(
+        `Release manifest manual prerequisite "${entry.id}" has unsupported kind "${entry.kind}".`
+      );
+    }
+    if (typeof entry.requiredForRelease !== "boolean") {
+      issues.push(
+        `Release manifest manual prerequisite "${entry.id}" must declare requiredForRelease as true or false.`
+      );
+    }
+    if (!entry.summary || typeof entry.summary !== "string") {
+      issues.push(`Release manifest manual prerequisite "${entry.id}" is missing summary.`);
+    }
+    if (!entry.documentation || typeof entry.documentation !== "string") {
+      issues.push(`Release manifest manual prerequisite "${entry.id}" is missing documentation.`);
+    } else if (!pathExists(context, entry.documentation)) {
+      issues.push(
+        `Release manifest manual prerequisite "${entry.id}" references missing documentation "${entry.documentation}".`
+      );
+    }
+
+    if (entry.worker) {
+      const workerManifest = getWorkerManifest(manifest, entry.worker);
+      if (!workerManifest) {
+        issues.push(
+          `Release manifest manual prerequisite "${entry.id}" references unknown worker "${entry.worker}".`
+        );
+        continue;
+      }
+      if (entry.binding && !hasManifestBinding(workerManifest, entry.binding)) {
+        issues.push(
+          `Release manifest manual prerequisite "${entry.id}" references missing binding "${entry.binding}" on worker "${entry.worker}".`
+        );
+      }
+      if (entry.queue && !hasManifestQueue(workerManifest, entry.queue)) {
+        issues.push(
+          `Release manifest manual prerequisite "${entry.id}" references queue "${entry.queue}" that is not declared for worker "${entry.worker}".`
+        );
+      }
+    }
+
+    if (entry.kind === "secret" && (!entry.name || typeof entry.name !== "string")) {
+      issues.push(`Release manifest manual prerequisite "${entry.id}" is missing secret name.`);
+    }
+    if (entry.kind === "cloudflare_queue" && (!entry.queue || typeof entry.queue !== "string")) {
+      issues.push(`Release manifest manual prerequisite "${entry.id}" is missing queue.`);
+    }
+  }
+
+  return issues;
+}
+
+function validateAdminAiCompatibility(manifest, context) {
+  const issues = [];
+  const adminAi = manifest?.adminAi || {};
+  const authAdminAiImplementationSource = [context.authAdminAiSource, context.authAdminAiProxySource]
     .filter((source) => typeof source === "string" && source.length > 0)
     .join("\n");
 
-  const latestMigration = extractLatestMigrationFilename(migrationFiles);
-  if (!latestMigration) {
-    issues.push("No auth migrations were found.");
-  } else if (manifest.authWorker.currentSchemaMigration !== latestMigration) {
-    issues.push(
-      `Release manifest schema checkpoint is ${manifest.authWorker.currentSchemaMigration}, but the latest auth migration is ${latestMigration}.`
-    );
-  }
-
-  for (const binding of manifest.authWorker.requiredBindings.d1 || []) {
-    if (!hasNamedBinding(authWrangler.d1_databases, binding)) {
-      issues.push(`Auth worker is missing D1 binding "${binding}".`);
-    }
-  }
-
-  if (authWrangler.images?.binding !== manifest.authWorker.requiredBindings.images) {
-    issues.push(
-      `Auth worker IMAGES binding must be "${manifest.authWorker.requiredBindings.images}".`
-    );
-  }
-
-  for (const binding of manifest.authWorker.requiredBindings.r2 || []) {
-    if (!hasNamedBinding(authWrangler.r2_buckets, binding)) {
-      issues.push(`Auth worker is missing R2 binding "${binding}".`);
-    }
-  }
-
-  for (const [binding, serviceName] of Object.entries(manifest.authWorker.requiredBindings.services || {})) {
-    const serviceBinding = findServiceBinding(authWrangler.services, binding);
-    if (!serviceBinding) {
-      issues.push(`Auth worker is missing service binding "${binding}".`);
-      continue;
-    }
-    if (serviceBinding.service !== serviceName) {
-      issues.push(
-        `Auth worker service binding "${binding}" targets "${serviceBinding.service}" but release manifest requires "${serviceName}".`
-      );
-    }
-    if (aiWrangler.name !== serviceName) {
-      issues.push(
-        `AI worker wrangler name is "${aiWrangler.name}" but auth service binding "${binding}" expects "${serviceName}".`
-      );
-    }
-  }
-
-  for (const route of manifest.adminAi.staticAuthApiPaths || []) {
-    if (!includesRouteLiteral(authApiSource, route)) {
+  for (const route of adminAi.staticAuthApiPaths || []) {
+    if (!includesRouteLiteral(context.authApiSource, route)) {
       issues.push(`Static auth API wrapper is missing route "${route}".`);
     }
   }
 
-  for (const [externalRoute, internalRoute] of Object.entries(manifest.adminAi.authToAiRoutes || {})) {
+  for (const [externalRoute, internalRoute] of Object.entries(adminAi.authToAiRoutes || {})) {
     if (!includesRouteLiteral(authAdminAiImplementationSource, externalRoute)) {
       issues.push(`Auth admin AI proxy is missing external route "${externalRoute}".`);
     }
@@ -116,10 +534,17 @@ export function validateReleaseCompatibility(context) {
         `Auth admin AI proxy does not forward "${externalRoute}" to "${internalRoute}".`
       );
     }
-    if (!includesRouteLiteral(aiIndexSource, internalRoute)) {
+    if (!includesRouteLiteral(context.aiIndexSource, internalRoute)) {
       issues.push(`AI worker router is missing internal route "${internalRoute}".`);
     }
   }
+
+  return issues;
+}
+
+function validateWorkflowCompatibility(context) {
+  const issues = [];
+  const workflowSource = context.workflowSource;
 
   if (!includesRouteLiteral(workflowSource, "release-compatibility:")) {
     issues.push('Static workflow is missing the "release-compatibility" gate job.');
@@ -155,26 +580,68 @@ export function validateReleaseCompatibility(context) {
   return issues;
 }
 
+export function validateReleaseCompatibility(context) {
+  const issues = [];
+  const manifest = context?.manifest || {};
+
+  issues.push(...validateReleaseManifestShape(manifest));
+  issues.push(...validateSchemaCheckpointContracts(manifest, context));
+  issues.push(...validateWorkerContracts(manifest, context));
+  issues.push(...validateDeployOrder(manifest));
+  issues.push(...validateManualPrerequisites(manifest, context));
+  issues.push(...validateAdminAiCompatibility(manifest, context));
+  issues.push(...validateWorkflowCompatibility(context));
+
+  return issues;
+}
+
+function loadSchemaCheckpointContext(repoRoot, manifest) {
+  const schemaCheckpoints = {};
+  for (const [checkpointId, checkpointManifest] of Object.entries(getSchemaCheckpoints(manifest))) {
+    const relativeDir = checkpointManifest?.migrationDirectory;
+    const absDir = relativeDir ? path.join(repoRoot, relativeDir) : null;
+    const exists =
+      !!absDir && fs.existsSync(absDir) && fs.statSync(absDir).isDirectory();
+    schemaCheckpoints[checkpointId] = {
+      migrationDirectory: relativeDir,
+      exists,
+      files: exists
+        ? fs.readdirSync(absDir).filter((file) => file.endsWith(".sql"))
+        : [],
+    };
+  }
+  return schemaCheckpoints;
+}
+
+function loadWorkerConfigContext(repoRoot, manifest) {
+  const workerConfigs = {};
+  for (const [workerId, workerManifest] of Object.entries(getWorkers(manifest))) {
+    const relativePath = workerManifest?.wranglerPath;
+    const absPath = relativePath ? path.join(repoRoot, relativePath) : null;
+    const exists = !!absPath && fs.existsSync(absPath);
+    workerConfigs[workerId] = {
+      wranglerPath: relativePath,
+      exists,
+      wrangler: exists
+        ? parseJsonc(fs.readFileSync(absPath, "utf8"), relativePath)
+        : null,
+    };
+  }
+  return workerConfigs;
+}
+
 export function loadReleaseCompatibilityContext(repoRoot) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "config/release-compat.json"), "utf8")
   );
-  const migrationDir = path.join(repoRoot, "workers/auth/migrations");
-  const migrationFiles = fs
-    .readdirSync(migrationDir)
-    .filter((file) => file.endsWith(".sql"));
 
   return {
     manifest,
-    migrationFiles,
-    authWrangler: parseJsonc(
-      fs.readFileSync(path.join(repoRoot, "workers/auth/wrangler.jsonc"), "utf8"),
-      "workers/auth/wrangler.jsonc"
-    ),
-    aiWrangler: parseJsonc(
-      fs.readFileSync(path.join(repoRoot, "workers/ai/wrangler.jsonc"), "utf8"),
-      "workers/ai/wrangler.jsonc"
-    ),
+    schemaCheckpoints: loadSchemaCheckpointContext(repoRoot, manifest),
+    workerConfigs: loadWorkerConfigContext(repoRoot, manifest),
+    pathExists(relativePath) {
+      return fs.existsSync(path.join(repoRoot, relativePath));
+    },
     authApiSource: fs.readFileSync(path.join(repoRoot, "js/shared/auth-api.js"), "utf8"),
     authAdminAiSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-ai.js"),

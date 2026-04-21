@@ -3,6 +3,9 @@
 **Audit date:** 7 March 2026
 **Scope:** All pages of bitbi.ai (index, experiments/skyfall, experiments/king, experiments/cosmic, legal/privacy, legal/datenschutz, legal/imprint)
 
+This document is historical audit context, not the canonical release contract.
+Current repo-validated release/deploy truth lives in `config/release-compat.json`.
+
 ---
 
 ## Issues Found and Fixes Applied
@@ -24,8 +27,8 @@
 **Fix:** Added honeypot hidden field, privacy notice text above submit button, `website` field in fetch body. Worker silently discards submissions with filled honeypot. Added basic email format validation.
 
 ### 5. CoinGecko API called directly from browser (MEDIUM)
-**Files:** `js/pages/index/markets.js`, `workers/crypto/src/index.js`
-**Fix:** Created CoinGecko proxy worker. Updated markets.js to call `https://api.bitbi.ai/crypto` instead of `/api/crypto`.
+**Files:** `js/pages/index/markets.js`, historical external proxy worker at `api.bitbi.ai/crypto`
+**Fix:** Updated markets.js to call `https://api.bitbi.ai/crypto` instead of `/api/crypto`. The proxy worker itself is not tracked in the current repo snapshot and is therefore not part of the repo-validated release contract.
 
 ### 6. No security meta headers (LOW)
 **Files:** All 7 HTML pages
@@ -49,31 +52,29 @@
 
 ---
 
-## New Files Created
+## New Artifacts Created
 
-| File | Purpose |
+| Artifact | Purpose |
 |------|---------|
 | `css/cookie-banner.css` | Standalone cookie banner styles for game/VR pages |
-| `workers/crypto/src/index.js` | CoinGecko proxy worker |
+| Historical external worker at `api.bitbi.ai/crypto` | CoinGecko proxy worker noted in the original audit; not tracked in the current repo snapshot |
 | `docs/privacy-compliance-audit.md` | This file |
 
 ---
 
 ## Manual Follow-Up Items
 
-These items require manual action outside the codebase:
+These dashboard-only privacy items remain manual and are intentionally not enforced by
+`npm run validate:release`. Release-blocking manual prerequisites now live in
+`config/release-compat.json`.
 
-1. **Deploy `crypto-worker.js`** on Cloudflare Workers at `api.bitbi.ai`
-   - Create worker, paste code, add route `api.bitbi.ai/crypto`
-   - Add DNS AAAA record for `api` pointing to `100::` (proxied)
-
-2. **Configure HTTP security headers** via Cloudflare Transform Rules:
+1. **Configure HTTP security headers** via Cloudflare Transform Rules:
    - `Content-Security-Policy` — restrict script sources
    - `X-Content-Type-Options: nosniff`
    - `Permissions-Policy` — restrict camera, microphone, etc.
    - These cannot be set via `<meta>` tags for static sites
 
-3. **Verify Cloudflare RUM dashboard setting**
+2. **Verify Cloudflare RUM dashboard setting**
    - Check if RUM is currently enabled in Cloudflare dashboard
    - The client-side defensive blocking is now in place regardless
 

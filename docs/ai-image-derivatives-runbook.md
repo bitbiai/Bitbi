@@ -2,6 +2,11 @@
 
 This runbook covers the asynchronous thumb/medium derivative pipeline for member-generated Saved Assets in `workers/auth`.
 
+The canonical release contract for this pipeline now lives in `config/release-compat.json`.
+Use `release.manualPrerequisites` for queue/Cloudflare feature prerequisites and
+`release.deployOrder` for migration/deploy sequencing. This runbook now covers only
+the derivative-specific behavior and operator flow.
+
 ## What changed
 
 - Originals remain in `USER_IMAGES` under the existing `users/{userId}/folders/{folderSlug}/...` layout.
@@ -12,39 +17,14 @@ This runbook covers the asynchronous thumb/medium derivative pipeline for member
 - Saved Assets grid/card/mobile preview contexts now use authenticated thumb URLs.
 - Detail modal preview uses an authenticated medium URL when available and falls back to the original only in the detail/open-full flow.
 
-## One-time Cloudflare setup
+## Release prerequisites
 
-Create the queue before deploying the Worker config that references it:
+Release-blocking prerequisites for this pipeline are intentionally declared only in
+`config/release-compat.json` so queue names, binding names, and deploy order do not
+drift between docs and CI validation.
 
-```bash
-npx wrangler queues create bitbi-ai-image-derivatives
-```
-
-The Worker config already declares:
-
-- Queue producer binding: `AI_IMAGE_DERIVATIVES_QUEUE`
-- Queue consumer on `bitbi-auth`
-- Images binding: `IMAGES`
-
-If the account has not enabled Cloudflare Images yet, enable it first so the `IMAGES` binding can attach successfully.
-
-## Deploy order
-
-1. Apply the new D1 migration:
-
-```bash
-cd workers/auth
-npx wrangler d1 migrations apply bitbi-auth-db --remote
-```
-
-2. Deploy `workers/auth`:
-
-```bash
-cd workers/auth
-npx wrangler deploy
-```
-
-3. Run the derivative backfill until `has_more` is `false`.
+After those manifest-declared prerequisites are satisfied, run the derivative backfill
+until `has_more` is `false`.
 
 ## Backfill existing Saved Assets
 

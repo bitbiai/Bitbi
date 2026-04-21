@@ -1,14 +1,174 @@
 {
-  "authWorker": {
-    "currentSchemaMigration": "0026_add_cursor_pagination_support.sql",
-    "requiredBindings": {
-      "d1": ["DB"],
-      "images": "IMAGES",
-      "r2": ["PRIVATE_MEDIA", "USER_IMAGES"],
-      "services": {
-        "AI_LAB": "bitbi-ai"
+  "schemaVersion": 1,
+  "release": {
+    "schemaCheckpoints": {
+      "auth": {
+        "migrationDirectory": "workers/auth/migrations",
+        "latest": "0026_add_cursor_pagination_support.sql",
+        "databaseName": "bitbi-auth-db"
       }
-    }
+    },
+    "workers": {
+      "ai": {
+        "name": "bitbi-ai",
+        "wranglerPath": "workers/ai/wrangler.jsonc",
+        "bindings": {
+          "ai": "AI"
+        }
+      },
+      "auth": {
+        "name": "bitbi-auth",
+        "wranglerPath": "workers/auth/wrangler.jsonc",
+        "vars": ["APP_BASE_URL", "RESEND_FROM_EMAIL"],
+        "bindings": {
+          "ai": "AI",
+          "images": "IMAGES",
+          "d1": {
+            "DB": {
+              "databaseName": "bitbi-auth-db"
+            }
+          },
+          "r2": {
+            "PRIVATE_MEDIA": {
+              "bucketName": "bitbi-private-media"
+            },
+            "USER_IMAGES": {
+              "bucketName": "bitbi-user-images"
+            }
+          },
+          "services": {
+            "AI_LAB": {
+              "service": "bitbi-ai",
+              "worker": "ai"
+            }
+          },
+          "queues": {
+            "producers": {
+              "AI_IMAGE_DERIVATIVES_QUEUE": {
+                "queue": "bitbi-ai-image-derivatives"
+              }
+            },
+            "consumers": [
+              {
+                "queue": "bitbi-ai-image-derivatives",
+                "max_batch_size": 5,
+                "max_batch_timeout": 5,
+                "max_retries": 8
+              }
+            ]
+          }
+        }
+      },
+      "contact": {
+        "name": "bitbi-contact",
+        "wranglerPath": "workers/contact/wrangler.jsonc",
+        "bindings": {
+          "d1": {
+            "DB": {
+              "databaseName": "bitbi-auth-db"
+            }
+          }
+        }
+      }
+    },
+    "deployOrder": [
+      {
+        "id": "auth-migrations",
+        "type": "schema-checkpoint",
+        "checkpoint": "auth"
+      },
+      {
+        "id": "ai-worker",
+        "type": "worker",
+        "worker": "ai"
+      },
+      {
+        "id": "auth-worker",
+        "type": "worker",
+        "worker": "auth",
+        "dependsOn": ["auth-migrations", "ai-worker"]
+      },
+      {
+        "id": "contact-worker",
+        "type": "worker",
+        "worker": "contact",
+        "dependsOn": ["auth-migrations"]
+      },
+      {
+        "id": "static-site",
+        "type": "static",
+        "dependsOn": ["auth-worker", "contact-worker"]
+      }
+    ],
+    "manualPrerequisites": [
+      {
+        "id": "auth-session-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "SESSION_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for auth sessions and signed pagination cursors."
+      },
+      {
+        "id": "auth-resend-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "RESEND_API_KEY",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for password reset and verification email delivery."
+      },
+      {
+        "id": "contact-resend-secret",
+        "kind": "secret",
+        "worker": "contact",
+        "name": "RESEND_API_KEY",
+        "requiredForRelease": true,
+        "documentation": "workers/contact/src/index.js",
+        "summary": "Required for contact form email delivery."
+      },
+      {
+        "id": "auth-images-enabled",
+        "kind": "cloudflare_feature",
+        "worker": "auth",
+        "binding": "IMAGES",
+        "requiredForRelease": true,
+        "documentation": "docs/ai-image-derivatives-runbook.md",
+        "summary": "Cloudflare Images must be enabled so the IMAGES binding can attach."
+      },
+      {
+        "id": "auth-derivatives-queue-created",
+        "kind": "cloudflare_queue",
+        "worker": "auth",
+        "binding": "AI_IMAGE_DERIVATIVES_QUEUE",
+        "queue": "bitbi-ai-image-derivatives",
+        "requiredForRelease": true,
+        "documentation": "docs/ai-image-derivatives-runbook.md",
+        "summary": "The derivative queue must exist before the auth worker config that references it is deployed."
+      },
+      {
+        "id": "auth-sensitive-post-waf-rule",
+        "kind": "dashboard_rule",
+        "requiredForRelease": false,
+        "documentation": "docs/cloudflare-rate-limiting-wave1.md",
+        "summary": "The auth WAF rate limiting rule remains dashboard-managed and is not repo-enforced."
+      },
+      {
+        "id": "static-security-transform-rules",
+        "kind": "transform_rule",
+        "requiredForRelease": false,
+        "documentation": "docs/privacy-compliance-audit.md",
+        "summary": "Static-site security headers still depend on Cloudflare Transform Rules configured outside the repo."
+      },
+      {
+        "id": "cloudflare-rum-setting",
+        "kind": "dashboard_setting",
+        "requiredForRelease": false,
+        "documentation": "docs/privacy-compliance-audit.md",
+        "summary": "Cloudflare RUM remains a dashboard-only setting that must be reviewed manually."
+      }
+    ]
   },
   "assetVersion": {
     "placeholder": "__ASSET_VERSION__"
