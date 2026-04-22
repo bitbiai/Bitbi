@@ -6,12 +6,13 @@ import {
     getRequestLogFields,
     logDiagnostic,
 } from '../../../js/shared/worker-observability.mjs';
+export { ContactPublicRateLimiterDurableObject } from './lib/public-rate-limiter-do.js';
 
 /**
  * Contact form worker for `https://contact.bitbi.ai`.
- * Depends on `RESEND_API_KEY` plus D1 binding `DB` for shared contact abuse counters.
- * Apply `workers/auth/migrations/0015_add_rate_limit_counters.sql` before deploy so
- * durable contact abuse protection remains available in production.
+ * Depends on `RESEND_API_KEY` plus Durable Object binding `PUBLIC_RATE_LIMITER`
+ * for shared contact abuse counters. Production contact abuse protection now
+ * fails closed if that binding is unavailable.
  */
 
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
@@ -86,7 +87,9 @@ export default {
             CONTACT_BURST_LIMIT,
             CONTACT_BURST_WINDOW_MS,
             {
+                backend: 'durable_object',
                 failClosedInProduction: true,
+                logBlockedEvent: true,
                 component: 'contact-submit',
                 correlationId,
                 requestInfo,
@@ -109,7 +112,9 @@ export default {
             CONTACT_HOURLY_LIMIT,
             CONTACT_HOURLY_WINDOW_MS,
             {
+                backend: 'durable_object',
                 failClosedInProduction: true,
+                logBlockedEvent: true,
                 component: 'contact-submit',
                 correlationId,
                 requestInfo,

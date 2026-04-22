@@ -14,7 +14,7 @@ A Cloudflare WAF rate limiting rule counts requests globally at the edge, across
 
 ### Auth worker (`workers/auth/`)
 
-The auth worker now uses the shared limiter helpers in `workers/auth/src/lib/rate-limit.js` for the most abuse-sensitive routes. Those counters are stored in D1 table `rate_limit_counters` (migration `0015_add_rate_limit_counters.sql`) and are shared across isolates. In production, the hardened public routes now fail closed with a generic `503` if D1 or the table is unavailable instead of falling back to isolate-local memory.
+The auth worker now uses the shared limiter helpers in `workers/auth/src/lib/rate-limit.js` for the most abuse-sensitive routes. Those public counters are stored in worker-local Durable Objects and are shared across isolates without depending on D1. In production, the hardened public routes fail closed with a generic `503` if the `PUBLIC_RATE_LIMITER` binding is unavailable instead of falling back to isolate-local memory.
 
 Some lower-risk auth paths still use pure in-memory limits (for example verify-email token checks, reset token validation/reset, avatar upload, and favorites add). Those remain isolate-local.
 
@@ -24,7 +24,7 @@ Wave 1 itself did not add runtime code. Later repo work added the D1-backed shar
 
 ### Contact worker (`workers/contact/`)
 
-The contact worker now uses `workers/contact/src/lib/rate-limit.js` for shared fixed-window D1 counters on two scopes: a burst limit (`3` requests per `10` minutes per IP) and an hourly limit (`5` requests per hour per IP). In production, contact submission now fails closed with a generic `503` if D1 or table `rate_limit_counters` is unavailable.
+The contact worker now uses `workers/contact/src/lib/rate-limit.js` for shared fixed-window Durable Object counters on two scopes: a burst limit (`3` requests per `10` minutes per IP) and an hourly limit (`5` requests per hour per IP). In production, contact submission now fails closed with a generic `503` if the `PUBLIC_RATE_LIMITER` binding is unavailable.
 
 The contact worker is routed via `contact.bitbi.ai` (defined in `workers/contact/wrangler.jsonc`).
 
@@ -67,7 +67,7 @@ This proves:
 
 - **Free plan rule capacity**: The Cloudflare Free plan allows exactly 1 rate limiting rule. That single slot is now occupied by `bitbi-auth-sensitive-posts-ip` (1/1 used). No additional WAF rate limiting rules can be created without upgrading the plan.
 - **Minimum period**: The Free plan limits the rate limiting period to a minimum of 10 seconds. Longer windows (e.g., per-minute or per-hour) are not available at this tier.
-- **contact.bitbi.ai not covered**: The contact form endpoint on `contact.bitbi.ai` is not protected by any Cloudflare WAF rate limiting rule. It relies solely on Worker-side rate limiting: D1-backed fixed-window counters when `rate_limit_counters` is present, and a production fail-closed `503` if that protection infrastructure is unavailable.
+- **contact.bitbi.ai not covered**: The contact form endpoint on `contact.bitbi.ai` is not protected by any Cloudflare WAF rate limiting rule. It relies solely on Worker-side rate limiting: Durable Object-backed fixed-window counters, and a production fail-closed `503` if that protection binding is unavailable.
 
 ## Rollback
 
@@ -83,8 +83,8 @@ Files inspected for this documentation:
 
 | File | Relevance |
 |---|---|
-| `workers/auth/src/lib/rate-limit.js` | Auth worker limiter helpers: shared D1 counters + production fail-closed enforcement |
-| `workers/auth/migrations/0015_add_rate_limit_counters.sql` | Shared durable rate-limit counter schema |
+| `workers/auth/src/lib/rate-limit.js` | Auth worker limiter helpers: Durable Object public counters + remaining D1-backed internal counters |
+| `workers/auth/migrations/0015_add_rate_limit_counters.sql` | Remaining D1-backed limiter schema for lower-risk/internal auth routes |
 | `workers/auth/wrangler.jsonc` | Auth worker routing: `bitbi.ai/api/*` |
-| `workers/contact/src/lib/rate-limit.js` | Contact worker shared D1 limiter + production fail-closed enforcement |
+| `workers/contact/src/lib/rate-limit.js` | Contact worker shared Durable Object limiter + production fail-closed enforcement |
 | `workers/contact/wrangler.jsonc` | Contact worker routing: `contact.bitbi.ai` |

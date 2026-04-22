@@ -54,6 +54,20 @@
 			"service": "bitbi-ai"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "PUBLIC_RATE_LIMITER",
+				"class_name": "AuthPublicRateLimiterDurableObject"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1-public-rate-limiter",
+			"new_sqlite_classes": ["AuthPublicRateLimiterDurableObject"]
+		}
+	],
 	"r2_buckets": [
 		{
 			"binding": "PRIVATE_MEDIA",

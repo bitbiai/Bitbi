@@ -30,7 +30,7 @@ npm run test:release-compat
 npm run validate:release
 ```
 
-Apply remote D1 migrations before deploying auth-worker code that depends on new tables. The contact worker also depends on `0015_add_rate_limit_counters.sql` because it shares the same D1 database for durable abuse counters.
+Apply remote D1 migrations before deploying auth-worker code that depends on new tables. Public auth/contact abuse-sensitive rate limiting no longer depends on `0015_add_rate_limit_counters.sql`; that migration still matters for the remaining lower-risk D1-backed limiter callers inside the auth worker.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ src/
 │   ├── passwords.js      ← hashPassword, verifyPassword (PBKDF2-SHA256)
 │   ├── tokens.js         ← nowIso, addDaysIso, addMinutesIso, randomTokenHex, sha256Hex
 │   ├── session.js        ← getSessionUser, requireUser, requireAdmin
-│   ├── rate-limit.js     ← in-memory + shared D1 rate limiting helpers
+│   ├── rate-limit.js     ← in-memory + shared Durable Object / D1 rate limiting helpers
 │   ├── email.js          ← sendVerificationEmail, sendResetEmail, createAndSendVerificationToken
 │   ├── activity.js       ← fire-and-forget user activity logging
 │   ├── admin-ai-response.js ← admin-only AI proxy response-code normalization
@@ -136,7 +136,7 @@ src/
 
 ## Database & Storage
 
-**D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker also binds this same database for shared durable contact rate limiting.
+**D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
 **Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
 
@@ -154,7 +154,7 @@ Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
 - `0012_add_user_activity_log` — required before auth deploy if admin user-activity views and durable user activity logging must work immediately
 - `0014_add_ai_daily_quota_usage` — required before auth deploy if `/api/ai/quota` and non-admin daily quota enforcement must work immediately
-- `0015_add_rate_limit_counters` — required before auth/contact deploy if shared durable rate limiting must work immediately
+- `0015_add_rate_limit_counters` — required before auth deploy if remaining D1-backed limiter paths (for example avatar upload, favorites add, admin actions, AI generation) must work immediately
 - `0016_add_ai_text_assets` — required before auth/AI deploy if admin AI text asset persistence must work immediately
 - `0017_add_ai_image_derivatives` — required before auth deploy if saved-image derivative tracking must work immediately
 - `0018_add_profile_avatar_state` — required before auth deploy if `/api/me` must use cached avatar state instead of per-request R2 probing
@@ -169,7 +169,7 @@ Key migration-dependent behavior:
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 10 minutes per session
-- Shared durable fixed-window rate limiting via `rate_limit_counters` covers register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset/avatar-upload/favorites add/admin actions/AI generation. The most abuse-sensitive public routes now fail closed in production if `DB` or the table is unavailable; lower-risk dev/test paths may still fall back locally.
+- Shared fixed-window rate limiting is now split by risk: register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset, wallet SIWE nonce/verify, and contact submission use worker-local Durable Object counters and fail closed in production if the `PUBLIC_RATE_LIMITER` binding is unavailable. Lower-risk/internal auth limiter paths such as avatar upload, favorites add, admin actions, and AI generation remain D1-backed via `rate_limit_counters`.
 - Password reset invalidates ALL unused reset tokens for the user (not just the used one)
 - Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type
 - Profile URL fields (website, youtube_url) require valid `https://` URLs

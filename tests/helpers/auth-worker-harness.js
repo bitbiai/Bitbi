@@ -182,6 +182,104 @@ class MockQueueProducer {
   }
 }
 
+class MockDurableRateLimiterNamespace {
+  constructor(seed = {}) {
+    this.fetchCalls = [];
+    this.failWith = seed.failWith || null;
+    this.instances = new Map();
+    for (const counter of seed.counters || []) {
+      const instance = this._getInstance(`${counter.scope}:${counter.limiter_key}`);
+      instance.windowStartMs = Number(counter.window_start_ms) || null;
+      instance.count = Number(counter.count) || 0;
+      instance.expiresAtMs = Date.parse(counter.expires_at || '') || null;
+    }
+  }
+
+  idFromName(name) {
+    return String(name);
+  }
+
+  get(id) {
+    const instanceId = String(id);
+    const instance = this._getInstance(instanceId);
+    return {
+      fetch: async (url, init = {}) => {
+        if (this.failWith) {
+          throw this.failWith instanceof Error ? this.failWith : new Error(String(this.failWith));
+        }
+
+        this.fetchCalls.push({
+          id: instanceId,
+          url: String(url),
+          method: init?.method || 'GET',
+          body: init?.body || null,
+        });
+
+        const request = new Request(String(url), init);
+        if (request.method !== 'POST') {
+          return new Response(JSON.stringify({ ok: false, error: 'Method not allowed.' }), {
+            status: 405,
+            headers: { 'Content-Type': 'application/json', Allow: 'POST' },
+          });
+        }
+
+        let body = null;
+        try {
+          body = await request.json();
+        } catch {
+          return new Response(JSON.stringify({ ok: false, error: 'Invalid JSON body.' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const maxRequests = Number(body?.maxRequests);
+        const windowMs = Number(body?.windowMs);
+        if (!Number.isInteger(maxRequests) || maxRequests <= 0 || !Number.isInteger(windowMs) || windowMs <= 0) {
+          return new Response(JSON.stringify({ ok: false, error: 'Invalid rate limit request.' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const nowMs = Date.now();
+        const windowStartMs = nowMs - (nowMs % windowMs);
+        const expiresAtMs = windowStartMs + windowMs;
+
+        if (instance.windowStartMs === windowStartMs && instance.expiresAtMs === expiresAtMs) {
+          instance.count += 1;
+        } else {
+          instance.windowStartMs = windowStartMs;
+          instance.expiresAtMs = expiresAtMs;
+          instance.count = 1;
+        }
+
+        return new Response(JSON.stringify({
+          ok: true,
+          limited: instance.count > maxRequests,
+          count: instance.count,
+          window_start_ms: instance.windowStartMs,
+          expires_at_ms: instance.expiresAtMs,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    };
+  }
+
+  _getInstance(id) {
+    if (!this.instances.has(id)) {
+      this.instances.set(id, {
+        windowStartMs: null,
+        count: 0,
+        expiresAtMs: null,
+      });
+    }
+    return this.instances.get(id);
+  }
+}
+
 class MockImagesBinding {
   constructor(options = {}) {
     this.originalInfo = options.originalInfo || { width: 1024, height: 1024, format: 'image/png' };
@@ -2657,6 +2755,14 @@ function createAuthTestEnv(seed = {}) {
   const USER_IMAGES = new MockBucket(seed.userImages);
   const AI_IMAGE_DERIVATIVES_QUEUE = seed.aiImageDerivativesQueue || new MockQueueProducer();
   const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
+  const PUBLIC_RATE_LIMITER = Object.prototype.hasOwnProperty.call(seed, 'PUBLIC_RATE_LIMITER')
+    ? seed.PUBLIC_RATE_LIMITER
+    : (seed.disablePublicRateLimiterBinding
+        ? undefined
+        : new MockDurableRateLimiterNamespace({
+            counters: seed.publicRateLimitCounters,
+            failWith: seed.publicRateLimiterFailWith,
+          }));
   return {
     APP_BASE_URL: 'https://bitbi.ai',
     BITBI_ENV: seed.BITBI_ENV || 'test',
@@ -2668,6 +2774,7 @@ function createAuthTestEnv(seed = {}) {
     USER_IMAGES,
     AI_IMAGE_DERIVATIVES_QUEUE,
     IMAGES,
+    PUBLIC_RATE_LIMITER,
     AI: {
       async run(...args) {
         return aiRun(...args);
@@ -2713,6 +2820,7 @@ async function loadWorker(relativePath) {
 module.exports = {
   MockBucket,
   MockD1,
+  MockDurableRateLimiterNamespace,
   MockImagesBinding,
   MockQueueProducer,
   createAuthTestEnv,

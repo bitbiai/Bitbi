@@ -35,11 +35,17 @@ function isPlainObject(value) {
 }
 
 function findNamedBinding(rows, binding) {
-  return Array.isArray(rows) ? rows.find((entry) => entry?.binding === binding) || null : null;
+  return Array.isArray(rows)
+    ? rows.find((entry) => entry?.binding === binding || entry?.name === binding) || null
+    : null;
 }
 
 function findQueueConsumer(rows, queueName) {
   return Array.isArray(rows) ? rows.find((entry) => entry?.queue === queueName) || null : null;
+}
+
+function findMigrationEntry(rows, tag) {
+  return Array.isArray(rows) ? rows.find((entry) => entry?.tag === tag) || null : null;
 }
 
 function routeEntryMatches(actualRoute, expectedRoute) {
@@ -182,6 +188,7 @@ function hasManifestBinding(workerManifest, bindingName) {
   if (isPlainObject(bindings.d1) && bindingName in bindings.d1) return true;
   if (isPlainObject(bindings.r2) && bindingName in bindings.r2) return true;
   if (isPlainObject(bindings.services) && bindingName in bindings.services) return true;
+  if (isPlainObject(bindings.durableObjects) && bindingName in bindings.durableObjects) return true;
   if (isPlainObject(bindings.queues?.producers) && bindingName in bindings.queues.producers) return true;
   return false;
 }
@@ -409,6 +416,19 @@ function validateWorkerContracts(manifest, context) {
       }
     }
 
+    for (const [binding, spec] of Object.entries(bindings.durableObjects || {})) {
+      const row = findNamedBinding(wrangler.durable_objects?.bindings, binding);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing Durable Object binding "${binding}".`);
+        continue;
+      }
+      if (spec?.className && row.class_name !== spec.className) {
+        issues.push(
+          `Worker "${workerId}" Durable Object binding "${binding}" targets class "${row.class_name}" but the release manifest requires "${spec.className}".`
+        );
+      }
+    }
+
     for (const [binding, spec] of Object.entries(bindings.queues?.producers || {})) {
       const row = findNamedBinding(wrangler.queues?.producers, binding);
       if (!row) {
@@ -438,6 +458,20 @@ function validateWorkerContracts(manifest, context) {
           );
         }
       }
+    }
+
+    for (const migrationSpec of workerManifest.migrations || []) {
+      const row = findMigrationEntry(wrangler.migrations, migrationSpec?.tag);
+      if (!row) {
+        issues.push(`Worker "${workerId}" is missing wrangler migration tag "${migrationSpec?.tag}".`);
+        continue;
+      }
+      compareExactStringSets(
+        migrationSpec?.newSqliteClasses || [],
+        row?.new_sqlite_classes || [],
+        `Worker "${workerId}" wrangler migration "${migrationSpec.tag}" new_sqlite_classes`,
+        issues
+      );
     }
   }
 

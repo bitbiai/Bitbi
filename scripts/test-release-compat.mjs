@@ -61,6 +61,9 @@ const baseManifest = {
           services: {
             AI_LAB: { service: "bitbi-ai", worker: "ai" },
           },
+          durableObjects: {
+            PUBLIC_RATE_LIMITER: { className: "AuthPublicRateLimiterDurableObject" },
+          },
           queues: {
             producers: {
               AI_IMAGE_DERIVATIVES_QUEUE: { queue: "bitbi-ai-image-derivatives" },
@@ -75,6 +78,12 @@ const baseManifest = {
             ],
           },
         },
+        migrations: [
+          {
+            tag: "v1-public-rate-limiter",
+            newSqliteClasses: ["AuthPublicRateLimiterDurableObject"],
+          },
+        ],
       },
       contact: {
         name: "bitbi-contact",
@@ -91,10 +100,16 @@ const baseManifest = {
           },
         ],
         bindings: {
-          d1: {
-            DB: { databaseName: "bitbi-auth-db" },
+          durableObjects: {
+            PUBLIC_RATE_LIMITER: { className: "ContactPublicRateLimiterDurableObject" },
           },
         },
+        migrations: [
+          {
+            tag: "v1-public-rate-limiter",
+            newSqliteClasses: ["ContactPublicRateLimiterDurableObject"],
+          },
+        ],
       },
     },
     deployOrder: [
@@ -110,7 +125,6 @@ const baseManifest = {
         id: "contact-worker",
         type: "worker",
         worker: "contact",
-        dependsOn: ["auth-migrations"],
       },
       {
         id: "static-site",
@@ -350,6 +364,20 @@ function createValidContext() {
           ai: { binding: "AI" },
           images: { binding: "IMAGES" },
           d1_databases: [{ binding: "DB", database_name: "bitbi-auth-db" }],
+          durable_objects: {
+            bindings: [
+              {
+                binding: "PUBLIC_RATE_LIMITER",
+                class_name: "AuthPublicRateLimiterDurableObject",
+              },
+            ],
+          },
+          migrations: [
+            {
+              tag: "v1-public-rate-limiter",
+              new_sqlite_classes: ["AuthPublicRateLimiterDurableObject"],
+            },
+          ],
           r2_buckets: [
             { binding: "PRIVATE_MEDIA", bucket_name: "bitbi-private-media" },
             { binding: "USER_IMAGES", bucket_name: "bitbi-user-images" },
@@ -388,7 +416,20 @@ function createValidContext() {
               custom_domain: true,
             },
           ],
-          d1_databases: [{ binding: "DB", database_name: "bitbi-auth-db" }],
+          durable_objects: {
+            bindings: [
+              {
+                binding: "PUBLIC_RATE_LIMITER",
+                class_name: "ContactPublicRateLimiterDurableObject",
+              },
+            ],
+          },
+          migrations: [
+            {
+              tag: "v1-public-rate-limiter",
+              new_sqlite_classes: ["ContactPublicRateLimiterDurableObject"],
+            },
+          ],
         },
       },
     },
@@ -610,6 +651,28 @@ function createValidContext() {
   assert(
     issues.some((issue) =>
       issue.includes('Worker "auth" wrangler var "BITBI_ENV" must equal')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.durable_objects.bindings = [];
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('Worker "auth" is missing Durable Object binding "PUBLIC_RATE_LIMITER"')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.contact.wrangler.migrations = [];
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('Worker "contact" is missing wrangler migration tag "v1-public-rate-limiter"')
     )
   );
 }

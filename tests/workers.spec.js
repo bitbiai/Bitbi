@@ -5736,43 +5736,60 @@ test.describe('Worker routes', () => {
   });
 
   test('shared limiter: login is blocked when the durable IP limit is already exhausted', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const { hashPassword } = await loadAuthModules();
-    const env = createAuthTestEnv({
-      users: [
-        {
-          id: 'limited-login-user',
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { hashPassword } = await loadAuthModules();
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'limited-login-user',
+            email: 'limited@example.com',
+            password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+        publicRateLimitCounters: [
+          makeActiveRateLimitCounter('auth-login-ip', '203.0.113.55', 10, 900_000),
+        ],
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
           email: 'limited@example.com',
-          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
-          created_at: nowIso(),
-          status: 'active',
-          role: 'user',
-          email_verified_at: nowIso(),
-          verification_method: 'email_verified',
-        },
-      ],
-      rateLimitCounters: [
-        makeActiveRateLimitCounter('auth-login-ip', '203.0.113.55', 10, 900_000),
-      ],
-    });
+          password: 'password123',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.55',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
 
-    const res = await authWorker.fetch(
-      authJsonRequest('/api/login', 'POST', {
-        email: 'limited@example.com',
-        password: 'password123',
-      }, {
-        Origin: 'https://bitbi.ai',
-        'CF-Connecting-IP': '203.0.113.55',
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-
-    expect(res.status).toBe(429);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: 'Too many requests. Please try again later.',
-    });
+      expect(res.status).toBe(429);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Too many requests. Please try again later.',
+      });
+      expect(env.PUBLIC_RATE_LIMITER.fetchCalls).toHaveLength(1);
+      expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+      expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_blocked')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-auth',
+          component: 'auth-login',
+          limiter_scope: 'auth-login-ip',
+          request_method: 'POST',
+          request_path: '/api/login',
+          status: 429,
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
   });
 
   test('shared limiter: forgot-password preserves generic success when the durable email limit is exhausted', async () => {
@@ -5790,7 +5807,7 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('auth-forgot-email', 'forgot@example.com', 3, 3_600_000),
       ],
     });
@@ -5811,16 +5828,18 @@ test.describe('Worker routes', () => {
       ok: true,
       message: 'If an account with this email exists, a reset link has been sent.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('auth-forgot-email:forgot@example.com');
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
   });
 
-  test('shared limiter: production login fails closed when the durable limiter table is missing', async () => {
+  test('shared limiter: production login fails closed when the durable object limiter binding is missing', async () => {
     const diagnostics = captureDiagnosticLogs();
     try {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const { hashPassword } = await loadAuthModules();
       const env = createAuthTestEnv({
         BITBI_ENV: 'production',
-        missingTables: ['rate_limit_counters'],
+        disablePublicRateLimiterBinding: true,
         users: [
           {
             id: 'prod-rate-login-user',
@@ -5858,7 +5877,7 @@ test.describe('Worker routes', () => {
           component: 'auth-login',
           correlation_id: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
           limiter_scope: 'auth-login-ip',
-          limiter_reason: 'rate_limit_table_missing',
+          limiter_reason: 'durable_object_binding_missing',
           production: true,
           request_method: 'POST',
           request_path: '/api/login',
@@ -5870,11 +5889,11 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('shared limiter: test env login still falls back when the durable limiter table is missing', async () => {
+  test('shared limiter: test env login still falls back when the durable object limiter binding is missing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { hashPassword } = await loadAuthModules();
     const env = createAuthTestEnv({
-      missingTables: ['rate_limit_counters'],
+      disablePublicRateLimiterBinding: true,
       users: [
         {
           id: 'test-rate-login-user',
@@ -5909,6 +5928,7 @@ test.describe('Worker routes', () => {
         id: 'test-rate-login-user',
       }),
     });
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
   });
 
   test('shared limiter: AI generation is blocked when the durable per-user rate limit is exhausted', async () => {
@@ -5955,7 +5975,7 @@ test.describe('Worker routes', () => {
   test('shared limiter: reset-password validate is blocked when the durable IP limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('auth-reset-validate-ip', '203.0.113.57', 10, 900_000),
       ],
     });
@@ -5974,12 +5994,13 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('auth-reset-validate-ip:203.0.113.57');
   });
 
   test('shared limiter: reset-password is blocked when the durable IP limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('auth-reset-ip', '203.0.113.58', 5, 3_600_000),
       ],
     });
@@ -6001,12 +6022,13 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('auth-reset-ip:203.0.113.58');
   });
 
   test('shared limiter: verify-email is blocked when the durable IP limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('auth-verify-ip', '203.0.113.59', 10, 900_000),
       ],
     });
@@ -6025,6 +6047,7 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('auth-verify-ip:203.0.113.59');
   });
 
   test('shared limiter: avatar upload is blocked when the durable IP limit is exhausted', async () => {
@@ -6054,6 +6077,8 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls).toHaveLength(0);
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(true);
   });
 
   test('shared limiter: favorites add is blocked when the durable IP limit is exhausted', async () => {
@@ -10764,51 +10789,68 @@ test.describe('Worker routes', () => {
   });
 
   test('contact worker: shared limiter blocks abusive submissions before mail send', async () => {
-    const contactWorker = await loadWorker('workers/contact/src/index.js');
-    const env = createAuthTestEnv({
-      rateLimitCounters: [
-        makeActiveRateLimitCounter('contact-submit-ip-burst', '203.0.113.77', 3, 10 * 60 * 1000),
-      ],
-    });
-    env.RESEND_API_KEY = 'test-key';
-    const originalFetch = global.fetch;
-    let resendCallCount = 0;
-
-    global.fetch = async () => {
-      resendCallCount += 1;
-      return new Response(JSON.stringify({ id: 'email-1' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    };
-
+    const diagnostics = captureDiagnosticLogs();
     try {
-      const res = await contactWorker.fetch(
-        new Request('https://contact.bitbi.ai/', {
-          method: 'POST',
-          headers: {
-            Origin: 'https://bitbi.ai',
-            'Content-Type': 'application/json',
-            'CF-Connecting-IP': '203.0.113.77',
-          },
-          body: JSON.stringify({
-            name: 'Visitor',
-            email: 'visitor@example.com',
-            subject: 'Hello',
-            message: 'Testing limiter',
-            website: '',
-          }),
-        }),
-        env
-      );
-
-      expect(res.status).toBe(429);
-      await expect(res.json()).resolves.toMatchObject({
-        error: 'Too many requests. Please try again later.',
+      const contactWorker = await loadWorker('workers/contact/src/index.js');
+      const env = createAuthTestEnv({
+        publicRateLimitCounters: [
+          makeActiveRateLimitCounter('contact-submit-ip-burst', '203.0.113.77', 3, 10 * 60 * 1000),
+        ],
       });
-      expect(resendCallCount).toBe(0);
+      env.RESEND_API_KEY = 'test-key';
+      const originalFetch = global.fetch;
+      let resendCallCount = 0;
+
+      global.fetch = async () => {
+        resendCallCount += 1;
+        return new Response(JSON.stringify({ id: 'email-1' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      };
+
+      try {
+        const res = await contactWorker.fetch(
+          new Request('https://contact.bitbi.ai/', {
+            method: 'POST',
+            headers: {
+              Origin: 'https://bitbi.ai',
+              'Content-Type': 'application/json',
+              'CF-Connecting-IP': '203.0.113.77',
+            },
+            body: JSON.stringify({
+              name: 'Visitor',
+              email: 'visitor@example.com',
+              subject: 'Hello',
+              message: 'Testing limiter',
+              website: '',
+            }),
+          }),
+          env
+        );
+
+        expect(res.status).toBe(429);
+        await expect(res.json()).resolves.toMatchObject({
+          error: 'Too many requests. Please try again later.',
+        });
+        expect(resendCallCount).toBe(0);
+        expect(env.PUBLIC_RATE_LIMITER.fetchCalls).toHaveLength(1);
+        expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+        expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_blocked')).toEqual(
+          expect.objectContaining({
+            service: 'bitbi-contact',
+            component: 'contact-submit',
+            limiter_scope: 'contact-submit-ip-burst',
+            request_method: 'POST',
+            request_path: '/',
+            status: 429,
+          })
+        );
+      } finally {
+        global.fetch = originalFetch;
+      }
     } finally {
-      global.fetch = originalFetch;
+      diagnostics.restore();
     }
   });
 
@@ -10876,16 +10918,17 @@ test.describe('Worker routes', () => {
         error: 'Too many requests. Please try again later.',
       });
       expect(resendCallCount).toBe(3);
+      expect(env.PUBLIC_RATE_LIMITER.fetchCalls).toHaveLength(7);
+      expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
     } finally {
       global.fetch = originalFetch;
     }
   });
 
-  test('contact worker: production fails closed when limiter protection infra is unavailable', async () => {
+  test('contact worker: production fails closed when the durable object limiter binding is unavailable', async () => {
     const diagnostics = captureDiagnosticLogs();
     const contactWorker = await loadWorker('workers/contact/src/index.js');
-    const env = createAuthTestEnv({ BITBI_ENV: 'production' });
-    env.DB = null;
+    const env = createAuthTestEnv({ BITBI_ENV: 'production', disablePublicRateLimiterBinding: true });
     env.RESEND_API_KEY = 'test-key';
     const originalFetch = global.fetch;
     let resendCallCount = 0;
@@ -10923,13 +10966,13 @@ test.describe('Worker routes', () => {
         error: 'Service temporarily unavailable. Please try again later.',
       });
       expect(resendCallCount).toBe(0);
-      expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_fail_closed')).toEqual(
+        expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_fail_closed')).toEqual(
         expect.objectContaining({
           service: 'bitbi-contact',
           component: 'contact-submit',
           correlation_id: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
           limiter_scope: 'contact-submit-ip-burst',
-          limiter_reason: 'db_binding_missing',
+          limiter_reason: 'durable_object_binding_missing',
           production: true,
           request_method: 'POST',
           request_path: '/',

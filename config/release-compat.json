@@ -58,6 +58,11 @@
               "worker": "ai"
             }
           },
+          "durableObjects": {
+            "PUBLIC_RATE_LIMITER": {
+              "className": "AuthPublicRateLimiterDurableObject"
+            }
+          },
           "queues": {
             "producers": {
               "AI_IMAGE_DERIVATIVES_QUEUE": {
@@ -73,7 +78,13 @@
               }
             ]
           }
-        }
+        },
+        "migrations": [
+          {
+            "tag": "v1-public-rate-limiter",
+            "newSqliteClasses": ["AuthPublicRateLimiterDurableObject"]
+          }
+        ]
       },
       "contact": {
         "name": "bitbi-contact",
@@ -90,12 +101,18 @@
           }
         ],
         "bindings": {
-          "d1": {
-            "DB": {
-              "databaseName": "bitbi-auth-db"
+          "durableObjects": {
+            "PUBLIC_RATE_LIMITER": {
+              "className": "ContactPublicRateLimiterDurableObject"
             }
           }
-        }
+        },
+        "migrations": [
+          {
+            "tag": "v1-public-rate-limiter",
+            "newSqliteClasses": ["ContactPublicRateLimiterDurableObject"]
+          }
+        ]
       }
     },
     "deployOrder": [
@@ -118,8 +135,7 @@
       {
         "id": "contact-worker",
         "type": "worker",
-        "worker": "contact",
-        "dependsOn": ["auth-migrations"]
+        "worker": "contact"
       },
       {
         "id": "static-site",

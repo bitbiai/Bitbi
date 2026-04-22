@@ -12,12 +12,18 @@
       "custom_domain": true
     }
   ],
-  "d1_databases": [
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PUBLIC_RATE_LIMITER",
+        "class_name": "ContactPublicRateLimiterDurableObject"
+      }
+    ]
+  },
+  "migrations": [
     {
-      "binding": "DB",
-      "database_name": "bitbi-auth-db",
-      "database_id": "48eb4207-fe20-45f5-998c-8adc1aa28c8c",
-      "preview_database_id": "local-bitbi-auth-db"
+      "tag": "v1-public-rate-limiter",
+      "new_sqlite_classes": ["ContactPublicRateLimiterDurableObject"]
     }
   ]
 }

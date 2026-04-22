@@ -40,6 +40,7 @@ import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
 } from "./lib/rate-limit.js";
+export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";

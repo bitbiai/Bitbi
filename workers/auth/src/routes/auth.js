@@ -32,7 +32,9 @@ async function evaluateSensitivePublicRateLimit(
   { correlationId = null, component = "auth", requestInfo = null } = {}
 ) {
   return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
+    backend: "durable_object",
     failClosedInProduction: true,
+    logBlockedEvent: true,
     correlationId,
     component,
     requestInfo,

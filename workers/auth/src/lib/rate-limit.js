@@ -11,6 +11,7 @@ const rateLimitBuckets = new Map();
 const RATE_LIMIT_CLEANUP_INTERVAL = 60_000;
 let lastRateLimitCleanup = Date.now();
 const RATE_LIMIT_COUNTERS_TABLE = "rate_limit_counters";
+const PUBLIC_RATE_LIMITER_BINDING = "PUBLIC_RATE_LIMITER";
 const limiterInfraCache = new WeakMap();
 
 export class SharedRateLimitUnavailableError extends Error {
@@ -65,6 +66,15 @@ function buildLimiterUnavailableError(reason, cause = null) {
   if (reason === "rate_limit_table_missing") {
     return new SharedRateLimitUnavailableError("Shared rate limiter table is unavailable.", { reason, cause });
   }
+  if (reason === "durable_object_binding_missing") {
+    return new SharedRateLimitUnavailableError("Shared rate limiter Durable Object binding is unavailable.", { reason, cause });
+  }
+  if (reason === "durable_object_invalid_response") {
+    return new SharedRateLimitUnavailableError("Shared rate limiter Durable Object returned an invalid response.", { reason, cause });
+  }
+  if (reason === "durable_object_request_failed") {
+    return new SharedRateLimitUnavailableError("Shared rate limiter Durable Object request failed.", { reason, cause });
+  }
   return new SharedRateLimitUnavailableError("Shared rate limiter is unavailable.", { reason, cause });
 }
 
@@ -90,6 +100,24 @@ function logLimiterDegradedEvent({
     status: failClosed ? 503 : null,
     ...getRequestLogFields(requestInfo),
     ...getErrorFields(error),
+  });
+}
+
+function logLimiterBlockedEvent({
+  scope,
+  component,
+  correlationId = null,
+  requestInfo = null,
+}) {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: component || "shared-rate-limit",
+    event: "shared_rate_limiter_blocked",
+    level: "warn",
+    correlationId,
+    limiter_scope: scope,
+    status: 429,
+    ...getRequestLogFields(requestInfo),
   });
 }
 
@@ -163,6 +191,35 @@ function shouldFailClosed(env, options) {
   return options?.failClosedInProduction === true && isProductionEnvironment(env);
 }
 
+function usesDurableObjectBackend(options) {
+  return options?.backend === "durable_object";
+}
+
+function getDurableRateLimiterNamespace(env) {
+  return env?.[PUBLIC_RATE_LIMITER_BINDING] || null;
+}
+
+async function assertDurableRateLimitInfraReady(
+  env,
+  { component = "shared-rate-limit", correlationId = null, scope = null, requestInfo = null } = {}
+) {
+  if (getDurableRateLimiterNamespace(env)) {
+    return true;
+  }
+  const error = buildLimiterUnavailableError("durable_object_binding_missing");
+  logLimiterDegradedEvent({
+    env,
+    scope,
+    component,
+    correlationId,
+    failClosed: true,
+    reason: error.reason,
+    error,
+    requestInfo,
+  });
+  throw error;
+}
+
 function unwrapLimiterFailure(error) {
   if (isSharedRateLimitUnavailableError(error)) return error;
   if (String(error).includes("no such table")) {
@@ -171,7 +228,79 @@ function unwrapLimiterFailure(error) {
   return buildLimiterUnavailableError("rate_limit_query_failed", error);
 }
 
+function unwrapDurableLimiterFailure(error) {
+  if (isSharedRateLimitUnavailableError(error)) return error;
+  if (String(error).includes("invalid_response")) {
+    return buildLimiterUnavailableError("durable_object_invalid_response", error);
+  }
+  return buildLimiterUnavailableError("durable_object_request_failed", error);
+}
+
+async function isDurableObjectRateLimited(env, scope, key, maxRequests, windowMs, options = {}) {
+  const failClosed = shouldFailClosed(env, options);
+  if (failClosed) {
+    await assertDurableRateLimitInfraReady(env, { ...options, scope });
+  }
+
+  const namespace = getDurableRateLimiterNamespace(env);
+  if (!namespace) {
+    if (failClosed) {
+      throw buildLimiterUnavailableError("durable_object_binding_missing");
+    }
+    return isRateLimited(`${scope}:${key}`, maxRequests, windowMs);
+  }
+
+  try {
+    const id = namespace.idFromName(`${scope}:${key}`);
+    const stub = namespace.get(id);
+    const response = await stub.fetch("https://rate-limit.internal/limit", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ maxRequests, windowMs }),
+    });
+    if (!response?.ok) {
+      throw new Error(`durable_object_invalid_response:${response?.status || "unknown"}`);
+    }
+    const body = await response.json();
+    if (typeof body?.limited !== "boolean") {
+      throw new Error("durable_object_invalid_response");
+    }
+    return body.limited;
+  } catch (error) {
+    if (failClosed) {
+      const unavailable = unwrapDurableLimiterFailure(error);
+      logLimiterDegradedEvent({
+        env,
+        scope,
+        component: options?.component,
+        correlationId: options?.correlationId || null,
+        failClosed: true,
+        reason: unavailable.reason,
+        error,
+        requestInfo: options?.requestInfo || null,
+      });
+      throw unavailable;
+    }
+    logLimiterDegradedEvent({
+      env,
+      scope,
+      component: options?.component,
+      correlationId: options?.correlationId || null,
+      failClosed: false,
+      reason: unwrapDurableLimiterFailure(error).reason,
+      error,
+      requestInfo: options?.requestInfo || null,
+    });
+    return isRateLimited(`${scope}:${key}`, maxRequests, windowMs);
+  }
+}
+
 export async function isSharedRateLimited(env, scope, key, maxRequests, windowMs, options = {}) {
+  if (usesDurableObjectBackend(options)) {
+    return isDurableObjectRateLimited(env, scope, key, maxRequests, windowMs, options);
+  }
   const failClosed = shouldFailClosed(env, options);
   if (failClosed) {
     await assertSharedRateLimitInfraReady(env, { ...options, scope });
@@ -233,8 +362,17 @@ export async function isSharedRateLimited(env, scope, key, maxRequests, windowMs
 
 export async function evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, options = {}) {
   try {
+    const limited = await isSharedRateLimited(env, scope, key, maxRequests, windowMs, options);
+    if (limited && options?.logBlockedEvent === true) {
+      logLimiterBlockedEvent({
+        scope,
+        component: options?.component,
+        correlationId: options?.correlationId || null,
+        requestInfo: options?.requestInfo || null,
+      });
+    }
     return {
-      limited: await isSharedRateLimited(env, scope, key, maxRequests, windowMs, options),
+      limited,
       unavailable: false,
     };
   } catch (error) {
