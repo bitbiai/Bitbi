@@ -1216,6 +1216,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     folders: {},
   };
   const imageRequests = options.imageRequests || [];
+  const saveImageRequests = options.saveImageRequests || [];
   const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
 
   await page.route('**/api/me', async (route) => {
@@ -1383,6 +1384,49 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     });
   });
 
+  await page.route('**/api/ai/images/save', async (route) => {
+    const body = route.request().postDataJSON();
+    saveImageRequests.push(body);
+    if (typeof options.saveImageHandler === 'function') {
+      const handled = await options.saveImageHandler(route, body, assetStore, saveImageRequests);
+      if (handled !== false) {
+        return;
+      }
+    }
+    const id = `img-${saveImageRequests.length}`;
+    assetStore.addAsset({
+      id,
+      asset_type: 'image',
+      folder_id: body.folder_id || null,
+      title: body.prompt,
+      preview_text: body.prompt,
+      model: body.model,
+      steps: body.steps ?? null,
+      seed: body.seed ?? null,
+      created_at: '2026-04-10T12:00:00.000Z',
+      file_url: `/api/ai/images/${id}/file`,
+      original_url: `/api/ai/images/${id}/file`,
+      thumb_url: `/api/ai/images/${id}/thumb`,
+      medium_url: `/api/ai/images/${id}/medium`,
+    });
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id,
+          folder_id: body.folder_id || null,
+          prompt: body.prompt,
+          model: body.model,
+          steps: body.steps ?? null,
+          seed: body.seed ?? null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      }),
+    });
+  });
+
   await page.route('**/api/ai/text-assets/*', async (route) => {
     if (route.request().method() !== 'DELETE') {
       await route.fallback();
@@ -1416,6 +1460,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
           model: selectedModel,
           steps: keepsLegacySteps ? body.steps ?? 4 : null,
           seed: keepsLegacySteps ? body.seed ?? null : null,
+          saveReference: options.generateSaveReference || 'generated-save-reference',
         },
       }),
     });
@@ -2289,6 +2334,114 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioSaveBtn')).toHaveText('Save');
     await expect(page.locator('#galStudioSaveBtn')).toBeEnabled();
     await expect(page.locator('#galStudioGenMsg')).toContainText(/network error|request cancelled|save failed/i);
+  });
+
+  test('account Image Studio saves fresh generations by reference instead of re-uploading the full image', async ({
+    page,
+  }) => {
+    const requests = [];
+    const saveImageRequests = [];
+    await mockAuthenticatedImageStudio(page, requests, {
+      saveImageRequests,
+      generateSaveReference: 'member-save-reference',
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioPrompt').fill('Reference-backed save');
+    await page.locator('#studioGenerate').click();
+    await expect(page.locator('#studioPreview img')).toBeVisible();
+    await page.locator('#studioSaveBtn').click();
+
+    expect(saveImageRequests).toHaveLength(1);
+    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
+      save_reference: 'member-save-reference',
+      prompt: 'Reference-backed save',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(saveImageRequests[0].imageData).toBeUndefined();
+    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
+  });
+
+  test('homepage create studio saves fresh generations by reference instead of re-uploading the full image', async ({
+    page,
+  }) => {
+    const requests = [];
+    const saveImageRequests = [];
+    await mockAuthenticatedImageStudio(page, requests, {
+      saveImageRequests,
+      generateSaveReference: 'homepage-save-reference',
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#galStudioPrompt').fill('Homepage reference save');
+    await page.locator('#galStudioGenerate').click();
+    await expect(page.locator('#galStudioPreview img')).toBeVisible();
+    await page.locator('#galStudioSaveBtn').click();
+
+    expect(saveImageRequests).toHaveLength(1);
+    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
+      save_reference: 'homepage-save-reference',
+      prompt: 'Homepage reference save',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(saveImageRequests[0].imageData).toBeUndefined();
+    await expect(page.locator('#galStudioGenMsg')).toContainText('Image saved.');
+  });
+
+  test('account Image Studio falls back to the legacy upload path when a save reference expires', async ({
+    page,
+  }) => {
+    const saveImageRequests = [];
+    await mockAuthenticatedImageStudio(page, [], {
+      saveImageRequests,
+      generateSaveReference: 'expiring-save-reference',
+      saveImageHandler: async (route, body) => {
+        if (body.save_reference) {
+          await route.fulfill({
+            status: 410,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'SAVE_REFERENCE_EXPIRED',
+              error: 'Generated image reference expired. Please generate the image again.',
+            }),
+          });
+          return true;
+        }
+        return false;
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioPrompt').fill('Fallback upload save');
+    await page.locator('#studioGenerate').click();
+    await expect(page.locator('#studioPreview img')).toBeVisible();
+    await page.locator('#studioSaveBtn').click();
+    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
+
+    expect(saveImageRequests).toHaveLength(2);
+    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
+      save_reference: 'expiring-save-reference',
+      prompt: 'Fallback upload save',
+    }));
+    expect(saveImageRequests[0].imageData).toBeUndefined();
+    expect(saveImageRequests[1]).toEqual(expect.objectContaining({
+      prompt: 'Fallback upload save',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(saveImageRequests[1].save_reference).toBeUndefined();
+    expect(saveImageRequests[1].imageData).toMatch(/^data:image\/png;base64,/);
+    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
   });
 
   test('account Image Studio shows mixed saved assets inside the shared folder world', async ({

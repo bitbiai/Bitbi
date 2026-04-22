@@ -25,6 +25,13 @@ async function loadObservabilityModule() {
   return import(observabilityPath);
 }
 
+async function loadAiGeneratedSaveReferenceModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/routes/ai/generated-image-save-reference.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadPublicMediaContractModule() {
   const contractPath = pathToFileURL(path.join(process.cwd(), 'js/shared/public-media-contract.mjs')).href;
   return import(contractPath);
@@ -6492,6 +6499,223 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'ai-invalid-model-user')).toHaveLength(0);
   });
 
+  test('AI generate returns a save reference and stores a private temp original for later save-by-reference', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const {
+      AI_GENERATED_TEMP_OBJECT_PREFIX,
+      decodeAiGeneratedSaveReference,
+    } = await loadAiGeneratedSaveReferenceModule();
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'ai-save-ref-user', role: 'user' })],
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const token = await seedSession(env, 'ai-save-ref-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'save reference image generation',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        imageBase64: expect.any(String),
+        mimeType: 'image/png',
+        prompt: 'save reference image generation',
+        saveReference: expect.any(String),
+      },
+    });
+
+    const decodedReference = await decodeAiGeneratedSaveReference(env, body.data.saveReference, {
+      userId: 'ai-save-ref-user',
+    });
+    expect(decodedReference.tempKey).toContain(`${AI_GENERATED_TEMP_OBJECT_PREFIX}ai-save-ref-user/`);
+    const storedTemp = env.USER_IMAGES.objects.get(decodedReference.tempKey);
+    expect(storedTemp).toBeTruthy();
+    expect(storedTemp.httpMetadata).toEqual({ contentType: 'image/png' });
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'ai-save-ref-user')).toHaveLength(1);
+  });
+
+  test('AI save image by reference persists the final asset without requiring image data from the browser', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-save-ref-user', role: 'user' })],
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const token = await seedSession(env, 'artist-save-ref-user');
+    const generateRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'save by reference image',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(generateRes.status).toBe(200);
+    const generateBody = await generateRes.json();
+    const saveReference = generateBody?.data?.saveReference;
+    expect(saveReference).toEqual(expect.any(String));
+    const tempKeysBeforeSave = Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'));
+    expect(tempKeysBeforeSave).toHaveLength(1);
+
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        save_reference: saveReference,
+        prompt: 'save by reference image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(201);
+    const saveBody = await saveRes.json();
+    expect(saveBody.ok).toBe(true);
+    const imageId = saveBody.data.id;
+    const savedRow = env.DB.state.aiImages.find((row) => row.id === imageId);
+    expect(savedRow).toBeTruthy();
+    expect(env.USER_IMAGES.objects.has(savedRow.r2_key)).toBe(true);
+    expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages[0]).toMatchObject({
+      image_id: imageId,
+      original_key: savedRow.r2_key,
+      trigger: 'save',
+    });
+  });
+
+  test('AI save image rejects malformed save references deterministically', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-malformed-ref-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'artist-malformed-ref-user');
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        save_reference: 'not-a-valid-save-reference',
+        prompt: 'bad reference',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(400);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'INVALID_SAVE_REFERENCE',
+      error: 'Invalid save reference.',
+    });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('AI save image rejects expired save references deterministically', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { encodeAiGeneratedSaveReference } = await loadAiGeneratedSaveReferenceModule();
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-expired-ref-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'artist-expired-ref-user');
+    const saveReference = await encodeAiGeneratedSaveReference(env, {
+      userId: 'artist-expired-ref-user',
+      tempId: 'expired-save-ref-temp',
+      expiresAt: Date.now() - 1_000,
+    });
+
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        save_reference: saveReference,
+        prompt: 'expired reference',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(410);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'SAVE_REFERENCE_EXPIRED',
+      error: 'Generated image reference expired. Please generate the image again.',
+    });
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('AI save image rejects cross-user save reference reuse', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const {
+      buildAiGeneratedTempOriginalKey,
+      encodeAiGeneratedSaveReference,
+    } = await loadAiGeneratedSaveReferenceModule();
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'artist-save-owner', role: 'user' }),
+        createContractUser({ id: 'artist-save-attacker', role: 'user' }),
+      ],
+      userImages: {
+        [buildAiGeneratedTempOriginalKey('artist-save-owner', 'shared-temp-image')]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-save-attacker');
+    const saveReference = await encodeAiGeneratedSaveReference(env, {
+      userId: 'artist-save-owner',
+      tempId: 'shared-temp-image',
+      expiresAt: Date.now() + 10 * 60_000,
+    });
+
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        save_reference: saveReference,
+        prompt: 'cross user misuse',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(404);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'SAVE_REFERENCE_UNAVAILABLE',
+      error: 'Generated image is no longer available. Please generate it again.',
+    });
+    expect(env.DB.state.aiImages).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.has(buildAiGeneratedTempOriginalKey('artist-save-owner', 'shared-temp-image'))).toBe(true);
+  });
+
   test('AI lifecycle: save image then delete image removes metadata and blob', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -10219,6 +10443,37 @@ test.describe('Worker routes', () => {
     await authWorker.scheduled({}, env, createExecutionContext().execCtx);
     expect(env.USER_IMAGES.objects.has('users/artist-2b/folders/unsorted/decafbad.png')).toBe(false);
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+  });
+
+  test('AI scheduled cleanup removes expired generated temp originals but keeps fresh ones', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const {
+      AI_GENERATED_SAVE_REFERENCE_TTL_MS,
+      buildAiGeneratedTempOriginalKey,
+    } = await loadAiGeneratedSaveReferenceModule();
+    const staleUploadedAt = new Date(Date.now() - AI_GENERATED_SAVE_REFERENCE_TTL_MS - 60_000).toISOString();
+    const freshUploadedAt = new Date(Date.now() - AI_GENERATED_SAVE_REFERENCE_TTL_MS + 60_000).toISOString();
+    const staleKey = buildAiGeneratedTempOriginalKey('cleanup-user', 'stale-temp');
+    const freshKey = buildAiGeneratedTempOriginalKey('cleanup-user', 'fresh-temp');
+    const env = createAuthTestEnv({
+      userImages: {
+        [staleKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: staleUploadedAt,
+        },
+        [freshKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: freshUploadedAt,
+        },
+      },
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(env.USER_IMAGES.objects.has(staleKey)).toBe(false);
+    expect(env.USER_IMAGES.objects.has(freshKey)).toBe(true);
   });
 
   test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {

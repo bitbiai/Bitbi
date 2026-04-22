@@ -10,6 +10,13 @@ import {
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
+import {
+  AI_GENERATED_SAVE_REFERENCE_TTL_MINUTES,
+  AiGeneratedSaveReferenceError,
+  buildAiGeneratedTempOriginalKey,
+  decodeAiGeneratedSaveReference,
+  encodeAiGeneratedSaveReference,
+} from "./generated-image-save-reference.js";
 import { AiAssetLifecycleError, deleteUserAiImage } from "./lifecycle.js";
 
 const { DEFAULT_AI_IMAGE_MODEL, resolveAiImageModel } = aiImageModels;
@@ -27,6 +34,7 @@ const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
 const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
 const MAX_SAVED_AI_IMAGE_PIXELS = 1024 * 1024;
+const MAX_SAVE_REFERENCE_LENGTH = 500;
 
 function getQuotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + "T00:00:00.000Z";
@@ -37,6 +45,127 @@ function quotaUnavailableResponse() {
     { ok: false, error: "Service temporarily unavailable. Please try again later." },
     { status: 503 }
   );
+}
+
+function decodeBase64ToBytes(base64) {
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) {
+    bytes[i] = raw.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function decodeDataUriImage(imageData) {
+  const match = String(imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+  if (!match) {
+    throw new Error("invalid_image_data_format");
+  }
+
+  try {
+    return {
+      mimeType: match[1],
+      imageBytes: decodeBase64ToBytes(match[2]),
+    };
+  } catch {
+    throw new Error("invalid_base64_image_data");
+  }
+}
+
+function logSaveReferenceRejection({ correlationId, userId, reason }) {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-save-image",
+    event: "ai_image_save_reference_rejected",
+    level: "warn",
+    correlationId,
+    user_id: userId,
+    failure_reason: reason,
+  });
+}
+
+async function resolveSaveImageInput(env, body, userId, correlationId) {
+  const saveReference = typeof body?.save_reference === "string"
+    ? body.save_reference.trim()
+    : "";
+
+  if (saveReference) {
+    if (saveReference.length > MAX_SAVE_REFERENCE_LENGTH) {
+      logSaveReferenceRejection({
+        correlationId,
+        userId,
+        reason: "reference_too_long",
+      });
+      throw new AiGeneratedSaveReferenceError("Invalid save reference.", {
+        reason: "malformed",
+      });
+    }
+
+    let reference;
+    try {
+      reference = await decodeAiGeneratedSaveReference(env, saveReference, { userId });
+    } catch (error) {
+      if (error instanceof AiGeneratedSaveReferenceError) {
+        logSaveReferenceRejection({
+          correlationId,
+          userId,
+          reason: error.reason,
+        });
+      }
+      throw error;
+    }
+
+    const tempObject = await env.USER_IMAGES.get(reference.tempKey);
+    if (!tempObject) {
+      logSaveReferenceRejection({
+        correlationId,
+        userId,
+        reason: "object_missing",
+      });
+      throw new AiGeneratedSaveReferenceError(
+        "Generated image is no longer available. Please generate it again.",
+        {
+          status: 404,
+          code: "SAVE_REFERENCE_UNAVAILABLE",
+          reason: "object_missing",
+        }
+      );
+    }
+
+    const tempBuffer = await toArrayBuffer(tempObject.body ?? tempObject);
+    if (!tempBuffer || tempBuffer.byteLength === 0) {
+      logSaveReferenceRejection({
+        correlationId,
+        userId,
+        reason: "object_unreadable",
+      });
+      throw new AiGeneratedSaveReferenceError(
+        "Generated image is no longer available. Please generate it again.",
+        {
+          status: 404,
+          code: "SAVE_REFERENCE_UNAVAILABLE",
+          reason: "object_unreadable",
+        }
+      );
+    }
+
+    return {
+      imageBytes: new Uint8Array(tempBuffer),
+      savedMimeType: tempObject.httpMetadata?.contentType || "image/png",
+      tempKey: reference.tempKey,
+    };
+  }
+
+  if (!body?.imageData) {
+    throw new Error("missing_image_data");
+  }
+
+  const { mimeType, imageBytes } = decodeDataUriImage(body.imageData);
+  return {
+    imageBytes,
+    savedMimeType: mimeType,
+    tempKey: null,
+  };
 }
 
 async function deleteExpiredQuotaReservations(env, userId, dayStart, now) {
@@ -271,6 +400,35 @@ export async function handleGenerateImage(ctx) {
     );
   }
 
+  let tempSavePayload = {};
+  try {
+    const tempId = randomTokenHex(16);
+    const tempKey = buildAiGeneratedTempOriginalKey(userId, tempId);
+    const imageBytes = decodeBase64ToBytes(base64);
+    await env.USER_IMAGES.put(tempKey, imageBytes.buffer, {
+      httpMetadata: { contentType: mimeType },
+    });
+    tempSavePayload = {
+      saveReference: await encodeAiGeneratedSaveReference(env, {
+        userId,
+        tempId,
+        expiresAt: Date.parse(addMinutesIso(AI_GENERATED_SAVE_REFERENCE_TTL_MINUTES)),
+      }),
+    };
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_generated_temp_store_failed",
+      level: "warn",
+      correlationId,
+      user_id: userId,
+      model: modelConfig.id,
+      is_admin: isAdmin,
+      ...getErrorFields(error),
+    });
+  }
+
   return respond({
     ok: true,
     data: {
@@ -280,6 +438,7 @@ export async function handleGenerateImage(ctx) {
       steps: aiRequest.steps,
       seed: aiRequest.seed,
       model: modelConfig.id,
+      ...tempSavePayload,
     },
   });
 }
@@ -341,7 +500,7 @@ export async function handleSaveImage(ctx) {
   if (session instanceof Response) return session;
 
   const body = await readJsonBody(request);
-  if (!body || !body.imageData || !body.prompt) {
+  if (!body || !body.prompt || (!body.imageData && !body.save_reference)) {
     return respond({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
   }
 
@@ -358,19 +517,31 @@ export async function handleSaveImage(ctx) {
     folderSlug = folder.slug;
   }
 
-  const match = String(body.imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
-  if (!match) {
-    return respond({ ok: false, error: "Invalid image data format." }, { status: 400 });
-  }
-  const savedMimeType = match[1];
-
   let imageBytes;
+  let savedMimeType = "image/png";
+  let tempKey = null;
   try {
-    const raw = atob(match[2]);
-    imageBytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) imageBytes[i] = raw.charCodeAt(i);
-  } catch {
-    return respond({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
+    const resolved = await resolveSaveImageInput(env, body, session.user.id, correlationId);
+    imageBytes = resolved.imageBytes;
+    savedMimeType = resolved.savedMimeType;
+    tempKey = resolved.tempKey;
+  } catch (error) {
+    if (error instanceof AiGeneratedSaveReferenceError) {
+      return respond(
+        { ok: false, error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+    if (error?.message === "invalid_image_data_format") {
+      return respond({ ok: false, error: "Invalid image data format." }, { status: 400 });
+    }
+    if (error?.message === "invalid_base64_image_data") {
+      return respond({ ok: false, error: "Invalid base64 image data." }, { status: 400 });
+    }
+    if (error?.message === "missing_image_data") {
+      return respond({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
+    }
+    throw error;
   }
 
   if (imageBytes.byteLength > MAX_SAVED_AI_IMAGE_BYTES) {
@@ -537,6 +708,24 @@ export async function handleSaveImage(ctx) {
         session.user.id
       ).run();
     } catch {}
+  }
+
+  if (tempKey) {
+    try {
+      await env.USER_IMAGES.delete(tempKey);
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-save-image",
+        event: "ai_generated_temp_delete_failed",
+        level: "warn",
+        correlationId,
+        user_id: session.user.id,
+        image_id: imageId,
+        failure_reason: "post_save_cleanup_failed",
+        ...getErrorFields(error),
+      });
+    }
   }
 
   return respond({

@@ -22,6 +22,11 @@ let folders = [];
 let quotaRemaining = null;
 let quotaLimit = 10;
 let $quotaEl = null;
+const SAVE_REFERENCE_FALLBACK_CODES = new Set([
+    'INVALID_SAVE_REFERENCE',
+    'SAVE_REFERENCE_EXPIRED',
+    'SAVE_REFERENCE_UNAVAILABLE',
+]);
 
 /* DOM refs (resolved on init) */
 let $prompt, $model, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
@@ -158,7 +163,13 @@ async function handleGenerate() {
     }
 
     currentImageData = `data:${mimeType};base64,${imageBase64}`;
-    currentMeta = { prompt: d.prompt || prompt, model: d.model || '', steps: d.steps, seed: d.seed };
+    currentMeta = {
+        prompt: d.prompt || prompt,
+        model: d.model || '',
+        steps: d.steps,
+        seed: d.seed,
+        saveReference: typeof d.saveReference === 'string' ? d.saveReference : null,
+    };
 
     $preview.innerHTML = '';
     const img = document.createElement('img');
@@ -178,7 +189,7 @@ async function handleGenerate() {
 /* ── Save Image ── */
 
 async function handleSave() {
-    if (!currentImageData || !currentMeta) return;
+    if (!currentMeta || (!currentImageData && !currentMeta.saveReference)) return;
 
     $saveBtn.disabled = true;
     $saveBtn.textContent = 'Saving\u2026';
@@ -187,13 +198,28 @@ async function handleSave() {
     let res;
     try {
         res = await apiAiSaveImage(
-            currentImageData,
+            currentMeta.saveReference ? { saveReference: currentMeta.saveReference } : currentImageData,
             currentMeta.prompt,
             currentMeta.model,
             currentMeta.steps,
             currentMeta.seed,
             folderId,
         );
+        if (
+            !res.ok &&
+            currentMeta.saveReference &&
+            currentImageData &&
+            SAVE_REFERENCE_FALLBACK_CODES.has(res.code)
+        ) {
+            res = await apiAiSaveImage(
+                currentImageData,
+                currentMeta.prompt,
+                currentMeta.model,
+                currentMeta.steps,
+                currentMeta.seed,
+                folderId,
+            );
+        }
     } catch (error) {
         console.warn('Gallery studio save failed:', error);
         showMsg($genMsg, 'Save failed. Please try again.', 'error');

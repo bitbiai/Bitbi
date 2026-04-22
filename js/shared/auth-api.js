@@ -310,8 +310,17 @@ export async function apiAiGetAssets(folderId, { onlyUnfoldered, limit, cursor }
     };
 }
 
-export function apiAiSaveImage(imageData, prompt, model, steps, seed, folderId) {
-    const body = { imageData, prompt, model, steps, seed };
+export function apiAiSaveImage(imageSource, prompt, model, steps, seed, folderId) {
+    const body = { prompt, model, steps, seed };
+    if (imageSource && typeof imageSource === 'object' && !Array.isArray(imageSource)) {
+        if (imageSource.saveReference) {
+            body.save_reference = imageSource.saveReference;
+        } else if (imageSource.imageData) {
+            body.imageData = imageSource.imageData;
+        }
+    } else if (typeof imageSource === 'string' && imageSource) {
+        body.imageData = imageSource;
+    }
     if (folderId) body.folder_id = folderId;
     return request('POST', '/ai/images/save', body);
 }

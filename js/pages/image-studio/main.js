@@ -49,6 +49,11 @@ let quotaRemaining = null; // null = unknown/admin, number = remaining for non-a
 let quotaLimit = 10;
 let $quotaEl = null;
 let savedAssetsBrowser = null;
+const SAVE_REFERENCE_FALLBACK_CODES = new Set([
+    'INVALID_SAVE_REFERENCE',
+    'SAVE_REFERENCE_EXPIRED',
+    'SAVE_REFERENCE_UNAVAILABLE',
+]);
 
 /* ── Helpers ── */
 function showState(el) {
@@ -161,7 +166,13 @@ async function handleGenerate() {
     }
 
     currentImageData = `data:${mimeType};base64,${imageBase64}`;
-    currentMeta = { prompt: d.prompt || prompt, model: d.model || '', steps: d.steps, seed: d.seed };
+    currentMeta = {
+        prompt: d.prompt || prompt,
+        model: d.model || '',
+        steps: d.steps,
+        seed: d.seed,
+        saveReference: typeof d.saveReference === 'string' ? d.saveReference : null,
+    };
 
     $preview.innerHTML = '';
     const img = document.createElement('img');
@@ -180,20 +191,36 @@ async function handleGenerate() {
 
 /* ── Save Image ── */
 async function handleSave() {
-    if (!currentImageData || !currentMeta) return;
+    if (!currentMeta || (!currentImageData && !currentMeta.saveReference)) return;
 
     $saveBtn.disabled = true;
     $saveBtn.textContent = 'Saving…';
 
     const folderId = $folderSelect.value || null;
-    const res = await apiAiSaveImage(
-        currentImageData,
+    let res = await apiAiSaveImage(
+        currentMeta.saveReference ? { saveReference: currentMeta.saveReference } : currentImageData,
         currentMeta.prompt,
         currentMeta.model,
         currentMeta.steps,
         currentMeta.seed,
         folderId
     );
+
+    if (
+        !res.ok &&
+        currentMeta.saveReference &&
+        currentImageData &&
+        SAVE_REFERENCE_FALLBACK_CODES.has(res.code)
+    ) {
+        res = await apiAiSaveImage(
+            currentImageData,
+            currentMeta.prompt,
+            currentMeta.model,
+            currentMeta.steps,
+            currentMeta.seed,
+            folderId
+        );
+    }
 
     $saveBtn.disabled = false;
     $saveBtn.textContent = 'Save';

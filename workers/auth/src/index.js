@@ -33,6 +33,10 @@ import {
   processAiImageDerivativeMessage,
 } from "./lib/ai-image-derivatives.js";
 import {
+  AI_GENERATED_TEMP_OBJECT_PREFIX,
+  isAiGeneratedTempObjectExpired,
+} from "./routes/ai/generated-image-save-reference.js";
+import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
 } from "./lib/rate-limit.js";
@@ -61,6 +65,39 @@ function hasAllowedReferer(request, allowedOrigins) {
   } catch {
     return false;
   }
+}
+
+async function cleanupExpiredGeneratedImageTemps(env) {
+  const listed = await env.USER_IMAGES.list({
+    prefix: AI_GENERATED_TEMP_OBJECT_PREFIX,
+    limit: 1000,
+  });
+  const objects = Array.isArray(listed?.objects) ? listed.objects : [];
+  if (objects.length === 0) {
+    return { scannedCount: 0, deletedCount: 0, failedCount: 0 };
+  }
+
+  const now = Date.now();
+  let deletedCount = 0;
+  let failedCount = 0;
+
+  for (const object of objects) {
+    if (!isAiGeneratedTempObjectExpired(object?.uploaded, now)) {
+      continue;
+    }
+    try {
+      await env.USER_IMAGES.delete(object.key);
+      deletedCount += 1;
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  return {
+    scannedCount: objects.length,
+    deletedCount,
+    failedCount,
+  };
 }
 
 export default {
@@ -197,6 +234,29 @@ export default {
       if (!String(e).includes("no such table")) {
         throw e;
       }
+    }
+
+    try {
+      const tempCleanup = await cleanupExpiredGeneratedImageTemps(env);
+      if (tempCleanup.deletedCount > 0 || tempCleanup.failedCount > 0) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-ai-generated-temp-cleanup",
+          event: "ai_generated_temp_cleanup_completed",
+          level: tempCleanup.failedCount > 0 ? "warn" : "info",
+          scanned_count: tempCleanup.scannedCount,
+          deleted_count: tempCleanup.deletedCount,
+          failed_count: tempCleanup.failedCount,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-ai-generated-temp-cleanup",
+        event: "ai_generated_temp_cleanup_failed",
+        level: "error",
+        ...getErrorFields(error),
+      });
     }
 
     if (isProductionEnvironment(env)) {
