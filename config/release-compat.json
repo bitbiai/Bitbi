@@ -12,6 +12,8 @@
       "ai": {
         "name": "bitbi-ai",
         "wranglerPath": "workers/ai/wrangler.jsonc",
+        "workersDev": false,
+        "previewUrls": false,
         "bindings": {
           "ai": "AI"
         }
@@ -20,6 +22,20 @@
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
         "vars": ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV"],
+        "expectedVars": {
+          "APP_BASE_URL": "https://bitbi.ai",
+          "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
+          "BITBI_ENV": "production"
+        },
+        "triggers": {
+          "crons": ["0 3 * * *"]
+        },
+        "routes": [
+          {
+            "pattern": "bitbi.ai/api/*",
+            "zone_name": "bitbi.ai"
+          }
+        ],
         "bindings": {
           "ai": "AI",
           "images": "IMAGES",
@@ -63,6 +79,16 @@
         "name": "bitbi-contact",
         "wranglerPath": "workers/contact/wrangler.jsonc",
         "vars": ["BITBI_ENV"],
+        "expectedVars": {
+          "BITBI_ENV": "production"
+        },
+        "workersDev": false,
+        "routes": [
+          {
+            "pattern": "contact.bitbi.ai",
+            "custom_domain": true
+          }
+        ],
         "bindings": {
           "d1": {
             "DB": {
@@ -174,12 +200,85 @@
   "assetVersion": {
     "placeholder": "__ASSET_VERSION__"
   },
+  "authIndexRoutes": {
+    "literalRoutes": [
+      "GET /api/health",
+      "GET /api/me",
+      "POST /api/register",
+      "POST /api/login",
+      "POST /api/logout",
+      "GET /api/wallet/status",
+      "POST /api/wallet/siwe/nonce",
+      "POST /api/wallet/siwe/verify",
+      "POST /api/wallet/unlink",
+      "GET /api/profile",
+      "PATCH /api/profile",
+      "GET /api/profile/avatar",
+      "POST /api/profile/avatar",
+      "DELETE /api/profile/avatar",
+      "POST /api/forgot-password",
+      "GET /api/reset-password/validate",
+      "POST /api/reset-password",
+      "GET /api/verify-email",
+      "POST /api/resend-verification",
+      "POST /api/request-reverification"
+    ],
+    "delegatedExactPaths": [
+      "/api/favorites"
+    ],
+    "delegatedPrefixes": [
+      "/api/admin/",
+      "/api/ai/",
+      "/api/gallery/"
+    ],
+    "protectedMediaPrefixes": [
+      "/api/thumbnails/",
+      "/api/images/",
+      "/api/music/",
+      "/api/soundlab-thumbs/"
+    ]
+  },
+  "memberAi": {
+    "authRoutes": {
+      "literalRoutes": [
+        "GET /api/ai/quota",
+        "POST /api/ai/generate-image",
+        "GET /api/ai/folders",
+        "POST /api/ai/folders",
+        "GET /api/ai/images",
+        "GET /api/ai/assets",
+        "PATCH /api/ai/assets/bulk-move",
+        "POST /api/ai/assets/bulk-delete",
+        "POST /api/ai/images/save",
+        "POST /api/ai/audio/save",
+        "PATCH /api/ai/images/bulk-move",
+        "POST /api/ai/images/bulk-delete"
+      ],
+      "patternRoutes": [
+        "PATCH /api/ai/folders/:id",
+        "DELETE /api/ai/folders/:id",
+        "GET /api/ai/images/:id/file",
+        "GET /api/ai/images/:id/thumb",
+        "GET /api/ai/images/:id/medium",
+        "GET /api/ai/text-assets/:id/file",
+        "GET /api/ai/text-assets/:id/poster",
+        "DELETE /api/ai/images/:id",
+        "PATCH /api/ai/images/:id/publication",
+        "PATCH /api/ai/images/:id/rename",
+        "PATCH /api/ai/text-assets/:id/publication",
+        "PATCH /api/ai/text-assets/:id/rename",
+        "DELETE /api/ai/text-assets/:id"
+      ]
+    }
+  },
   "adminAi": {
     "staticAuthApiPaths": [
       "/admin/ai/models",
       "/admin/ai/test-text",
       "/admin/ai/test-image",
       "/admin/ai/test-embeddings",
+      "/admin/ai/test-music",
+      "/admin/ai/test-video",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset"
@@ -189,8 +288,15 @@
       "/api/admin/ai/test-text": "/internal/ai/test-text",
       "/api/admin/ai/test-image": "/internal/ai/test-image",
       "/api/admin/ai/test-embeddings": "/internal/ai/test-embeddings",
+      "/api/admin/ai/test-music": "/internal/ai/test-music",
+      "/api/admin/ai/test-video": "/internal/ai/test-video",
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent"
-    }
+    },
+    "authOnlyRoutes": [
+      "/api/admin/ai/image-derivatives/backfill",
+      "/api/admin/ai/save-text-asset",
+      "/api/admin/ai/proxy-video"
+    ]
   }
 }

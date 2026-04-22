@@ -42,8 +42,106 @@ function findQueueConsumer(rows, queueName) {
   return Array.isArray(rows) ? rows.find((entry) => entry?.queue === queueName) || null : null;
 }
 
+function routeEntryMatches(actualRoute, expectedRoute) {
+  const actual = actualRoute && typeof actualRoute === "object" ? actualRoute : {};
+  const expected = expectedRoute && typeof expectedRoute === "object" ? expectedRoute : {};
+  return Object.entries(expected).every(([key, value]) => actual[key] === value);
+}
+
 function includesRouteLiteral(source, value) {
   return typeof source === "string" && source.includes(value);
+}
+
+function normalizeUniqueStrings(values) {
+  return [...new Set((values || []).filter((value) => typeof value === "string" && value.length > 0))].sort();
+}
+
+function describeList(values) {
+  return values.length > 0 ? values.join(", ") : "(none)";
+}
+
+function compareExactStringSets(expectedValues, actualValues, label, issues) {
+  const expected = normalizeUniqueStrings(expectedValues);
+  const actual = normalizeUniqueStrings(actualValues);
+  const actualSet = new Set(actual);
+  const expectedSet = new Set(expected);
+  const missing = expected.filter((value) => !actualSet.has(value));
+  const unexpected = actual.filter((value) => !expectedSet.has(value));
+
+  if (missing.length > 0) {
+    issues.push(`${label} is missing: ${describeList(missing)}.`);
+  }
+  if (unexpected.length > 0) {
+    issues.push(`${label} has unexpected entries: ${describeList(unexpected)}.`);
+  }
+}
+
+function extractLiteralMethodRoutes(source) {
+  const routes = new Set();
+  const inlinePattern = /pathname\s*===\s*"([^"]+)"\s*&&\s*method\s*===\s*"([A-Z]+)"/g;
+  for (const match of source.matchAll(inlinePattern)) {
+    routes.add(`${match[2]} ${match[1]}`);
+  }
+  const blockPattern = /if\s*\(\s*pathname\s*===\s*"([^"]+)"\s*\)\s*\{\s*if\s*\(\s*method\s*!==\s*"([A-Z]+)"\s*\)/gs;
+  for (const match of source.matchAll(blockPattern)) {
+    routes.add(`${match[2]} ${match[1]}`);
+  }
+  return [...routes].sort();
+}
+
+function extractDelegatedLiteralPaths(source) {
+  const paths = new Set();
+  const pattern = /pathname\s*===\s*"([^"]+)"\s*\)\s*\{/g;
+  for (const match of source.matchAll(pattern)) {
+    paths.add(match[1]);
+  }
+  return [...paths].sort();
+}
+
+function extractStartsWithPrefixes(source) {
+  const prefixes = new Set();
+  const pattern = /pathname\.startsWith\("([^"]+)"\)/g;
+  for (const match of source.matchAll(pattern)) {
+    prefixes.add(match[1]);
+  }
+  return [...prefixes].sort();
+}
+
+function normalizeRoutePattern(regexSource) {
+  return regexSource
+    .replace(/\\\//g, "/")
+    .replace(/\(\[[^\]]+\]\+\)/g, ":id")
+    .replace(/\(\[\^\/\]\+\)/g, ":param")
+    .replace(/\([^)]*\)/g, ":param")
+    .replace(/\\/g, "");
+}
+
+function extractPatternMethodRoutes(source) {
+  const patternsByVariable = new Map();
+  const declarationPattern = /const\s+([A-Za-z0-9_]+)\s*=\s*pathname\.match\(\/\^(.+?)\$\/\);/g;
+  for (const match of source.matchAll(declarationPattern)) {
+    patternsByVariable.set(match[1], normalizeRoutePattern(match[2]));
+  }
+
+  const routes = new Set();
+  const usagePattern = /if\s*\(\s*([A-Za-z0-9_]+)\s*&&\s*method\s*===\s*"([A-Z]+)"\s*\)/g;
+  for (const match of source.matchAll(usagePattern)) {
+    const routePattern = patternsByVariable.get(match[1]);
+    if (routePattern) {
+      routes.add(`${match[2]} ${routePattern}`);
+    }
+  }
+  return [...routes].sort();
+}
+
+function extractPathLiterals(source, prefix) {
+  const routes = new Set();
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`['"](${escapedPrefix}[^'"]+)['"]`, "g");
+  for (const match of source.matchAll(pattern)) {
+    routes.add(match[1]);
+  }
+  return [...routes].sort();
 }
 
 function workflowRequiresJob(workflowSource, jobName, needsMatcher) {
@@ -202,6 +300,44 @@ function validateWorkerContracts(manifest, context) {
     for (const variableName of workerManifest.vars || []) {
       if (!(variableName in (wrangler.vars || {}))) {
         issues.push(`Worker "${workerId}" is missing required wrangler var "${variableName}".`);
+      }
+    }
+
+    for (const [variableName, expectedValue] of Object.entries(workerManifest.expectedVars || {})) {
+      if ((wrangler.vars || {})[variableName] !== expectedValue) {
+        issues.push(
+          `Worker "${workerId}" wrangler var "${variableName}" must equal ${JSON.stringify(expectedValue)}.`
+        );
+      }
+    }
+
+    if (typeof workerManifest.workersDev === "boolean" && wrangler.workers_dev !== workerManifest.workersDev) {
+      issues.push(
+        `Worker "${workerId}" workers_dev must be ${JSON.stringify(workerManifest.workersDev)}.`
+      );
+    }
+
+    if (typeof workerManifest.previewUrls === "boolean" && wrangler.preview_urls !== workerManifest.previewUrls) {
+      issues.push(
+        `Worker "${workerId}" preview_urls must be ${JSON.stringify(workerManifest.previewUrls)}.`
+      );
+    }
+
+    for (const expectedRoute of workerManifest.routes || []) {
+      const matchedRoute = Array.isArray(wrangler.routes)
+        ? wrangler.routes.find((route) => routeEntryMatches(route, expectedRoute)) || null
+        : null;
+      if (!matchedRoute) {
+        issues.push(
+          `Worker "${workerId}" wrangler routes are missing ${JSON.stringify(expectedRoute)}.`
+        );
+      }
+    }
+
+    for (const expectedCron of workerManifest.triggers?.crons || []) {
+      const actualCrons = Array.isArray(wrangler.triggers?.crons) ? wrangler.triggers.crons : [];
+      if (!actualCrons.includes(expectedCron)) {
+        issues.push(`Worker "${workerId}" is missing cron trigger "${expectedCron}".`);
       }
     }
 
@@ -512,18 +648,102 @@ function validateManualPrerequisites(manifest, context) {
   return issues;
 }
 
+function validateAuthIndexRoutes(manifest, context) {
+  const issues = [];
+  const contract = manifest?.authIndexRoutes || {};
+  if (!Array.isArray(contract.literalRoutes) || contract.literalRoutes.length === 0) {
+    issues.push("Release manifest authIndexRoutes.literalRoutes must be a non-empty array.");
+    return issues;
+  }
+
+  compareExactStringSets(
+    contract.literalRoutes,
+    extractLiteralMethodRoutes(context.authIndexSource),
+    "Auth index literal route contract",
+    issues
+  );
+  compareExactStringSets(
+    contract.delegatedExactPaths || [],
+    extractDelegatedLiteralPaths(context.authIndexSource),
+    "Auth index delegated exact-path contract",
+    issues
+  );
+
+  const actualPrefixes = extractStartsWithPrefixes(context.authIndexSource);
+  const protectedMediaPrefixes = ["/api/thumbnails/", "/api/images/", "/api/music/", "/api/soundlab-thumbs/"];
+  compareExactStringSets(
+    contract.delegatedPrefixes || [],
+    actualPrefixes.filter((value) => !protectedMediaPrefixes.includes(value)),
+    "Auth index delegated prefix contract",
+    issues
+  );
+  compareExactStringSets(
+    contract.protectedMediaPrefixes || [],
+    actualPrefixes.filter((value) => protectedMediaPrefixes.includes(value)),
+    "Auth index protected media prefix contract",
+    issues
+  );
+
+  return issues;
+}
+
+function validateMemberAiCompatibility(manifest, context) {
+  const issues = [];
+  const contract = manifest?.memberAi?.authRoutes || {};
+  if (!Array.isArray(contract.literalRoutes) || contract.literalRoutes.length === 0) {
+    issues.push("Release manifest memberAi.authRoutes.literalRoutes must be a non-empty array.");
+    return issues;
+  }
+
+  compareExactStringSets(
+    contract.literalRoutes,
+    extractLiteralMethodRoutes(context.authAiSource),
+    "Member AI literal route contract",
+    issues
+  );
+  compareExactStringSets(
+    contract.patternRoutes || [],
+    extractPatternMethodRoutes(context.authAiSource),
+    "Member AI pattern route contract",
+    issues
+  );
+
+  return issues;
+}
+
 function validateAdminAiCompatibility(manifest, context) {
   const issues = [];
   const adminAi = manifest?.adminAi || {};
   const authAdminAiImplementationSource = [context.authAdminAiSource, context.authAdminAiProxySource]
     .filter((source) => typeof source === "string" && source.length > 0)
     .join("\n");
+  const actualStaticAuthApiPaths = extractPathLiterals(context.authApiSource, "/admin/ai/");
+  compareExactStringSets(
+    adminAi.staticAuthApiPaths || [],
+    actualStaticAuthApiPaths,
+    "Admin AI static auth API path contract",
+    issues
+  );
 
-  for (const route of adminAi.staticAuthApiPaths || []) {
-    if (!includesRouteLiteral(context.authApiSource, route)) {
-      issues.push(`Static auth API wrapper is missing route "${route}".`);
-    }
-  }
+  const actualAdminAiExternalRoutes = extractLiteralMethodRoutes(context.authAdminAiSource)
+    .filter((route) => route.includes("/api/admin/ai/"))
+    .map((route) => route.replace(/^[A-Z]+\s+/, ""));
+  compareExactStringSets(
+    [...Object.keys(adminAi.authToAiRoutes || {}), ...(adminAi.authOnlyRoutes || [])],
+    actualAdminAiExternalRoutes,
+    "Admin AI external route ownership contract",
+    issues
+  );
+
+  const actualAiInternalRoutes = extractLiteralMethodRoutes(context.aiIndexSource)
+    .filter((route) => route.includes("/internal/ai/"))
+    .map((route) => route.replace(/^[A-Z]+\s+/, ""));
+  compareExactStringSets(
+    Object.values(adminAi.authToAiRoutes || {}),
+    actualAiInternalRoutes,
+    "Admin AI internal route ownership contract",
+    issues
+  );
 
   for (const [externalRoute, internalRoute] of Object.entries(adminAi.authToAiRoutes || {})) {
     if (!includesRouteLiteral(authAdminAiImplementationSource, externalRoute)) {
@@ -589,6 +809,8 @@ export function validateReleaseCompatibility(context) {
   issues.push(...validateWorkerContracts(manifest, context));
   issues.push(...validateDeployOrder(manifest));
   issues.push(...validateManualPrerequisites(manifest, context));
+  issues.push(...validateAuthIndexRoutes(manifest, context));
+  issues.push(...validateMemberAiCompatibility(manifest, context));
   issues.push(...validateAdminAiCompatibility(manifest, context));
   issues.push(...validateWorkflowCompatibility(context));
 
@@ -643,6 +865,8 @@ export function loadReleaseCompatibilityContext(repoRoot) {
       return fs.existsSync(path.join(repoRoot, relativePath));
     },
     authApiSource: fs.readFileSync(path.join(repoRoot, "js/shared/auth-api.js"), "utf8"),
+    authIndexSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/index.js"), "utf8"),
+    authAiSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/routes/ai.js"), "utf8"),
     authAdminAiSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-ai.js"),
       "utf8"

@@ -148,7 +148,7 @@ src/
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0018_add_profile_avatar_state`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0026_add_cursor_pagination_support`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -158,14 +158,18 @@ Key migration-dependent behavior:
 - `0016_add_ai_text_assets` — required before auth/AI deploy if admin AI text asset persistence must work immediately
 - `0017_add_ai_image_derivatives` — required before auth deploy if saved-image derivative tracking must work immediately
 - `0018_add_profile_avatar_state` — required before auth deploy if `/api/me` must use cached avatar state instead of per-request R2 probing
+- `0020_add_wallet_siwe` — required before auth deploy if wallet SIWE login/link/unlink routes must work immediately
+- `0023_add_text_asset_publication` and `0024_add_text_asset_poster` — required before auth deploy if text-asset publication/poster routes must work immediately
+- `0025_add_media_favorite_types` — required before auth deploy if favorites must support media item types beyond the original gallery-only contract
+- `0026_add_cursor_pagination_support` — required before auth deploy if admin activity/user-activity and cursor-based asset listing must work immediately
 
 ## Conventions
 
 - All user-facing error messages are in **English**
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
-- Sessions expire after 30 days; `last_seen_at` is updated at most every 5 minutes per session
-- Shared durable fixed-window rate limiting via `rate_limit_counters` covers register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset/avatar-upload/favorites add/admin actions/AI generation, with in-memory fallback only if `DB` or the table is unavailable
+- Sessions expire after 30 days; `last_seen_at` is updated at most every 10 minutes per session
+- Shared durable fixed-window rate limiting via `rate_limit_counters` covers register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset/avatar-upload/favorites add/admin actions/AI generation. The most abuse-sensitive public routes now fail closed in production if `DB` or the table is unavailable; lower-risk dev/test paths may still fall back locally.
 - Password reset invalidates ALL unused reset tokens for the user (not just the used one)
 - Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type
 - Profile URL fields (website, youtube_url) require valid `https://` URLs

@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0017_add_ai_image_derivatives.sql",
+        latest: "0026_add_cursor_pagination_support.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -24,6 +24,8 @@ const baseManifest = {
       ai: {
         name: "bitbi-ai",
         wranglerPath: "workers/ai/wrangler.jsonc",
+        workersDev: false,
+        previewUrls: false,
         bindings: {
           ai: "AI",
         },
@@ -31,7 +33,21 @@ const baseManifest = {
       auth: {
         name: "bitbi-auth",
         wranglerPath: "workers/auth/wrangler.jsonc",
-        vars: ["APP_BASE_URL", "RESEND_FROM_EMAIL"],
+        vars: ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV"],
+        expectedVars: {
+          APP_BASE_URL: "https://bitbi.ai",
+          RESEND_FROM_EMAIL: "BITBI <noreply@contact.bitbi.ai>",
+          BITBI_ENV: "production",
+        },
+        triggers: {
+          crons: ["0 3 * * *"],
+        },
+        routes: [
+          {
+            pattern: "bitbi.ai/api/*",
+            zone_name: "bitbi.ai",
+          },
+        ],
         bindings: {
           ai: "AI",
           images: "IMAGES",
@@ -63,6 +79,17 @@ const baseManifest = {
       contact: {
         name: "bitbi-contact",
         wranglerPath: "workers/contact/wrangler.jsonc",
+        vars: ["BITBI_ENV"],
+        expectedVars: {
+          BITBI_ENV: "production",
+        },
+        workersDev: false,
+        routes: [
+          {
+            pattern: "contact.bitbi.ai",
+            custom_domain: true,
+          },
+        ],
         bindings: {
           d1: {
             DB: { databaseName: "bitbi-auth-db" },
@@ -164,12 +191,85 @@ const baseManifest = {
   assetVersion: {
     placeholder: "__ASSET_VERSION__",
   },
+  authIndexRoutes: {
+    literalRoutes: [
+      "GET /api/health",
+      "GET /api/me",
+      "POST /api/register",
+      "POST /api/login",
+      "POST /api/logout",
+      "GET /api/wallet/status",
+      "POST /api/wallet/siwe/nonce",
+      "POST /api/wallet/siwe/verify",
+      "POST /api/wallet/unlink",
+      "GET /api/profile",
+      "PATCH /api/profile",
+      "GET /api/profile/avatar",
+      "POST /api/profile/avatar",
+      "DELETE /api/profile/avatar",
+      "POST /api/forgot-password",
+      "GET /api/reset-password/validate",
+      "POST /api/reset-password",
+      "GET /api/verify-email",
+      "POST /api/resend-verification",
+      "POST /api/request-reverification",
+    ],
+    delegatedExactPaths: [
+      "/api/favorites",
+    ],
+    delegatedPrefixes: [
+      "/api/admin/",
+      "/api/ai/",
+      "/api/gallery/",
+    ],
+    protectedMediaPrefixes: [
+      "/api/thumbnails/",
+      "/api/images/",
+      "/api/music/",
+      "/api/soundlab-thumbs/",
+    ],
+  },
+  memberAi: {
+    authRoutes: {
+      literalRoutes: [
+        "GET /api/ai/quota",
+        "POST /api/ai/generate-image",
+        "GET /api/ai/folders",
+        "POST /api/ai/folders",
+        "GET /api/ai/images",
+        "GET /api/ai/assets",
+        "PATCH /api/ai/assets/bulk-move",
+        "POST /api/ai/assets/bulk-delete",
+        "POST /api/ai/images/save",
+        "POST /api/ai/audio/save",
+        "PATCH /api/ai/images/bulk-move",
+        "POST /api/ai/images/bulk-delete",
+      ],
+      patternRoutes: [
+        "PATCH /api/ai/folders/:id",
+        "DELETE /api/ai/folders/:id",
+        "GET /api/ai/images/:id/file",
+        "GET /api/ai/images/:id/thumb",
+        "GET /api/ai/images/:id/medium",
+        "GET /api/ai/text-assets/:id/file",
+        "GET /api/ai/text-assets/:id/poster",
+        "DELETE /api/ai/images/:id",
+        "PATCH /api/ai/images/:id/publication",
+        "PATCH /api/ai/images/:id/rename",
+        "PATCH /api/ai/text-assets/:id/publication",
+        "PATCH /api/ai/text-assets/:id/rename",
+        "DELETE /api/ai/text-assets/:id",
+      ],
+    },
+  },
   adminAi: {
     staticAuthApiPaths: [
       "/admin/ai/models",
       "/admin/ai/test-text",
       "/admin/ai/test-image",
       "/admin/ai/test-embeddings",
+      "/admin/ai/test-music",
+      "/admin/ai/test-video",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
@@ -177,9 +277,18 @@ const baseManifest = {
     authToAiRoutes: {
       "/api/admin/ai/models": "/internal/ai/models",
       "/api/admin/ai/test-text": "/internal/ai/test-text",
+      "/api/admin/ai/test-image": "/internal/ai/test-image",
+      "/api/admin/ai/test-embeddings": "/internal/ai/test-embeddings",
+      "/api/admin/ai/test-music": "/internal/ai/test-music",
+      "/api/admin/ai/test-video": "/internal/ai/test-video",
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent",
     },
+    authOnlyRoutes: [
+      "/api/admin/ai/image-derivatives/backfill",
+      "/api/admin/ai/save-text-asset",
+      "/api/admin/ai/proxy-video",
+    ],
   },
 };
 
@@ -202,8 +311,9 @@ function createValidContext() {
         exists: true,
         migrationDirectory: "workers/auth/migrations",
         files: [
-          "0016_add_ai_text_assets.sql",
-          "0017_add_ai_image_derivatives.sql",
+          "0024_add_text_asset_poster.sql",
+          "0025_add_media_favorite_types.sql",
+          "0026_add_cursor_pagination_support.sql",
         ],
       },
     },
@@ -213,6 +323,8 @@ function createValidContext() {
         wranglerPath: "workers/ai/wrangler.jsonc",
         wrangler: {
           name: "bitbi-ai",
+          workers_dev: false,
+          preview_urls: false,
           ai: { binding: "AI" },
         },
       },
@@ -224,7 +336,17 @@ function createValidContext() {
           vars: {
             APP_BASE_URL: "https://bitbi.ai",
             RESEND_FROM_EMAIL: "BITBI <noreply@contact.bitbi.ai>",
+            BITBI_ENV: "production",
           },
+          triggers: {
+            crons: ["0 3 * * *"],
+          },
+          routes: [
+            {
+              pattern: "bitbi.ai/api/*",
+              zone_name: "bitbi.ai",
+            },
+          ],
           ai: { binding: "AI" },
           images: { binding: "IMAGES" },
           d1_databases: [{ binding: "DB", database_name: "bitbi-auth-db" }],
@@ -256,6 +378,16 @@ function createValidContext() {
         wranglerPath: "workers/contact/wrangler.jsonc",
         wrangler: {
           name: "bitbi-contact",
+          workers_dev: false,
+          vars: {
+            BITBI_ENV: "production",
+          },
+          routes: [
+            {
+              pattern: "contact.bitbi.ai",
+              custom_domain: true,
+            },
+          ],
           d1_databases: [{ binding: "DB", database_name: "bitbi-auth-db" }],
         },
       },
@@ -268,15 +400,90 @@ function createValidContext() {
       export function apiAdminAiTestText() { return request('POST', '/admin/ai/test-text'); }
       export function apiAdminAiTestImage() { return request('POST', '/admin/ai/test-image'); }
       export function apiAdminAiTestEmbeddings() { return request('POST', '/admin/ai/test-embeddings'); }
+      export function apiAdminAiTestMusic() { return request('POST', '/admin/ai/test-music'); }
+      export function apiAdminAiTestVideo() { return request('POST', '/admin/ai/test-video'); }
       export function apiAdminAiCompare() { return request('POST', '/admin/ai/compare'); }
       export function apiAdminAiLiveAgent() { return request('POST', '/admin/ai/live-agent'); }
       export function apiAdminAiSaveTextAsset() { return request('POST', '/admin/ai/save-text-asset'); }
     `,
+    authIndexSource: `
+      if (pathname === "/api/health" && method === "GET") return handleHealth();
+      if (pathname === "/api/me" && method === "GET") return handleMe();
+      if (pathname === "/api/register" && method === "POST") return handleRegister();
+      if (pathname === "/api/login" && method === "POST") return handleLogin();
+      if (pathname === "/api/logout" && method === "POST") return handleLogout();
+      if (pathname === "/api/wallet/status" && method === "GET") return handleWalletStatus();
+      if (pathname === "/api/wallet/siwe/nonce" && method === "POST") return handleWalletSiweNonce();
+      if (pathname === "/api/wallet/siwe/verify" && method === "POST") return handleWalletSiweVerify();
+      if (pathname === "/api/wallet/unlink" && method === "POST") return handleWalletUnlink();
+      if (pathname === "/api/profile" && method === "GET") return handleGetProfile();
+      if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile();
+      if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar();
+      if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar();
+      if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar();
+      if (pathname === "/api/favorites") { return handleFavorites(); }
+      if (pathname.startsWith("/api/admin/")) { return handleAdmin(); }
+      if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword();
+      if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset();
+      if (pathname === "/api/reset-password" && method === "POST") return handleResetPassword();
+      if (pathname === "/api/verify-email" && method === "GET") return handleVerifyEmail();
+      if (pathname === "/api/resend-verification" && method === "POST") return handleResendVerification();
+      if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification();
+      if (pathname.startsWith("/api/ai/")) { return handleAI(); }
+      if (pathname.startsWith("/api/gallery/")) { return handleGallery(); }
+      if (pathname.startsWith("/api/thumbnails/") || pathname.startsWith("/api/images/") || pathname.startsWith("/api/music/") || pathname.startsWith("/api/soundlab-thumbs/")) { return handleMedia(); }
+    `,
+    authAiSource: `
+      if (pathname === "/api/ai/quota" && method === "GET") return handleQuota();
+      if (pathname === "/api/ai/generate-image" && method === "POST") return handleGenerateImage();
+      if (pathname === "/api/ai/folders" && method === "GET") return handleGetFolders();
+      if (pathname === "/api/ai/folders" && method === "POST") return handleCreateFolder();
+      if (pathname === "/api/ai/images" && method === "GET") return handleGetImages();
+      if (pathname === "/api/ai/assets" && method === "GET") return handleGetAssets();
+      if (pathname === "/api/ai/assets/bulk-move" && method === "PATCH") return handleBulkMoveAssets();
+      if (pathname === "/api/ai/assets/bulk-delete" && method === "POST") return handleBulkDeleteAssets();
+      if (pathname === "/api/ai/images/save" && method === "POST") return handleSaveImage();
+      if (pathname === "/api/ai/audio/save" && method === "POST") return handleSaveAudio();
+      if (pathname === "/api/ai/images/bulk-move" && method === "PATCH") return handleBulkMove();
+      if (pathname === "/api/ai/images/bulk-delete" && method === "POST") return handleBulkDelete();
+      const folderMatch = pathname.match(/^\/api\/ai\/folders\/([a-f0-9]+)$/);
+      if (folderMatch && method === "PATCH") return handleRenameFolder();
+      if (folderMatch && method === "DELETE") return handleDeleteFolder();
+      const fileMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/file$/);
+      if (fileMatch && method === "GET") return handleGetImageFile();
+      const thumbMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/thumb$/);
+      if (thumbMatch && method === "GET") return handleGetImageDerivative();
+      const mediumMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/medium$/);
+      if (mediumMatch && method === "GET") return handleGetImageDerivative();
+      const textFileMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/file$/);
+      if (textFileMatch && method === "GET") return handleGetTextAssetFile();
+      const textPosterMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/poster$/);
+      if (textPosterMatch && method === "GET") return handleGetTextAssetPoster();
+      const deleteMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)$/);
+      if (deleteMatch && method === "DELETE") return handleDeleteImage();
+      const publicationMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/publication$/);
+      if (publicationMatch && method === "PATCH") return handleUpdateImagePublication();
+      const imageRenameMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)\/rename$/);
+      if (imageRenameMatch && method === "PATCH") return handleRenameImage();
+      const textPublicationMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/publication$/);
+      if (textPublicationMatch && method === "PATCH") return handleUpdateTextAssetPublication();
+      const textRenameMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/rename$/);
+      if (textRenameMatch && method === "PATCH") return handleRenameTextAsset();
+      const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);
+      if (textDeleteMatch && method === "DELETE") return handleDeleteTextAsset();
+    `,
     authAdminAiSource: `
-      if (pathname === "/api/admin/ai/models") return proxyToAiLab("/internal/ai/models");
-      if (pathname === "/api/admin/ai/test-text") return proxyToAiLab("/internal/ai/test-text");
-      if (pathname === "/api/admin/ai/compare") return proxyToAiLab("/internal/ai/compare");
-      if (pathname === "/api/admin/ai/live-agent") return proxyLiveAgentToAiLab();
+      if (pathname === "/api/admin/ai/models" && method === "GET") return proxyToAiLab("/internal/ai/models");
+      if (pathname === "/api/admin/ai/test-text" && method === "POST") return proxyToAiLab("/internal/ai/test-text");
+      if (pathname === "/api/admin/ai/test-image" && method === "POST") return proxyToAiLab("/internal/ai/test-image");
+      if (pathname === "/api/admin/ai/test-embeddings" && method === "POST") return proxyToAiLab("/internal/ai/test-embeddings");
+      if (pathname === "/api/admin/ai/test-music" && method === "POST") return proxyToAiLab("/internal/ai/test-music");
+      if (pathname === "/api/admin/ai/test-video" && method === "POST") return proxyToAiLab("/internal/ai/test-video");
+      if (pathname === "/api/admin/ai/compare" && method === "POST") return proxyToAiLab("/internal/ai/compare");
+      if (pathname === "/api/admin/ai/live-agent" && method === "POST") return proxyLiveAgentToAiLab();
+      if (pathname === "/api/admin/ai/image-derivatives/backfill" && method === "POST") return handleBackfill();
+      if (pathname === "/api/admin/ai/save-text-asset" && method === "POST") return handleSaveTextAsset();
+      if (pathname === "/api/admin/ai/proxy-video" && method === "POST") return rejectProxyVideo();
     `,
     authAdminAiProxySource: `
       export async function proxyLiveAgentToAiLab() {
@@ -284,10 +491,14 @@ function createValidContext() {
       }
     `,
     aiIndexSource: `
-      if (pathname === "/internal/ai/models") return handleModels();
-      if (pathname === "/internal/ai/test-text") return handleText();
-      if (pathname === "/internal/ai/compare") return handleCompare();
-      if (pathname === "/internal/ai/live-agent") return handleLiveAgent();
+      if (pathname === "/internal/ai/models" && method === "GET") return handleModels();
+      if (pathname === "/internal/ai/test-text" && method === "POST") return handleText();
+      if (pathname === "/internal/ai/test-image" && method === "POST") return handleImage();
+      if (pathname === "/internal/ai/test-embeddings" && method === "POST") return handleEmbeddings();
+      if (pathname === "/internal/ai/test-music" && method === "POST") return handleMusic();
+      if (pathname === "/internal/ai/test-video" && method === "POST") return handleVideo();
+      if (pathname === "/internal/ai/compare" && method === "POST") return handleCompare();
+      if (pathname === "/internal/ai/live-agent" && method === "POST") return handleLiveAgent();
     `,
     workflowSource: `
   release-compatibility:
@@ -375,6 +586,46 @@ function createValidContext() {
   const issues = validateReleaseCompatibility(context);
   assert(
     issues.some((issue) => issue.includes("must declare manualPrerequisites"))
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAi.staticAuthApiPaths = context.manifest.adminAi.staticAuthApiPaths.filter(
+    (route) => route !== "/admin/ai/test-video"
+  );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("Admin AI static auth API path contract") &&
+      issue.includes("/admin/ai/test-video")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.vars.BITBI_ENV = "staging";
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('Worker "auth" wrangler var "BITBI_ENV" must equal')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.memberAi.authRoutes.literalRoutes =
+    context.manifest.memberAi.authRoutes.literalRoutes.filter(
+      (route) => route !== "POST /api/ai/audio/save"
+    );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("Member AI literal route contract") &&
+      issue.includes("POST /api/ai/audio/save")
+    )
   );
 }
 
