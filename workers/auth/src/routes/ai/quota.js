@@ -15,15 +15,8 @@ function quotaUnavailableResponse() {
   );
 }
 
-async function deleteExpiredQuotaReservations(env, userId, dayStart, now) {
-  await env.DB.prepare(
-    "DELETE FROM ai_daily_quota_usage WHERE user_id = ? AND day_start = ? AND status = 'reserved' AND expires_at < ?"
-  ).bind(userId, dayStart, now).run();
-}
-
 async function getDailyUsage(env, userId, now = nowIso()) {
   const dayStart = getQuotaDayStart(now);
-  await deleteExpiredQuotaReservations(env, userId, dayStart, now);
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt
      FROM ai_daily_quota_usage

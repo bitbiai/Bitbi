@@ -8,6 +8,28 @@ import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { isProductionEnvironment } from "./rate-limit.js";
 import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
 
+const SESSION_TOUCH_WINDOW_MS = 10 * 60_000;
+
+function getSessionTouchThreshold(currentTime) {
+  return new Date(Date.parse(currentTime) - SESSION_TOUCH_WINDOW_MS).toISOString();
+}
+
+async function touchSessionIfStale(env, sessionRow, currentTime) {
+  const staleBefore = getSessionTouchThreshold(currentTime);
+  if (sessionRow.last_seen_at && sessionRow.last_seen_at >= staleBefore) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `UPDATE sessions
+     SET last_seen_at = ?
+     WHERE id = ?
+       AND (last_seen_at IS NULL OR last_seen_at < ?)`
+  )
+    .bind(currentTime, sessionRow.session_id, staleBefore)
+    .run();
+}
+
 export async function getSessionUser(request, env) {
   const cookies = parseCookies(request.headers.get("Cookie"));
   const sessionToken = getSessionTokenFromCookies(cookies);
@@ -46,15 +68,7 @@ export async function getSessionUser(request, env) {
     return null;
   }
 
-  // Only update last_seen_at if older than 5 minutes to reduce write load
-  const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-  if (!sessionRow.last_seen_at || sessionRow.last_seen_at < fiveMinAgo) {
-    await env.DB.prepare(
-      `UPDATE sessions SET last_seen_at = ? WHERE id = ?`
-    )
-      .bind(currentTime, sessionRow.session_id)
-      .run();
-  }
+  await touchSessionIfStale(env, sessionRow, currentTime);
 
   return {
     sessionId: sessionRow.session_id,

@@ -287,6 +287,7 @@ class BoundStatement {
 class MockD1 {
   constructor(seed = {}) {
     this.missingTables = new Set(Array.isArray(seed.missingTables) ? seed.missingTables : []);
+    this.runCalls = [];
     this.state = {
       users: [],
       sessions: [],
@@ -342,6 +343,13 @@ class MockD1 {
   async execute(rawQuery, bindings, mode) {
     const query = normalizeSql(rawQuery);
 
+    if (mode === 'run') {
+      this.runCalls.push({
+        query,
+        bindings: deepClone(bindings),
+      });
+    }
+
     if (this.missingTables.has('rate_limit_counters') && query.includes('rate_limit_counters')) {
       throw new Error('no such table: rate_limit_counters');
     }
@@ -369,11 +377,15 @@ class MockD1 {
       };
     }
 
-    if (query === 'UPDATE sessions SET last_seen_at = ? WHERE id = ?') {
-      const [lastSeenAt, sessionId] = bindings;
+    if (query === 'UPDATE sessions SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)') {
+      const [lastSeenAt, sessionId, staleBefore] = bindings;
       const row = this.state.sessions.find((item) => item.id === sessionId);
-      if (row) row.last_seen_at = lastSeenAt;
-      return { success: true, meta: { changes: row ? 1 : 0 } };
+      if (!row) return { success: true, meta: { changes: 0 } };
+      if (!row.last_seen_at || row.last_seen_at < staleBefore) {
+        row.last_seen_at = lastSeenAt;
+        return { success: true, meta: { changes: 1 } };
+      }
+      return { success: true, meta: { changes: 0 } };
     }
 
     if (query.startsWith('SELECT id, email, password_hash, created_at, status, role, email_verified_at FROM users WHERE email = ?')) {

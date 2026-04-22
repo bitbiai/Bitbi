@@ -296,6 +296,13 @@ function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
 }
 
+function findRunCalls(db, query) {
+  return (db?.runCalls || []).filter((entry) => entry.query === query);
+}
+
+const SESSION_TOUCH_QUERY = 'UPDATE sessions SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)';
+const QUOTA_READ_CLEANUP_QUERY = "DELETE FROM ai_daily_quota_usage WHERE user_id = ? AND day_start = ? AND status = 'reserved' AND expires_at < ?";
+
 async function createSignedWalletPayload({ challenge, privateKey }) {
   const { privateKeyToAccount } = await loadWalletTestModules();
   const account = privateKeyToAccount(privateKey);
@@ -5009,6 +5016,193 @@ test.describe('Worker routes', () => {
     );
     expect(secondRes.status).toBe(200);
     expect(env.PRIVATE_MEDIA.getCalls).toHaveLength(0);
+  });
+
+  test('session touch coalescing: repeated member requests within the window only persist one touch write', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'touch-member', role: 'user' })],
+    });
+    const token = await seedSession(env, 'touch-member');
+    const sessionRow = env.DB.state.sessions.find((row) => row.user_id === 'touch-member');
+    sessionRow.last_seen_at = new Date(Date.now() - 11 * 60_000).toISOString();
+    env.DB.runCalls.length = 0;
+
+    const firstRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(200);
+    await expect(firstRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        id: 'touch-member',
+        email: 'touch-member@example.com',
+      },
+    });
+
+    const touchedAt = sessionRow.last_seen_at;
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(1);
+
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(200);
+    await expect(secondRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        id: 'touch-member',
+      },
+    });
+
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(1);
+    expect(sessionRow.last_seen_at).toBe(touchedAt);
+  });
+
+  test('session touch coalescing: requests after the touch window refresh the session touch timestamp', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'touch-refresh', role: 'user' })],
+    });
+    const token = await seedSession(env, 'touch-refresh');
+    const sessionRow = env.DB.state.sessions.find((row) => row.user_id === 'touch-refresh');
+    sessionRow.last_seen_at = new Date(Date.now() - 11 * 60_000).toISOString();
+    env.DB.runCalls.length = 0;
+
+    const firstRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(200);
+    const firstTouchedAt = sessionRow.last_seen_at;
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(1);
+
+    sessionRow.last_seen_at = new Date(Date.now() - 11 * 60_000).toISOString();
+    const staleTouchedAt = sessionRow.last_seen_at;
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(secondRes.status).toBe(200);
+    await expect(secondRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: {
+        id: 'touch-refresh',
+      },
+    });
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(2);
+    expect(sessionRow.last_seen_at).not.toBe(staleTouchedAt);
+    expect(sessionRow.last_seen_at >= firstTouchedAt).toBe(true);
+  });
+
+  test('session touch coalescing: production admin requests keep the secure-session policy and avoid repeated touch writes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('touch-admin')],
+    });
+    const token = await seedSession(env, 'touch-admin');
+    const sessionRow = env.DB.state.sessions.find((row) => row.user_id === 'touch-admin');
+    sessionRow.last_seen_at = new Date(Date.now() - 11 * 60_000).toISOString();
+    env.DB.runCalls.length = 0;
+
+    const firstRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/me', 'GET', undefined, {
+        Cookie: `__Host-bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstRes.status).toBe(200);
+    await expect(firstRes.json()).resolves.toMatchObject({
+      ok: true,
+      user: {
+        id: 'touch-admin',
+        role: 'admin',
+      },
+    });
+
+    const touchedAt = sessionRow.last_seen_at;
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(1);
+
+    const secondRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/me', 'GET', undefined, {
+        Cookie: `__Host-bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondRes.status).toBe(200);
+    expect(findRunCalls(env.DB, SESSION_TOUCH_QUERY)).toHaveLength(1);
+    expect(sessionRow.last_seen_at).toBe(touchedAt);
+  });
+
+  test('GET /api/ai/quota remains read-only for expired reservations on the hot path', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const dayStart = quotaDayStart();
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'quota-read-user', role: 'user' })],
+      aiDailyQuotaUsage: [
+        ...makeConsumedQuotaUsage('quota-read-user', 2, dayStart),
+        {
+          id: 'quota-expired',
+          user_id: 'quota-read-user',
+          day_start: dayStart,
+          slot: 3,
+          status: 'reserved',
+          created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+          expires_at: new Date(Date.now() - 60_000).toISOString(),
+          consumed_at: null,
+        },
+        {
+          id: 'quota-active',
+          user_id: 'quota-read-user',
+          day_start: dayStart,
+          slot: 4,
+          status: 'reserved',
+          created_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+          expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+          consumed_at: null,
+        },
+      ],
+    });
+    const token = await seedSession(env, 'quota-read-user');
+    env.DB.runCalls.length = 0;
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/quota', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        isAdmin: false,
+        dailyLimit: 10,
+        usedToday: 3,
+        remainingToday: 7,
+      },
+    });
+    expect(findRunCalls(env.DB, QUOTA_READ_CLEANUP_QUERY)).toHaveLength(0);
+    expect(env.DB.state.aiDailyQuotaUsage.find((row) => row.id === 'quota-expired')).toBeTruthy();
   });
 
   test('admin destructive path: delete user without AI-owned records', async () => {
