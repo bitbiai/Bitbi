@@ -78,6 +78,11 @@
 			"binding": "USER_IMAGES",
 			"bucket_name": "bitbi-user-images",
 			"remote": true
+		},
+		{
+			"binding": "AUDIT_ARCHIVE",
+			"bucket_name": "bitbi-audit-archive",
+			"remote": true
 		}
 	],
 	"d1_databases": [

@@ -57,6 +57,7 @@ const baseManifest = {
           r2: {
             PRIVATE_MEDIA: { bucketName: "bitbi-private-media" },
             USER_IMAGES: { bucketName: "bitbi-user-images" },
+            AUDIT_ARCHIVE: { bucketName: "bitbi-audit-archive" },
           },
           services: {
             AI_LAB: { service: "bitbi-ai", worker: "ai" },
@@ -178,6 +179,15 @@ const baseManifest = {
         requiredForRelease: true,
         documentation: "docs/ai-image-derivatives-runbook.md",
         summary: "The derivatives queue must exist before auth deploy.",
+      },
+      {
+        id: "auth-audit-archive-bucket-created",
+        kind: "cloudflare_r2_bucket",
+        worker: "auth",
+        binding: "AUDIT_ARCHIVE",
+        requiredForRelease: true,
+        documentation: "workers/auth/CLAUDE.md",
+        summary: "The private audit archive bucket must exist before auth deploy.",
       },
       {
         id: "auth-sensitive-post-waf-rule",
@@ -406,6 +416,7 @@ function createValidContext() {
           r2_buckets: [
             { binding: "PRIVATE_MEDIA", bucket_name: "bitbi-private-media" },
             { binding: "USER_IMAGES", bucket_name: "bitbi-user-images" },
+            { binding: "AUDIT_ARCHIVE", bucket_name: "bitbi-audit-archive" },
           ],
           services: [{ binding: "AI_LAB", service: "bitbi-ai" }],
           queues: {
@@ -637,9 +648,20 @@ function createValidContext() {
   const context = createValidContext();
   context.workerConfigs.auth.wrangler.r2_buckets = [
     { binding: "PRIVATE_MEDIA", bucket_name: "bitbi-private-media" },
+    { binding: "AUDIT_ARCHIVE", bucket_name: "bitbi-audit-archive" },
   ];
   const issues = validateReleaseCompatibility(context);
   assert(issues.some((issue) => issue.includes('missing R2 binding "USER_IMAGES"')));
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.r2_buckets = [
+    { binding: "PRIVATE_MEDIA", bucket_name: "bitbi-private-media" },
+    { binding: "USER_IMAGES", bucket_name: "bitbi-user-images" },
+  ];
+  const issues = validateReleaseCompatibility(context);
+  assert(issues.some((issue) => issue.includes('missing R2 binding "AUDIT_ARCHIVE"')));
 }
 
 {

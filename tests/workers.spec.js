@@ -336,6 +336,13 @@ function findDiagnosticEvent(entries, eventName) {
   return entries.find((entry) => entry.event === eventName) || null;
 }
 
+function parseJsonLines(body) {
+  return String(body || '')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
 }
@@ -11185,6 +11192,265 @@ test.describe('Worker routes', () => {
 
     expect(env.USER_IMAGES.objects.has(staleKey)).toBe(false);
     expect(env.USER_IMAGES.objects.has(freshKey)).toBe(true);
+  });
+
+  test('scheduled activity retention archives cold admin/user logs to private R2 and prunes only archived rows', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const diagnostics = captureDiagnosticLogs();
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('archive-admin'),
+        createContractUser({ id: 'archive-member', role: 'user', email: 'member-archive@example.com' }),
+      ],
+      adminAuditLog: [
+        {
+          id: 'audit-old-1',
+          admin_user_id: 'archive-admin',
+          action: 'change_role',
+          target_user_id: 'archive-member',
+          meta_json: JSON.stringify({ actor_email: 'admin-archive@example.com', target_email: 'member-archive@example.com' }),
+          created_at: '2025-12-01T08:00:00.000Z',
+        },
+        {
+          id: 'audit-recent-1',
+          admin_user_id: 'archive-admin',
+          action: 'delete_user',
+          target_user_id: 'archive-member',
+          meta_json: JSON.stringify({ actor_email: 'admin-archive@example.com' }),
+          created_at: nowIso(),
+        },
+      ],
+      userActivityLog: [
+        {
+          id: 'activity-old-1',
+          user_id: 'archive-member',
+          action: 'login',
+          meta_json: JSON.stringify({ email: 'member-archive@example.com', note: 'old login' }),
+          ip_address: '203.0.113.50',
+          created_at: '2025-12-01T09:00:00.000Z',
+        },
+        {
+          id: 'activity-recent-1',
+          user_id: 'archive-member',
+          action: 'wallet_login',
+          meta_json: JSON.stringify({ email: 'member-archive@example.com', note: 'recent login' }),
+          ip_address: '203.0.113.51',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    try {
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+      expect(env.DB.state.adminAuditLog.map((row) => row.id)).toEqual(['audit-recent-1']);
+      expect(env.DB.state.userActivityLog.map((row) => row.id)).toEqual(['activity-recent-1']);
+
+      const archiveKeys = Array.from(env.AUDIT_ARCHIVE.objects.keys()).sort();
+      expect(archiveKeys).toHaveLength(2);
+      expect(archiveKeys[0]).toMatch(/^admin-audit-log\/2025\/12\/01\/.+\.jsonl$/);
+      expect(archiveKeys[1]).toMatch(/^user-activity-log\/2025\/12\/01\/.+\.jsonl$/);
+
+      const adminArchive = parseJsonLines(env.AUDIT_ARCHIVE.objects.get(archiveKeys[0]).body);
+      expect(adminArchive).toEqual([
+        expect.objectContaining({
+          archive_schema: 1,
+          table: 'admin_audit_log',
+          id: 'audit-old-1',
+          action: 'change_role',
+        }),
+      ]);
+
+      const userArchive = parseJsonLines(env.AUDIT_ARCHIVE.objects.get(archiveKeys[1]).body);
+      expect(userArchive).toEqual([
+        expect.objectContaining({
+          archive_schema: 1,
+          table: 'user_activity_log',
+          id: 'activity-old-1',
+          action: 'login',
+          ip_address: '203.0.113.50',
+        }),
+      ]);
+
+      const archiveEvents = diagnostics.entries.filter((entry) => entry.event === 'activity_archive_chunk_completed');
+      expect(archiveEvents).toHaveLength(2);
+      expect(archiveEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          table: 'admin_audit_log',
+          row_count: 1,
+          pruned_count: 1,
+          archive_day: '2025-12-01',
+        }),
+        expect.objectContaining({
+          table: 'user_activity_log',
+          row_count: 1,
+          pruned_count: 1,
+          archive_day: '2025-12-01',
+        }),
+      ]));
+      const serializedLogs = JSON.stringify(archiveEvents);
+      expect(serializedLogs).not.toContain('member-archive@example.com');
+      expect(serializedLogs).not.toContain('admin-archive@example.com');
+      expect(serializedLogs).not.toContain('old login');
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('scheduled activity retention does not prune rows when archive persistence fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      adminAuditLog: [
+        {
+          id: 'audit-old-fail',
+          admin_user_id: 'archive-admin',
+          action: 'change_status',
+          target_user_id: 'archive-member',
+          meta_json: JSON.stringify({ target_email: 'member-archive@example.com' }),
+          created_at: '2025-11-30T08:00:00.000Z',
+        },
+      ],
+      userActivityLog: [
+        {
+          id: 'activity-old-fail',
+          user_id: 'archive-member',
+          action: 'login',
+          meta_json: JSON.stringify({ email: 'member-archive@example.com' }),
+          ip_address: '203.0.113.60',
+          created_at: '2025-11-30T09:00:00.000Z',
+        },
+      ],
+    });
+    env.AUDIT_ARCHIVE.failPutWith = new Error('archive unavailable');
+
+    await expect(
+      authWorker.scheduled({}, env, createExecutionContext().execCtx)
+    ).rejects.toThrow('archive unavailable');
+
+    expect(env.DB.state.adminAuditLog.map((row) => row.id)).toEqual(['audit-old-fail']);
+    expect(env.DB.state.userActivityLog.map((row) => row.id)).toEqual(['activity-old-fail']);
+    expect(env.AUDIT_ARCHIVE.objects.size).toBe(0);
+  });
+
+  test('scheduled activity retention reruns safely after cold rows were already archived and pruned', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      adminAuditLog: [
+        {
+          id: 'audit-rerun-old',
+          admin_user_id: 'archive-admin',
+          action: 'revoke_sessions',
+          target_user_id: 'archive-member',
+          meta_json: JSON.stringify({ target_email: 'member-archive@example.com' }),
+          created_at: '2025-11-29T08:00:00.000Z',
+        },
+      ],
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    const archiveKeysAfterFirstRun = Array.from(env.AUDIT_ARCHIVE.objects.keys());
+    expect(archiveKeysAfterFirstRun).toHaveLength(1);
+    expect(env.DB.state.adminAuditLog).toHaveLength(0);
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(Array.from(env.AUDIT_ARCHIVE.objects.keys())).toEqual(archiveKeysAfterFirstRun);
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(1);
+    expect(env.DB.state.adminAuditLog).toHaveLength(0);
+  });
+
+  test('admin activity routes keep recent hot data and expose retention metadata after archival pruning', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('activity-admin'),
+        createContractUser({ id: 'activity-member', role: 'user', email: 'activity-member@example.com' }),
+      ],
+      adminAuditLog: [
+        {
+          id: 'audit-old-route',
+          admin_user_id: 'activity-admin',
+          action: 'change_role',
+          target_user_id: 'activity-member',
+          meta_json: JSON.stringify({ actor_email: 'activity-admin@example.com' }),
+          created_at: '2025-12-02T08:00:00.000Z',
+        },
+        {
+          id: 'audit-recent-route',
+          admin_user_id: 'activity-admin',
+          action: 'delete_user',
+          target_user_id: 'activity-member',
+          meta_json: JSON.stringify({ actor_email: 'activity-admin@example.com' }),
+          created_at: nowIso(),
+        },
+      ],
+      userActivityLog: [
+        {
+          id: 'activity-old-route',
+          user_id: 'activity-member',
+          action: 'login',
+          meta_json: JSON.stringify({ email: 'activity-member@example.com' }),
+          ip_address: '203.0.113.70',
+          created_at: '2025-12-02T09:00:00.000Z',
+        },
+        {
+          id: 'activity-recent-route',
+          user_id: 'activity-member',
+          action: 'wallet_login',
+          meta_json: JSON.stringify({ email: 'activity-member@example.com' }),
+          ip_address: '203.0.113.71',
+          created_at: nowIso(),
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, 'activity-admin');
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    const adminActivityRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/activity', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(adminActivityRes.status).toBe(200);
+    await expect(adminActivityRes.json()).resolves.toMatchObject({
+      ok: true,
+      entries: [
+        expect.objectContaining({
+          id: 'audit-recent-route',
+          action: 'delete_user',
+        }),
+      ],
+      nextCursor: null,
+      counts: {
+        delete_user: 1,
+      },
+      retentionDays: 90,
+      retentionCutoff: expect.any(String),
+    });
+
+    const userActivityRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/user-activity', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(userActivityRes.status).toBe(200);
+    await expect(userActivityRes.json()).resolves.toMatchObject({
+      ok: true,
+      entries: [
+        expect.objectContaining({
+          id: 'activity-recent-route',
+          action: 'wallet_login',
+        }),
+      ],
+      nextCursor: null,
+      retentionDays: 90,
+      retentionCutoff: expect.any(String),
+    });
   });
 
   test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {

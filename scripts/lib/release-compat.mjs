@@ -5,6 +5,7 @@ const MANUAL_PREREQUISITE_KINDS = new Set([
   "secret",
   "cloudflare_feature",
   "cloudflare_queue",
+  "cloudflare_r2_bucket",
   "dashboard_rule",
   "transform_rule",
   "dashboard_setting",

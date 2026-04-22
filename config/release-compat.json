@@ -50,6 +50,9 @@
             },
             "USER_IMAGES": {
               "bucketName": "bitbi-user-images"
+            },
+            "AUDIT_ARCHIVE": {
+              "bucketName": "bitbi-audit-archive"
             }
           },
           "services": {
@@ -189,6 +192,15 @@
         "requiredForRelease": true,
         "documentation": "docs/ai-image-derivatives-runbook.md",
         "summary": "The derivative queue must exist before the auth worker config that references it is deployed."
+      },
+      {
+        "id": "auth-audit-archive-bucket-created",
+        "kind": "cloudflare_r2_bucket",
+        "worker": "auth",
+        "binding": "AUDIT_ARCHIVE",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "The private audit archive bucket must exist before the auth worker deploy that archives cold audit and activity logs."
       },
       {
         "id": "auth-sensitive-post-waf-rule",

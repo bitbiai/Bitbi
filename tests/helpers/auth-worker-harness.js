@@ -113,6 +113,8 @@ class MockBucket {
   constructor(initial = {}) {
     this.objects = new Map();
     this.failDeleteKeys = new Set();
+    this.failPutKeys = new Set();
+    this.failPutWith = null;
     this.putCalls = [];
     this.getCalls = [];
     this.listCalls = [];
@@ -125,15 +127,23 @@ class MockBucket {
         uploaded: value.uploaded ? new Date(value.uploaded) : new Date(),
       });
       if (value.failDelete) this.failDeleteKeys.add(key);
+      if (value.failPut) this.failPutKeys.add(key);
+      if (value.failPutWith && !this.failPutWith) this.failPutWith = value.failPutWith;
     }
   }
 
   async put(key, body, options = {}) {
     this.putCalls.push({ key, options });
+    if (this.failPutWith) {
+      throw this.failPutWith instanceof Error ? this.failPutWith : new Error(String(this.failPutWith));
+    }
+    if (this.failPutKeys.has(key)) {
+      throw new Error(`Mock put failure for ${key}`);
+    }
     this.objects.set(key, {
       body,
       httpMetadata: options.httpMetadata || {},
-      size: body?.byteLength ?? 0,
+      size: body?.byteLength ?? (typeof body === 'string' ? body.length : 0),
       uploaded: new Date(),
     });
   }
@@ -459,6 +469,12 @@ class MockD1 {
     if (this.missingTables.has('admin_mfa_recovery_codes') && query.includes('admin_mfa_recovery_codes')) {
       throw new Error('no such table: admin_mfa_recovery_codes');
     }
+    if (this.missingTables.has('admin_audit_log') && query.includes('admin_audit_log')) {
+      throw new Error('no such table: admin_audit_log');
+    }
+    if (this.missingTables.has('user_activity_log') && query.includes('user_activity_log')) {
+      throw new Error('no such table: user_activity_log');
+    }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
       const [tokenHash, currentTime] = bindings;
@@ -536,6 +552,25 @@ class MockD1 {
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, user_id, action, meta_json, ip_address, created_at FROM user_activity_log WHERE created_at < ? ORDER BY created_at ASC, id ASC LIMIT ?') {
+      const [cutoffIso, limit] = bindings;
+      const rows = this.state.userActivityLog
+        .filter((row) => row.created_at < cutoffIso)
+        .sort((a, b) => {
+          if (a.created_at !== b.created_at) return a.created_at.localeCompare(b.created_at);
+          return a.id.localeCompare(b.id);
+        })
+        .slice(0, Number(limit) || 0);
+      return { results: rows.map((row) => ({ ...row })) };
+    }
+
+    if (query.startsWith('DELETE FROM user_activity_log WHERE id IN (')) {
+      const idSet = new Set(bindings);
+      const before = this.state.userActivityLog.length;
+      this.state.userActivityLog = this.state.userActivityLog.filter((row) => !idSet.has(row.id));
+      return { success: true, meta: { changes: before - this.state.userActivityLog.length } };
     }
 
     if (query.startsWith('INSERT INTO rate_limit_counters (scope, limiter_key, window_start_ms, count, expires_at, updated_at)')) {
@@ -1194,6 +1229,134 @@ class MockD1 {
         created_at: createdAt,
       });
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, admin_user_id, action, target_user_id, meta_json, created_at FROM admin_audit_log WHERE created_at < ? ORDER BY created_at ASC, id ASC LIMIT ?') {
+      const [cutoffIso, limit] = bindings;
+      const rows = this.state.adminAuditLog
+        .filter((row) => row.created_at < cutoffIso)
+        .sort((a, b) => {
+          if (a.created_at !== b.created_at) return a.created_at.localeCompare(b.created_at);
+          return a.id.localeCompare(b.id);
+        })
+        .slice(0, Number(limit) || 0);
+      return { results: rows.map((row) => ({ ...row })) };
+    }
+
+    if (query.startsWith('DELETE FROM admin_audit_log WHERE id IN (')) {
+      const idSet = new Set(bindings);
+      const before = this.state.adminAuditLog.length;
+      this.state.adminAuditLog = this.state.adminAuditLog.filter((row) => !idSet.has(row.id));
+      return { success: true, meta: { changes: before - this.state.adminAuditLog.length } };
+    }
+
+    if (query.startsWith('SELECT a.id, a.action, a.meta_json, a.created_at, a.admin_user_id, au.email AS admin_email, a.target_user_id, tu.email AS target_email FROM admin_audit_log a LEFT JOIN users au ON au.id = a.admin_user_id LEFT JOIN users tu ON tu.id = a.target_user_id')) {
+      let limit = Number(bindings.at(-1)) || 0;
+      let cursorTime = null;
+      let cursorId = null;
+      let search = null;
+
+      if (query.includes('(a.created_at < ? OR (a.created_at = ? AND a.id < ?))')) {
+        [cursorTime, , cursorId] = bindings;
+      }
+      if (query.includes('(au.email LIKE ? OR tu.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)')) {
+        const searchIndex = cursorTime ? 3 : 0;
+        const like = bindings[searchIndex];
+        search = typeof like === 'string' ? like.replace(/^%|%$/g, '') : null;
+      }
+
+      let rows = this.state.adminAuditLog.map((row) => {
+        const admin = this.state.users.find((user) => user.id === row.admin_user_id);
+        const target = this.state.users.find((user) => user.id === row.target_user_id);
+        return {
+          id: row.id,
+          action: row.action,
+          meta_json: row.meta_json,
+          created_at: row.created_at,
+          admin_user_id: row.admin_user_id,
+          admin_email: admin?.email || null,
+          target_user_id: row.target_user_id,
+          target_email: target?.email || null,
+        };
+      });
+
+      if (cursorTime && cursorId) {
+        rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
+      }
+      if (search) {
+        const needle = search.toLowerCase();
+        rows = rows.filter((row) =>
+          String(row.admin_email || '').toLowerCase().includes(needle) ||
+          String(row.target_email || '').toLowerCase().includes(needle) ||
+          String(row.action || '').toLowerCase().includes(needle) ||
+          String(row.meta_json || '').toLowerCase().includes(needle)
+        );
+      }
+
+      rows.sort((a, b) => {
+        if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+        return b.id.localeCompare(a.id);
+      });
+
+      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
+    }
+
+    if (query === 'SELECT action, COUNT(*) AS cnt FROM admin_audit_log GROUP BY action') {
+      const counts = new Map();
+      for (const row of this.state.adminAuditLog) {
+        counts.set(row.action, (counts.get(row.action) || 0) + 1);
+      }
+      return {
+        results: Array.from(counts.entries()).map(([action, cnt]) => ({ action, cnt })),
+      };
+    }
+
+    if (query.startsWith('SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at, u.email AS user_email FROM user_activity_log a LEFT JOIN users u ON u.id = a.user_id')) {
+      let limit = Number(bindings.at(-1)) || 0;
+      let cursorTime = null;
+      let cursorId = null;
+      let search = null;
+
+      if (query.includes('(a.created_at < ? OR (a.created_at = ? AND a.id < ?))')) {
+        [cursorTime, , cursorId] = bindings;
+      }
+      if (query.includes('(u.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)')) {
+        const searchIndex = cursorTime ? 3 : 0;
+        const like = bindings[searchIndex];
+        search = typeof like === 'string' ? like.replace(/^%|%$/g, '') : null;
+      }
+
+      let rows = this.state.userActivityLog.map((row) => {
+        const user = this.state.users.find((entry) => entry.id === row.user_id);
+        return {
+          id: row.id,
+          user_id: row.user_id,
+          action: row.action,
+          meta_json: row.meta_json,
+          ip_address: row.ip_address,
+          created_at: row.created_at,
+          user_email: user?.email || null,
+        };
+      });
+
+      if (cursorTime && cursorId) {
+        rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
+      }
+      if (search) {
+        const needle = search.toLowerCase();
+        rows = rows.filter((row) =>
+          String(row.user_email || '').toLowerCase().includes(needle) ||
+          String(row.action || '').toLowerCase().includes(needle) ||
+          String(row.meta_json || '').toLowerCase().includes(needle)
+        );
+      }
+
+      rows.sort((a, b) => {
+        if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+        return b.id.localeCompare(a.id);
+      });
+
+      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
     }
 
     if (query === "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {
@@ -2883,6 +3046,7 @@ function createAuthTestEnv(seed = {}) {
   const DB = new MockD1(seed);
   const PRIVATE_MEDIA = new MockBucket(seed.privateMedia);
   const USER_IMAGES = new MockBucket(seed.userImages);
+  const AUDIT_ARCHIVE = seed.disableAuditArchiveBinding ? undefined : new MockBucket(seed.auditArchive);
   const AI_IMAGE_DERIVATIVES_QUEUE = seed.aiImageDerivativesQueue || new MockQueueProducer();
   const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
   const PUBLIC_RATE_LIMITER = Object.prototype.hasOwnProperty.call(seed, 'PUBLIC_RATE_LIMITER')
@@ -2902,6 +3066,7 @@ function createAuthTestEnv(seed = {}) {
     DB,
     PRIVATE_MEDIA,
     USER_IMAGES,
+    AUDIT_ARCHIVE,
     AI_IMAGE_DERIVATIVES_QUEUE,
     IMAGES,
     PUBLIC_RATE_LIMITER,

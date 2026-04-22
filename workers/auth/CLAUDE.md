@@ -144,6 +144,8 @@ src/
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`.
 
+**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
+
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.

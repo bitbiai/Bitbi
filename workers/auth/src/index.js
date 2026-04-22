@@ -36,6 +36,7 @@ import {
   AI_GENERATED_TEMP_OBJECT_PREFIX,
   isAiGeneratedTempObjectExpired,
 } from "./routes/ai/generated-image-save-reference.js";
+import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
@@ -258,6 +259,19 @@ export default {
         level: "error",
         ...getErrorFields(error),
       });
+    }
+
+    try {
+      await archiveColdActivityLogs(env, { nowIso: now });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-activity-archive",
+        event: "activity_archive_run_failed",
+        level: "error",
+        ...getErrorFields(error),
+      });
+      throw error;
     }
 
     if (isProductionEnvironment(env)) {

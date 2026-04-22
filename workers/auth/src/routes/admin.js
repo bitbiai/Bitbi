@@ -2,6 +2,7 @@ import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
+import { getActivityRetentionMetadata } from "../lib/activity-archive.js";
 import {
   isProductionEnvironment,
   isSharedRateLimited,
@@ -705,6 +706,7 @@ export async function handleAdmin(ctx) {
       entries,
       nextCursor,
       counts,
+      ...getActivityRetentionMetadata(),
     });
   }
 
@@ -765,6 +767,7 @@ export async function handleAdmin(ctx) {
           nextCursor: null,
           unavailable: true,
           reason: "User activity logging not yet configured. Run migration 0012.",
+          ...getActivityRetentionMetadata(),
         });
       }
       throw e;
@@ -794,6 +797,7 @@ export async function handleAdmin(ctx) {
       ok: true,
       entries,
       nextCursor,
+      ...getActivityRetentionMetadata(),
     });
   }
 
