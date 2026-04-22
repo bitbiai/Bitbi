@@ -2,7 +2,7 @@ import { getAddress, recoverMessageAddress } from "viem";
 import { parseSiweMessage } from "viem/siwe";
 
 import { logUserActivity } from "../lib/activity.js";
-import { buildSessionCookie } from "../lib/cookies.js";
+import { buildExpiredAdminMfaCookies, buildSessionCookie } from "../lib/cookies.js";
 import {
   evaluateSharedRateLimit,
   getClientIp,
@@ -484,7 +484,10 @@ export async function handleWalletSiweVerify(ctx) {
       last_login_at: consumedAt,
     }),
   });
-  response.headers.set("Set-Cookie", buildSessionCookie(sessionToken, isSecure));
+  response.headers.append("Set-Cookie", buildSessionCookie(sessionToken, isSecure));
+  for (const value of buildExpiredAdminMfaCookies(isSecure)) {
+    response.headers.append("Set-Cookie", value);
+  }
 
   ctx.execCtx.waitUntil(
     logUserActivity(env, loginRow.user_id, "wallet_login", { address: parsedAddress.display, chain_id: MAINNET_CHAIN_ID }, ip)

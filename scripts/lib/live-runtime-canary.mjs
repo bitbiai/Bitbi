@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SECURE_SESSION_COOKIE_NAME } from "../../workers/auth/src/lib/cookies.js";
+import {
+  SECURE_ADMIN_MFA_COOKIE_NAME,
+  SECURE_SESSION_COOKIE_NAME,
+} from "../../workers/auth/src/lib/cookies.js";
 import { parseJsonc } from "./release-compat.mjs";
 
 export const DEFAULT_AUTH_BASE_URL = "https://bitbi.ai";
@@ -53,6 +56,10 @@ function containsSecureSessionCookie(cookieHeader) {
   return new RegExp(`(?:^|;\\s*)${SECURE_SESSION_COOKIE_NAME}=`).test(cookieHeader);
 }
 
+function containsNamedCookie(cookieHeader, cookieName) {
+  return new RegExp(`(?:^|;\\s*)${cookieName}=`).test(cookieHeader);
+}
+
 function normalizeCookieHeader(value, label) {
   if (!isNonEmptyString(value)) return null;
   const header = String(value).trim();
@@ -92,6 +99,26 @@ function resolveCookieCredential({
     throw new Error(`${label} credentials must include the secure ${SECURE_SESSION_COOKIE_NAME} cookie.`);
   }
 
+  return header;
+}
+
+function resolveNamedCookieCredential({
+  cookieHeader,
+  sessionToken,
+  cookieName,
+  label,
+}) {
+  const normalizedCookie = normalizeCookieHeader(cookieHeader, `${label} cookie`);
+  const normalizedToken = normalizeSessionToken(sessionToken, `${label} token`);
+  if (normalizedCookie && normalizedToken) {
+    throw new Error(`${label} must provide either a cookie header or a token, not both.`);
+  }
+  const header = normalizedCookie || (
+    normalizedToken ? `${cookieName}=${normalizedToken}` : null
+  );
+  if (header && !containsNamedCookie(header, cookieName)) {
+    throw new Error(`${label} must include the ${cookieName} cookie.`);
+  }
   return header;
 }
 
@@ -588,11 +615,33 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
     requireSecureCookie: true,
     label: "Admin live-check",
   });
+  const adminMfaCookieHeader = resolveNamedCookieCredential({
+    cookieHeader: env.BITBI_LIVE_ADMIN_MFA_COOKIE,
+    sessionToken: env.BITBI_LIVE_ADMIN_MFA_TOKEN,
+    cookieName: SECURE_ADMIN_MFA_COOKIE_NAME,
+    label: "Admin MFA live-check",
+  });
+
+  if (adminMfaCookieHeader && !adminCookieHeader) {
+    throw new Error("BITBI_LIVE_ADMIN_MFA_COOKIE or BITBI_LIVE_ADMIN_MFA_TOKEN requires BITBI_LIVE_ADMIN_SESSION or BITBI_LIVE_ADMIN_COOKIE.");
+  }
+
+  const effectiveAdminCookieHeader = adminCookieHeader
+    ? (
+      adminMfaCookieHeader && !containsNamedCookie(adminCookieHeader, SECURE_ADMIN_MFA_COOKIE_NAME)
+        ? `${adminCookieHeader}; ${adminMfaCookieHeader}`
+        : adminCookieHeader
+    )
+    : null;
+  const adminHasMfaProof = !!(
+    effectiveAdminCookieHeader &&
+    containsNamedCookie(effectiveAdminCookieHeader, SECURE_ADMIN_MFA_COOKIE_NAME)
+  );
 
   if (isNonEmptyString(env.BITBI_LIVE_MEMBER_EMAIL) && !memberCookieHeader) {
     throw new Error("BITBI_LIVE_MEMBER_EMAIL requires BITBI_LIVE_MEMBER_SESSION or BITBI_LIVE_MEMBER_COOKIE.");
   }
-  if (isNonEmptyString(env.BITBI_LIVE_ADMIN_EMAIL) && !adminCookieHeader) {
+  if (isNonEmptyString(env.BITBI_LIVE_ADMIN_EMAIL) && !effectiveAdminCookieHeader) {
     throw new Error("BITBI_LIVE_ADMIN_EMAIL requires BITBI_LIVE_ADMIN_SESSION or BITBI_LIVE_ADMIN_COOKIE.");
   }
 
@@ -602,7 +651,8 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
     authBaseUrl,
     contactBaseUrl,
     memberCookieHeader,
-    adminCookieHeader,
+    adminCookieHeader: effectiveAdminCookieHeader,
+    adminHasMfaProof,
     memberExpectedEmail: isNonEmptyString(env.BITBI_LIVE_MEMBER_EMAIL) ? String(env.BITBI_LIVE_MEMBER_EMAIL).trim() : null,
     adminExpectedEmail: isNonEmptyString(env.BITBI_LIVE_ADMIN_EMAIL) ? String(env.BITBI_LIVE_ADMIN_EMAIL).trim() : null,
     manifest,
@@ -661,13 +711,22 @@ export function createLiveRuntimeCanaryPlan({ repoRoot, env = process.env } = {}
           skippedReason:
             "Skipping member live checks because no BITBI_LIVE_MEMBER_SESSION or BITBI_LIVE_MEMBER_COOKIE was provided.",
         },
-    adminCookieHeader
+    effectiveAdminCookieHeader && adminHasMfaProof
       ? {
           id: "admin",
           label: "Optional authenticated admin read-only checks",
           skipped: false,
           checks: createAdminChecks(manifest, plan),
         }
+      : effectiveAdminCookieHeader
+        ? {
+            id: "admin",
+            label: "Optional authenticated admin read-only checks",
+            skipped: true,
+            checks: [],
+            skippedReason:
+              "Skipping admin live checks because BITBI_LIVE_ADMIN_MFA_TOKEN or BITBI_LIVE_ADMIN_MFA_COOKIE was not provided with the secure admin session.",
+          }
       : {
           id: "admin",
           label: "Optional authenticated admin read-only checks",

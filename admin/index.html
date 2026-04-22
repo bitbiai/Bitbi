@@ -133,10 +133,58 @@
 
         <!-- Access Denied -->
         <div id="adminDenied" class="glass glass-card reveal" style="display:none">
-            <div class="admin-denied">
+            <div id="adminDeniedMessage" class="admin-denied">
                 <div class="admin-denied__icon" aria-hidden="true">&#128274;</div>
                 <h2 class="admin-denied__title">Access Denied</h2>
                 <p class="admin-denied__text">You do not have permission to access this area. Please sign in with an admin account.</p>
+            </div>
+            <div id="adminMfaGate" class="admin-mfa-gate" style="display:none">
+                <div class="admin-mfa-gate__header">
+                    <div class="admin-denied__icon" aria-hidden="true">&#128274;</div>
+                    <h2 id="adminMfaTitle" class="admin-denied__title">Admin Security Check</h2>
+                    <p id="adminMfaText" class="admin-denied__text">Admin access now requires a second factor.</p>
+                </div>
+                <p id="adminMfaNotice" class="admin-mfa-gate__notice" role="status" aria-live="polite"></p>
+
+                <div id="adminMfaEnrollmentBlock" class="admin-mfa-gate__block" style="display:none">
+                    <div class="admin-mfa-gate__actions">
+                        <button id="adminMfaSetupBtn" type="button" class="btn-action">Generate setup secret</button>
+                    </div>
+                    <div id="adminMfaSetupFields" class="admin-mfa-gate__setup" style="display:none">
+                        <label class="admin-mfa-gate__label" for="adminMfaSecret">Manual setup secret</label>
+                        <input id="adminMfaSecret" class="admin-search__input" type="text" readonly spellcheck="false" autocomplete="off">
+
+                        <label class="admin-mfa-gate__label" for="adminMfaOtpAuthUri">Authenticator URI</label>
+                        <textarea id="adminMfaOtpAuthUri" class="admin-mfa-gate__textarea" readonly spellcheck="false"></textarea>
+
+                        <p class="admin-mfa-gate__warning">
+                            Recovery codes are shown only once. Save or copy them before you continue.
+                        </p>
+                        <pre id="adminMfaRecoveryCodes" class="admin-mfa-gate__codes"></pre>
+                    </div>
+
+                    <label class="admin-mfa-gate__label" for="adminMfaEnableCode">Enter a current authenticator code</label>
+                    <input id="adminMfaEnableCode" class="admin-search__input" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="8" placeholder="123456">
+                    <div class="admin-mfa-gate__actions">
+                        <button id="adminMfaEnableBtn" type="button" class="btn-action">Enable MFA</button>
+                    </div>
+                </div>
+
+                <div id="adminMfaVerifyBlock" class="admin-mfa-gate__block" style="display:none">
+                    <label class="admin-mfa-gate__label" for="adminMfaVerifyCode">Authenticator code</label>
+                    <input id="adminMfaVerifyCode" class="admin-search__input" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="8" placeholder="123456">
+                    <div class="admin-mfa-gate__actions">
+                        <button id="adminMfaVerifyBtn" type="button" class="btn-action">Verify code</button>
+                    </div>
+
+                    <div class="admin-mfa-gate__divider" aria-hidden="true">or</div>
+
+                    <label class="admin-mfa-gate__label" for="adminMfaRecoveryCode">Recovery code</label>
+                    <input id="adminMfaRecoveryCode" class="admin-search__input" type="text" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH-IJKL-MNOP-QRST">
+                    <div class="admin-mfa-gate__actions">
+                        <button id="adminMfaRecoveryBtn" type="button" class="btn-action">Use recovery code</button>
+                    </div>
+                </div>
             </div>
         </div>
 

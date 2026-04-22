@@ -29,6 +29,8 @@ function createCurrentContractFetch() {
 
     const isMember = cookie.includes("__Host-bitbi_session=member-token");
     const isAdmin = cookie.includes("__Host-bitbi_session=admin-token");
+    const hasAdminMfa = cookie.includes("__Host-bitbi_admin_mfa=admin-mfa-token");
+    const isVerifiedAdmin = isAdmin && hasAdminMfa;
 
     if (requestUrl === "https://bitbi.ai/api/health" && method === "GET") {
       return jsonResponse({ ok: true, service: "bitbi-auth", message: "Auth worker is live" });
@@ -120,7 +122,21 @@ function createCurrentContractFetch() {
     if (requestUrl === "https://bitbi.ai/api/admin/me" && method === "GET") {
       if (!cookie) return jsonResponse({ ok: false, error: "Not authenticated." }, 401);
       if (isMember) return jsonResponse({ ok: false, error: "Admin privileges required." }, 403);
-      if (isAdmin) {
+      if (isAdmin && !hasAdminMfa) {
+        return jsonResponse({
+          ok: false,
+          error: "Admin MFA verification required.",
+          code: "admin_mfa_required",
+          mfa: {
+            enrolled: true,
+            verified: false,
+            setupPending: false,
+            recoveryCodesRemaining: 8,
+            method: "totp",
+          },
+        }, 403);
+      }
+      if (isVerifiedAdmin) {
         return jsonResponse({
           ok: true,
           user: {
@@ -134,7 +150,7 @@ function createCurrentContractFetch() {
     }
 
     if (requestUrl === "https://bitbi.ai/api/admin/users?limit=1" && method === "GET") {
-      if (isAdmin) {
+      if (isVerifiedAdmin) {
         return jsonResponse({
           ok: true,
           users: [
@@ -159,7 +175,10 @@ function createCurrentContractFetch() {
     if (requestUrl === "https://bitbi.ai/api/admin/ai/models" && method === "GET") {
       if (!cookie) return jsonResponse({ ok: false, error: "Not authenticated.", code: "unauthorized" }, 401);
       if (isMember) return jsonResponse({ ok: false, error: "Admin privileges required.", code: "forbidden" }, 403);
-      if (isAdmin) {
+      if (isAdmin && !hasAdminMfa) {
+        return jsonResponse({ ok: false, error: "Admin MFA verification required.", code: "admin_mfa_required" }, 403);
+      }
+      if (isVerifiedAdmin) {
         return jsonResponse({
           ok: true,
           task: "models",
@@ -264,9 +283,26 @@ assert.throws(
     repoRoot,
     env: {
       BITBI_LIVE_ENABLE: "1",
+      BITBI_LIVE_ADMIN_SESSION: "admin-token",
+    },
+  });
+
+  assert.equal(plan.suites.find((suite) => suite.id === "admin")?.skipped, true);
+  assert.match(
+    plan.suites.find((suite) => suite.id === "admin")?.skippedReason || "",
+    /BITBI_LIVE_ADMIN_MFA_TOKEN/
+  );
+}
+
+{
+  const plan = createLiveRuntimeCanaryPlan({
+    repoRoot,
+    env: {
+      BITBI_LIVE_ENABLE: "1",
       BITBI_LIVE_MEMBER_SESSION: "member-token",
       BITBI_LIVE_MEMBER_EMAIL: "member@example.com",
       BITBI_LIVE_ADMIN_SESSION: "admin-token",
+      BITBI_LIVE_ADMIN_MFA_TOKEN: "admin-mfa-token",
       BITBI_LIVE_ADMIN_EMAIL: "admin@example.com",
     },
   });

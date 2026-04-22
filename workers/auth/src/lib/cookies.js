@@ -1,5 +1,7 @@
 export const LEGACY_SESSION_COOKIE_NAME = "bitbi_session";
 export const SECURE_SESSION_COOKIE_NAME = "__Host-bitbi_session";
+export const LEGACY_ADMIN_MFA_COOKIE_NAME = "bitbi_admin_mfa";
+export const SECURE_ADMIN_MFA_COOKIE_NAME = "__Host-bitbi_admin_mfa";
 
 export function parseCookies(cookieHeader) {
   const cookies = {};
@@ -16,6 +18,10 @@ export function parseCookies(cookieHeader) {
 
 export function getSessionTokenFromCookies(cookies) {
   return cookies?.[SECURE_SESSION_COOKIE_NAME] || cookies?.[LEGACY_SESSION_COOKIE_NAME] || null;
+}
+
+export function getAdminMfaTokenFromCookies(cookies) {
+  return cookies?.[SECURE_ADMIN_MFA_COOKIE_NAME] || cookies?.[LEGACY_ADMIN_MFA_COOKIE_NAME] || null;
 }
 
 function buildCookie(name, value, isSecure, maxAge) {
@@ -39,10 +45,23 @@ export function buildSessionCookie(token, isSecure) {
   return buildCookie(cookieName, token, isSecure, 2592000);
 }
 
+export function buildAdminMfaCookie(token, isSecure, maxAge) {
+  const cookieName = isSecure ? SECURE_ADMIN_MFA_COOKIE_NAME : LEGACY_ADMIN_MFA_COOKIE_NAME;
+  return buildCookie(cookieName, token, isSecure, maxAge);
+}
+
 export function buildExpiredSessionCookies(isSecure) {
   const names = [LEGACY_SESSION_COOKIE_NAME];
   if (isSecure) {
     names.unshift(SECURE_SESSION_COOKIE_NAME);
+  }
+  return names.map((name) => buildCookie(name, "", isSecure, 0));
+}
+
+export function buildExpiredAdminMfaCookies(isSecure) {
+  const names = [LEGACY_ADMIN_MFA_COOKIE_NAME];
+  if (isSecure) {
+    names.unshift(SECURE_ADMIN_MFA_COOKIE_NAME);
   }
   return names.map((name) => buildCookie(name, "", isSecure, 0));
 }

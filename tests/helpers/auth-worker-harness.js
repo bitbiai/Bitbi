@@ -391,6 +391,8 @@ class MockD1 {
       sessions: [],
       emailVerificationTokens: [],
       passwordResetTokens: [],
+      adminMfaCredentials: [],
+      adminMfaRecoveryCodes: [],
       linkedWallets: [],
       siweChallenges: [],
       profiles: [],
@@ -450,6 +452,12 @@ class MockD1 {
 
     if (this.missingTables.has('rate_limit_counters') && query.includes('rate_limit_counters')) {
       throw new Error('no such table: rate_limit_counters');
+    }
+    if (this.missingTables.has('admin_mfa_credentials') && query.includes('admin_mfa_credentials')) {
+      throw new Error('no such table: admin_mfa_credentials');
+    }
+    if (this.missingTables.has('admin_mfa_recovery_codes') && query.includes('admin_mfa_recovery_codes')) {
+      throw new Error('no such table: admin_mfa_recovery_codes');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -575,6 +583,128 @@ class MockD1 {
 
     if (query === 'SELECT 1 FROM rate_limit_counters LIMIT 1') {
       return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    }
+
+    if (query === 'SELECT 1 FROM admin_mfa_credentials LIMIT 1') {
+      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    }
+
+    if (query === 'SELECT 1 FROM admin_mfa_recovery_codes LIMIT 1') {
+      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    }
+
+    if (query === 'SELECT admin_user_id, secret_ciphertext, secret_iv, pending_secret_ciphertext, pending_secret_iv, enabled_at, last_accepted_timestep, created_at, updated_at FROM admin_mfa_credentials WHERE admin_user_id = ? LIMIT 1') {
+      const [adminUserId] = bindings;
+      return this.state.adminMfaCredentials.find((row) => row.admin_user_id === adminUserId) || null;
+    }
+
+    if (query === 'SELECT COUNT(*) AS unused_count FROM admin_mfa_recovery_codes WHERE admin_user_id = ? AND used_at IS NULL') {
+      const [adminUserId] = bindings;
+      return {
+        unused_count: this.state.adminMfaRecoveryCodes.filter(
+          (row) => row.admin_user_id === adminUserId && row.used_at == null
+        ).length,
+      };
+    }
+
+    if (query === 'INSERT INTO admin_mfa_credentials ( admin_user_id, secret_ciphertext, secret_iv, pending_secret_ciphertext, pending_secret_iv, enabled_at, last_accepted_timestep, created_at, updated_at ) VALUES (?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)') {
+      const [adminUserId, pendingCiphertext, pendingIv, createdAt, updatedAt] = bindings;
+      this.state.adminMfaCredentials.push({
+        admin_user_id: adminUserId,
+        secret_ciphertext: null,
+        secret_iv: null,
+        pending_secret_ciphertext: pendingCiphertext,
+        pending_secret_iv: pendingIv,
+        enabled_at: null,
+        last_accepted_timestep: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE admin_mfa_credentials SET pending_secret_ciphertext = ?, pending_secret_iv = ?, updated_at = ? WHERE admin_user_id = ?') {
+      const [pendingCiphertext, pendingIv, updatedAt, adminUserId] = bindings;
+      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.pending_secret_ciphertext = pendingCiphertext;
+      row.pending_secret_iv = pendingIv;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM admin_mfa_recovery_codes WHERE admin_user_id = ?') {
+      const [adminUserId] = bindings;
+      const before = this.state.adminMfaRecoveryCodes.length;
+      this.state.adminMfaRecoveryCodes = this.state.adminMfaRecoveryCodes.filter(
+        (row) => row.admin_user_id !== adminUserId
+      );
+      return { success: true, meta: { changes: before - this.state.adminMfaRecoveryCodes.length } };
+    }
+
+    if (query === 'INSERT INTO admin_mfa_recovery_codes (id, admin_user_id, code_hash, created_at, used_at) VALUES (?, ?, ?, ?, NULL)') {
+      const [id, adminUserId, codeHash, createdAt] = bindings;
+      this.state.adminMfaRecoveryCodes.push({
+        id,
+        admin_user_id: adminUserId,
+        code_hash: codeHash,
+        created_at: createdAt,
+        used_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE admin_mfa_credentials SET secret_ciphertext = pending_secret_ciphertext, secret_iv = pending_secret_iv, pending_secret_ciphertext = NULL, pending_secret_iv = NULL, enabled_at = ?, last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?') {
+      const [enabledAt, timestep, updatedAt, adminUserId] = bindings;
+      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.secret_ciphertext = row.pending_secret_ciphertext;
+      row.secret_iv = row.pending_secret_iv;
+      row.pending_secret_ciphertext = null;
+      row.pending_secret_iv = null;
+      row.enabled_at = enabledAt;
+      row.last_accepted_timestep = timestep;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?') {
+      const [timestep, updatedAt, adminUserId] = bindings;
+      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.last_accepted_timestep = timestep;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, code_hash, used_at FROM admin_mfa_recovery_codes WHERE admin_user_id = ?') {
+      const [adminUserId] = bindings;
+      return {
+        results: this.state.adminMfaRecoveryCodes
+          .filter((row) => row.admin_user_id === adminUserId)
+          .map((row) => ({
+            id: row.id,
+            code_hash: row.code_hash,
+            used_at: row.used_at ?? null,
+          })),
+      };
+    }
+
+    if (query === 'UPDATE admin_mfa_recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL') {
+      const [usedAt, id] = bindings;
+      const row = this.state.adminMfaRecoveryCodes.find((item) => item.id === id && item.used_at == null);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.used_at = usedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM admin_mfa_credentials WHERE admin_user_id = ?') {
+      const [adminUserId] = bindings;
+      const before = this.state.adminMfaCredentials.length;
+      this.state.adminMfaCredentials = this.state.adminMfaCredentials.filter(
+        (row) => row.admin_user_id !== adminUserId
+      );
+      return { success: true, meta: { changes: before - this.state.adminMfaCredentials.length } };
     }
 
     if (query === 'DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?') {

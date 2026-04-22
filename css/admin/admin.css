@@ -2236,6 +2236,98 @@
         line-height: 1.7;
     }
 
+    .admin-mfa-gate {
+        padding: var(--space-8) var(--space-5);
+    }
+
+    .admin-mfa-gate__header {
+        text-align: center;
+        margin-block-end: var(--space-5);
+    }
+
+    .admin-mfa-gate__notice {
+        min-block-size: 1.5rem;
+        margin: 0 auto var(--space-4);
+        max-inline-size: 36rem;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 13px;
+        line-height: 1.6;
+    }
+
+    .admin-mfa-gate__block {
+        max-inline-size: 36rem;
+        margin-inline: auto;
+        padding: var(--space-5);
+        border: var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-mfa-gate__block + .admin-mfa-gate__block {
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-mfa-gate__label {
+        display: block;
+        margin-block: var(--space-4) var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+    }
+
+    .admin-mfa-gate__textarea,
+    .admin-mfa-gate__codes {
+        width: 100%;
+        margin: 0;
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--color-text);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.6;
+    }
+
+    .admin-mfa-gate__textarea {
+        min-block-size: 6.5rem;
+        resize: vertical;
+        word-break: break-all;
+    }
+
+    .admin-mfa-gate__codes {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-mfa-gate__warning {
+        margin-block: var(--space-4) var(--space-2);
+        color: rgba(255, 255, 255, 0.64);
+        font-size: 12px;
+        line-height: 1.6;
+    }
+
+    .admin-mfa-gate__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-mfa-gate__divider {
+        margin-block: var(--space-4);
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.35);
+    }
+
     /* ── Avatar Dropdown ── */
     .admin-avatars {
         margin-block-end: var(--space-6);

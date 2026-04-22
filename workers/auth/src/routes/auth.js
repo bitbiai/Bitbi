@@ -2,6 +2,7 @@ import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import {
   parseCookies,
+  buildExpiredAdminMfaCookies,
   buildSessionCookie,
   buildExpiredSessionCookies,
   getSessionTokenFromCookies,
@@ -386,7 +387,10 @@ export async function handleLogin(ctx) {
     },
   });
 
-  response.headers.set("Set-Cookie", buildSessionCookie(sessionToken, isSecure));
+  response.headers.append("Set-Cookie", buildSessionCookie(sessionToken, isSecure));
+  for (const value of buildExpiredAdminMfaCookies(isSecure)) {
+    response.headers.append("Set-Cookie", value);
+  }
   return response;
 }
 
@@ -421,6 +425,9 @@ export async function handleLogout(ctx) {
   });
 
   for (const value of buildExpiredSessionCookies(isSecure)) {
+    response.headers.append("Set-Cookie", value);
+  }
+  for (const value of buildExpiredAdminMfaCookies(isSecure)) {
     response.headers.append("Set-Cookie", value);
   }
   return response;

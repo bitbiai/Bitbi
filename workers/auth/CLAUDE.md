@@ -148,7 +148,7 @@ src/
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0026_add_cursor_pagination_support`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0027_add_admin_mfa`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -162,6 +162,7 @@ Key migration-dependent behavior:
 - `0023_add_text_asset_publication` and `0024_add_text_asset_poster` — required before auth deploy if text-asset publication/poster routes must work immediately
 - `0025_add_media_favorite_types` — required before auth deploy if favorites must support media item types beyond the original gallery-only contract
 - `0026_add_cursor_pagination_support` — required before auth deploy if admin activity/user-activity and cursor-based asset listing must work immediately
+- `0027_add_admin_mfa` — required before auth deploy if production admin access must enforce TOTP MFA enrollment/verification and recovery-code state safely
 
 ## Conventions
 
@@ -169,6 +170,7 @@ Key migration-dependent behavior:
 - Admin actions are logged to `admin_audit_log` with action type and JSON metadata
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 10 minutes per session
+- Production admin access is centrally MFA-gated: unenrolled admins can only reach `/api/admin/me` plus `/api/admin/mfa/*` bootstrap routes until TOTP setup is enabled, and enrolled admins must present a valid `__Host-bitbi_admin_mfa` proof cookie bound to the primary session before other admin routes are allowed
 - Shared fixed-window rate limiting is now split by risk: register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset, wallet SIWE nonce/verify, and contact submission use worker-local Durable Object counters and fail closed in production if the `PUBLIC_RATE_LIMITER` binding is unavailable. Lower-risk/internal auth limiter paths such as avatar upload, favorites add, admin actions, and AI generation remain D1-backed via `rate_limit_counters`.
 - Password reset invalidates ALL unused reset tokens for the user (not just the used one)
 - Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type

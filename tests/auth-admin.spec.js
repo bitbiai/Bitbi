@@ -1872,6 +1872,299 @@ test.describe('Account pages (unauthenticated)', () => {
   });
 });
 
+test.describe('Admin MFA gate', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('admin page bootstraps MFA enrollment and unlocks the dashboard after setup is enabled', async ({ page }) => {
+    const state = {
+      phase: 'enrollment_required',
+      setupSecret: 'JBSWY3DPEHPK3PXP',
+      recoveryCodes: [
+        'ABCD-EFGH-IJKL-MNOP-QRST',
+        'UVWX-YZ12-3456-7890-ABCD',
+      ],
+    };
+
+    await page.route('**/api/admin/me', async (route) => {
+      if (state.phase === 'verified') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            user: {
+              id: 'admin-mfa-1',
+              email: 'admin@bitbi.ai',
+              role: 'admin',
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: 'Admin MFA enrollment required.',
+          code: 'admin_mfa_enrollment_required',
+          user: {
+            id: 'admin-mfa-1',
+            email: 'admin@bitbi.ai',
+            role: 'admin',
+          },
+          mfa: {
+            enrolled: false,
+            verified: false,
+            setupPending: state.phase === 'setup_pending',
+            method: 'totp',
+            recoveryCodesRemaining: 0,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/mfa/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          mfa: {
+            enrolled: false,
+            verified: false,
+            setupPending: state.phase === 'setup_pending',
+            method: 'totp',
+            recoveryCodesRemaining: 0,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/mfa/setup', async (route) => {
+      state.phase = 'setup_pending';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          mfa: {
+            enrolled: false,
+            verified: false,
+            setupPending: true,
+            method: 'totp',
+            recoveryCodesRemaining: state.recoveryCodes.length,
+          },
+          setup: {
+            secret: state.setupSecret,
+            otpauthUri: `otpauth://totp/BITBI:admin%40bitbi.ai?secret=${state.setupSecret}&issuer=BITBI`,
+            recoveryCodes: state.recoveryCodes,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/mfa/enable', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body).toEqual({ code: '123456' });
+      state.phase = 'verified';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          message: 'Admin MFA enabled.',
+          mfa: {
+            enrolled: true,
+            verified: true,
+            setupPending: false,
+            method: 'totp',
+            recoveryCodesRemaining: 10,
+            proofExpiresAt: '2026-04-22T14:00:00.000Z',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          stats: {
+            totalUsers: 12,
+            activeUsers: 10,
+            admins: 2,
+            verifiedUsers: 11,
+            disabledUsers: 2,
+            recentRegistrations: 3,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/avatars/latest', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, avatars: [] }),
+      });
+    });
+
+    const response = await page.goto('/admin/index.html');
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('#adminMfaGate')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#adminMfaTitle')).toHaveText('Admin MFA Enrollment Required');
+    await expect(page.locator('#adminMfaEnrollmentBlock')).toBeVisible();
+    await expect(page.locator('#adminMfaVerifyBlock')).toBeHidden();
+
+    await page.locator('#adminMfaSetupBtn').click();
+    await expect(page.locator('#adminMfaSecret')).toHaveValue(state.setupSecret);
+    await expect(page.locator('#adminMfaOtpAuthUri')).toHaveValue(/otpauth:\/\/totp\//);
+    await expect(page.locator('#adminMfaRecoveryCodes')).toContainText(state.recoveryCodes[0]);
+
+    await page.locator('#adminMfaEnableCode').fill('123456');
+    await page.locator('#adminMfaEnableBtn').click();
+
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#adminDenied')).toBeHidden();
+  });
+
+  test('admin page blocks on MFA verification until a current code is accepted, then unlocks the dashboard', async ({ page }) => {
+    const state = {
+      phase: 'mfa_required',
+    };
+
+    await page.route('**/api/admin/me', async (route) => {
+      if (state.phase === 'verified') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            user: {
+              id: 'admin-mfa-2',
+              email: 'verified-admin@bitbi.ai',
+              role: 'admin',
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: state.phase === 'invalid_or_expired'
+            ? 'Admin MFA proof is invalid or expired.'
+            : 'Admin MFA verification required.',
+          code: state.phase === 'invalid_or_expired'
+            ? 'admin_mfa_invalid_or_expired'
+            : 'admin_mfa_required',
+          user: {
+            id: 'admin-mfa-2',
+            email: 'verified-admin@bitbi.ai',
+            role: 'admin',
+          },
+          mfa: {
+            enrolled: true,
+            verified: false,
+            setupPending: false,
+            method: 'totp',
+            recoveryCodesRemaining: 9,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/mfa/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          mfa: {
+            enrolled: true,
+            verified: false,
+            setupPending: false,
+            method: 'totp',
+            recoveryCodesRemaining: 9,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/mfa/verify', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body).toEqual({ code: '654321' });
+      state.phase = 'verified';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          message: 'Admin MFA verified.',
+          mfa: {
+            enrolled: true,
+            verified: true,
+            setupPending: false,
+            method: 'totp',
+            recoveryCodesRemaining: 9,
+            proofExpiresAt: '2026-04-22T15:00:00.000Z',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/stats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          stats: {
+            totalUsers: 12,
+            activeUsers: 10,
+            admins: 2,
+            verifiedUsers: 11,
+            disabledUsers: 2,
+            recentRegistrations: 3,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/avatars/latest', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, avatars: [] }),
+      });
+    });
+
+    const response = await page.goto('/admin/index.html');
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('#adminMfaGate')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#adminMfaTitle')).toHaveText('Admin MFA Verification Required');
+    await expect(page.locator('#adminMfaEnrollmentBlock')).toBeHidden();
+    await expect(page.locator('#adminMfaVerifyBlock')).toBeVisible();
+
+    await page.locator('#adminMfaVerifyCode').fill('654321');
+    await page.locator('#adminMfaVerifyBtn').click();
+
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#adminDenied')).toBeHidden();
+  });
+});
+
 test.describe('Admin users pagination', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);

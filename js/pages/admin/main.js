@@ -13,6 +13,10 @@ import { initCookieConsent } from '../../shared/cookie-consent.js?v=__ASSET_VERS
 
 import {
     apiAdminMe,
+    apiAdminMfaEnable,
+    apiAdminMfaSetup,
+    apiAdminMfaStatus,
+    apiAdminMfaVerify,
     apiAdminUsers,
     apiAdminChangeRole,
     apiAdminChangeStatus,
@@ -31,6 +35,24 @@ import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
    ═══════════════════════════════════════════════════════════ */
 
 const $denied      = document.getElementById('adminDenied');
+const $deniedMessage = document.getElementById('adminDeniedMessage');
+const $mfaGate     = document.getElementById('adminMfaGate');
+const $mfaTitle    = document.getElementById('adminMfaTitle');
+const $mfaText     = document.getElementById('adminMfaText');
+const $mfaNotice   = document.getElementById('adminMfaNotice');
+const $mfaEnrollmentBlock = document.getElementById('adminMfaEnrollmentBlock');
+const $mfaVerifyBlock = document.getElementById('adminMfaVerifyBlock');
+const $mfaSetupBtn = document.getElementById('adminMfaSetupBtn');
+const $mfaSetupFields = document.getElementById('adminMfaSetupFields');
+const $mfaSecret   = document.getElementById('adminMfaSecret');
+const $mfaOtpAuthUri = document.getElementById('adminMfaOtpAuthUri');
+const $mfaRecoveryCodes = document.getElementById('adminMfaRecoveryCodes');
+const $mfaEnableCode = document.getElementById('adminMfaEnableCode');
+const $mfaEnableBtn = document.getElementById('adminMfaEnableBtn');
+const $mfaVerifyCode = document.getElementById('adminMfaVerifyCode');
+const $mfaVerifyBtn = document.getElementById('adminMfaVerifyBtn');
+const $mfaRecoveryCode = document.getElementById('adminMfaRecoveryCode');
+const $mfaRecoveryBtn = document.getElementById('adminMfaRecoveryBtn');
 const $panel       = document.getElementById('adminPanel');
 const $toast       = document.getElementById('adminToast');
 const $adminNav    = document.getElementById('adminNav');
@@ -95,6 +117,286 @@ function showToast(message, type = 'success') {
 }
 
 const aiLab = createAdminAiLab({ showToast });
+const ADMIN_MFA_GATE_CODES = new Set([
+    'admin_mfa_enrollment_required',
+    'admin_mfa_required',
+    'admin_mfa_invalid_or_expired',
+]);
+let adminBootstrapped = false;
+
+function setAdminMfaNotice(message = '', type = 'info') {
+    if (!$mfaNotice) return;
+    $mfaNotice.textContent = message || '';
+    $mfaNotice.style.color = type === 'error'
+        ? 'var(--color-danger)'
+        : type === 'success'
+            ? 'var(--color-success)'
+            : 'rgba(255, 255, 255, 0.72)';
+}
+
+function clearAdminMfaSetupFields() {
+    $mfaSetupFields.style.display = 'none';
+    $mfaSecret.value = '';
+    $mfaOtpAuthUri.value = '';
+    $mfaRecoveryCodes.textContent = '';
+}
+
+function showAccessDenied() {
+    $panel.style.display = 'none';
+    $adminNav.style.display = 'none';
+    $denied.style.display = '';
+    $denied.classList.add('visible');
+    $deniedMessage.style.display = '';
+    $mfaGate.style.display = 'none';
+}
+
+function showAdminMfaGate() {
+    $panel.style.display = 'none';
+    $adminNav.style.display = 'none';
+    $denied.style.display = '';
+    $denied.classList.add('visible');
+    $deniedMessage.style.display = 'none';
+    $mfaGate.style.display = '';
+}
+
+function setAdminMfaButtonsDisabled(disabled) {
+    [
+        $mfaSetupBtn,
+        $mfaEnableBtn,
+        $mfaVerifyBtn,
+        $mfaRecoveryBtn,
+    ].forEach((button) => {
+        if (button) button.disabled = !!disabled;
+    });
+}
+
+function renderAdminMfaSetup(setup) {
+    if (!setup) {
+        clearAdminMfaSetupFields();
+        return;
+    }
+    $mfaSecret.value = setup.secret || '';
+    $mfaOtpAuthUri.value = setup.otpauthUri || '';
+    $mfaRecoveryCodes.textContent = Array.isArray(setup.recoveryCodes)
+        ? setup.recoveryCodes.join('\n')
+        : '';
+    $mfaSetupFields.style.display = '';
+}
+
+function renderAdminMfaGate(code, status) {
+    showAdminMfaGate();
+    clearAdminMfaSetupFields();
+
+    const enrolled = !!status?.enrolled;
+    const setupPending = !!status?.setupPending;
+
+    if (code === 'admin_mfa_enrollment_required') {
+        $mfaTitle.textContent = 'Admin MFA Enrollment Required';
+        $mfaText.textContent = setupPending
+            ? 'Finish the pending authenticator setup or generate a fresh secret and recovery code set.'
+            : 'Set up an authenticator app and recovery codes before the admin dashboard can be used.';
+    } else if (code === 'admin_mfa_invalid_or_expired') {
+        $mfaTitle.textContent = 'Admin MFA Verification Required';
+        $mfaText.textContent = 'Your admin MFA proof is invalid or expired. Verify with a current authenticator code or a recovery code to continue.';
+    } else {
+        $mfaTitle.textContent = 'Admin MFA Verification Required';
+        $mfaText.textContent = 'Verify with a current authenticator code or a recovery code to continue.';
+    }
+
+    $mfaEnrollmentBlock.style.display = enrolled ? 'none' : '';
+    $mfaVerifyBlock.style.display = enrolled ? '' : 'none';
+
+    if (!enrolled) {
+        $mfaSetupBtn.textContent = setupPending ? 'Regenerate setup secret' : 'Generate setup secret';
+        $mfaEnableCode.value = '';
+        setAdminMfaNotice(
+            setupPending
+                ? 'If you already saved the setup secret, enter a current authenticator code below. Otherwise generate a fresh setup secret and recovery codes now.'
+                : 'Generate a setup secret, add it to your authenticator app, then confirm with a current code to enable MFA.',
+            'info'
+        );
+    } else {
+        $mfaVerifyCode.value = '';
+        $mfaRecoveryCode.value = '';
+        setAdminMfaNotice(
+            code === 'admin_mfa_invalid_or_expired'
+                ? 'Verify again to renew admin access.'
+                : 'Admin access stays locked until MFA verification succeeds.',
+            'info'
+        );
+    }
+}
+
+async function refreshAdminMfaGate(code) {
+    const status = await apiAdminMfaStatus();
+    if (status.ok) {
+        renderAdminMfaGate(code, status.data?.mfa || null);
+        return;
+    }
+    renderAdminMfaGate(code, status.data?.mfa || null);
+    setAdminMfaNotice(status.error || 'Failed to load MFA status.', 'error');
+}
+
+async function reloadAdminAfterMfa(successMessage) {
+    if (successMessage) showToast(successMessage, 'success');
+    window.location.reload();
+}
+
+async function handleAdminMfaSetupClick() {
+    setAdminMfaButtonsDisabled(true);
+    setAdminMfaNotice('Generating a new setup secret...', 'info');
+    try {
+        const res = await apiAdminMfaSetup();
+        if (!res.ok) {
+            setAdminMfaNotice(res.error || 'Failed to generate an MFA setup secret.', 'error');
+            return;
+        }
+        renderAdminMfaGate('admin_mfa_enrollment_required', {
+            ...(res.data?.mfa || {}),
+            enrolled: false,
+            verified: false,
+            setupPending: true,
+        });
+        renderAdminMfaSetup(res.data?.setup || null);
+        setAdminMfaNotice('Setup secret and recovery codes generated. Save them now, then enter a current authenticator code to enable MFA.', 'success');
+    } finally {
+        setAdminMfaButtonsDisabled(false);
+    }
+}
+
+async function handleAdminMfaEnableClick() {
+    setAdminMfaButtonsDisabled(true);
+    setAdminMfaNotice('Verifying setup code...', 'info');
+    try {
+        const res = await apiAdminMfaEnable($mfaEnableCode.value.trim());
+        if (!res.ok) {
+            setAdminMfaNotice(res.error || 'Failed to enable admin MFA.', 'error');
+            return;
+        }
+        await reloadAdminAfterMfa('Admin MFA enabled.');
+    } finally {
+        setAdminMfaButtonsDisabled(false);
+    }
+}
+
+async function handleAdminMfaVerifyClick(mode) {
+    setAdminMfaButtonsDisabled(true);
+    setAdminMfaNotice(
+        mode === 'recovery'
+            ? 'Validating recovery code...'
+            : 'Validating authenticator code...',
+        'info'
+    );
+    try {
+        const res = await apiAdminMfaVerify(
+            mode === 'recovery'
+                ? { recoveryCode: $mfaRecoveryCode.value.trim() }
+                : { code: $mfaVerifyCode.value.trim() }
+        );
+        if (!res.ok) {
+            setAdminMfaNotice(res.error || 'Failed to verify admin MFA.', 'error');
+            return;
+        }
+        await reloadAdminAfterMfa('Admin MFA verified.');
+    } finally {
+        setAdminMfaButtonsDisabled(false);
+    }
+}
+
+function bindAdminMfaGate() {
+    if ($mfaGate.dataset.bound === '1') return;
+    $mfaGate.dataset.bound = '1';
+
+    $mfaSetupBtn?.addEventListener('click', () => {
+        handleAdminMfaSetupClick().catch((error) => {
+            console.warn(error);
+            setAdminMfaNotice('Failed to generate an MFA setup secret.', 'error');
+            setAdminMfaButtonsDisabled(false);
+        });
+    });
+    $mfaEnableBtn?.addEventListener('click', () => {
+        handleAdminMfaEnableClick().catch((error) => {
+            console.warn(error);
+            setAdminMfaNotice('Failed to enable admin MFA.', 'error');
+            setAdminMfaButtonsDisabled(false);
+        });
+    });
+    $mfaVerifyBtn?.addEventListener('click', () => {
+        handleAdminMfaVerifyClick('totp').catch((error) => {
+            console.warn(error);
+            setAdminMfaNotice('Failed to verify admin MFA.', 'error');
+            setAdminMfaButtonsDisabled(false);
+        });
+    });
+    $mfaRecoveryBtn?.addEventListener('click', () => {
+        handleAdminMfaVerifyClick('recovery').catch((error) => {
+            console.warn(error);
+            setAdminMfaNotice('Failed to verify the recovery code.', 'error');
+            setAdminMfaButtonsDisabled(false);
+        });
+    });
+}
+
+function bootstrapAdminPanel() {
+    if (adminBootstrapped) return;
+    adminBootstrapped = true;
+
+    $denied.style.display = 'none';
+    $panel.style.display = '';
+    $adminNav.style.display = '';
+
+    initAvatarDropdown();
+    initLightbox();
+
+    $searchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        loadUsers($searchInput.value.trim());
+    });
+
+    $userLoadMoreBtn?.addEventListener('click', () => {
+        if (!usersHasMore || !usersNextCursor) return;
+        loadUsers($searchInput.value.trim(), { append: true });
+    });
+
+    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
+        btn.addEventListener('click', () => switchActivityMode(btn.dataset.mode));
+    });
+
+    const $actSearch = document.getElementById('activitySearch');
+    if ($actSearch) {
+        $actSearch.addEventListener('input', () => {
+            clearTimeout(activitySearchTimer);
+            activitySearchTimer = setTimeout(() => loadActivity(), 350);
+        });
+    }
+
+    const $expandBtn = document.getElementById('activityExpandBtn');
+    if ($expandBtn) {
+        $expandBtn.addEventListener('click', () => {
+            activityExpanded = !activityExpanded;
+            const $wrap = document.getElementById('activityExpand');
+            $wrap.classList.toggle('admin-activity-expand--open', activityExpanded);
+            const $label = document.getElementById('activityExpandLabel');
+            const restCount = activityEntries.length - ACTIVITY_VISIBLE;
+            $label.textContent = activityExpanded
+                ? 'Hide older entries'
+                : `Show ${restCount} more entr${restCount === 1 ? 'y' : 'ies'}`;
+            $expandBtn.setAttribute('aria-expanded', String(activityExpanded));
+        });
+    }
+
+    const $loadMoreBtn = document.getElementById('activityLoadMoreBtn');
+    if ($loadMoreBtn) {
+        $loadMoreBtn.addEventListener('click', () => {
+            if (activityNextCursor) {
+                activityExpanded = true;
+                loadActivity(true);
+            }
+        });
+    }
+
+    initRouting();
+}
 
 /* ═══════════════════════════════════════════════════════════
    Date formatter
@@ -1155,78 +1457,21 @@ async function init() {
     try { initBinaryFooter('binaryFooter'); } catch (e) { console.warn(e); }
     try { initScrollReveal(); }              catch (e) { console.warn(e); }
     try { initCookieConsent(); }             catch (e) { console.warn(e); }
+    bindAdminMfaGate();
 
     // Auth check
     const me = await apiAdminMe();
 
     if (!me.ok) {
-        $denied.style.display = '';
-        $denied.classList.add('visible');
+        if (ADMIN_MFA_GATE_CODES.has(me.code)) {
+            await refreshAdminMfaGate(me.code);
+            return;
+        }
+        showAccessDenied();
         return;
     }
 
-    // Show admin panel + nav
-    $panel.style.display = '';
-    $adminNav.style.display = '';
-
-    // Avatar dropdown + lightbox (for Users section)
-    initAvatarDropdown();
-    initLightbox();
-
-    // Search form (Users section)
-    $searchForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        loadUsers($searchInput.value.trim());
-    });
-
-    $userLoadMoreBtn?.addEventListener('click', () => {
-        if (!usersHasMore || !usersNextCursor) return;
-        loadUsers($searchInput.value.trim(), { append: true });
-    });
-
-    // Activity mode switch
-    document.querySelectorAll('.admin-activity-mode').forEach(btn => {
-        btn.addEventListener('click', () => switchActivityMode(btn.dataset.mode));
-    });
-
-    // Activity search (debounced)
-    const $actSearch = document.getElementById('activitySearch');
-    if ($actSearch) {
-        $actSearch.addEventListener('input', () => {
-            clearTimeout(activitySearchTimer);
-            activitySearchTimer = setTimeout(() => loadActivity(), 350);
-        });
-    }
-
-    // Activity expand/collapse toggle
-    const $expandBtn = document.getElementById('activityExpandBtn');
-    if ($expandBtn) {
-        $expandBtn.addEventListener('click', () => {
-            activityExpanded = !activityExpanded;
-            const $wrap = document.getElementById('activityExpand');
-            $wrap.classList.toggle('admin-activity-expand--open', activityExpanded);
-            const $label = document.getElementById('activityExpandLabel');
-            const restCount = activityEntries.length - ACTIVITY_VISIBLE;
-            $label.textContent = activityExpanded
-                ? 'Hide older entries'
-                : `Show ${restCount} more entr${restCount === 1 ? 'y' : 'ies'}`;
-            $expandBtn.setAttribute('aria-expanded', String(activityExpanded));
-        });
-    }
-
-    // Activity load more (cursor pagination within expanded area)
-    const $loadMoreBtn = document.getElementById('activityLoadMoreBtn');
-    if ($loadMoreBtn) {
-        $loadMoreBtn.addEventListener('click', () => {
-            if (activityNextCursor) {
-                activityExpanded = true; // keep expanded when loading more
-                loadActivity(true);
-            }
-        });
-    }
-
-    // Init routing (loads initial section from hash)
-    initRouting();
+    bootstrapAdminPanel();
 }
 
 init();

@@ -109,6 +109,39 @@ export function apiAdminMe() {
     return request('GET', '/admin/me');
 }
 
+export function apiAdminMfaStatus() {
+    return request('GET', '/admin/mfa/status');
+}
+
+export function apiAdminMfaSetup() {
+    return request('POST', '/admin/mfa/setup', {});
+}
+
+export function apiAdminMfaEnable(code) {
+    return request('POST', '/admin/mfa/enable', { code });
+}
+
+export function apiAdminMfaVerify({ code, recoveryCode } = {}) {
+    const body = {};
+    if (code) body.code = code;
+    if (recoveryCode) body.recovery_code = recoveryCode;
+    return request('POST', '/admin/mfa/verify', body);
+}
+
+export function apiAdminMfaDisable({ code, recoveryCode } = {}) {
+    const body = {};
+    if (code) body.code = code;
+    if (recoveryCode) body.recovery_code = recoveryCode;
+    return request('POST', '/admin/mfa/disable', body);
+}
+
+export function apiAdminMfaRegenerateRecoveryCodes({ code, recoveryCode } = {}) {
+    const body = {};
+    if (code) body.code = code;
+    if (recoveryCode) body.recovery_code = recoveryCode;
+    return request('POST', '/admin/mfa/recovery-codes/regenerate', body);
+}
+
 export function apiAdminUsers(search, { limit, cursor } = {}) {
     const params = new URLSearchParams();
     if (search) params.set('search', search);

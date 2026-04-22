@@ -796,6 +796,36 @@ function validateAdminAiCompatibility(manifest, context) {
   return issues;
 }
 
+function validateAdminAuthCompatibility(manifest, context) {
+  const issues = [];
+  const contract = manifest?.adminAuthRoutes || {};
+  if (!Array.isArray(contract.literalRoutes) || contract.literalRoutes.length === 0) {
+    issues.push("Release manifest adminAuthRoutes.literalRoutes must be a non-empty array.");
+    return issues;
+  }
+
+  const actualLiteralRoutes = [
+    ...extractLiteralMethodRoutes(context.authAdminSource || ""),
+    ...extractLiteralMethodRoutes(context.authAdminMfaSource || ""),
+  ].filter((route) => route.includes("/api/admin/"));
+
+  compareExactStringSets(
+    contract.literalRoutes,
+    actualLiteralRoutes,
+    "Admin auth literal route contract",
+    issues
+  );
+
+  compareExactStringSets(
+    contract.staticAuthApiPaths || [],
+    extractPathLiterals(context.authApiSource || "", "/admin/mfa/"),
+    "Admin MFA static auth API path contract",
+    issues
+  );
+
+  return issues;
+}
+
 function validateWorkflowCompatibility(context) {
   const issues = [];
   const workflowSource = context.workflowSource;
@@ -846,6 +876,7 @@ export function validateReleaseCompatibility(context) {
   issues.push(...validateAuthIndexRoutes(manifest, context));
   issues.push(...validateMemberAiCompatibility(manifest, context));
   issues.push(...validateAdminAiCompatibility(manifest, context));
+  issues.push(...validateAdminAuthCompatibility(manifest, context));
   issues.push(...validateWorkflowCompatibility(context));
 
   return issues;
@@ -901,6 +932,14 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     authApiSource: fs.readFileSync(path.join(repoRoot, "js/shared/auth-api.js"), "utf8"),
     authIndexSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/index.js"), "utf8"),
     authAiSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/routes/ai.js"), "utf8"),
+    authAdminSource: fs.readFileSync(
+      path.join(repoRoot, "workers/auth/src/routes/admin.js"),
+      "utf8"
+    ),
+    authAdminMfaSource: fs.readFileSync(
+      path.join(repoRoot, "workers/auth/src/routes/admin-mfa.js"),
+      "utf8"
+    ),
     authAdminAiSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-ai.js"),
       "utf8"

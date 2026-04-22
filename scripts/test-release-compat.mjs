@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0026_add_cursor_pagination_support.sql",
+        latest: "0027_add_admin_mfa.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -140,7 +140,7 @@ const baseManifest = {
         name: "SESSION_SECRET",
         requiredForRelease: true,
         documentation: "workers/auth/CLAUDE.md",
-        summary: "Required for auth sessions and signed pagination cursors.",
+        summary: "Required for auth sessions, signed pagination cursors, and admin MFA proof/signing material.",
       },
       {
         id: "auth-resend-secret",
@@ -304,6 +304,30 @@ const baseManifest = {
       "/api/admin/ai/proxy-video",
     ],
   },
+  adminAuthRoutes: {
+    literalRoutes: [
+      "GET /api/admin/me",
+      "GET /api/admin/users",
+      "GET /api/admin/stats",
+      "GET /api/admin/avatars/latest",
+      "GET /api/admin/activity",
+      "GET /api/admin/user-activity",
+      "GET /api/admin/mfa/status",
+      "POST /api/admin/mfa/setup",
+      "POST /api/admin/mfa/enable",
+      "POST /api/admin/mfa/verify",
+      "POST /api/admin/mfa/disable",
+      "POST /api/admin/mfa/recovery-codes/regenerate",
+    ],
+    staticAuthApiPaths: [
+      "/admin/mfa/status",
+      "/admin/mfa/setup",
+      "/admin/mfa/enable",
+      "/admin/mfa/verify",
+      "/admin/mfa/disable",
+      "/admin/mfa/recovery-codes/regenerate",
+    ],
+  },
 };
 
 function createValidContext() {
@@ -328,6 +352,7 @@ function createValidContext() {
           "0024_add_text_asset_poster.sql",
           "0025_add_media_favorite_types.sql",
           "0026_add_cursor_pagination_support.sql",
+          "0027_add_admin_mfa.sql",
         ],
       },
     },
@@ -437,6 +462,12 @@ function createValidContext() {
       return existingPaths.has(relativePath);
     },
     authApiSource: `
+      export function apiAdminMfaStatus() { return request('GET', '/admin/mfa/status'); }
+      export function apiAdminMfaSetup() { return request('POST', '/admin/mfa/setup'); }
+      export function apiAdminMfaEnable() { return request('POST', '/admin/mfa/enable'); }
+      export function apiAdminMfaVerify() { return request('POST', '/admin/mfa/verify'); }
+      export function apiAdminMfaDisable() { return request('POST', '/admin/mfa/disable'); }
+      export function apiAdminMfaRegenerateRecoveryCodes() { return request('POST', '/admin/mfa/recovery-codes/regenerate'); }
       export function apiAdminAiModels() { return request('GET', '/admin/ai/models'); }
       export function apiAdminAiTestText() { return request('POST', '/admin/ai/test-text'); }
       export function apiAdminAiTestImage() { return request('POST', '/admin/ai/test-image'); }
@@ -512,6 +543,22 @@ function createValidContext() {
       if (textRenameMatch && method === "PATCH") return handleRenameTextAsset();
       const textDeleteMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)$/);
       if (textDeleteMatch && method === "DELETE") return handleDeleteTextAsset();
+    `,
+    authAdminSource: `
+      if (pathname === "/api/admin/me" && method === "GET") return handleAdminMe();
+      if (pathname === "/api/admin/users" && method === "GET") return handleAdminUsers();
+      if (pathname === "/api/admin/stats" && method === "GET") return handleAdminStats();
+      if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
+      if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
+      if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
+    `,
+    authAdminMfaSource: `
+      if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();
+      if (pathname === "/api/admin/mfa/setup" && method === "POST") return handleAdminMfaSetup();
+      if (pathname === "/api/admin/mfa/enable" && method === "POST") return handleAdminMfaEnable();
+      if (pathname === "/api/admin/mfa/verify" && method === "POST") return handleAdminMfaVerify();
+      if (pathname === "/api/admin/mfa/disable" && method === "POST") return handleAdminMfaDisable();
+      if (pathname === "/api/admin/mfa/recovery-codes/regenerate" && method === "POST") return handleAdminMfaRegenerate();
     `,
     authAdminAiSource: `
       if (pathname === "/api/admin/ai/models" && method === "GET") return proxyToAiLab("/internal/ai/models");
@@ -640,6 +687,20 @@ function createValidContext() {
     issues.some((issue) =>
       issue.includes("Admin AI static auth API path contract") &&
       issue.includes("/admin/ai/test-video")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAuthRoutes.literalRoutes = context.manifest.adminAuthRoutes.literalRoutes.filter(
+    (route) => route !== "POST /api/admin/mfa/verify"
+  );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("Admin auth literal route contract") &&
+      issue.includes("POST /api/admin/mfa/verify")
     )
   );
 }

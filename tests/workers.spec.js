@@ -32,6 +32,13 @@ async function loadAiGeneratedSaveReferenceModule() {
   return import(modulePath);
 }
 
+async function loadAdminMfaModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/admin-mfa.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadPublicMediaContractModule() {
   const contractPath = pathToFileURL(path.join(process.cwd(), 'js/shared/public-media-contract.mjs')).href;
   return import(contractPath);
@@ -310,6 +317,45 @@ function findDiagnosticEvent(entries, eventName) {
 
 function parseSessionCookie(setCookie) {
   return setCookie.split(';')[0];
+}
+
+function findSetCookieValue(setCookieHeader, cookieName) {
+  const match = String(setCookieHeader || '').match(new RegExp(`${cookieName}=([^;]+)`));
+  return match ? `${cookieName}=${match[1]}` : null;
+}
+
+async function enrollAdminMfa({ authWorker, env, sessionCookie, userId }) {
+  const { generateTotpCode } = await loadAdminMfaModule();
+  const setupRes = await authWorker.fetch(
+    authJsonRequest('/api/admin/mfa/setup', 'POST', {}, {
+      Origin: 'https://bitbi.ai',
+      Cookie: sessionCookie,
+    }),
+    env,
+    createExecutionContext().execCtx
+  );
+  expect(setupRes.status).toBe(200);
+  const setupBody = await setupRes.json();
+  const code = await generateTotpCode(setupBody.setup.secret);
+  const enableRes = await authWorker.fetch(
+    authJsonRequest('/api/admin/mfa/enable', 'POST', { code }, {
+      Origin: 'https://bitbi.ai',
+      Cookie: sessionCookie,
+    }),
+    env,
+    createExecutionContext().execCtx
+  );
+  expect(enableRes.status).toBe(200);
+  const enableBody = await enableRes.json();
+  const mfaCookie = findSetCookieValue(enableRes.headers.get('set-cookie'), '__Host-bitbi_admin_mfa');
+  expect(mfaCookie).toBeTruthy();
+  return {
+    setupBody,
+    enableBody,
+    mfaCookie,
+    recoveryCodes: setupBody.setup.recoveryCodes,
+    userId,
+  };
 }
 
 function findRunCalls(db, query) {
@@ -5322,13 +5368,20 @@ test.describe('Worker routes', () => {
       users: [createAdminUser('touch-admin')],
     });
     const token = await seedSession(env, 'touch-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { mfaCookie } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'touch-admin',
+    });
     const sessionRow = env.DB.state.sessions.find((row) => row.user_id === 'touch-admin');
     sessionRow.last_seen_at = new Date(Date.now() - 11 * 60_000).toISOString();
     env.DB.runCalls.length = 0;
 
     const firstRes = await authWorker.fetch(
       authJsonRequest('/api/admin/me', 'GET', undefined, {
-        Cookie: `__Host-bitbi_session=${token}`,
+        Cookie: `${secureSessionCookie}; ${mfaCookie}`,
       }),
       env,
       createExecutionContext().execCtx
@@ -5347,7 +5400,7 @@ test.describe('Worker routes', () => {
 
     const secondRes = await authWorker.fetch(
       authJsonRequest('/api/admin/me', 'GET', undefined, {
-        Cookie: `__Host-bitbi_session=${token}`,
+        Cookie: `${secureSessionCookie}; ${mfaCookie}`,
       }),
       env,
       createExecutionContext().execCtx
@@ -6248,7 +6301,7 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('admin auth posture: production accepts the secure admin session cookie and logs admin login outcomes', async () => {
+  test('admin auth posture: production accepts the secure admin session cookie after MFA verification and logs admin login outcomes', async () => {
     const diagnostics = captureDiagnosticLogs();
     try {
       const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -6297,11 +6350,17 @@ test.describe('Worker routes', () => {
 
       const secureCookie = parseSessionCookie(loginSuccessRes.headers.get('set-cookie'));
       expect(secureCookie.startsWith('__Host-bitbi_session=')).toBe(true);
+      const { mfaCookie } = await enrollAdminMfa({
+        authWorker,
+        env,
+        sessionCookie: secureCookie,
+        userId: 'logged-admin-user',
+      });
 
       const adminRes = await authWorker.fetch(
         authJsonRequest('/api/admin/me', 'GET', undefined, {
           Origin: 'https://bitbi.ai',
-          Cookie: secureCookie,
+          Cookie: `${secureCookie}; ${mfaCookie}`,
         }),
         env,
         createExecutionContext().execCtx
@@ -6327,6 +6386,389 @@ test.describe('Worker routes', () => {
           session_transport: 'secure',
         })
       );
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('admin MFA: production bootstrap allows enrollment paths but blocks normal admin routes until MFA is satisfied', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        users: [createAdminUser('mfa-bootstrap-admin')],
+      });
+      const token = await seedSession(env, 'mfa-bootstrap-admin');
+      const secureSessionCookie = `__Host-bitbi_session=${token}`;
+
+      const meRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(meRes.status).toBe(403);
+      await expect(meRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_mfa_enrollment_required',
+        user: {
+          id: 'mfa-bootstrap-admin',
+          role: 'admin',
+        },
+        mfa: {
+          enrolled: false,
+          verified: false,
+          setupPending: false,
+          method: 'totp',
+        },
+      });
+
+      const blockedUsersRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(blockedUsersRes.status).toBe(403);
+      await expect(blockedUsersRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_mfa_enrollment_required',
+      });
+
+      const statusRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/mfa/status', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(statusRes.status).toBe(200);
+      await expect(statusRes.json()).resolves.toMatchObject({
+        ok: true,
+        mfa: {
+          enrolled: false,
+          verified: false,
+          setupPending: false,
+          method: 'totp',
+        },
+      });
+
+      const { setupBody, mfaCookie } = await enrollAdminMfa({
+        authWorker,
+        env,
+        sessionCookie: secureSessionCookie,
+        userId: 'mfa-bootstrap-admin',
+      });
+
+      expect(setupBody.setup.secret).toMatch(/^[A-Z2-7]+$/);
+      expect(setupBody.setup.otpauthUri).toContain('otpauth://totp/');
+      expect(setupBody.setup.recoveryCodes).toHaveLength(10);
+
+      const credentialRow = env.DB.state.adminMfaCredentials.find(
+        (row) => row.admin_user_id === 'mfa-bootstrap-admin'
+      );
+      expect(credentialRow).toMatchObject({
+        admin_user_id: 'mfa-bootstrap-admin',
+        enabled_at: expect.any(String),
+      });
+      expect(credentialRow.secret_ciphertext).not.toBe(setupBody.setup.secret);
+      expect(credentialRow.pending_secret_ciphertext).toBeNull();
+      expect(env.DB.state.adminMfaRecoveryCodes).toHaveLength(10);
+      expect(
+        env.DB.state.adminMfaRecoveryCodes.some((row) => row.code_hash === setupBody.setup.recoveryCodes[0])
+      ).toBe(false);
+
+      const stillBlockedRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(stillBlockedRes.status).toBe(403);
+      await expect(stillBlockedRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_mfa_required',
+      });
+
+      const allowedRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `${secureSessionCookie}; ${mfaCookie}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(allowedRes.status).toBe(200);
+      await expect(allowedRes.json()).resolves.toMatchObject({
+        ok: true,
+        users: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'mfa-bootstrap-admin',
+            role: 'admin',
+          }),
+        ]),
+      });
+
+      expect(
+        diagnostics.entries.filter((entry) => entry.event === 'admin_mfa_access_rejected')
+      ).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          admin_user_id: 'mfa-bootstrap-admin',
+          failure_reason: 'enrollment_required',
+          request_path: '/api/admin/users',
+          status: 403,
+        }),
+        expect.objectContaining({
+          admin_user_id: 'mfa-bootstrap-admin',
+          failure_reason: 'mfa_required',
+          request_path: '/api/admin/users',
+          status: 403,
+        }),
+      ]));
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('admin MFA: enabling requires a valid TOTP code and rejects invalid codes deterministically', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-enable-admin')],
+    });
+    const token = await seedSession(env, 'mfa-enable-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+
+    const setupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/setup', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(setupRes.status).toBe(200);
+
+    const invalidRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/enable', 'POST', {
+        code: '000000',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidRes.status).toBe(400);
+    await expect(invalidRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_INVALID_CODE',
+    });
+
+    const credentialRow = env.DB.state.adminMfaCredentials.find(
+      (row) => row.admin_user_id === 'mfa-enable-admin'
+    );
+    expect(credentialRow.enabled_at).toBeNull();
+    expect(credentialRow.pending_secret_ciphertext).toBeTruthy();
+  });
+
+  test('admin MFA: recovery codes work once and then become unusable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-recovery-admin')],
+    });
+    const token = await seedSession(env, 'mfa-recovery-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { recoveryCodes } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'mfa-recovery-admin',
+    });
+    const recoveryCode = recoveryCodes[0];
+
+    const verifyRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        recovery_code: recoveryCode,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(verifyRes.status).toBe(200);
+    await expect(verifyRes.json()).resolves.toMatchObject({
+      ok: true,
+      message: 'Admin MFA verified.',
+    });
+
+    const usedRecoveryRow = env.DB.state.adminMfaRecoveryCodes.find((row) => row.used_at != null);
+    expect(usedRecoveryRow).toBeTruthy();
+
+    const secondVerifyRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        recovery_code: recoveryCode,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondVerifyRes.status).toBe(400);
+    await expect(secondVerifyRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_INVALID_RECOVERY_CODE',
+    });
+  });
+
+  test('admin MFA: recovery-code regeneration and disable require proof and clear state safely', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { generateTotpCode } = await loadAdminMfaModule();
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-disable-admin')],
+    });
+    const token = await seedSession(env, 'mfa-disable-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { setupBody, recoveryCodes } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'mfa-disable-admin',
+    });
+
+    const missingProofRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/recovery-codes/regenerate', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingProofRes.status).toBe(400);
+    await expect(missingProofRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_PROOF_REQUIRED',
+    });
+
+    const regenerateRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/recovery-codes/regenerate', 'POST', {
+        recovery_code: recoveryCodes[1],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(regenerateRes.status).toBe(200);
+    const regenerateBody = await regenerateRes.json();
+    expect(regenerateBody).toMatchObject({
+      ok: true,
+      message: 'Recovery codes regenerated.',
+      mfa: {
+        enrolled: true,
+        verified: true,
+        recoveryCodesRemaining: 10,
+      },
+    });
+    expect(regenerateBody.recoveryCodes).toHaveLength(10);
+    expect(
+      env.DB.state.adminMfaRecoveryCodes.some((row) => row.code_hash === regenerateBody.recoveryCodes[0])
+    ).toBe(false);
+
+    const disableRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/disable', 'POST', {
+        recovery_code: regenerateBody.recoveryCodes[0],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(disableRes.status).toBe(200);
+    await expect(disableRes.json()).resolves.toMatchObject({
+      ok: true,
+      message: 'Admin MFA disabled.',
+    });
+    expect(env.DB.state.adminMfaCredentials.find((row) => row.admin_user_id === 'mfa-disable-admin')).toBeFalsy();
+    expect(env.DB.state.adminMfaRecoveryCodes.filter((row) => row.admin_user_id === 'mfa-disable-admin')).toHaveLength(0);
+    expect(String(disableRes.headers.get('set-cookie') || '')).toContain('__Host-bitbi_admin_mfa=');
+  });
+
+  test('admin MFA: production guard distinguishes required and invalid-or-expired proof states in logs and responses', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        users: [createAdminUser('mfa-diagnostics-admin')],
+      });
+      const token = await seedSession(env, 'mfa-diagnostics-admin');
+      const secureSessionCookie = `__Host-bitbi_session=${token}`;
+      const { mfaCookie } = await enrollAdminMfa({
+        authWorker,
+        env,
+        sessionCookie: secureSessionCookie,
+        userId: 'mfa-diagnostics-admin',
+      });
+
+      const missingProofRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/stats', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingProofRes.status).toBe(403);
+      await expect(missingProofRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_mfa_required',
+      });
+
+      const invalidProofRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/stats', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `${secureSessionCookie}; ${mfaCookie.replace(/=.*/, '=tampered-proof')}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidProofRes.status).toBe(403);
+      await expect(invalidProofRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'admin_mfa_invalid_or_expired',
+      });
+
+      expect(
+        diagnostics.entries.filter((entry) => entry.event === 'admin_mfa_access_rejected')
+      ).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          admin_user_id: 'mfa-diagnostics-admin',
+          failure_reason: 'mfa_required',
+          request_path: '/api/admin/stats',
+          status: 403,
+        }),
+        expect.objectContaining({
+          admin_user_id: 'mfa-diagnostics-admin',
+          failure_reason: 'invalid_or_expired',
+          request_path: '/api/admin/stats',
+          status: 403,
+        }),
+      ]));
     } finally {
       diagnostics.restore();
     }

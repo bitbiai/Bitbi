@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0026_add_cursor_pagination_support.sql",
+        "latest": "0027_add_admin_mfa.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -151,7 +151,7 @@
         "name": "SESSION_SECRET",
         "requiredForRelease": true,
         "documentation": "workers/auth/CLAUDE.md",
-        "summary": "Required for auth sessions and signed pagination cursors."
+        "summary": "Required for auth sessions, signed pagination cursors, and admin MFA proof/signing material."
       },
       {
         "id": "auth-resend-secret",
@@ -313,6 +313,30 @@
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/proxy-video"
+    ]
+  },
+  "adminAuthRoutes": {
+    "literalRoutes": [
+      "GET /api/admin/me",
+      "GET /api/admin/users",
+      "GET /api/admin/stats",
+      "GET /api/admin/avatars/latest",
+      "GET /api/admin/activity",
+      "GET /api/admin/user-activity",
+      "GET /api/admin/mfa/status",
+      "POST /api/admin/mfa/setup",
+      "POST /api/admin/mfa/enable",
+      "POST /api/admin/mfa/verify",
+      "POST /api/admin/mfa/disable",
+      "POST /api/admin/mfa/recovery-codes/regenerate"
+    ],
+    "staticAuthApiPaths": [
+      "/admin/mfa/status",
+      "/admin/mfa/setup",
+      "/admin/mfa/enable",
+      "/admin/mfa/verify",
+      "/admin/mfa/disable",
+      "/admin/mfa/recovery-codes/regenerate"
     ]
   }
 }

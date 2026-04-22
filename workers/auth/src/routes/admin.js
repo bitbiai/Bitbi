@@ -2,7 +2,16 @@ import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  isProductionEnvironment,
+  isSharedRateLimited,
+  getClientIp,
+  rateLimitResponse,
+} from "../lib/rate-limit.js";
+import {
+  buildAdminMfaDeniedResponse,
+  logAdminMfaDiagnostic,
+} from "../lib/admin-mfa.js";
 import {
   decodePaginationCursor,
   encodePaginationCursor,
@@ -11,6 +20,7 @@ import {
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { handleAdminAI } from "./admin-ai.js";
+import { handleAdminMfa } from "./admin-mfa.js";
 import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
@@ -38,6 +48,11 @@ function normalizeAdminUserSearch(value) {
 export async function handleAdmin(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
 
+  const adminMfaResult = await handleAdminMfa(ctx);
+  if (adminMfaResult) {
+    return adminMfaResult;
+  }
+
   const adminAiResult = await handleAdminAI(ctx);
   if (adminAiResult) {
     return adminAiResult;
@@ -45,10 +60,35 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/me
   if (pathname === "/api/admin/me" && method === "GET") {
-    const result = await requireAdmin(request, env, { isSecure, correlationId });
+    const result = await requireAdmin(request, env, {
+      isSecure,
+      correlationId,
+      allowMfaBootstrap: true,
+    });
 
     if (result instanceof Response) {
       return result;
+    }
+
+    if (result.adminMfa?.enforcementRequired && isProductionEnvironment(env)) {
+      logAdminMfaDiagnostic({
+        request,
+        correlationId,
+        adminUserId: result.user.id,
+        event: "admin_mfa_access_rejected",
+        level: "warn",
+        failureReason: result.adminMfa.failureReason,
+        status: 403,
+        setupPending: result.adminMfa.setupPending,
+        recoveryCodesRemaining: result.adminMfa.recoveryCodesRemaining,
+      });
+      return buildAdminMfaDeniedResponse({
+        session: result,
+        mfaState: result.adminMfa,
+        correlationId,
+        includeUser: true,
+        isSecure,
+      });
     }
 
     return json({

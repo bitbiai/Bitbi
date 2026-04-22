@@ -8,6 +8,12 @@ import {
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { isProductionEnvironment } from "./rate-limit.js";
 import {
+  buildAdminMfaDeniedResponse,
+  getAdminMfaAccessState,
+  logAdminMfaDiagnostic,
+  logAdminMfaUnhandledFailure,
+} from "./admin-mfa.js";
+import {
   getRequestLogFields,
   logDiagnostic,
   withCorrelationId,
@@ -210,6 +216,41 @@ export async function requireAdmin(request, env, options = {}) {
       logAdminSessionPolicyRejection(request, options.correlationId || null, result, reason);
       return adminSecureSessionResponse(options.correlationId || null);
     }
+  }
+
+  const shouldEvaluateAdminMfa = options.allowMfaBootstrap === true || isProductionEnvironment(env);
+  if (!shouldEvaluateAdminMfa) {
+    return result;
+  }
+
+  try {
+    result.adminMfa = await getAdminMfaAccessState(request, env, result);
+  } catch (error) {
+    logAdminMfaUnhandledFailure(request, options.correlationId || null, result.user.id, error);
+    return withCorrelationId(json(
+      { ok: false, error: "Service temporarily unavailable. Please try again later.", code: "ADMIN_MFA_UNAVAILABLE" },
+      { status: 503 }
+    ), options.correlationId || null);
+  }
+
+  if (isProductionEnvironment(env) && result.adminMfa?.enforcementRequired && options.allowMfaBootstrap !== true) {
+    logAdminMfaDiagnostic({
+      request,
+      correlationId: options.correlationId || null,
+      adminUserId: result.user.id,
+      event: "admin_mfa_access_rejected",
+      level: "warn",
+      failureReason: result.adminMfa.failureReason,
+      status: 403,
+      setupPending: result.adminMfa.setupPending,
+      recoveryCodesRemaining: result.adminMfa.recoveryCodesRemaining,
+    });
+    return buildAdminMfaDeniedResponse({
+      session: result,
+      mfaState: result.adminMfa,
+      correlationId: options.correlationId || null,
+      isSecure: options.isSecure === true,
+    });
   }
 
   return result;
