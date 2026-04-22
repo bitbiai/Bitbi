@@ -2,7 +2,10 @@ import { json } from "./response.js";
 import { getClientIp, isSharedRateLimited } from "./rate-limit.js";
 import { withAdminAiCode } from "./admin-ai-response.js";
 import {
+  BITBI_CORRELATION_HEADER,
+  getDurationMs,
   getErrorFields,
+  getRequestLogFields,
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -39,7 +42,8 @@ export async function rateLimitAdminAi(request, env, scope, maxRequests, windowM
   return null;
 }
 
-export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlationId) {
+export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlationId, requestInfo = null) {
+  const startedAt = Date.now();
   if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     logDiagnostic({
       service: "bitbi-auth",
@@ -47,8 +51,10 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
       event: "admin_ai_proxy_binding_missing",
       level: "error",
       correlationId,
-      path: "/internal/ai/live-agent",
+      status: 503,
+      upstream_path: "/internal/ai/live-agent",
       admin_user_id: adminUser.id,
+      ...getRequestLogFields(requestInfo),
     });
     return serviceUnavailableResponse(correlationId);
   }
@@ -63,7 +69,7 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
           accept: "text/event-stream",
           "x-bitbi-admin-user-id": adminUser.id,
           "x-bitbi-admin-user-email": adminUser.email,
-          "x-bitbi-correlation-id": correlationId,
+          [BITBI_CORRELATION_HEADER]: correlationId,
         },
         body: JSON.stringify(payload),
       })
@@ -75,8 +81,11 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
       event: "admin_ai_live_agent_proxy_failed",
       level: "error",
       correlationId,
-      path: "/internal/ai/live-agent",
+      status: 503,
+      upstream_path: "/internal/ai/live-agent",
       admin_user_id: adminUser.id,
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields(requestInfo),
       ...getErrorFields(error),
     });
     return serviceUnavailableResponse(correlationId);
@@ -94,16 +103,19 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
       event: "admin_ai_live_agent_upstream_error",
       level: "error",
       correlationId,
-      path: "/internal/ai/live-agent",
+      upstream_path: "/internal/ai/live-agent",
       admin_user_id: adminUser.id,
       status: response.status,
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields(requestInfo),
     });
   }
 
   return withCorrelationId(await withAdminAiCode(response), correlationId);
 }
 
-export async function proxyToAiLab(env, path, init, adminUser, correlationId) {
+export async function proxyToAiLab(env, path, init, adminUser, correlationId, requestInfo = null) {
+  const startedAt = Date.now();
   if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     logDiagnostic({
       service: "bitbi-auth",
@@ -111,8 +123,10 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId) {
       event: "admin_ai_proxy_binding_missing",
       level: "error",
       correlationId,
-      path,
+      status: 503,
+      upstream_path: path,
       admin_user_id: adminUser.id,
+      ...getRequestLogFields(requestInfo),
     });
     return serviceUnavailableResponse(correlationId);
   }
@@ -121,7 +135,7 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId) {
     accept: "application/json",
     "x-bitbi-admin-user-id": adminUser.id,
     "x-bitbi-admin-user-email": adminUser.email,
-    "x-bitbi-correlation-id": correlationId,
+    [BITBI_CORRELATION_HEADER]: correlationId,
   });
 
   if (init.body !== undefined) {
@@ -144,8 +158,11 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId) {
       event: "admin_ai_proxy_failed",
       level: "error",
       correlationId,
-      path,
+      status: 503,
+      upstream_path: path,
       admin_user_id: adminUser.id,
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields(requestInfo),
       ...getErrorFields(error),
     });
     return serviceUnavailableResponse(correlationId);
@@ -158,9 +175,11 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId) {
       event: "admin_ai_upstream_error",
       level: "error",
       correlationId,
-      path,
+      upstream_path: path,
       admin_user_id: adminUser.id,
       status: response.status,
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields(requestInfo),
     });
   }
 

@@ -18,7 +18,10 @@ import {
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 import { resolveCachedAvatarPresence } from "../lib/profile-avatar-state.js";
-import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
+import {
+  getRequestLogFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 async function evaluateSensitivePublicRateLimit(
   env,
@@ -26,22 +29,24 @@ async function evaluateSensitivePublicRateLimit(
   key,
   maxRequests,
   windowMs,
-  { correlationId = null, component = "auth" } = {}
+  { correlationId = null, component = "auth", requestInfo = null } = {}
 ) {
   return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
     failClosedInProduction: true,
     correlationId,
     component,
+    requestInfo,
   });
 }
 
-function logAdminAuthEvent(correlationId, event, fields = {}) {
+function logAdminAuthEvent(correlationId, event, fields = {}, requestInfo = null) {
   logDiagnostic({
     service: "bitbi-auth",
     component: "admin-auth",
     event,
     level: event === "admin_login_succeeded" ? "info" : "warn",
     correlationId,
+    ...getRequestLogFields(requestInfo),
     ...fields,
   });
 }
@@ -84,7 +89,7 @@ export async function handleRegister(ctx) {
     ip,
     5,
     3600_000,
-    { correlationId, component: "auth-register" }
+    { correlationId, component: "auth-register", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -151,7 +156,7 @@ export async function handleRegister(ctx) {
     email,
     3,
     3600_000,
-    { correlationId, component: "auth-register" }
+    { correlationId, component: "auth-register", requestInfo: ctx }
   );
   if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (emailLimit.limited) {
@@ -224,7 +229,7 @@ export async function handleLogin(ctx) {
     ip,
     10,
     900_000,
-    { correlationId, component: "auth-login" }
+    { correlationId, component: "auth-login", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -261,7 +266,7 @@ export async function handleLogin(ctx) {
     email,
     10,
     900_000,
-    { correlationId, component: "auth-login" }
+    { correlationId, component: "auth-login", requestInfo: ctx }
   );
   if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (emailLimit.limited) return rateLimitResponse();
@@ -296,7 +301,8 @@ export async function handleLogin(ctx) {
       logAdminAuthEvent(correlationId, "admin_login_failed", {
         admin_user_id: user.id,
         failure_reason: "invalid_password",
-      });
+        status: 401,
+      }, ctx);
     }
     return json(
       {
@@ -312,7 +318,8 @@ export async function handleLogin(ctx) {
       logAdminAuthEvent(correlationId, "admin_login_failed", {
         admin_user_id: user.id,
         failure_reason: "account_inactive",
-      });
+        status: 403,
+      }, ctx);
     }
     return json(
       {
@@ -328,7 +335,8 @@ export async function handleLogin(ctx) {
       logAdminAuthEvent(correlationId, "admin_login_failed", {
         admin_user_id: user.id,
         failure_reason: "email_not_verified",
-      });
+        status: 403,
+      }, ctx);
     }
     return json(
       {
@@ -354,7 +362,8 @@ export async function handleLogin(ctx) {
     logAdminAuthEvent(correlationId, "admin_login_succeeded", {
       admin_user_id: user.id,
       session_transport: isSecure ? "secure" : "legacy",
-    });
+      status: 200,
+    }, ctx);
   }
 
   // Log login (durable background write)

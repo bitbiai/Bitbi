@@ -17,12 +17,13 @@ async function evaluateSensitivePublicRateLimit(
   key,
   maxRequests,
   windowMs,
-  { correlationId = null, component = "auth-password" } = {}
+  { correlationId = null, component = "auth-password", requestInfo = null } = {}
 ) {
   return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
     failClosedInProduction: true,
     correlationId,
     component,
+    requestInfo,
   });
 }
 
@@ -35,7 +36,7 @@ export async function handleForgotPassword(ctx) {
     ip,
     5,
     3600_000,
-    { correlationId, component: "auth-forgot-password" }
+    { correlationId, component: "auth-forgot-password", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -61,7 +62,7 @@ export async function handleForgotPassword(ctx) {
     email,
     3,
     3600_000,
-    { correlationId, component: "auth-forgot-password" }
+    { correlationId, component: "auth-forgot-password", requestInfo: ctx }
   );
   if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (emailLimit.limited) return genericOk;
@@ -108,7 +109,7 @@ export async function handleValidateReset(ctx) {
     ip,
     10,
     900_000,
-    { correlationId, component: "auth-reset-validate" }
+    { correlationId, component: "auth-reset-validate", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -142,7 +143,7 @@ export async function handleResetPassword(ctx) {
     ip,
     5,
     3600_000,
-    { correlationId, component: "auth-reset-password" }
+    { correlationId, component: "auth-reset-password", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();

@@ -1,4 +1,11 @@
 import { evaluateSharedRateLimit, getClientIp } from './lib/rate-limit.js';
+import {
+    getCorrelationId,
+    getDurationMs,
+    getErrorFields,
+    getRequestLogFields,
+    logDiagnostic,
+} from '../../../js/shared/worker-observability.mjs';
 
 /**
  * Contact form worker for `https://contact.bitbi.ai`.
@@ -38,6 +45,10 @@ function protectionsUnavailableResponse(origin) {
 
 export default {
     async fetch(request, env) {
+        const url = new URL(request.url);
+        const pathname = url.pathname;
+        const correlationId = getCorrelationId(request);
+        const requestInfo = { request, pathname, method: request.method };
         const origin = request.headers.get('Origin') || '';
 
         if (request.method === 'OPTIONS') {
@@ -66,6 +77,7 @@ export default {
         }
 
         /* Shared durable abuse gates fail closed in production when protection infra is unavailable */
+        const startedAt = Date.now();
         const ip = getClientIp(request);
         const burstLimit = await evaluateSharedRateLimit(
             env,
@@ -76,6 +88,8 @@ export default {
             {
                 failClosedInProduction: true,
                 component: 'contact-submit',
+                correlationId,
+                requestInfo,
             },
         );
         if (burstLimit.unavailable) {
@@ -97,6 +111,8 @@ export default {
             {
                 failClosedInProduction: true,
                 component: 'contact-submit',
+                correlationId,
+                requestInfo,
             },
         );
         if (hourlyLimit.unavailable) {
@@ -152,24 +168,53 @@ export default {
                 });
             }
 
-            const res = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    from: `${safeName} <${FROM_EMAIL}>`,
-                    to: [TO_EMAIL],
-                    replyTo: [safeEmail],
-                    subject: safeSubject || `Contact from ${safeName}`,
-                    text: `Name: ${safeName}\nEmail: ${safeEmail}\nSubject: ${safeSubject || '(none)'}\n\n${trimMessage}`,
-                }),
-            });
+            let res;
+            try {
+                res = await fetch('https://api.resend.com/emails', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        from: `${safeName} <${FROM_EMAIL}>`,
+                        to: [TO_EMAIL],
+                        replyTo: [safeEmail],
+                        subject: safeSubject || `Contact from ${safeName}`,
+                        text: `Name: ${safeName}\nEmail: ${safeEmail}\nSubject: ${safeSubject || '(none)'}\n\n${trimMessage}`,
+                    }),
+                });
+            } catch (error) {
+                logDiagnostic({
+                    service: 'bitbi-contact',
+                    component: 'contact-submit',
+                    event: 'contact_submit_upstream_error',
+                    level: 'error',
+                    correlationId,
+                    provider: 'resend',
+                    failure_reason: 'network_error',
+                    duration_ms: getDurationMs(startedAt),
+                    ...getRequestLogFields(requestInfo),
+                    ...getErrorFields(error, { includeMessage: false }),
+                });
+                throw error;
+            }
 
             if (!res.ok) {
-                const err = await res.text();
-                console.error('Resend error:', err);
+                logDiagnostic({
+                    service: 'bitbi-contact',
+                    component: 'contact-submit',
+                    event: 'contact_submit_upstream_error',
+                    level: 'error',
+                    correlationId,
+                    provider: 'resend',
+                    failure_reason: 'upstream_rejected',
+                    status: 502,
+                    upstream_status: res.status,
+                    upstream_content_type: res.headers.get('content-type') || null,
+                    duration_ms: getDurationMs(startedAt),
+                    ...getRequestLogFields(requestInfo),
+                });
                 return new Response(JSON.stringify({ error: 'Email send failed' }), {
                     status: 502,
                     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },

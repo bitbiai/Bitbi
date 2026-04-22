@@ -60,6 +60,7 @@ function notFoundResponse(correlationId) {
 export async function handleAdminAI(ctx) {
   const { request, env, pathname, method, isSecure } = ctx;
   const correlationId = ctx.correlationId || null;
+  const requestInfo = { request, pathname, method };
 
   if (!pathname.startsWith("/api/admin/ai/")) {
     return null;
@@ -73,7 +74,7 @@ export async function handleAdminAI(ctx) {
   if (pathname === "/api/admin/ai/models" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-models-ip", 60, 600_000, correlationId);
     if (limited) return limited;
-    return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId);
+    return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
   }
 
   if (pathname === "/api/admin/ai/test-text" && method === "POST") {
@@ -89,7 +90,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-text",
         { method: "POST", body: validateTextPayload(body) },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) {
@@ -125,7 +127,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-image",
         { method: "POST", body: payload },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -146,7 +149,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-embeddings",
         { method: "POST", body: validateEmbeddingsPayload(body) },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -167,7 +171,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-music",
         { method: "POST", body: validateMusicPayload(body) },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -192,7 +197,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/test-video",
         { method: "POST", body: validated },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -213,7 +219,8 @@ export async function handleAdminAI(ctx) {
         "/internal/ai/compare",
         { method: "POST", body: validateComparePayload(body) },
         result.user,
-        correlationId
+        correlationId,
+        requestInfo
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -229,7 +236,7 @@ export async function handleAdminAI(ctx) {
     if (!body) return badJsonResponse(correlationId);
 
     try {
-      return proxyLiveAgentToAiLab(env, validateLiveAgentPayload(body), result.user, correlationId);
+      return proxyLiveAgentToAiLab(env, validateLiveAgentPayload(body), result.user, correlationId, requestInfo);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       throw error;

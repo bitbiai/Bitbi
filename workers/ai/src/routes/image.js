@@ -3,11 +3,14 @@ import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js
 import { errorResponse, fromError, ok } from "../lib/responses.js";
 import { readJsonBody, validateImageBody } from "../lib/validate.js";
 import {
+  getDurationMs,
   getErrorFields,
+  getRequestLogFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
 
-export async function handleImage({ request, env, correlationId }) {
+export async function handleImage({ request, env, correlationId, pathname, method }) {
+  const startedAt = Date.now();
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -50,7 +53,9 @@ export async function handleImage({ request, env, correlationId }) {
       event: "admin_ai_image_failed",
       level: "error",
       correlationId,
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields({ request, pathname, method }),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     return fromError(error, "Image generation failed");
   }

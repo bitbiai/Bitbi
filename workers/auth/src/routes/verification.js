@@ -17,12 +17,13 @@ async function evaluateSensitivePublicRateLimit(
   key,
   maxRequests,
   windowMs,
-  { correlationId = null, component = "auth-verification" } = {}
+  { correlationId = null, component = "auth-verification", requestInfo = null } = {}
 ) {
   return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
     failClosedInProduction: true,
     correlationId,
     component,
+    requestInfo,
   });
 }
 
@@ -35,7 +36,7 @@ export async function handleVerifyEmail(ctx) {
     ip,
     10,
     900_000,
-    { correlationId, component: "auth-verify-email" }
+    { correlationId, component: "auth-verify-email", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -104,7 +105,7 @@ export async function handleResendVerification(ctx) {
     ip,
     3,
     3600_000,
-    { correlationId, component: "auth-resend-verification" }
+    { correlationId, component: "auth-resend-verification", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -144,7 +145,7 @@ export async function handleRequestReverification(ctx) {
     ip,
     3,
     3600_000,
-    { correlationId, component: "auth-request-reverification" }
+    { correlationId, component: "auth-request-reverification", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();

@@ -3,11 +3,14 @@ import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js
 import { errorResponse, fromError, ok } from "../lib/responses.js";
 import { readJsonBody, validateVideoBody } from "../lib/validate.js";
 import {
+  getDurationMs,
   getErrorFields,
+  getRequestLogFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
 
-export async function handleVideo({ request, env, correlationId }) {
+export async function handleVideo({ request, env, correlationId, pathname, method }) {
+  const startedAt = Date.now();
   let input = null;
   let selection = null;
   try {
@@ -51,7 +54,9 @@ export async function handleVideo({ request, env, correlationId }) {
       model: selection?.model?.id || null,
       has_image_input: !!(input?.image_input || input?.start_image),
       has_end_image_input: !!input?.end_image,
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields({ request, pathname, method }),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     return fromError(error, "Video generation failed");
   }

@@ -1,5 +1,6 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
 import {
+  getDurationMs,
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -555,24 +556,29 @@ async function renderAiImageDerivative(env, originalBytes, originalInfo, preset)
 }
 
 export async function processAiImageDerivativeMessage(env, messageBody, { isLastAttempt = false } = {}) {
+  const startedAt = Date.now();
+  const finish = (result) => ({
+    ...result,
+    durationMs: getDurationMs(startedAt),
+  });
   const payload = normalizeAiImageDerivativeMessage(messageBody);
   const now = nowIso();
   const existing = await fetchAiImageDerivativeRow(env, payload.imageId, payload.userId);
 
   if (!existing) {
-    return { status: "noop", reason: "missing_row", payload };
+    return finish({ status: "noop", reason: "missing_row", payload });
   }
 
   if (hasReadyAiImageDerivatives(existing) && Number(existing.derivatives_version || 0) >= payload.derivativesVersion) {
-    return { status: "noop", reason: "already_ready", payload };
+    return finish({ status: "noop", reason: "already_ready", payload });
   }
 
   if (Number(existing.derivatives_version || 0) > payload.derivativesVersion) {
-    return { status: "noop", reason: "stale_version", payload };
+    return finish({ status: "noop", reason: "stale_version", payload });
   }
 
   if (hasActiveAiImageDerivativeLease(existing, now)) {
-    return { status: "noop", reason: "already_processing", payload };
+    return finish({ status: "noop", reason: "already_processing", payload });
   }
 
   const processingToken = randomTokenHex(16);
@@ -581,28 +587,28 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
 
   if (!leaseResult?.meta?.changes) {
     const latest = await fetchAiImageDerivativeRow(env, payload.imageId, payload.userId);
-    if (!latest) return { status: "noop", reason: "missing_row", payload };
+    if (!latest) return finish({ status: "noop", reason: "missing_row", payload });
     if (hasReadyAiImageDerivatives(latest) && Number(latest.derivatives_version || 0) >= payload.derivativesVersion) {
-      return { status: "noop", reason: "already_ready", payload };
+      return finish({ status: "noop", reason: "already_ready", payload });
     }
     if (hasActiveAiImageDerivativeLease(latest, now)) {
-      return { status: "noop", reason: "already_processing", payload };
+      return finish({ status: "noop", reason: "already_processing", payload });
     }
-    return { status: "noop", reason: "lease_not_acquired", payload };
+    return finish({ status: "noop", reason: "lease_not_acquired", payload });
   }
 
   const original = await env.USER_IMAGES.get(existing.r2_key);
   if (!original) {
     const error = permanentAiImageDerivativeError("Original image not found.", "original_missing");
     await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));
-    return { status: "failed", reason: "original_missing", error, payload };
+    return finish({ status: "failed", reason: "original_missing", error, payload });
   }
 
   const originalBuffer = await toArrayBuffer(original.body ?? original);
   if (!originalBuffer || !originalBuffer.byteLength) {
     const error = permanentAiImageDerivativeError("Unsupported original image.", "original_invalid");
     await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));
-    return { status: "failed", reason: "original_invalid", error, payload };
+    return finish({ status: "failed", reason: "original_invalid", error, payload });
   }
 
   const originalBytes = new Uint8Array(originalBuffer);
@@ -612,7 +618,7 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
   } catch {
     const error = permanentAiImageDerivativeError("Unsupported original image.", "original_invalid");
     await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));
-    return { status: "failed", reason: "original_invalid", error, payload };
+    return finish({ status: "failed", reason: "original_invalid", error, payload });
   }
 
   const targetKeys = buildAiImageDerivativeKeys(payload.userId, payload.imageId, payload.derivativesVersion);
@@ -671,7 +677,7 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
 
     if (!updateResult?.meta?.changes) {
       await cleanupDerivativeKeysBestEffort(env, writtenKeys);
-      return { status: "noop", reason: "lease_lost", payload };
+      return finish({ status: "noop", reason: "lease_lost", payload });
     }
 
     const staleKeys = [existing.thumb_key, existing.medium_key].filter(
@@ -688,14 +694,15 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
       user_id: payload.userId,
       derivatives_version: payload.derivativesVersion,
       trigger: payload.trigger,
+      duration_ms: getDurationMs(startedAt),
     });
 
-    return {
+    return finish({
       status: "ready",
       reason: "generated",
       payload,
       keys: targetKeys,
-    };
+    });
   } catch (error) {
     await cleanupDerivativeKeysBestEffort(env, writtenKeys);
 
@@ -710,12 +717,13 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
       derivatives_version: payload.derivativesVersion,
       trigger: payload.trigger,
       final_attempt: !!isLastAttempt,
+      duration_ms: getDurationMs(startedAt),
       ...getErrorFields(error),
     });
 
     if (isPermanentAiImageDerivativeError(error)) {
       await finalizeAiImageDerivativeFailure(env, payload, processingToken, "failed", sanitizeDerivativeError(error));
-      return { status: "failed", reason: "permanent_failure", error, payload };
+      return finish({ status: "failed", reason: "permanent_failure", error, payload });
     }
 
     if (isLastAttempt) {
@@ -723,7 +731,7 @@ export async function processAiImageDerivativeMessage(env, messageBody, { isLast
         env, payload, processingToken, "failed",
         sanitizeDerivativeError(error) + " [retries exhausted]"
       );
-      return { status: "failed", reason: "retries_exhausted", error, payload };
+      return finish({ status: "failed", reason: "retries_exhausted", error, payload });
     }
 
     await finalizeAiImageDerivativeFailure(env, payload, processingToken, "pending", sanitizeDerivativeError(error));

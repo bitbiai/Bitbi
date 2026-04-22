@@ -30,6 +30,32 @@ function normalizeValue(value) {
   return String(value);
 }
 
+function getRequestFromSource(source) {
+  if (source instanceof Request) return source;
+  return source?.request instanceof Request ? source.request : null;
+}
+
+function getRequestMethod(source) {
+  if (typeof source?.method === "string" && source.method) {
+    return source.method;
+  }
+  const request = getRequestFromSource(source);
+  return typeof request?.method === "string" && request.method ? request.method : null;
+}
+
+function getRequestPath(source) {
+  if (typeof source?.pathname === "string" && source.pathname) {
+    return source.pathname;
+  }
+  const request = getRequestFromSource(source);
+  if (!request) return null;
+  try {
+    return new URL(request.url).pathname || null;
+  } catch {
+    return null;
+  }
+}
+
 export function getCorrelationId(source) {
   const request = source instanceof Request ? source : source?.request;
   const headerValue = request?.headers?.get?.(BITBI_CORRELATION_HEADER);
@@ -37,6 +63,19 @@ export function getCorrelationId(source) {
     return headerValue;
   }
   return generateCorrelationId();
+}
+
+export function getRequestLogFields(source) {
+  return normalizeValue({
+    request_method: getRequestMethod(source),
+    request_path: getRequestPath(source),
+  });
+}
+
+export function getDurationMs(startedAtMs) {
+  const startedAt = Number(startedAtMs);
+  if (!Number.isFinite(startedAt)) return null;
+  return Math.max(0, Date.now() - startedAt);
 }
 
 export function withCorrelationId(response, correlationId) {
@@ -55,11 +94,12 @@ export function withCorrelationId(response, correlationId) {
   });
 }
 
-export function getErrorFields(error) {
+export function getErrorFields(error, options = {}) {
   if (!error) return {};
+  const includeMessage = options?.includeMessage !== false;
   return normalizeValue({
     error_name: error.name || null,
-    error_message: error.message || String(error),
+    error_message: includeMessage ? (error.message || String(error)) : undefined,
     error_code: error.code || null,
     error_status: error.status || null,
   });

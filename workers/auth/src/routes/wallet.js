@@ -26,12 +26,13 @@ async function evaluateSensitivePublicRateLimit(
   key,
   maxRequests,
   windowMs,
-  { correlationId = null, component = "wallet-auth" } = {}
+  { correlationId = null, component = "wallet-auth", requestInfo = null } = {}
 ) {
   return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
     failClosedInProduction: true,
     correlationId,
     component,
+    requestInfo,
   });
 }
 
@@ -303,7 +304,7 @@ export async function handleWalletSiweNonce(ctx) {
     ip,
     12,
     15 * 60_000,
-    { correlationId, component: "wallet-siwe-nonce" }
+    { correlationId, component: "wallet-siwe-nonce", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
@@ -374,7 +375,7 @@ export async function handleWalletSiweVerify(ctx) {
     ip,
     20,
     15 * 60_000,
-    { correlationId, component: "wallet-siwe-verify" }
+    { correlationId, component: "wallet-siwe-verify", requestInfo: ctx }
   );
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();

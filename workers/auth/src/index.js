@@ -1,6 +1,7 @@
 import { json } from "./lib/response.js";
 import { nowIso } from "./lib/tokens.js";
 import {
+  getDurationMs,
   getCorrelationId,
   getErrorFields,
   logDiagnostic,
@@ -275,6 +276,7 @@ export default {
 
     // Re-enqueue a small derivative backlog so pending rows recover from
     // transient publish/consumer failures without operator intervention.
+    const derivativeRecoveryStartedAt = Date.now();
     try {
       const page = await listAiImagesNeedingDerivativeWork(env, {
         limit: 25,
@@ -303,6 +305,7 @@ export default {
           queued: enqueued,
           derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,
           has_more: page.hasMore,
+          duration_ms: getDurationMs(derivativeRecoveryStartedAt),
         });
       }
     } catch (e) {
@@ -316,6 +319,7 @@ export default {
           component: "scheduled-derivatives",
           event: "ai_derivative_recovery_skipped",
           level: "warn",
+          duration_ms: getDurationMs(derivativeRecoveryStartedAt),
           ...getErrorFields(e),
         });
       } else {
@@ -324,6 +328,7 @@ export default {
           component: "scheduled-derivatives",
           event: "ai_derivative_recovery_failed",
           level: "error",
+          duration_ms: getDurationMs(derivativeRecoveryStartedAt),
           ...getErrorFields(e),
         });
       }
@@ -332,6 +337,7 @@ export default {
 
   async queue(batch, env, ctx) {
     for (const message of batch.messages) {
+      const startedAt = Date.now();
       const rawBody = message?.body && typeof message.body === "object" ? message.body : {};
       const imageId = rawBody.image_id || "unknown";
       const version = rawBody.derivatives_version || "unknown";
@@ -342,6 +348,21 @@ export default {
 
       try {
         const result = await processAiImageDerivativeMessage(env, message.body, { isLastAttempt });
+        if (result.status === "noop" && (result.reason === "already_processing" || result.reason === "lease_not_acquired")) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "ai-image-derivatives-queue",
+            event: "ai_derivative_consumer_skipped",
+            level: "info",
+            correlationId,
+            image_id: result.payload.imageId,
+            user_id: result.payload.userId,
+            derivatives_version: result.payload.derivativesVersion,
+            reason: result.reason,
+            attempts,
+            duration_ms: result.durationMs ?? getDurationMs(startedAt),
+          });
+        }
         if (result.status === "failed") {
           logDiagnostic({
             service: "bitbi-auth",
@@ -354,6 +375,7 @@ export default {
             derivatives_version: result.payload.derivativesVersion,
             reason: result.reason,
             attempts,
+            duration_ms: result.durationMs ?? getDurationMs(startedAt),
             ...getErrorFields(result.error),
           });
         }
@@ -369,6 +391,7 @@ export default {
           derivatives_version: version,
           attempts,
           retry_delay_seconds: getAiImageDerivativeRetryDelaySeconds(attempts),
+          duration_ms: getDurationMs(startedAt),
           ...getErrorFields(error),
         });
         message.retry({ delaySeconds: getAiImageDerivativeRetryDelaySeconds(attempts) });

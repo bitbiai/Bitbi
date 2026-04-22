@@ -4,6 +4,7 @@ import {
   buildAdminAiMultipartImageRequest,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
+  getDurationMs,
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -904,6 +905,7 @@ async function invokeViduProviderFallback({
   }
 
   const { workflow, createPath, createPayload } = buildViduProviderCreateRequest(effectivePayload);
+  const startedAt = Date.now();
   const baseHeaders = {
     Authorization: `Token ${apiKey}`,
     "Content-Type": "application/json",
@@ -967,6 +969,7 @@ async function invokeViduProviderFallback({
     provider_task_id: taskId,
     provider_state: createState,
     create_path: createPath,
+    duration_ms: getDurationMs(startedAt),
   });
 
   if (immediateVideoUrl) {
@@ -984,6 +987,7 @@ async function invokeViduProviderFallback({
       provider_state: createState || "success",
       poll_attempts: 0,
       video_url_host: getUrlHost(immediateVideoUrl),
+      duration_ms: getDurationMs(startedAt),
     });
     return {
       videoUrl: immediateVideoUrl,
@@ -1088,6 +1092,7 @@ async function invokeViduProviderFallback({
         provider_err_code: providerErrCode,
         poll_attempts: pollAttempts,
         video_url_host: getUrlHost(videoUrl),
+        duration_ms: getDurationMs(startedAt),
       });
       return {
         videoUrl,
@@ -1306,7 +1311,8 @@ export async function invokeText(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     throw error;
   }
@@ -1386,7 +1392,8 @@ export async function invokeImage(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       input_format: model.inputFormat || "json",
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     throw error;
   }
@@ -1423,7 +1430,8 @@ export async function invokeEmbeddings(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     throw error;
   }
@@ -1484,7 +1492,8 @@ export async function invokeMusic(env, model, input) {
       gateway_id: runOptions?.gateway?.id || null,
       provider_payload: summarizeMusicPayload(payload),
       ...getUpstreamErrorDetails(error),
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     throw error;
   }
@@ -1506,6 +1515,7 @@ export async function invokeMusic(env, model, input) {
       raw_shape: summarizeResultShape(raw),
       provider_error_code: providerError.provider_error_code || null,
       provider_body_shape: providerError.provider_body_shape || null,
+      duration_ms: getDurationMs(startedAt),
     });
     throw providerError;
   }
@@ -1528,6 +1538,7 @@ export async function invokeMusic(env, model, input) {
       provider_base_status_code: raw?.base_resp?.status_code ?? null,
       provider_base_status_message: raw?.base_resp?.status_msg ?? null,
       raw_shape: summarizeResultShape(raw),
+      duration_ms: getDurationMs(startedAt),
     });
     throw error;
   }
@@ -1760,7 +1771,7 @@ export async function invokeVideo(env, model, input) {
     ? { ...VIDU_MINIMAL_MODE_PAYLOAD }
     : payload;
 
-  // --- Vidu pre-flight diagnostic: log the exact outgoing payload ---
+  // --- Vidu pre-flight diagnostics: log safe request summaries only ---
   if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
     const promptStr = typeof payload.prompt === "string" ? payload.prompt : "";
     const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(promptStr);
@@ -1907,6 +1918,7 @@ export async function invokeVideo(env, model, input) {
             cloudflare_error_name: error?.name || null,
             cloudflare_error_code: error?.code || null,
             cloudflare_error_status: error?.status || null,
+            duration_ms: getDurationMs(startedAt),
             ...getErrorFields(fallbackError),
             ...getUpstreamErrorDetails(fallbackError),
           });
@@ -1932,7 +1944,8 @@ export async function invokeVideo(env, model, input) {
             : undefined,
         has_image_input: !!request.normalized.hasImageInput,
         has_end_image_input: !!request.normalized.hasEndImageInput,
-        ...getErrorFields(error),
+        duration_ms: getDurationMs(startedAt),
+        ...getErrorFields(error, { includeMessage: false }),
       });
       throw error;
     }
@@ -1951,6 +1964,7 @@ export async function invokeVideo(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       raw_shape: summarizeResultShape(raw),
+      duration_ms: getDurationMs(startedAt),
     });
     throw error;
   }

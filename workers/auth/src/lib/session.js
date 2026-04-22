@@ -1,12 +1,17 @@
 import { json } from "./response.js";
 import {
+  LEGACY_SESSION_COOKIE_NAME,
   SECURE_SESSION_COOKIE_NAME,
   getSessionTokenFromCookies,
   parseCookies,
 } from "./cookies.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { isProductionEnvironment } from "./rate-limit.js";
-import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
+import {
+  getRequestLogFields,
+  logDiagnostic,
+  withCorrelationId,
+} from "../../../../js/shared/worker-observability.mjs";
 
 const SESSION_TOUCH_WINDOW_MS = 10 * 60_000;
 
@@ -127,11 +132,11 @@ export async function requireUser(request, env) {
   return session;
 }
 
-function adminSecureSessionResponse() {
-  return json(
+function adminSecureSessionResponse(correlationId = null) {
+  return withCorrelationId(json(
     { ok: false, error: "Admin access requires a secure session." },
     { status: 403 }
-  );
+  ), correlationId);
 }
 
 function hasSecureAdminSessionCookie(request) {
@@ -139,7 +144,12 @@ function hasSecureAdminSessionCookie(request) {
   return !!cookies?.[SECURE_SESSION_COOKIE_NAME];
 }
 
-function logAdminSessionPolicyRejection(correlationId, session, reason) {
+function hasLegacyAdminSessionCookie(request) {
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  return !!cookies?.[LEGACY_SESSION_COOKIE_NAME];
+}
+
+function logAdminSessionPolicyRejection(request, correlationId, session, reason) {
   logDiagnostic({
     service: "bitbi-auth",
     component: "admin-auth",
@@ -148,6 +158,23 @@ function logAdminSessionPolicyRejection(correlationId, session, reason) {
     correlationId,
     admin_user_id: session?.user?.id || null,
     failure_reason: reason,
+    status: 403,
+    ...getRequestLogFields(request),
+  });
+}
+
+function logAdminAuthRejection(request, correlationId, session, reason, status) {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "admin-auth",
+    event: "admin_auth_rejected",
+    level: status >= 500 ? "error" : "warn",
+    correlationId,
+    admin_user_id: session?.user?.id || null,
+    user_role: session?.user?.role || null,
+    failure_reason: reason,
+    status,
+    ...getRequestLogFields(request),
   });
 }
 
@@ -155,24 +182,33 @@ export async function requireAdmin(request, env, options = {}) {
   const result = await requireUser(request, env);
 
   if (result instanceof Response) {
-    return result;
+    if (result.status === 401) {
+      logAdminAuthRejection(request, options.correlationId || null, null, "not_authenticated", 401);
+    } else if (result.status === 403) {
+      logAdminAuthRejection(request, options.correlationId || null, null, "user_not_active", 403);
+    }
+    return withCorrelationId(result, options.correlationId || null);
   }
 
   if (result.user.role !== "admin") {
-    return json(
+    logAdminAuthRejection(request, options.correlationId || null, result, "not_admin", 403);
+    return withCorrelationId(json(
       { ok: false, error: "Admin privileges required." },
       { status: 403 }
-    );
+    ), options.correlationId || null);
   }
 
   if (options.enforceSecureSession !== false && isProductionEnvironment(env)) {
     if (options.isSecure !== true) {
-      logAdminSessionPolicyRejection(options.correlationId || null, result, "insecure_transport");
-      return adminSecureSessionResponse();
+      logAdminSessionPolicyRejection(request, options.correlationId || null, result, "insecure_transport");
+      return adminSecureSessionResponse(options.correlationId || null);
     }
     if (!hasSecureAdminSessionCookie(request)) {
-      logAdminSessionPolicyRejection(options.correlationId || null, result, "secure_cookie_missing");
-      return adminSecureSessionResponse();
+      const reason = hasLegacyAdminSessionCookie(request)
+        ? "legacy_cookie_only"
+        : "secure_cookie_missing";
+      logAdminSessionPolicyRejection(request, options.correlationId || null, result, reason);
+      return adminSecureSessionResponse(options.correlationId || null);
     }
   }
 

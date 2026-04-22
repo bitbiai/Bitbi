@@ -1,6 +1,7 @@
 import { json } from "./response.js";
 import {
   getErrorFields,
+  getRequestLogFields,
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -75,6 +76,7 @@ function logLimiterDegradedEvent({
   failClosed = false,
   reason,
   error,
+  requestInfo = null,
 }) {
   logDiagnostic({
     service: "bitbi-auth",
@@ -85,6 +87,8 @@ function logLimiterDegradedEvent({
     limiter_scope: scope,
     limiter_reason: reason,
     production: isProductionEnvironment(env),
+    status: failClosed ? 503 : null,
+    ...getRequestLogFields(requestInfo),
     ...getErrorFields(error),
   });
 }
@@ -101,7 +105,7 @@ function writeLimiterInfraCache(env, state) {
 
 export async function assertSharedRateLimitInfraReady(
   env,
-  { component = "shared-rate-limit", correlationId = null, scope = null } = {}
+  { component = "shared-rate-limit", correlationId = null, scope = null, requestInfo = null } = {}
 ) {
   if (!env?.DB) {
     const error = buildLimiterUnavailableError("db_binding_missing");
@@ -113,6 +117,7 @@ export async function assertSharedRateLimitInfraReady(
       failClosed: true,
       reason: error.reason,
       error,
+      requestInfo,
     });
     throw error;
   }
@@ -143,6 +148,7 @@ export async function assertSharedRateLimitInfraReady(
         failClosed: true,
         reason: unavailable.reason,
         error,
+        requestInfo,
       });
       writeLimiterInfraCache(env, { ready: false, db: env.DB });
       throw unavailable;
@@ -207,6 +213,7 @@ export async function isSharedRateLimited(env, scope, key, maxRequests, windowMs
         failClosed: true,
         reason: unavailable.reason,
         error: e,
+        requestInfo: options?.requestInfo || null,
       });
       throw unavailable;
     }
@@ -218,6 +225,7 @@ export async function isSharedRateLimited(env, scope, key, maxRequests, windowMs
       failClosed: false,
       reason: String(e).includes("no such table") ? "rate_limit_table_missing" : "rate_limit_query_failed",
       error: e,
+      requestInfo: options?.requestInfo || null,
     });
     return isRateLimited(`${scope}:${key}`, maxRequests, windowMs);
   }

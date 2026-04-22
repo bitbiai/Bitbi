@@ -174,9 +174,16 @@ function createAiLabRunStub() {
   };
 }
 
-function createAiLabServiceBinding(aiWorker, aiEnv) {
+function createAiLabServiceBinding(aiWorker, aiEnv, observedRequests = null) {
   return {
     async fetch(request) {
+      if (Array.isArray(observedRequests)) {
+        observedRequests.push({
+          url: request.url,
+          method: request.method,
+          correlationId: request.headers.get('x-bitbi-correlation-id'),
+        });
+      }
       return aiWorker.fetch(request, aiEnv, createExecutionContext().execCtx);
     },
   };
@@ -187,6 +194,7 @@ async function createAdminAiContractHarness(options = {}) {
   const aiWorker = await loadWorker('workers/ai/src/index.js');
   const user = options.user || createAdminUser();
   const aiRun = options.aiRun || createAiLabRunStub();
+  const aiLabRequests = [];
   let currentAiGatewayLogId = null;
   const gatewayGetLogCalls = [];
   const env = createAuthTestEnv({
@@ -232,7 +240,7 @@ async function createAdminAiContractHarness(options = {}) {
         }
       },
     },
-  });
+  }, aiLabRequests);
 
   const authHeaders = {
     Origin: 'https://bitbi.ai',
@@ -249,6 +257,7 @@ async function createAdminAiContractHarness(options = {}) {
     authHeaders,
     user,
     gatewayGetLogCalls,
+    aiLabRequests,
   };
 }
 
@@ -328,7 +337,9 @@ test('worker observability helper builds stable structured events and correlatio
   const {
     BITBI_CORRELATION_HEADER,
     buildDiagnosticEvent,
+    getDurationMs,
     getErrorFields,
+    getRequestLogFields,
     withCorrelationId,
   } = await loadObservabilityModule();
 
@@ -358,6 +369,16 @@ test('worker observability helper builds stable structured events and correlatio
     error_status: 502,
   }));
   expect(typeof event.ts).toBe('string');
+  expect(getErrorFields(error, { includeMessage: false })).toEqual({
+    error_name: 'Error',
+    error_code: 'upstream_error',
+    error_status: 502,
+  });
+  expect(getRequestLogFields(new Request('https://bitbi.ai/api/admin/users?cursor=1', { method: 'GET' }))).toEqual({
+    request_method: 'GET',
+    request_path: '/api/admin/users',
+  });
+  expect(getDurationMs(Date.now() - 25)).toBeGreaterThanOrEqual(0);
 
   const response = withCorrelationId(
     new Response(JSON.stringify({ ok: false }), {
@@ -2328,6 +2349,29 @@ test.describe('Worker routes', () => {
         name: expect.any(String),
         task: expect.any(String),
         model: expect.any(String),
+      }));
+    });
+
+    test('GET /api/admin/ai/models propagates the correlation id through the auth to AI wrapper path', async () => {
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness();
+      const correlationId = 'admin-ai-models-corr-1234';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/models', 'GET', undefined, {
+          ...authHeaders,
+          'x-bitbi-correlation-id': correlationId,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-bitbi-correlation-id')).toBe(correlationId);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0]).toEqual(expect.objectContaining({
+        method: 'GET',
+        url: 'https://bitbi-ai.internal/internal/ai/models',
+        correlationId,
       }));
     });
 
@@ -4623,6 +4667,58 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('POST /api/admin/ai/test-image logs privacy-safe upstream failure diagnostics with correlation id', async () => {
+      const diagnostics = captureDiagnosticLogs();
+      try {
+        const prompt = 'Do not leak this image prompt.';
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => {
+            throw new Error(`provider exploded while handling: ${prompt}`);
+          },
+        });
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', {
+            model: '@cf/black-forest-labs/flux-1-schnell',
+            prompt,
+            steps: 4,
+          }, {
+            ...authHeaders,
+            'x-bitbi-correlation-id': 'image-upstream-corr-1234',
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(502);
+        const runFailure = findDiagnosticEvent(diagnostics.entries, 'workers_ai_run_failed');
+        const routeFailure = findDiagnosticEvent(diagnostics.entries, 'admin_ai_image_failed');
+        expect(runFailure).toEqual(expect.objectContaining({
+          service: 'bitbi-ai',
+          component: 'invoke-image',
+          correlation_id: 'image-upstream-corr-1234',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          duration_ms: expect.any(Number),
+          error_name: 'Error',
+        }));
+        expect(routeFailure).toEqual(expect.objectContaining({
+          service: 'bitbi-ai',
+          component: 'route-image',
+          correlation_id: 'image-upstream-corr-1234',
+          request_method: 'POST',
+          request_path: '/internal/ai/test-image',
+          duration_ms: expect.any(Number),
+          error_name: 'Error',
+        }));
+        const serialized = JSON.stringify(diagnostics.entries);
+        expect(serialized).not.toContain(prompt);
+        expect(serialized).not.toContain('provider exploded while handling');
+        expect(serialized).not.toContain('data:image');
+      } finally {
+        diagnostics.restore();
+      }
+    });
+
     test('POST /api/admin/ai/compare returns the validation error shape used by the UI for duplicate model selections', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 
@@ -5650,9 +5746,13 @@ test.describe('Worker routes', () => {
         expect.objectContaining({
           service: 'bitbi-auth',
           component: 'auth-login',
+          correlation_id: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
           limiter_scope: 'auth-login-ip',
           limiter_reason: 'rate_limit_table_missing',
           production: true,
+          request_method: 'POST',
+          request_path: '/api/login',
+          status: 503,
         })
       );
     } finally {
@@ -5892,48 +5992,125 @@ test.describe('Worker routes', () => {
   });
 
   test('admin auth posture: production rejects legacy admin session cookies but still accepts member sessions', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      BITBI_ENV: 'production',
-      users: [
-        createAdminUser('secure-admin-user'),
-        createContractUser({ id: 'secure-member-user', role: 'user' }),
-      ],
-    });
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        users: [
+          createAdminUser('secure-admin-user'),
+          createContractUser({ id: 'secure-member-user', role: 'user' }),
+        ],
+      });
 
-    const adminToken = await seedSession(env, 'secure-admin-user');
-    const memberToken = await seedSession(env, 'secure-member-user');
+      const adminToken = await seedSession(env, 'secure-admin-user');
+      const memberToken = await seedSession(env, 'secure-member-user');
 
-    const adminBlockedRes = await authWorker.fetch(
-      authJsonRequest('/api/admin/me', 'GET', undefined, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${adminToken}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(adminBlockedRes.status).toBe(403);
-    await expect(adminBlockedRes.json()).resolves.toMatchObject({
-      ok: false,
-      error: 'Admin access requires a secure session.',
-    });
+      const adminBlockedRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(adminBlockedRes.status).toBe(403);
+      expect(adminBlockedRes.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+      await expect(adminBlockedRes.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Admin access requires a secure session.',
+      });
 
-    const memberAllowedRes = await authWorker.fetch(
-      authJsonRequest('/api/me', 'GET', undefined, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${memberToken}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(memberAllowedRes.status).toBe(200);
-    await expect(memberAllowedRes.json()).resolves.toMatchObject({
-      loggedIn: true,
-      user: expect.objectContaining({
-        id: 'secure-member-user',
-        role: 'user',
-      }),
-    });
+      expect(findDiagnosticEvent(diagnostics.entries, 'admin_session_policy_rejected')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-auth',
+          component: 'admin-auth',
+          admin_user_id: 'secure-admin-user',
+          failure_reason: 'legacy_cookie_only',
+          request_method: 'GET',
+          request_path: '/api/admin/me',
+          status: 403,
+          correlation_id: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
+        })
+      );
+
+      const memberAllowedRes = await authWorker.fetch(
+        authJsonRequest('/api/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${memberToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(memberAllowedRes.status).toBe(200);
+      await expect(memberAllowedRes.json()).resolves.toMatchObject({
+        loggedIn: true,
+        user: expect.objectContaining({
+          id: 'secure-member-user',
+          role: 'user',
+        }),
+      });
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('admin auth posture: admin rejection diagnostics distinguish anonymous and non-admin access', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        users: [
+          createAdminUser('diag-admin-user'),
+          createContractUser({ id: 'diag-member-user', role: 'user' }),
+        ],
+      });
+
+      const memberToken = await seedSession(env, 'diag-member-user');
+
+      const anonymousRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(anonymousRes.status).toBe(401);
+      expect(anonymousRes.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+
+      const memberRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/users', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${memberToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(memberRes.status).toBe(403);
+      expect(memberRes.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+
+      expect(
+        diagnostics.entries.filter((entry) => entry.event === 'admin_auth_rejected')
+      ).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          failure_reason: 'not_authenticated',
+          request_method: 'GET',
+          request_path: '/api/admin/users',
+          status: 401,
+        }),
+        expect.objectContaining({
+          admin_user_id: 'diag-member-user',
+          user_role: 'user',
+          failure_reason: 'not_admin',
+          request_method: 'GET',
+          request_path: '/api/admin/users',
+          status: 403,
+        }),
+      ]));
+    } finally {
+      diagnostics.restore();
+    }
   });
 
   test('admin auth posture: production accepts the secure admin session cookie and logs admin login outcomes', async () => {
@@ -6693,57 +6870,128 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('AI image derivative consumer logs lease-contention skips with correlation metadata', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        users: [createContractUser({ id: 'processing-user', role: 'user' })],
+        aiImages: [
+          {
+            id: 'processing01',
+            user_id: 'processing-user',
+            folder_id: null,
+            r2_key: 'users/processing-user/folders/unsorted/original.png',
+            prompt: 'Processing derivative image',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 17,
+            created_at: nowIso(),
+            derivatives_status: 'processing',
+            derivatives_version: 1,
+            derivatives_processing_token: 'active-lease-token',
+            derivatives_lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+          },
+        ],
+      });
+
+      const batch = createQueueBatch([
+        createAiImageDerivativeMessage({
+          imageId: 'processing01',
+          userId: 'processing-user',
+          originalKey: 'users/processing-user/folders/unsorted/original.png',
+        }),
+      ]);
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(findDiagnosticEvent(diagnostics.entries, 'ai_derivative_consumer_skipped')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-auth',
+          component: 'ai-image-derivatives-queue',
+          correlation_id: 'corr-processing01-1',
+          image_id: 'processing01',
+          user_id: 'processing-user',
+          derivatives_version: 1,
+          reason: 'already_processing',
+          attempts: 1,
+          duration_ms: expect.any(Number),
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
   test('AI image derivative consumer marks status as failed when retries are exhausted', async () => {
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const originalKey = 'users/exhaust-user/folders/unsorted/original.png';
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'exhaust-user', role: 'user' })],
-      aiImages: [
-        {
-          id: 'exh00001',
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const originalKey = 'users/exhaust-user/folders/unsorted/original.png';
+      const env = createAuthTestEnv({
+        users: [createContractUser({ id: 'exhaust-user', role: 'user' })],
+        aiImages: [
+          {
+            id: 'exh00001',
+            user_id: 'exhaust-user',
+            folder_id: null,
+            r2_key: originalKey,
+            prompt: 'Retry exhaustion test',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 99,
+            created_at: nowIso(),
+          },
+        ],
+        userImages: {
+          [originalKey]: {
+            body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+            httpMetadata: { contentType: 'image/png' },
+          },
+        },
+        imagesBinding: {
+          failResponseWith: new Error('Simulated transform failure'),
+        },
+      });
+
+      const body = createAiImageDerivativeMessage({
+        imageId: 'exh00001',
+        userId: 'exhaust-user',
+        originalKey,
+        derivativesVersion: 1,
+      });
+
+      // Early attempt (attempts < 7): should retry, status stays pending
+      const earlyBatch = createQueueBatch([body], { attempts: 3 });
+      await authWorker.queue(earlyBatch.batch, env, createExecutionContext().execCtx);
+      expect(earlyBatch.states[0]).toMatchObject({ acked: false, retried: true });
+      expect(earlyBatch.states[0].retryOptions).toEqual({ delaySeconds: 120 });
+      const rowAfterRetry = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
+      expect(rowAfterRetry.derivatives_status).toBe('pending');
+
+      // Last attempt (attempts >= 7): should ack and mark failed
+      const lastBatch = createQueueBatch([body], { attempts: 8 });
+      await authWorker.queue(lastBatch.batch, env, createExecutionContext().execCtx);
+      expect(lastBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      const rowAfterExhaustion = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
+      expect(rowAfterExhaustion.derivatives_status).toBe('failed');
+      expect(rowAfterExhaustion.derivatives_error).toContain('retries exhausted');
+      expect(findDiagnosticEvent(diagnostics.entries, 'ai_derivative_consumer_failed')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-auth',
+          component: 'ai-image-derivatives-queue',
+          correlation_id: 'corr-exh00001-1',
+          image_id: 'exh00001',
           user_id: 'exhaust-user',
-          folder_id: null,
-          r2_key: originalKey,
-          prompt: 'Retry exhaustion test',
-          model: '@cf/test-model',
-          steps: 4,
-          seed: 99,
-          created_at: nowIso(),
-        },
-      ],
-      userImages: {
-        [originalKey]: {
-          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
-          httpMetadata: { contentType: 'image/png' },
-        },
-      },
-      imagesBinding: {
-        failResponseWith: new Error('Simulated transform failure'),
-      },
-    });
-
-    const body = createAiImageDerivativeMessage({
-      imageId: 'exh00001',
-      userId: 'exhaust-user',
-      originalKey,
-      derivativesVersion: 1,
-    });
-
-    // Early attempt (attempts < 7): should retry, status stays pending
-    const earlyBatch = createQueueBatch([body], { attempts: 3 });
-    await authWorker.queue(earlyBatch.batch, env, createExecutionContext().execCtx);
-    expect(earlyBatch.states[0]).toMatchObject({ acked: false, retried: true });
-    expect(earlyBatch.states[0].retryOptions).toEqual({ delaySeconds: 120 });
-    const rowAfterRetry = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
-    expect(rowAfterRetry.derivatives_status).toBe('pending');
-
-    // Last attempt (attempts >= 7): should ack and mark failed
-    const lastBatch = createQueueBatch([body], { attempts: 8 });
-    await authWorker.queue(lastBatch.batch, env, createExecutionContext().execCtx);
-    expect(lastBatch.states[0]).toMatchObject({ acked: true, retried: false });
-    const rowAfterExhaustion = env.DB.state.aiImages.find((row) => row.id === 'exh00001');
-    expect(rowAfterExhaustion.derivatives_status).toBe('failed');
-    expect(rowAfterExhaustion.derivatives_error).toContain('retries exhausted');
+          derivatives_version: 1,
+          reason: 'retries_exhausted',
+          attempts: 8,
+          duration_ms: expect.any(Number),
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
   });
 
   test('AI image derivative consumer applies bounded retry backoff for transient failures', async () => {
@@ -10321,9 +10569,13 @@ test.describe('Worker routes', () => {
         expect.objectContaining({
           service: 'bitbi-contact',
           component: 'contact-submit',
+          correlation_id: expect.stringMatching(/^[A-Za-z0-9._:-]{8,128}$/),
           limiter_scope: 'contact-submit-ip-burst',
           limiter_reason: 'db_binding_missing',
           production: true,
+          request_method: 'POST',
+          request_path: '/',
+          status: 503,
         })
       );
     } finally {
@@ -10332,7 +10584,8 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('contact worker: upstream provider failures still return a stable 502', async () => {
+  test('contact worker: upstream provider failures still return a stable 502 and log a safe summary', async () => {
+    const diagnostics = captureDiagnosticLogs();
     const contactWorker = await loadWorker('workers/contact/src/index.js');
     const env = createAuthTestEnv();
     env.RESEND_API_KEY = 'test-key';
@@ -10351,6 +10604,7 @@ test.describe('Worker routes', () => {
             Origin: 'https://bitbi.ai',
             'Content-Type': 'application/json',
             'CF-Connecting-IP': '203.0.113.78',
+            'x-bitbi-correlation-id': 'contact-upstream-corr-1234',
           },
           body: JSON.stringify({
             name: 'Visitor',
@@ -10367,7 +10621,27 @@ test.describe('Worker routes', () => {
       await expect(res.json()).resolves.toMatchObject({
         error: 'Email send failed',
       });
+
+      const event = findDiagnosticEvent(diagnostics.entries, 'contact_submit_upstream_error');
+      expect(event).toEqual(expect.objectContaining({
+        service: 'bitbi-contact',
+        component: 'contact-submit',
+        correlation_id: 'contact-upstream-corr-1234',
+        provider: 'resend',
+        failure_reason: 'upstream_rejected',
+        request_method: 'POST',
+        request_path: '/',
+        status: 502,
+        upstream_status: 500,
+        upstream_content_type: 'text/plain; charset=utf-8',
+        duration_ms: expect.any(Number),
+      }));
+      const serialized = JSON.stringify(event);
+      expect(serialized).not.toContain('visitor@example.com');
+      expect(serialized).not.toContain('Testing upstream failure');
+      expect(serialized).not.toContain('upstream failed');
     } finally {
+      diagnostics.restore();
       global.fetch = originalFetch;
     }
   });

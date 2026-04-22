@@ -5,7 +5,9 @@ import {
 import { errorResponse, fromError } from "../lib/responses.js";
 import { readJsonBody } from "../lib/validate.js";
 import {
+  getDurationMs,
   getErrorFields,
+  getRequestLogFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
 
@@ -17,7 +19,8 @@ function ensureAI(env) {
   }
 }
 
-export async function handleLiveAgent({ request, env, correlationId }) {
+export async function handleLiveAgent({ request, env, correlationId, pathname, method }) {
+  const startedAt = Date.now();
   try {
     const body = await readJsonBody(request);
     if (!body) {
@@ -48,7 +51,9 @@ export async function handleLiveAgent({ request, env, correlationId }) {
       event: "admin_ai_live_agent_failed",
       level: "error",
       correlationId,
-      ...getErrorFields(error),
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields({ request, pathname, method }),
+      ...getErrorFields(error, { includeMessage: false }),
     });
     return fromError(error, "Live agent request failed");
   }
