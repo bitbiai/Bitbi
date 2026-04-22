@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const SITE_ROOT_FILES = ["index.html", "robots.txt", "sitemap.xml"];
-const SITE_ROOT_DIRS = ["assets", "css", "fonts", "js", "account", "admin", "legal"];
+export const SITE_ROOT_FILES = ["index.html", "robots.txt", "sitemap.xml"];
+export const SITE_ROOT_DIRS = ["assets", "css", "fonts", "js", "account", "admin", "legal"];
 const SOURCE_SCAN_ROOTS = ["index.html", "admin", "account", "legal", "js", "CLAUDE.md"];
 const TEXT_EXTENSIONS = new Set([".html", ".js", ".mjs", ".css", ".md"]);
 const MANUAL_TOKEN_PATTERNS = [

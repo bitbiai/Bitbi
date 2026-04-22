@@ -8,12 +8,16 @@
     "test:workers": "playwright test -c playwright.workers.config.js",
     "test:headed": "playwright test -c playwright.config.js --headed",
     "test:release-compat": "node scripts/test-release-compat.mjs",
+    "test:release-plan": "node scripts/test-release-plan.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
     "test:asset-version": "node scripts/test-asset-version.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
     "validate:live": "node scripts/validate-live-runtime-canary.mjs",
     "validate:asset-version": "node scripts/validate-asset-version.mjs",
-    "build:static": "node scripts/build-static-site.mjs"
+    "build:static": "node scripts/build-static-site.mjs",
+    "release:plan": "node scripts/release-plan.mjs",
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "release:apply": "node scripts/release-apply.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
