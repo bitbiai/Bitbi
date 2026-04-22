@@ -1,3 +1,17 @@
+// @ts-check
+
+/**
+ * @typedef {object} AdminAiSaveIntent
+ * @property {'text' | 'image'} type
+ * @property {string} modalTitle
+ * @property {string} description
+ * @property {string} confirmLabel
+ * @property {string} defaultTitle
+ * @property {string} note
+ * @property {string | null | undefined} [sourceModule]
+ * @property {Record<string, any>} payload
+ */
+
 export function buildSaveTitle(seed, fallback) {
     const cleaned = String(seed || '')
         .replace(/\s+/g, ' ')

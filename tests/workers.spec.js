@@ -39,6 +39,27 @@ async function loadAdminMfaModule() {
   return import(modulePath);
 }
 
+async function loadAdminAiSaveFlowModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/pages/admin/ai-lab-save-flow.mjs')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadAdminAiResultStateModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/pages/admin/ai-lab-result-state.mjs')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadInvokeAiVideoModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/ai/src/lib/invoke-ai-video.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadPublicMediaContractModule() {
   const contractPath = pathToFileURL(path.join(process.cwd(), 'js/shared/public-media-contract.mjs')).href;
   return import(contractPath);
@@ -2354,6 +2375,126 @@ test.describe('Worker routes', () => {
   });
 
   test.describe('Admin AI contract routes', () => {
+    test('admin AI save flow helper prefers save references and only falls back for the explicit compatibility codes', async () => {
+      const { saveImageIntentWithFallback } = await loadAdminAiSaveFlowModule();
+      const calls = [];
+      const responses = [
+        { ok: false, code: 'SAVE_REFERENCE_EXPIRED', error: 'Save reference expired.' },
+        { ok: true, data: { id: 'img-1' } },
+      ];
+      let responseIndex = 0;
+      const apiAiSaveImage = async (...args) => {
+        calls.push(args);
+        const next = responses[responseIndex] || responses[responses.length - 1];
+        responseIndex += 1;
+        return next;
+      };
+
+      const response = await saveImageIntentWithFallback({
+        saveReference: 'save-ref-123',
+        imageData: 'data:image/png;base64,AAAA',
+        prompt: 'Admin image prompt',
+        model: '@cf/black-forest-labs/flux-1-schnell',
+        steps: 4,
+        seed: 7,
+      }, {
+        apiAiSaveImage,
+        folderId: 'folder-1',
+      });
+
+      expect(response.ok).toBe(true);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toEqual([
+        { saveReference: 'save-ref-123' },
+        'Admin image prompt',
+        '@cf/black-forest-labs/flux-1-schnell',
+        4,
+        7,
+        'folder-1',
+      ]);
+      expect(calls[1][0]).toBe('data:image/png;base64,AAAA');
+    });
+
+    test('admin AI result-state helpers preserve the retained result contract across loading and error transitions', async () => {
+      const {
+        createErrorTaskResult,
+        createLoadingTaskResult,
+        createSuccessTaskResult,
+        getRetainedResult,
+      } = await loadAdminAiResultStateModule();
+      const initialSuccess = createSuccessTaskResult({ ok: true, result: { text: 'ready' } }, 'partial_success');
+      const retained = getRetainedResult(initialSuccess);
+      const loading = createLoadingTaskResult(retained);
+      const errored = createErrorTaskResult({
+        previous: retained,
+        error: 'Upstream failed',
+        errorCode: 'upstream_error',
+        debugRaw: { ok: false },
+      });
+
+      expect(initialSuccess).toEqual(expect.objectContaining({
+        status: 'success',
+        errorCode: 'partial_success',
+        raw: { ok: true, result: { text: 'ready' } },
+        debugRaw: { ok: true, result: { text: 'ready' } },
+      }));
+      expect(loading).toEqual(expect.objectContaining({
+        status: 'loading',
+        raw: initialSuccess.raw,
+        debugRaw: initialSuccess.raw,
+        receivedAt: initialSuccess.receivedAt,
+      }));
+      expect(errored).toEqual(expect.objectContaining({
+        status: 'error',
+        error: 'Upstream failed',
+        errorCode: 'upstream_error',
+        raw: initialSuccess.raw,
+        debugRaw: { ok: false },
+        receivedAt: initialSuccess.receivedAt,
+      }));
+    });
+
+    test('invoke-video payload builder normalizes vidu requests and rejects unsupported values before the worker call', async () => {
+      const { buildVideoPayload } = await loadInvokeAiVideoModule();
+
+      const built = buildVideoPayload(
+        { id: 'vidu/q3-pro' },
+        {
+          prompt: '  dramatic camera move  ',
+          duration: '5',
+          resolution: '720p',
+          audio: 'false',
+          start_image: ' data:image/png;base64,AAAA ',
+        }
+      );
+      expect(built).toEqual({
+        payload: {
+          prompt: 'dramatic camera move',
+          duration: 5,
+          resolution: '720p',
+          audio: false,
+          start_image: 'data:image/png;base64,AAAA',
+        },
+        normalized: {
+          prompt: 'dramatic camera move',
+          duration: 5,
+          aspect_ratio: null,
+          quality: null,
+          resolution: '720p',
+          seed: null,
+          generate_audio: false,
+          hasImageInput: true,
+          hasEndImageInput: false,
+          workflow: 'image_to_video',
+        },
+      });
+
+      expect(() => buildVideoPayload(
+        { id: 'vidu/q3-pro' },
+        { prompt: 'bad resolution', duration: 5, resolution: '1440p' }
+      )).toThrow(/resolution must be one of/i);
+    });
+
     test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
 

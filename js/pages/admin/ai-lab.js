@@ -27,14 +27,20 @@ import {
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
-    buildCompareSaveIntent,
-    buildEmbeddingsSaveIntent,
-    buildImageSaveIntent,
-    buildLiveAgentSaveIntent,
-    buildMusicSaveIntent,
-    buildTextSaveIntent,
-    buildVideoSaveIntent,
-} from './ai-lab-save-intents.mjs?v=__ASSET_VERSION__';
+    buildAdminAiLabSaveIntent,
+    createAdminAiLabSaveFlow,
+} from './ai-lab-save-flow.mjs?v=__ASSET_VERSION__';
+import {
+    createAbortedTaskResult,
+    createErrorTaskResult,
+    createLoadingTaskResult,
+    createSuccessTaskResult,
+    createTimeoutTaskResult,
+    getApiCode,
+    getResultCode,
+    getRetainedResult,
+    getWarnings,
+} from './ai-lab-result-state.mjs?v=__ASSET_VERSION__';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent', 'music', 'video'];
@@ -95,12 +101,6 @@ const ADMIN_AI_CODE_MESSAGES = {
     request_timeout: 'The request took too long and was cancelled.',
     network_error: 'Network error. Please try again.',
 };
-const SAVE_REFERENCE_FALLBACK_CODES = new Set([
-    'INVALID_SAVE_REFERENCE',
-    'SAVE_REFERENCE_EXPIRED',
-    'SAVE_REFERENCE_UNAVAILABLE',
-]);
-
 const DEFAULT_FORMS = {
     text: {
         preset: ADMIN_AI_DEFAULT_PRESETS.text,
@@ -428,14 +428,6 @@ function normalizeCode(value) {
     return normalized || null;
 }
 
-function getApiCode(result) {
-    return normalizeCode(result?.code || result?.data?.code);
-}
-
-function getResultCode(result) {
-    return normalizeCode(result?.errorCode || result?.raw?.code);
-}
-
 function describeAdminAiError(task, error, code) {
     const normalizedCode = normalizeCode(code);
     const message = String(error || '').trim();
@@ -644,10 +636,6 @@ async function copyText(text, showToast, successMessage) {
     } catch {
         if (showToast) showToast('Copy failed.', 'error');
     }
-}
-
-function getWarnings(result) {
-    return Array.isArray(result?.warnings) ? result.warnings : [];
 }
 
 function getCatalogModels(catalog, task) {
@@ -1247,21 +1235,17 @@ export function createAdminAiLab({ showToast } = {}) {
                 }
 
                 const config = TASK_UI[task];
-                const previous = getRetainedResult(task);
+                const previous = getRetainedResult(state.results[task]);
                 clearTaskTimer(task, controller);
                 controller.abort();
                 if (state.controllers[task] === controller) {
                     state.controllers[task] = null;
                 }
 
-        state.results[task] = {
-            status: 'timeout',
-            error: `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}.`,
-            errorCode: 'request_timeout',
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+                state.results[task] = createTimeoutTaskResult(
+                    previous,
+                    `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}.`,
+                );
                 setTaskBusy(task, false, config.busyText, config.idleText);
                 setStatus(
                     `${config.label} request timed out after ${formatTimeoutDuration(timeoutMs)}. Retry with the current inputs when ready.`,
@@ -1279,14 +1263,6 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
         outputEl.textContent = `${value.length} / ${maxLength}`;
-    }
-
-    function getRetainedResult(task) {
-        const current = state.results[task];
-        return {
-            raw: current?.raw || null,
-            receivedAt: current?.receivedAt || null,
-        };
     }
 
     function renderWarnings(container, warnings) {
@@ -1676,314 +1652,6 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.saveModal.folder.appendChild(option);
         });
         refs.saveModal.folder.value = current;
-    }
-
-    function renderSaveModal() {
-        const modal = refs.saveModal.root;
-        const isOpen = !!state.save.open;
-        modal.hidden = !isOpen;
-        modal.setAttribute('aria-hidden', String(!isOpen));
-        if (!isOpen) return;
-
-        const intent = state.save.intent;
-        const isImage = intent?.type === 'image';
-
-        refs.saveModal.title.textContent = intent?.modalTitle || 'Save Asset';
-        refs.saveModal.desc.textContent = intent?.description || 'Save the current AI Lab result.';
-        refs.saveModal.titleField.hidden = isImage;
-        refs.saveModal.input.value = state.save.title || '';
-        refs.saveModal.input.disabled = state.save.saving || isImage;
-        refs.saveModal.folder.disabled = state.save.saving;
-        refs.saveModal.note.textContent = state.save.note || '';
-        refs.saveModal.confirm.disabled = state.save.saving;
-        refs.saveModal.confirm.textContent = state.save.saving
-            ? 'Saving...'
-            : (intent?.confirmLabel || 'Save');
-        setResultState(refs.saveModal.state, state.save.stateTone, state.save.stateMessage);
-        renderSaveFolderOptions();
-    }
-
-    function closeSaveModal() {
-        if (!state.save.open) return;
-        if (state.save.saving) return;
-        state.save.open = false;
-        state.save.task = null;
-        state.save.type = null;
-        state.save.intent = null;
-        state.save.saving = false;
-        state.save.title = '';
-        state.save.folderId = '';
-        state.save.note = '';
-        setSaveState('neutral', 'Ready to save.');
-        renderSaveModal();
-    }
-
-    async function loadSaveFolders() {
-        const result = await apiAiGetFolders();
-        state.save.folders = Array.isArray(result?.folders) ? result.folders : [];
-    }
-
-    function getTextSaveIntent() {
-        const response = state.results.text?.raw;
-        return buildTextSaveIntent({
-            response,
-            prompt: state.forms.text.prompt,
-            system: state.forms.text.system,
-            warnings: getWarnings(response),
-            receivedAt: state.results.text?.receivedAt instanceof Date
-                ? state.results.text.receivedAt.toISOString()
-                : null,
-        });
-    }
-
-    function getImageSaveIntent() {
-        const response = state.results.image?.raw;
-        return buildImageSaveIntent({
-            response,
-            prompt: state.forms.image.prompt,
-            fallbackModel: state.forms.image.model,
-        });
-    }
-
-    function getEmbeddingsSaveIntent() {
-        const response = state.results.embeddings?.raw;
-        return buildEmbeddingsSaveIntent({
-            response,
-            input: state.forms.embeddings.input,
-            warnings: getWarnings(response),
-            receivedAt: state.results.embeddings?.receivedAt instanceof Date
-                ? state.results.embeddings.receivedAt.toISOString()
-                : null,
-        });
-    }
-
-    function getCompareSaveIntent() {
-        const response = state.results.compare?.raw;
-        const results = Array.isArray(response?.result?.results) ? response.result.results : [];
-        const diff = buildCompareDiff(results);
-        return buildCompareSaveIntent({
-            response,
-            prompt: state.forms.compare.prompt,
-            system: state.forms.compare.system,
-            warnings: getWarnings(response),
-            diffSummary: diff.available ? diff : null,
-            receivedAt: state.results.compare?.receivedAt instanceof Date
-                ? state.results.compare.receivedAt.toISOString()
-                : null,
-        });
-    }
-
-    function getLiveAgentSaveIntent() {
-        return buildLiveAgentSaveIntent({
-            messages: liveAgentState.messages,
-            transcriptRoot: refs.liveAgent.transcript,
-            system: refs.liveAgent.system.value || '',
-            model: ADMIN_AI_LIVE_AGENT_MODEL,
-            receivedAt: new Date().toISOString(),
-        });
-    }
-
-    function getMusicSaveIntent() {
-        const response = state.results.music?.raw;
-        return buildMusicSaveIntent({
-            response,
-            prompt: state.forms.music.prompt,
-            warnings: getWarnings(response),
-            receivedAt: state.results.music?.receivedAt instanceof Date
-                ? state.results.music.receivedAt.toISOString()
-                : null,
-        });
-    }
-
-    function getVideoSaveIntent() {
-        const response = state.results.video?.raw;
-        return buildVideoSaveIntent({
-            response,
-            prompt: state.forms.video.prompt,
-            warnings: getWarnings(response),
-            receivedAt: state.results.video?.receivedAt instanceof Date
-                ? state.results.video.receivedAt.toISOString()
-                : null,
-        });
-    }
-
-    function getSaveIntent(task) {
-        switch (task) {
-        case 'text':
-            return getTextSaveIntent();
-        case 'image':
-            return getImageSaveIntent();
-        case 'embeddings':
-            return getEmbeddingsSaveIntent();
-        case 'compare':
-            return getCompareSaveIntent();
-        case 'live-agent':
-            return getLiveAgentSaveIntent();
-        case 'music':
-            return getMusicSaveIntent();
-        case 'video':
-            return getVideoSaveIntent();
-        default:
-            return null;
-        }
-    }
-
-    async function openSaveModal(task) {
-        const intent = getSaveIntent(task);
-        if (!intent) {
-            const unavailableMessage = task === 'music'
-                ? 'This audio result can be previewed or downloaded, but remote URL saves are disabled for security.'
-                : task === 'video'
-                    ? 'Video save is disabled until a trusted Bitbi video-ingest contract exists.'
-                    : 'Nothing available to save yet.';
-            setStatus(unavailableMessage, 'error');
-            if (showToast) showToast(unavailableMessage, 'error');
-            return;
-        }
-
-        state.save.open = true;
-        state.save.task = task;
-        state.save.type = intent.type;
-        state.save.intent = intent;
-        state.save.saving = false;
-        state.save.title = intent.defaultTitle || '';
-        state.save.folderId = '';
-        state.save.note = intent.note || '';
-        setSaveState('loading', 'Loading folders...');
-        renderSaveModal();
-
-        try {
-            await loadSaveFolders();
-            setSaveState('neutral', 'Choose a folder and confirm the save.');
-        } catch {
-            state.save.folders = [];
-            setSaveState('error', 'Folder list unavailable. You can still save to Assets.');
-        }
-
-        renderSaveModal();
-        if (intent.type === 'image') {
-            refs.saveModal.folder.focus();
-        } else {
-            refs.saveModal.input.focus();
-            refs.saveModal.input.select();
-        }
-    }
-
-    async function confirmSaveModal() {
-        const intent = state.save.intent;
-        if (!state.save.open || !intent || state.save.saving) return;
-
-        if (intent.type !== 'image' && !(state.save.title || '').trim()) {
-            setSaveState('error', 'Title is required.');
-            renderSaveModal();
-            return;
-        }
-
-        state.save.saving = true;
-        setSaveState('loading', 'Saving asset...');
-        renderSaveModal();
-
-        try {
-            if (intent.type === 'image') {
-                let res = await apiAiSaveImage(
-                    intent.payload.saveReference
-                        ? { saveReference: intent.payload.saveReference }
-                        : intent.payload.imageData,
-                    intent.payload.prompt,
-                    intent.payload.model,
-                    intent.payload.steps,
-                    intent.payload.seed,
-                    state.save.folderId || null,
-                );
-
-                if (
-                    !res.ok &&
-                    intent.payload.saveReference &&
-                    intent.payload.imageData &&
-                    SAVE_REFERENCE_FALLBACK_CODES.has(res.code)
-                ) {
-                    res = await apiAiSaveImage(
-                        intent.payload.imageData,
-                        intent.payload.prompt,
-                        intent.payload.model,
-                        intent.payload.steps,
-                        intent.payload.seed,
-                        state.save.folderId || null,
-                    );
-                }
-
-                if (!res.ok) {
-                    setSaveState('error', res.error || 'Image save failed.');
-                    state.save.saving = false;
-                    renderSaveModal();
-                    return;
-                }
-
-                state.save.saving = false;
-                closeSaveModal();
-                await refreshSavedAssetsBrowser();
-                setStatus('Image saved to the shared folder structure.', 'success');
-                if (showToast) showToast('Image saved.');
-                return;
-            }
-
-            if (intent.sourceModule === 'video') {
-                const videoEl = refs.video?.preview?.querySelector('video');
-                if (videoEl && videoEl.videoWidth && videoEl.videoHeight && videoEl.dataset.corsDisabled !== '1') {
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = videoEl.videoWidth;
-                        canvas.height = videoEl.videoHeight;
-                        canvas.getContext('2d').drawImage(videoEl, 0, 0);
-                        intent.payload.posterBase64 = canvas.toDataURL('image/webp', 0.82);
-                    } catch {
-                        // CORS-tainted canvas — poster unavailable
-                    }
-                }
-            }
-
-            let res;
-            if (intent.sourceModule === 'music') {
-                res = await apiAiSaveAudio({
-                    title: state.save.title,
-                    folder_id: state.save.folderId || null,
-                    ...intent.payload,
-                });
-            } else {
-                res = await apiAdminAiSaveTextAsset({
-                    title: state.save.title,
-                    folderId: state.save.folderId || null,
-                    sourceModule: intent.sourceModule,
-                    data: intent.payload,
-                });
-            }
-
-            if (!res.ok) {
-                setSaveState('error', res.error || 'Save failed.');
-                state.save.saving = false;
-                renderSaveModal();
-                return;
-            }
-
-            state.save.saving = false;
-            closeSaveModal();
-            await refreshSavedAssetsBrowser();
-            let statusMessage = 'Text asset saved to the shared folder structure.';
-            let toastMessage = 'Text asset saved.';
-            if (intent.sourceModule === 'music') {
-                statusMessage = 'Audio saved to the shared folder structure.';
-                toastMessage = 'Audio saved.';
-            } else if (intent.sourceModule === 'video') {
-                statusMessage = 'Video asset saved to the shared folder structure.';
-                toastMessage = 'Video asset saved.';
-            }
-            setStatus(statusMessage, 'success');
-            if (showToast) showToast(toastMessage);
-        } catch {
-            setSaveState('error', 'Save failed. Please try again.');
-            state.save.saving = false;
-            renderSaveModal();
-        }
     }
 
     function downloadImageResult() {
@@ -2927,7 +2595,7 @@ export function createAdminAiLab({ showToast } = {}) {
     function renderMusicPreview(payload, result) {
         const audioSource = getMusicAudioSource(payload);
         refs.music.download.hidden = !audioSource;
-        refs.music.save.hidden = !getMusicSaveIntent();
+        refs.music.save.hidden = !getCurrentSaveIntent('music');
 
         if (!audioSource) {
             if (result?.status === 'loading' && !payload) {
@@ -3172,7 +2840,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!refs.video.preview) return;
         const videoUrl = payload?.videoUrl || null;
         refs.video.download.hidden = !videoUrl;
-        refs.video.save.hidden = !getVideoSaveIntent();
+        refs.video.save.hidden = !getCurrentSaveIntent('video');
 
         revokePreviewBlobUrl();
 
@@ -3838,22 +3506,32 @@ export function createAdminAiLab({ showToast } = {}) {
         syncVideoFieldState();
     }
 
+    function setTaskLoadingState(task, previous) {
+        state.results[task] = createLoadingTaskResult(previous);
+    }
+
+    function setTaskErrorState(task, previous, error, errorCode, debugRaw) {
+        state.results[task] = createErrorTaskResult({
+            previous,
+            error,
+            errorCode,
+            debugRaw,
+        });
+    }
+
+    function setTaskSuccessState(task, raw, errorCode) {
+        state.results[task] = createSuccessTaskResult(raw, errorCode);
+    }
+
     function cancelTask(task, label) {
         const controller = state.controllers[task];
         if (!controller || state.results[task]?.status !== 'loading') return;
 
-        const previous = getRetainedResult(task);
+        const previous = getRetainedResult(state.results[task]);
         clearTaskTimer(task, controller);
         controller.abort();
         state.controllers[task] = null;
-        state.results[task] = {
-            status: 'aborted',
-            error: 'Request cancelled.',
-            errorCode: 'request_aborted',
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        state.results[task] = createAbortedTaskResult(previous);
 
         const config = TASK_UI[task];
         setTaskBusy(task, false, config.busyText, config.idleText);
@@ -3908,15 +3586,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('text');
         state.controllers.text?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('text');
+        const previous = getRetainedResult(state.results.text);
         state.controllers.text = controller;
-        state.results.text = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('text', previous);
         setTaskBusy('text', true, TASK_UI.text.busyText, TASK_UI.text.idleText);
         setStatus('Running text test...', 'loading');
         renderTextResult();
@@ -3944,26 +3616,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.text = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('text', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('text', res.error, errorCode), 'error');
             renderTextResult();
             return;
         }
 
-        state.results.text = {
-            status: 'success',
-            errorCode: getApiCode(res),
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('text', res.data, getApiCode(res));
         setStatus('Text test completed.', 'success');
         renderTextResult();
     }
@@ -3980,15 +3639,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('image');
         state.controllers.image?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('image');
+        const previous = getRetainedResult(state.results.image);
         state.controllers.image = controller;
-        state.results.image = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('image', previous);
         setTaskBusy('image', true, TASK_UI.image.busyText, TASK_UI.image.idleText);
         setStatus('Generating image...', 'loading');
         renderImageResult();
@@ -3999,21 +3652,13 @@ export function createAdminAiLab({ showToast } = {}) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
                 state.controllers.image = null;
-                state.results.image = previous.raw ? {
-                    status: 'error',
-                    error: 'Structured prompt contains invalid JSON. Fix and retry.',
-                    errorCode: 'validation_error',
-                    raw: previous.raw,
-                    debugRaw: previous.raw,
-                    receivedAt: previous.receivedAt,
-                } : {
-                    status: 'error',
-                    error: 'Structured prompt contains invalid JSON. Fix and retry.',
-                    errorCode: 'validation_error',
-                    raw: null,
-                    debugRaw: null,
-                    receivedAt: null,
-                };
+                setTaskErrorState(
+                    'image',
+                    previous,
+                    'Structured prompt contains invalid JSON. Fix and retry.',
+                    'validation_error',
+                    previous.raw,
+                );
                 setStatus('Structured prompt contains invalid JSON.', 'error');
                 renderImageResult();
                 return;
@@ -4050,21 +3695,13 @@ export function createAdminAiLab({ showToast } = {}) {
             setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
             clearTaskTimer('image', controller);
             state.controllers.image = null;
-            state.results.image = previous.raw ? {
-                status: 'error',
-                error: referenceImageError,
-                errorCode: 'validation_error',
-                raw: previous.raw,
-                debugRaw: previous.raw,
-                receivedAt: previous.receivedAt,
-            } : {
-                status: 'error',
-                error: referenceImageError,
-                errorCode: 'validation_error',
-                raw: null,
-                debugRaw: null,
-                receivedAt: null,
-            };
+            setTaskErrorState(
+                'image',
+                previous,
+                referenceImageError,
+                'validation_error',
+                previous.raw,
+            );
             setStatus(referenceImageError, 'error');
             renderImageResult();
             return;
@@ -4083,26 +3720,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.image = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('image', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('image', res.error, errorCode), 'error');
             renderImageResult();
             return;
         }
 
-        state.results.image = {
-            status: 'success',
-            errorCode: getApiCode(res),
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('image', res.data, getApiCode(res));
         setStatus('Image test completed.', 'success');
         renderImageResult();
     }
@@ -4119,15 +3743,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('embeddings');
         state.controllers.embeddings?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('embeddings');
+        const previous = getRetainedResult(state.results.embeddings);
         state.controllers.embeddings = controller;
-        state.results.embeddings = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('embeddings', previous);
         setTaskBusy('embeddings', true, TASK_UI.embeddings.busyText, TASK_UI.embeddings.idleText);
         setStatus('Generating embeddings...', 'loading');
         renderEmbeddingsResult();
@@ -4157,26 +3775,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.embeddings = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('embeddings', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('embeddings', res.error, errorCode), 'error');
             renderEmbeddingsResult();
             return;
         }
 
-        state.results.embeddings = {
-            status: 'success',
-            errorCode: getApiCode(res),
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('embeddings', res.data, getApiCode(res));
         setStatus('Embeddings test completed.', 'success');
         renderEmbeddingsResult();
     }
@@ -4189,22 +3794,8 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const validationError = validateMusicForm();
         if (validationError) {
-            const previous = getRetainedResult('music');
-            state.results.music = previous.raw ? {
-                status: 'error',
-                error: validationError,
-                errorCode: 'validation_error',
-                raw: previous.raw,
-                debugRaw: previous.raw,
-                receivedAt: previous.receivedAt,
-            } : {
-                status: 'error',
-                error: validationError,
-                errorCode: 'validation_error',
-                raw: null,
-                debugRaw: null,
-                receivedAt: null,
-            };
+            const previous = getRetainedResult(state.results.music);
+            setTaskErrorState('music', previous, validationError, 'validation_error', previous.raw);
             setMusicInlineError(validationError);
             setStatus(validationError, 'error');
             renderMusicResult();
@@ -4216,15 +3807,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('music');
         state.controllers.music?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('music');
+        const previous = getRetainedResult(state.results.music);
         state.controllers.music = controller;
-        state.results.music = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('music', previous);
         setTaskBusy('music', true, TASK_UI.music.busyText, TASK_UI.music.idleText);
         setStatus('Generating music...', 'loading');
         renderMusicResult();
@@ -4260,26 +3845,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.music = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('music', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('music', res.error, errorCode), 'error');
             renderMusicResult();
             return;
         }
 
-        state.results.music = {
-            status: 'success',
-            errorCode: getApiCode(res),
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('music', res.data, getApiCode(res));
         setStatus('Music generation completed.', 'success');
         renderMusicResult();
     }
@@ -4292,22 +3864,8 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const validationError = validateVideoForm();
         if (validationError) {
-            const previous = getRetainedResult('video');
-            state.results.video = previous.raw ? {
-                status: 'error',
-                error: validationError,
-                errorCode: 'validation_error',
-                raw: previous.raw,
-                debugRaw: previous.raw,
-                receivedAt: previous.receivedAt,
-            } : {
-                status: 'error',
-                error: validationError,
-                errorCode: 'validation_error',
-                raw: null,
-                debugRaw: null,
-                receivedAt: null,
-            };
+            const previous = getRetainedResult(state.results.video);
+            setTaskErrorState('video', previous, validationError, 'validation_error', previous.raw);
             setVideoInlineError(validationError);
             setStatus(validationError, 'error');
             renderVideoResult();
@@ -4319,15 +3877,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('video');
         state.controllers.video?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('video');
+        const previous = getRetainedResult(state.results.video);
         state.controllers.video = controller;
-        state.results.video = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('video', previous);
         setTaskBusy('video', true, TASK_UI.video.busyText, TASK_UI.video.idleText);
         setStatus('Generating video...', 'loading');
         renderVideoResult();
@@ -4397,26 +3949,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.video = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('video', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('video', res.error, errorCode), 'error');
             renderVideoResult();
             return;
         }
 
-        state.results.video = {
-            status: 'success',
-            errorCode: getApiCode(res),
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('video', res.data, getApiCode(res));
         setStatus('Video generation completed.', 'success');
         renderVideoResult();
     }
@@ -4443,15 +3982,9 @@ export function createAdminAiLab({ showToast } = {}) {
         clearTaskTimer('compare');
         state.controllers.compare?.abort();
         const controller = new AbortController();
-        const previous = getRetainedResult('compare');
+        const previous = getRetainedResult(state.results.compare);
         state.controllers.compare = controller;
-        state.results.compare = {
-            status: 'loading',
-            errorCode: null,
-            raw: previous.raw,
-            debugRaw: previous.raw,
-            receivedAt: previous.receivedAt,
-        };
+        setTaskLoadingState('compare', previous);
         setTaskBusy('compare', true, TASK_UI.compare.busyText, TASK_UI.compare.idleText);
         setStatus('Running model comparison...', 'loading');
         renderCompareResult();
@@ -4478,27 +4011,14 @@ export function createAdminAiLab({ showToast } = {}) {
         if (res.aborted) return;
         if (!res.ok) {
             const errorCode = getApiCode(res);
-            state.results.compare = {
-                status: 'error',
-                error: res.error,
-                errorCode,
-                raw: previous.raw,
-                debugRaw: res.data || previous.raw,
-                receivedAt: previous.receivedAt,
-            };
+            setTaskErrorState('compare', previous, res.error, errorCode, res.data || previous.raw);
             setStatus(describeAdminAiError('compare', res.error, errorCode), 'error');
             renderCompareResult();
             return;
         }
 
         const successCode = getApiCode(res);
-        state.results.compare = {
-            status: 'success',
-            errorCode: successCode,
-            raw: res.data,
-            debugRaw: res.data,
-            receivedAt: new Date(),
-        };
+        setTaskSuccessState('compare', res.data, successCode);
         setStatus(
             successCode === 'partial_success'
                 ? 'Compare request completed with partial success. Review warnings and per-model errors.'
@@ -4576,6 +4096,45 @@ export function createAdminAiLab({ showToast } = {}) {
         controller: null,
         busy: false,
     };
+
+    const saveFlow = createAdminAiLabSaveFlow({
+        state,
+        refs,
+        showToast,
+        liveAgentModel: ADMIN_AI_LIVE_AGENT_MODEL,
+        getLiveAgentMessages: () => liveAgentState.messages,
+        buildCompareDiff,
+        getWarnings,
+        setSaveState,
+        setResultState,
+        renderSaveFolderOptions,
+        setStatus,
+        refreshSavedAssetsBrowser,
+        apiAiGetFolders,
+        apiAiSaveImage,
+        apiAiSaveAudio,
+        apiAdminAiSaveTextAsset,
+    });
+
+    const {
+        renderSaveModal,
+        closeSaveModal,
+        openSaveModal,
+        confirmSaveModal,
+    } = saveFlow;
+
+    function getCurrentSaveIntent(task) {
+        return buildAdminAiLabSaveIntent(task, {
+            results: state.results,
+            forms: state.forms,
+            liveAgentMessages: liveAgentState.messages,
+            liveAgentTranscriptRoot: refs.liveAgent.transcript,
+            liveAgentSystem: refs.liveAgent.system.value || '',
+            liveAgentModel: ADMIN_AI_LIVE_AGENT_MODEL,
+            buildCompareDiff,
+            getWarnings,
+        });
+    }
 
     function liveAgentSetBusy(busy) {
         liveAgentState.busy = busy;
