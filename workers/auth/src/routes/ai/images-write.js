@@ -11,11 +11,9 @@ import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
 import {
-  AI_GENERATED_SAVE_REFERENCE_TTL_MINUTES,
   AiGeneratedSaveReferenceError,
-  buildAiGeneratedTempOriginalKey,
+  createAiGeneratedSaveReferenceFromBase64,
   decodeAiGeneratedSaveReference,
-  encodeAiGeneratedSaveReference,
 } from "./generated-image-save-reference.js";
 import { AiAssetLifecycleError, deleteUserAiImage } from "./lifecycle.js";
 
@@ -402,18 +400,12 @@ export async function handleGenerateImage(ctx) {
 
   let tempSavePayload = {};
   try {
-    const tempId = randomTokenHex(16);
-    const tempKey = buildAiGeneratedTempOriginalKey(userId, tempId);
-    const imageBytes = decodeBase64ToBytes(base64);
-    await env.USER_IMAGES.put(tempKey, imageBytes.buffer, {
-      httpMetadata: { contentType: mimeType },
-    });
     tempSavePayload = {
-      saveReference: await encodeAiGeneratedSaveReference(env, {
+      saveReference: (await createAiGeneratedSaveReferenceFromBase64(env, {
         userId,
-        tempId,
-        expiresAt: Date.parse(addMinutesIso(AI_GENERATED_SAVE_REFERENCE_TTL_MINUTES)),
-      }),
+        imageBase64: base64,
+        mimeType,
+      })).saveReference,
     };
   } catch (error) {
     logDiagnostic({

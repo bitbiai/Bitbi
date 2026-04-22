@@ -2420,6 +2420,7 @@ test.describe('Worker routes', () => {
 
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const { decodeAiGeneratedSaveReference } = await loadAiGeneratedSaveReferenceModule();
 
       const res = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-image', 'POST', {
@@ -2447,6 +2448,7 @@ test.describe('Worker routes', () => {
         }),
         result: expect.objectContaining({
           imageBase64: expect.any(String),
+          saveReference: expect.any(String),
           mimeType: expect.any(String),
           steps: 4,
           seed: 12345,
@@ -2457,6 +2459,107 @@ test.describe('Worker routes', () => {
       }));
       expect(body.result).toHaveProperty('requestedSize');
       expect(body.result).toHaveProperty('appliedSize');
+      const decodedReference = await decodeAiGeneratedSaveReference(env, body.result.saveReference, {
+        userId: 'admin-ai-user',
+      });
+      expect(env.USER_IMAGES.objects.get(decodedReference.tempKey)).toBeTruthy();
+    });
+
+    test('admin AI image save references can be consumed by the existing save endpoint without re-uploading imageData', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+
+      const generateRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          preset: 'image_fast',
+          prompt: 'Admin save by reference',
+          width: 1024,
+          height: 1024,
+          steps: 4,
+          seed: 12345,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(generateRes.status).toBe(200);
+      const generateBody = await generateRes.json();
+      const saveReference = generateBody?.result?.saveReference;
+      expect(saveReference).toEqual(expect.any(String));
+
+      const saveRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/images/save', 'POST', {
+          save_reference: saveReference,
+          prompt: 'Admin save by reference',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 12345,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(saveRes.status).toBe(201);
+      const saveBody = await saveRes.json();
+      const imageId = saveBody.data.id;
+      const savedRow = env.DB.state.aiImages.find((row) => row.id === imageId);
+      expect(savedRow).toBeTruthy();
+      expect(env.USER_IMAGES.objects.has(savedRow.r2_key)).toBe(true);
+      expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+      expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages[0]).toMatchObject({
+        image_id: imageId,
+        original_key: savedRow.r2_key,
+        trigger: 'save',
+      });
+    });
+
+    test('admin AI image save references cannot be reused across admin accounts', async () => {
+      const ownerHarness = await createAdminAiContractHarness({
+        user: createAdminUser('admin-image-owner'),
+      });
+      const attackerEnv = ownerHarness.env;
+      attackerEnv.DB.state.users.push(createAdminUser('admin-image-attacker'));
+      const attackerToken = await seedSession(attackerEnv, 'admin-image-attacker');
+      const attackerHeaders = {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.26',
+        Cookie: `bitbi_session=${attackerToken}`,
+      };
+
+      const generateRes = await ownerHarness.authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          preset: 'image_fast',
+          prompt: 'Cross-admin misuse check',
+          width: 1024,
+          height: 1024,
+          steps: 4,
+          seed: 12345,
+        }, ownerHarness.authHeaders),
+        attackerEnv,
+        createExecutionContext().execCtx
+      );
+
+      expect(generateRes.status).toBe(200);
+      const generateBody = await generateRes.json();
+
+      const saveRes = await ownerHarness.authWorker.fetch(
+        authJsonRequest('/api/ai/images/save', 'POST', {
+          save_reference: generateBody.result.saveReference,
+          prompt: 'Cross-admin misuse check',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          steps: 4,
+          seed: 12345,
+        }, attackerHeaders),
+        attackerEnv,
+        createExecutionContext().execCtx
+      );
+
+      expect(saveRes.status).toBe(404);
+      await expect(saveRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'SAVE_REFERENCE_UNAVAILABLE',
+        error: 'Generated image is no longer available. Please generate it again.',
+      });
+      expect(attackerEnv.DB.state.aiImages).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/test-image allows FLUX.2 Klein 9B and uses the multipart AI path', async () => {

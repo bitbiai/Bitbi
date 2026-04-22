@@ -95,6 +95,11 @@ const ADMIN_AI_CODE_MESSAGES = {
     request_timeout: 'The request took too long and was cancelled.',
     network_error: 'Network error. Please try again.',
 };
+const SAVE_REFERENCE_FALLBACK_CODES = new Set([
+    'INVALID_SAVE_REFERENCE',
+    'SAVE_REFERENCE_EXPIRED',
+    'SAVE_REFERENCE_UNAVAILABLE',
+]);
 
 const DEFAULT_FORMS = {
     text: {
@@ -1880,14 +1885,32 @@ export function createAdminAiLab({ showToast } = {}) {
 
         try {
             if (intent.type === 'image') {
-                const res = await apiAiSaveImage(
-                    intent.payload.imageData,
+                let res = await apiAiSaveImage(
+                    intent.payload.saveReference
+                        ? { saveReference: intent.payload.saveReference }
+                        : intent.payload.imageData,
                     intent.payload.prompt,
                     intent.payload.model,
                     intent.payload.steps,
                     intent.payload.seed,
                     state.save.folderId || null,
                 );
+
+                if (
+                    !res.ok &&
+                    intent.payload.saveReference &&
+                    intent.payload.imageData &&
+                    SAVE_REFERENCE_FALLBACK_CODES.has(res.code)
+                ) {
+                    res = await apiAiSaveImage(
+                        intent.payload.imageData,
+                        intent.payload.prompt,
+                        intent.payload.model,
+                        intent.payload.steps,
+                        intent.payload.seed,
+                        state.save.folderId || null,
+                    );
+                }
 
                 if (!res.ok) {
                     setSaveState('error', res.error || 'Image save failed.');

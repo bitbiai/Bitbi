@@ -12,7 +12,12 @@ import {
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
 } from "../../../../js/shared/admin-ai-contract.mjs";
-import { logDiagnostic, withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
+import {
+  getErrorFields,
+  getRequestLogFields,
+  logDiagnostic,
+  withCorrelationId,
+} from "../../../../js/shared/worker-observability.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
   attachRemoteMediaPolicyContext,
@@ -27,6 +32,7 @@ import {
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import { createAiGeneratedSaveReferenceFromBase64 } from "./ai/generated-image-save-reference.js";
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -55,6 +61,60 @@ function notFoundResponse(correlationId) {
     },
     { status: 404 }
   ), correlationId);
+}
+
+async function attachAdminImageSaveReference(response, env, adminUser, correlationId, requestInfo = null) {
+  if (!(response instanceof Response)) return response;
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return response;
+  }
+
+  let body = null;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+
+  if (!body?.ok || typeof body?.result?.imageBase64 !== "string" || !body.result.imageBase64) {
+    return response;
+  }
+
+  try {
+    const { saveReference } = await createAiGeneratedSaveReferenceFromBase64(env, {
+      userId: adminUser.id,
+      imageBase64: body.result.imageBase64,
+      mimeType: body.result.mimeType || "image/png",
+    });
+    const headers = new Headers(response.headers);
+    headers.set("content-type", "application/json; charset=utf-8");
+    headers.delete("content-length");
+    return withCorrelationId(new Response(JSON.stringify({
+      ...body,
+      result: {
+        ...body.result,
+        saveReference,
+      },
+    }), {
+      status: response.status,
+      headers,
+    }), correlationId);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-ai-image",
+      event: "admin_ai_generated_temp_store_failed",
+      level: "warn",
+      correlationId,
+      admin_user_id: adminUser.id,
+      model: body?.model?.id || null,
+      ...getRequestLogFields(requestInfo),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return response;
+  }
 }
 
 export async function handleAdminAI(ctx) {
@@ -122,7 +182,7 @@ export async function handleAdminAI(ctx) {
     try {
       const payload = validateImagePayload(body);
       await validateFlux2DevReferenceImageDimensions(env, payload);
-      return proxyToAiLab(
+      const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",
         { method: "POST", body: payload },
@@ -130,6 +190,7 @@ export async function handleAdminAI(ctx) {
         correlationId,
         requestInfo
       );
+      return attachAdminImageSaveReference(response, env, result.user, correlationId, requestInfo);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       throw error;

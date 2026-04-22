@@ -501,6 +501,10 @@ async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
+  const generatedImageSaveReference = captures.generateSaveReference || 'admin-generated-save-reference';
+  const saveImageHandler = typeof captures.saveImageHandler === 'function'
+    ? captures.saveImageHandler
+    : null;
   const assetStore = captures.assetStore || createSavedAssetsStore(
     captures.folderPayload || {
       folders: [
@@ -663,6 +667,7 @@ async function mockAdminAiLab(page, captures = {}) {
         preset: body.preset || 'image_fast',
         result: {
           imageBase64: ONE_PX_PNG_BASE64,
+          saveReference: generatedImageSaveReference,
           mimeType: 'image/png',
           steps: usesLegacyControls ? body.steps ?? 4 : null,
           seed: usesLegacyControls ? body.seed ?? 12345 : null,
@@ -1171,6 +1176,12 @@ async function mockAdminAiLab(page, captures = {}) {
   await page.route('**/api/ai/images/save', async (route) => {
     const body = route.request().postDataJSON();
     saveImageRequests.push(body);
+    if (saveImageHandler) {
+      const handled = await saveImageHandler(route, body, assetStore, saveImageRequests);
+      if (handled !== false) {
+        return;
+      }
+    }
     const id = `img-${saveImageRequests.length}`;
     assetStore.addAsset({
       id,
@@ -4568,10 +4579,43 @@ test.describe('Admin AI Lab', () => {
     );
   });
 
-  test('reuses the existing image save flow for AI Lab image results', async ({
+  test('saves AI Lab image results by reference instead of re-uploading full image data on the normal path', async ({
     page,
   }) => {
     const saveImageRequests = [];
+    await page.unroute('**/api/admin/ai/test-image');
+    await page.route('**/api/admin/ai/test-image', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'image',
+          model: {
+            id: '@cf/black-forest-labs/flux-1-schnell',
+            task: 'image',
+            label: 'FLUX.1 Schnell',
+            vendor: 'Black Forest Labs',
+          },
+          preset: body.preset || 'image_fast',
+          result: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            saveReference: 'admin-lab-save-reference',
+            mimeType: 'image/png',
+            steps: body.steps ?? 4,
+            seed: body.seed ?? 12345,
+            requestedSize:
+              body.width && body.height
+                ? { width: body.width, height: body.height }
+                : null,
+            appliedSize: null,
+          },
+          elapsedMs: 456,
+          warnings: ['Mock image warning'],
+        }),
+      });
+    });
     await page.unroute('**/api/ai/images/save');
     await page.route('**/api/ai/images/save', async (route) => {
       const body = route.request().postDataJSON();
@@ -4613,8 +4657,110 @@ test.describe('Admin AI Lab', () => {
       model: '@cf/black-forest-labs/flux-1-schnell',
       steps: 4,
       seed: 12345,
+      save_reference: 'admin-lab-save-reference',
     }));
-    expect(saveImageRequests[0].imageData).toMatch(/^data:image\/png;base64,/);
+    expect(saveImageRequests[0].imageData).toBeUndefined();
+  });
+
+  test('falls back to the legacy image upload path when an AI Lab save reference expires', async ({
+    page,
+  }) => {
+    const saveImageRequests = [];
+    await page.unroute('**/api/admin/ai/test-image');
+    await page.route('**/api/admin/ai/test-image', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'image',
+          model: {
+            id: '@cf/black-forest-labs/flux-1-schnell',
+            task: 'image',
+            label: 'FLUX.1 Schnell',
+            vendor: 'Black Forest Labs',
+          },
+          preset: body.preset || 'image_fast',
+          result: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            saveReference: 'expired-admin-lab-save-reference',
+            mimeType: 'image/png',
+            steps: body.steps ?? 4,
+            seed: body.seed ?? 12345,
+            requestedSize:
+              body.width && body.height
+                ? { width: body.width, height: body.height }
+                : null,
+            appliedSize: null,
+          },
+          elapsedMs: 456,
+          warnings: ['Mock image warning'],
+        }),
+      });
+    });
+    await page.unroute('**/api/ai/images/save');
+    await page.route('**/api/ai/images/save', async (route) => {
+      const body = route.request().postDataJSON();
+      saveImageRequests.push(body);
+      if (body.save_reference) {
+        await route.fulfill({
+          status: 410,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'SAVE_REFERENCE_EXPIRED',
+            error: 'Generated image reference expired. Please generate the image again.',
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: 'img-1',
+            folder_id: body.folder_id || null,
+            prompt: body.prompt,
+            model: body.model,
+            steps: body.steps ?? null,
+            seed: body.seed ?? null,
+            created_at: '2026-04-10T12:00:00.000Z',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await clickAiLabMode(page, 'image');
+    await page.locator('#aiImagePrompt').fill('Fallback AI Lab image save');
+    await page.locator('#aiImageRun').click();
+    await page.locator('#aiImageSave').click();
+    await expect(page.locator('#aiLabSaveTitleField')).toBeHidden();
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+
+    expect(saveImageRequests).toHaveLength(2);
+    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
+      folder_id: 'folder-launches',
+      prompt: 'Fallback AI Lab image save',
+      save_reference: 'expired-admin-lab-save-reference',
+    }));
+    expect(saveImageRequests[0].imageData).toBeUndefined();
+    expect(saveImageRequests[1]).toEqual(expect.objectContaining({
+      folder_id: 'folder-launches',
+      prompt: 'Fallback AI Lab image save',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+      seed: 12345,
+    }));
+    expect(saveImageRequests[1].save_reference).toBeUndefined();
+    expect(saveImageRequests[1].imageData).toMatch(/^data:image\/png;base64,/);
   });
 
   test('persists last-used form values and surfaces backend errors', async ({

@@ -127,6 +127,21 @@ export function isAiGeneratedTempObjectExpired(uploadedAt, now = Date.now()) {
   return uploadedMs <= now - AI_GENERATED_SAVE_REFERENCE_TTL_MS;
 }
 
+function decodeBase64ToBytes(base64) {
+  if (typeof base64 !== "string" || !base64) {
+    throw new Error("Invalid generated image payload.");
+  }
+  if (typeof atob === "function") {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+  return new Uint8Array(Buffer.from(base64, "base64"));
+}
+
 export async function encodeAiGeneratedSaveReference(env, { userId, tempId, expiresAt } = {}) {
   const normalizedTempId = String(tempId || "").trim();
   if (!normalizedTempId || normalizedTempId.length > 200) {
@@ -151,6 +166,31 @@ export async function encodeAiGeneratedSaveReference(env, { userId, tempId, expi
     sig: await signBody(env?.SESSION_SECRET, unsignedBody),
   };
   return toBase64Url(bytesToBase64(textEncoder.encode(JSON.stringify(body))));
+}
+
+export async function createAiGeneratedSaveReferenceFromBase64(
+  env,
+  {
+    userId,
+    imageBase64,
+    mimeType = "image/png",
+    expiresAt = Date.now() + AI_GENERATED_SAVE_REFERENCE_TTL_MS,
+  } = {}
+) {
+  const tempId = crypto.randomUUID();
+  const tempKey = buildAiGeneratedTempOriginalKey(userId, tempId);
+  const imageBytes = decodeBase64ToBytes(imageBase64);
+  await env.USER_IMAGES.put(tempKey, imageBytes.buffer, {
+    httpMetadata: { contentType: mimeType || "image/png" },
+  });
+  return {
+    tempKey,
+    saveReference: await encodeAiGeneratedSaveReference(env, {
+      userId,
+      tempId,
+      expiresAt,
+    }),
+  };
 }
 
 export async function decodeAiGeneratedSaveReference(env, reference, { userId, now = Date.now() } = {}) {

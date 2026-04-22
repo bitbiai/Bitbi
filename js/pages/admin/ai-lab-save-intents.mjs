@@ -56,6 +56,7 @@ export function buildImageSaveIntent({
         note: 'The existing image save endpoint generates the final filename automatically. Only the folder selection is required here.',
         payload: {
             imageData: `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`,
+            saveReference: typeof result.saveReference === 'string' ? result.saveReference : null,
             prompt: response?.prompt || prompt || '',
             model: response?.model?.id || fallbackModel || '',
             steps: result.steps,
