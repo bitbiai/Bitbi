@@ -1,10 +1,10 @@
-import { getClientIp, isSharedRateLimited } from './lib/rate-limit.js';
+import { evaluateSharedRateLimit, getClientIp } from './lib/rate-limit.js';
 
 /**
  * Contact form worker for `https://contact.bitbi.ai`.
  * Depends on `RESEND_API_KEY` plus D1 binding `DB` for shared contact abuse counters.
- * Apply `workers/auth/migrations/0015_add_rate_limit_counters.sql` before deploy if
- * durable rate limiting is expected; otherwise the limiter falls back to in-memory.
+ * Apply `workers/auth/migrations/0015_add_rate_limit_counters.sql` before deploy so
+ * durable contact abuse protection remains available in production.
  */
 
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
@@ -27,6 +27,13 @@ function corsHeaders(origin) {
         'Access-Control-Allow-Headers': 'Content-Type',
         'X-Content-Type-Options': 'nosniff',
     };
+}
+
+function protectionsUnavailableResponse(origin) {
+    return new Response(JSON.stringify({ error: 'Service temporarily unavailable. Please try again later.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
 }
 
 export default {
@@ -58,30 +65,44 @@ export default {
             });
         }
 
-        /* Shared durable abuse gates with in-memory fallback */
+        /* Shared durable abuse gates fail closed in production when protection infra is unavailable */
         const ip = getClientIp(request);
-        const burstLimited = await isSharedRateLimited(
+        const burstLimit = await evaluateSharedRateLimit(
             env,
             'contact-submit-ip-burst',
             ip,
             CONTACT_BURST_LIMIT,
             CONTACT_BURST_WINDOW_MS,
+            {
+                failClosedInProduction: true,
+                component: 'contact-submit',
+            },
         );
-        if (burstLimited) {
+        if (burstLimit.unavailable) {
+            return protectionsUnavailableResponse(origin);
+        }
+        if (burstLimit.limited) {
             return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
                 status: 429,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
             });
         }
 
-        const hourlyLimited = await isSharedRateLimited(
+        const hourlyLimit = await evaluateSharedRateLimit(
             env,
             'contact-submit-ip-hourly',
             ip,
             CONTACT_HOURLY_LIMIT,
             CONTACT_HOURLY_WINDOW_MS,
+            {
+                failClosedInProduction: true,
+                component: 'contact-submit',
+            },
         );
-        if (hourlyLimited) {
+        if (hourlyLimit.unavailable) {
+            return protectionsUnavailableResponse(origin);
+        }
+        if (hourlyLimit.limited) {
             return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
                 status: 429,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },

@@ -9,10 +9,42 @@ import {
 import { hashPassword, verifyPassword } from "../lib/passwords.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
 import { createSession, getSessionUser } from "../lib/session.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+} from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 import { resolveCachedAvatarPresence } from "../lib/profile-avatar-state.js";
+import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
+
+async function evaluateSensitivePublicRateLimit(
+  env,
+  scope,
+  key,
+  maxRequests,
+  windowMs,
+  { correlationId = null, component = "auth" } = {}
+) {
+  return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
+    failClosedInProduction: true,
+    correlationId,
+    component,
+  });
+}
+
+function logAdminAuthEvent(correlationId, event, fields = {}) {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "admin-auth",
+    event,
+    level: event === "admin_login_succeeded" ? "info" : "warn",
+    correlationId,
+    ...fields,
+  });
+}
 
 export async function handleMe(ctx) {
   const { request, env } = ctx;
@@ -44,9 +76,18 @@ export async function handleMe(ctx) {
 }
 
 export async function handleRegister(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-register-ip", ip, 5, 3600_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-register-ip",
+    ip,
+    5,
+    3600_000,
+    { correlationId, component: "auth-register" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -104,7 +145,16 @@ export async function handleRegister(ctx) {
   }
 
   // Per-email rate limit (returns generic success to prevent enumeration)
-  if (await isSharedRateLimited(env, "auth-register-email", email, 3, 3600_000)) {
+  const emailLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-register-email",
+    email,
+    3,
+    3600_000,
+    { correlationId, component: "auth-register" }
+  );
+  if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (emailLimit.limited) {
     return json(
       {
         ok: true,
@@ -166,9 +216,18 @@ export async function handleRegister(ctx) {
 }
 
 export async function handleLogin(ctx) {
-  const { request, env, isSecure } = ctx;
+  const { request, env, isSecure, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-login-ip", ip, 10, 900_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-login-ip",
+    ip,
+    10,
+    900_000,
+    { correlationId, component: "auth-login" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -196,7 +255,16 @@ export async function handleLogin(ctx) {
   }
 
   // Per-email rate limit
-  if (await isSharedRateLimited(env, "auth-login-email", email, 10, 900_000)) return rateLimitResponse();
+  const emailLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-login-email",
+    email,
+    10,
+    900_000,
+    { correlationId, component: "auth-login" }
+  );
+  if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (emailLimit.limited) return rateLimitResponse();
 
   const user = await env.DB.prepare(
     `
@@ -224,6 +292,12 @@ export async function handleLogin(ctx) {
   const { valid, needsRehash } = await verifyPassword(password, user.password_hash, env);
 
   if (!valid) {
+    if (user.role === "admin") {
+      logAdminAuthEvent(correlationId, "admin_login_failed", {
+        admin_user_id: user.id,
+        failure_reason: "invalid_password",
+      });
+    }
     return json(
       {
         ok: false,
@@ -234,6 +308,12 @@ export async function handleLogin(ctx) {
   }
 
   if (user.status !== "active") {
+    if (user.role === "admin") {
+      logAdminAuthEvent(correlationId, "admin_login_failed", {
+        admin_user_id: user.id,
+        failure_reason: "account_inactive",
+      });
+    }
     return json(
       {
         ok: false,
@@ -244,6 +324,12 @@ export async function handleLogin(ctx) {
   }
 
   if (!user.email_verified_at) {
+    if (user.role === "admin") {
+      logAdminAuthEvent(correlationId, "admin_login_failed", {
+        admin_user_id: user.id,
+        failure_reason: "email_not_verified",
+      });
+    }
     return json(
       {
         ok: false,
@@ -263,6 +349,13 @@ export async function handleLogin(ctx) {
   }
 
   const { sessionToken } = await createSession(env, user.id);
+
+  if (user.role === "admin") {
+    logAdminAuthEvent(correlationId, "admin_login_succeeded", {
+      admin_user_id: user.id,
+      session_transport: isSecure ? "secure" : "legacy",
+    });
+  }
 
   // Log login (durable background write)
   ctx.execCtx.waitUntil(

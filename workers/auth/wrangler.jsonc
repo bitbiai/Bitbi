@@ -5,7 +5,8 @@
 	"vars": {
 		"APP_NAME": "bitbi",
 		"APP_BASE_URL": "https://bitbi.ai",
-		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>"
+		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
+		"BITBI_ENV": "production"
 	},
 	"triggers": {
 		"crons": ["0 3 * * *"]

@@ -3684,13 +3684,17 @@ test.describe('Worker routes', () => {
           ai_gateway_log_id: 'gw-log-success-123',
           gateway_mode: 'on',
           minimal_mode_active: true,
-          effective_payload_json: JSON.stringify({
-            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          effective_request: expect.objectContaining({
+            prompt_present: true,
             duration: 5,
             resolution: '720p',
+            start_image_present: false,
+            end_image_present: false,
           }),
           run_outcome: 'success',
         }));
+        expect(referenceLog).not.toHaveProperty('effective_payload_json');
+        expect(JSON.stringify(referenceLog)).not.toContain('golden retriever');
       } finally {
         diagnostics.restore();
       }
@@ -3837,8 +3841,8 @@ test.describe('Worker routes', () => {
           ai_gateway_log_id: 'gw-log-failure-456',
           gateway_mode: 'on',
           minimal_mode_active: true,
-          effective_payload_json: JSON.stringify({
-            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          effective_request: expect.objectContaining({
+            prompt_present: true,
             duration: 5,
             resolution: '720p',
           }),
@@ -3853,16 +3857,21 @@ test.describe('Worker routes', () => {
           gateway_model_id: 'vidu/q3-pro',
           gateway_response_status: 400,
           gateway_response_status_text: 'Bad Request',
-          gateway_upstream_error_message: 'Request validation failed',
           gateway_request_target: 'providers/vidu/q3-pro',
           gateway_request_path: '/v1/video/generate',
           gateway_request_method: 'POST',
-          gateway_request_url: 'https://gateway.example.com/v1/video/generate',
+          gateway_request_url_host: 'gateway.example.com',
+          gateway_error_shape: expect.objectContaining({
+            type: 'object',
+            keys: ['error'],
+          }),
+          gateway_validation_shape: expect.objectContaining({
+            type: 'object',
+            keys: ['field', 'reason'],
+          }),
         }));
-        expect(summaryLog.gateway_validation_details).toEqual({
-          field: 'prompt',
-          reason: 'must satisfy provider validation',
-        });
+        expect(summaryLog).not.toHaveProperty('gateway_upstream_error_message');
+        expect(summaryLog).not.toHaveProperty('gateway_validation_details');
       } finally {
         diagnostics.restore();
       }
@@ -3915,13 +3924,14 @@ test.describe('Worker routes', () => {
           ai_gateway_log_id: 'gw-log-lookup-failure-789',
           gateway_mode: 'on',
           minimal_mode_active: true,
-          effective_payload_json: JSON.stringify({
-            prompt: 'A golden retriever running through a sunlit meadow in slow motion',
+          effective_request: expect.objectContaining({
+            prompt_present: true,
             duration: 5,
             resolution: '720p',
           }),
           error_message: 'Gateway log lookup exploded',
         }));
+        expect(lookupFailureLog).not.toHaveProperty('effective_payload_json');
       } finally {
         diagnostics.restore();
       }
@@ -4041,7 +4051,19 @@ test.describe('Worker routes', () => {
           minimal_mode_active: false,
           workflow: 'text_to_video',
           create_path: '/ent/v2/text2video',
+          effective_request: expect.objectContaining({
+            prompt_present: true,
+            prompt_length: 'little bird'.length,
+            start_image_present: false,
+            end_image_present: false,
+          }),
+          create_request: expect.objectContaining({
+            prompt_present: true,
+            prompt_length: 'little bird'.length,
+            images_count: 0,
+          }),
         }));
+        expect(JSON.stringify(fallbackStartedLog)).not.toContain('little bird');
 
         const fallbackSuccessLog = findDiagnosticEvent(diagnostics.entries, 'vidu_provider_fallback_succeeded');
         expect(fallbackSuccessLog).toEqual(expect.objectContaining({
@@ -4059,7 +4081,8 @@ test.describe('Worker routes', () => {
       }
     });
 
-    test('POST /api/admin/ai/test-video maps vidu/q3-pro start/end fallback requests onto the Vidu provider images array', async () => {
+    test('POST /api/admin/ai/test-video maps vidu/q3-pro start/end fallback requests onto the Vidu provider images array without logging raw frame inputs', async () => {
+      const diagnostics = captureDiagnosticLogs();
       const originalFetch = global.fetch;
       const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
       providerError.name = 'InferenceUpstreamError';
@@ -4148,7 +4171,11 @@ test.describe('Worker routes', () => {
         });
         expect(capturedCreateBody.start_image).toBeUndefined();
         expect(capturedCreateBody.end_image).toBeUndefined();
+        const serializedLogs = JSON.stringify(diagnostics.entries);
+        expect(serializedLogs).not.toContain(dataUri);
+        expect(serializedLogs).not.toContain('Blend these frames together.');
       } finally {
+        diagnostics.restore();
         global.fetch = originalFetch;
       }
     });
@@ -5386,6 +5413,100 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('shared limiter: production login fails closed when the durable limiter table is missing', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { hashPassword } = await loadAuthModules();
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        missingTables: ['rate_limit_counters'],
+        users: [
+          {
+            id: 'prod-rate-login-user',
+            email: 'prod-rate@example.com',
+            password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+            created_at: nowIso(),
+            status: 'active',
+            role: 'user',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: 'prod-rate@example.com',
+          password: 'password123',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.155',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Service temporarily unavailable. Please try again later.',
+      });
+      expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_fail_closed')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-auth',
+          component: 'auth-login',
+          limiter_scope: 'auth-login-ip',
+          limiter_reason: 'rate_limit_table_missing',
+          production: true,
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('shared limiter: test env login still falls back when the durable limiter table is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const env = createAuthTestEnv({
+      missingTables: ['rate_limit_counters'],
+      users: [
+        {
+          id: 'test-rate-login-user',
+          email: 'testrate@example.com',
+          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'testrate@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.156',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      message: 'Login successful.',
+      user: expect.objectContaining({
+        id: 'test-rate-login-user',
+      }),
+    });
+  });
+
   test('shared limiter: AI generation is blocked when the durable per-user rate limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -5562,6 +5683,147 @@ test.describe('Worker routes', () => {
       error: 'Too many requests. Please try again later.',
     });
     expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-rate-user')).toHaveLength(0);
+  });
+
+  test('scheduled cleanup: production fails explicitly when the durable limiter table is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      missingTables: ['rate_limit_counters'],
+    });
+
+    await expect(
+      authWorker.scheduled({}, env, createExecutionContext().execCtx)
+    ).rejects.toThrow('Shared rate limiter table is unavailable.');
+  });
+
+  test('admin auth posture: production rejects legacy admin session cookies but still accepts member sessions', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [
+        createAdminUser('secure-admin-user'),
+        createContractUser({ id: 'secure-member-user', role: 'user' }),
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'secure-admin-user');
+    const memberToken = await seedSession(env, 'secure-member-user');
+
+    const adminBlockedRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/me', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(adminBlockedRes.status).toBe(403);
+    await expect(adminBlockedRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Admin access requires a secure session.',
+    });
+
+    const memberAllowedRes = await authWorker.fetch(
+      authJsonRequest('/api/me', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(memberAllowedRes.status).toBe(200);
+    await expect(memberAllowedRes.json()).resolves.toMatchObject({
+      loggedIn: true,
+      user: expect.objectContaining({
+        id: 'secure-member-user',
+        role: 'user',
+      }),
+    });
+  });
+
+  test('admin auth posture: production accepts the secure admin session cookie and logs admin login outcomes', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    try {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { hashPassword } = await loadAuthModules();
+      const env = createAuthTestEnv({
+        BITBI_ENV: 'production',
+        users: [
+          {
+            id: 'logged-admin-user',
+            email: 'logged-admin@example.com',
+            password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+            created_at: nowIso(),
+            status: 'active',
+            role: 'admin',
+            email_verified_at: nowIso(),
+            verification_method: 'email_verified',
+          },
+        ],
+      });
+
+      const loginFailureRes = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: 'logged-admin@example.com',
+          password: 'wrong-password',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.157',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(loginFailureRes.status).toBe(401);
+
+      const loginSuccessRes = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: 'logged-admin@example.com',
+          password: 'password123',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.157',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(loginSuccessRes.status).toBe(200);
+
+      const secureCookie = parseSessionCookie(loginSuccessRes.headers.get('set-cookie'));
+      expect(secureCookie.startsWith('__Host-bitbi_session=')).toBe(true);
+
+      const adminRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/me', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureCookie,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(adminRes.status).toBe(200);
+      await expect(adminRes.json()).resolves.toMatchObject({
+        ok: true,
+        user: expect.objectContaining({
+          id: 'logged-admin-user',
+          role: 'admin',
+        }),
+      });
+
+      expect(findDiagnosticEvent(diagnostics.entries, 'admin_login_failed')).toEqual(
+        expect.objectContaining({
+          admin_user_id: 'logged-admin-user',
+          failure_reason: 'invalid_password',
+        })
+      );
+      expect(findDiagnosticEvent(diagnostics.entries, 'admin_login_succeeded')).toEqual(
+        expect.objectContaining({
+          admin_user_id: 'logged-admin-user',
+          session_transport: 'secure',
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
   });
 
   test('request trust boundary: same-origin Referer is accepted for state-changing favorites add when Origin is absent', async () => {
@@ -9815,6 +10077,63 @@ test.describe('Worker routes', () => {
       });
       expect(resendCallCount).toBe(3);
     } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('contact worker: production fails closed when limiter protection infra is unavailable', async () => {
+    const diagnostics = captureDiagnosticLogs();
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv({ BITBI_ENV: 'production' });
+    env.DB = null;
+    env.RESEND_API_KEY = 'test-key';
+    const originalFetch = global.fetch;
+    let resendCallCount = 0;
+
+    global.fetch = async () => {
+      resendCallCount += 1;
+      return new Response(JSON.stringify({ id: 'email-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const res = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.79',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Hello',
+            message: 'Testing fail closed',
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        error: 'Service temporarily unavailable. Please try again later.',
+      });
+      expect(resendCallCount).toBe(0);
+      expect(findDiagnosticEvent(diagnostics.entries, 'shared_rate_limiter_fail_closed')).toEqual(
+        expect.objectContaining({
+          service: 'bitbi-contact',
+          component: 'contact-submit',
+          limiter_scope: 'contact-submit-ip-burst',
+          limiter_reason: 'db_binding_missing',
+          production: true,
+        })
+      );
+    } finally {
+      diagnostics.restore();
       global.fetch = originalFetch;
     }
   });

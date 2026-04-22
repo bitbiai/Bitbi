@@ -286,6 +286,7 @@ class BoundStatement {
 
 class MockD1 {
   constructor(seed = {}) {
+    this.missingTables = new Set(Array.isArray(seed.missingTables) ? seed.missingTables : []);
     this.state = {
       users: [],
       sessions: [],
@@ -340,6 +341,10 @@ class MockD1 {
 
   async execute(rawQuery, bindings, mode) {
     const query = normalizeSql(rawQuery);
+
+    if (this.missingTables.has('rate_limit_counters') && query.includes('rate_limit_counters')) {
+      throw new Error('no such table: rate_limit_counters');
+    }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
       const [tokenHash, currentTime] = bindings;
@@ -456,6 +461,10 @@ class MockD1 {
       const before = this.state.rateLimitCounters.length;
       this.state.rateLimitCounters = this.state.rateLimitCounters.filter((row) => row.expires_at >= now);
       return { success: true, meta: { changes: before - this.state.rateLimitCounters.length } };
+    }
+
+    if (query === 'SELECT 1 FROM rate_limit_counters LIMIT 1') {
+      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
     }
 
     if (query === 'DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?') {
@@ -2638,6 +2647,7 @@ function createAuthTestEnv(seed = {}) {
   const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
   return {
     APP_BASE_URL: 'https://bitbi.ai',
+    BITBI_ENV: seed.BITBI_ENV || 'test',
     RESEND_FROM_EMAIL: 'BITBI <noreply@contact.bitbi.ai>',
     SESSION_SECRET: 'test-session-secret',
     PBKDF2_ITERATIONS: '100000',

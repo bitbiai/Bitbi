@@ -347,6 +347,89 @@ function summarizeResultShape(result) {
   };
 }
 
+function summarizeMediaReference(value, label) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  const summary = {
+    [`${label}_present`]: !!trimmed,
+    [`${label}_length`]: trimmed.length,
+  };
+  if (!trimmed) {
+    return summary;
+  }
+
+  if (/^data:([^;,]+)/i.test(trimmed)) {
+    summary[`${label}_kind`] = "data_uri";
+    summary[`${label}_mime`] = trimmed.match(/^data:([^;,]+)/i)?.[1] || null;
+    return summary;
+  }
+
+  if (isUrlLike(trimmed)) {
+    summary[`${label}_kind`] = "url";
+    summary[`${label}_host`] = getUrlHost(trimmed);
+    return summary;
+  }
+
+  summary[`${label}_kind`] = isLikelyBase64(trimmed) ? "base64_like" : "inline";
+  return summary;
+}
+
+function summarizeMediaReferenceArray(values, label) {
+  const items = Array.isArray(values)
+    ? values.filter((value) => typeof value === "string" && value.trim())
+    : [];
+  const kinds = new Set();
+  const hosts = new Set();
+
+  for (const value of items) {
+    const trimmed = value.trim();
+    if (/^data:([^;,]+)/i.test(trimmed)) {
+      kinds.add("data_uri");
+      continue;
+    }
+    if (isUrlLike(trimmed)) {
+      kinds.add("url");
+      const host = getUrlHost(trimmed);
+      if (host) hosts.add(host);
+      continue;
+    }
+    kinds.add(isLikelyBase64(trimmed) ? "base64_like" : "inline");
+  }
+
+  return {
+    [`${label}_count`]: items.length,
+    [`${label}_kinds`]: items.length ? Array.from(kinds).sort().join(",") : null,
+    [`${label}_hosts`]: hosts.size ? Array.from(hosts).sort().join(",") : null,
+  };
+}
+
+function summarizeVideoPayload(payload) {
+  const keys = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? Object.keys(payload).sort()
+    : [];
+  return {
+    payload_keys: keys.join(","),
+    payload_key_count: keys.length,
+    prompt_present: typeof payload?.prompt === "string" && payload.prompt.trim().length > 0,
+    prompt_length: typeof payload?.prompt === "string" ? payload.prompt.length : 0,
+    duration: payload?.duration ?? null,
+    resolution: payload?.resolution ?? null,
+    audio: payload?.audio ?? null,
+    aspect_ratio: payload?.aspect_ratio ?? null,
+    quality: payload?.quality ?? null,
+    seed_present: payload?.seed !== undefined && payload?.seed !== null,
+    ...summarizeMediaReference(payload?.start_image, "start_image"),
+    ...summarizeMediaReference(payload?.end_image, "end_image"),
+    ...summarizeMediaReferenceArray(payload?.images, "images"),
+  };
+}
+
+function summarizeGatewayOptions(runOptions) {
+  return {
+    has_gateway_option: !!runOptions,
+    gateway_id: runOptions?.gateway?.id || null,
+  };
+}
+
 function sanitizeErrorValue(value, depth = 0) {
   if (value == null) return value;
   if (depth >= 2) {
@@ -380,13 +463,19 @@ function sanitizeErrorValue(value, depth = 0) {
 function getUpstreamErrorDetails(error) {
   if (!error || typeof error !== "object") return {};
 
+  const upstreamBody = error?.response?.body ?? error?.response?.data ?? error?.body ?? error?.data ?? error?.details ?? null;
+
   return {
     upstream_status: error?.response?.status ?? error?.status ?? null,
     upstream_status_text: error?.response?.statusText || null,
-    upstream_body: sanitizeErrorValue(
-      error?.response?.body ?? error?.response?.data ?? error?.body ?? error?.data ?? error?.details ?? null
-    ),
-    upstream_cause: sanitizeErrorValue(error?.cause ?? null),
+    upstream_error_code: sanitizeErrorValue(firstNestedValue(upstreamBody, [
+      "err_code",
+      "error.code",
+      "code",
+      "status_code",
+    ])),
+    upstream_body_shape: summarizeResultShape(upstreamBody),
+    upstream_cause_shape: summarizeResultShape(error?.cause ?? null),
   };
 }
 
@@ -425,6 +514,29 @@ function readAiGatewayLogId(aiBinding) {
 }
 
 function extractGatewayLogSummary(gatewayLog) {
+  const gatewayErrorValue = firstNestedValue(gatewayLog, [
+    "response.body",
+    "response.data",
+    "response.error",
+    "error",
+    "body",
+    "data",
+  ]);
+  const gatewayValidationValue = firstNestedValue(gatewayLog, [
+    "error.details",
+    "response.error.details",
+    "response.body.error.details",
+    "response.body.details",
+    "response.body.validation",
+    "response.body.errors",
+    "response.data.error.details",
+    "response.data.details",
+    "response.data.validation",
+    "response.data.errors",
+    "validation",
+    "details",
+    "errors",
+  ]);
   return {
     gateway_log_shape: summarizeResultShape(gatewayLog),
     gateway_provider_id: sanitizeErrorValue(firstNestedValue(gatewayLog, [
@@ -463,33 +575,21 @@ function extractGatewayLogSummary(gatewayLog) {
       "statusText",
       "status_text",
     ])),
-    gateway_upstream_error_message: sanitizeErrorValue(firstNestedValue(gatewayLog, [
-      "error.message",
-      "response.error.message",
-      "response.body.error.message",
-      "response.body.message",
-      "response.data.error.message",
-      "response.data.message",
-      "provider_error.message",
-      "body.error.message",
-      "body.message",
-      "message",
+    gateway_error_code: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+      "error.code",
+      "response.error.code",
+      "response.body.error.code",
+      "response.body.code",
+      "response.data.error.code",
+      "response.data.code",
+      "provider_error.code",
+      "body.error.code",
+      "body.code",
+      "code",
+      "err_code",
     ])),
-    gateway_validation_details: sanitizeErrorValue(firstNestedValue(gatewayLog, [
-      "error.details",
-      "response.error.details",
-      "response.body.error.details",
-      "response.body.details",
-      "response.body.validation",
-      "response.body.errors",
-      "response.data.error.details",
-      "response.data.details",
-      "response.data.validation",
-      "response.data.errors",
-      "validation",
-      "details",
-      "errors",
-    ])),
+    gateway_error_shape: summarizeResultShape(gatewayErrorValue),
+    gateway_validation_shape: summarizeResultShape(gatewayValidationValue),
     gateway_request_target: sanitizeErrorValue(firstNestedValue(gatewayLog, [
       "request.target",
       "target.path",
@@ -506,23 +606,10 @@ function extractGatewayLogSummary(gatewayLog) {
       "request.method",
       "method",
     ])),
-    gateway_request_url: sanitizeErrorValue(firstNestedValue(gatewayLog, [
+    gateway_request_url_host: getUrlHost(firstNestedValue(gatewayLog, [
       "request.url",
       "target.url",
       "metadata.url",
-    ])),
-    gateway_request_provider_metadata: sanitizeErrorValue(firstNestedValue(gatewayLog, [
-      "request.provider",
-      "target.provider",
-      "metadata.provider",
-    ])),
-    gateway_error_body: sanitizeErrorValue(firstNestedValue(gatewayLog, [
-      "response.body",
-      "response.data",
-      "response.error",
-      "error",
-      "body",
-      "data",
     ])),
   };
 }
@@ -546,7 +633,7 @@ function logViduGatewayReference({
     ai_gateway_log_id: aiGatewayLogId,
     gateway_mode: gatewayMode,
     minimal_mode_active: minimalModeActive,
-    effective_payload_json: JSON.stringify(effectivePayload),
+    effective_request: summarizeVideoPayload(effectivePayload),
     run_outcome: runOutcome,
   });
 }
@@ -613,7 +700,7 @@ async function logViduGatewayFailureDetails({
       ai_gateway_log_id: aiGatewayLogId,
       gateway_mode: gatewayMode,
       minimal_mode_active: minimalModeActive,
-      effective_payload_json: JSON.stringify(effectivePayload),
+      effective_request: summarizeVideoPayload(effectivePayload),
       ...extractGatewayLogSummary(gatewayLog),
     });
   } catch (gatewayLogError) {
@@ -627,7 +714,7 @@ async function logViduGatewayFailureDetails({
       ai_gateway_log_id: aiGatewayLogId,
       gateway_mode: gatewayMode,
       minimal_mode_active: minimalModeActive,
-      effective_payload_json: JSON.stringify(effectivePayload),
+      effective_request: summarizeVideoPayload(effectivePayload),
       ...getErrorFields(gatewayLogError),
     });
   }
@@ -768,7 +855,13 @@ function buildViduProviderError(message, { status = null, body = null, step = nu
   error.status = 502;
   error.code = "upstream_error";
   error.provider_status = status;
-  error.provider_body = sanitizeErrorValue(body);
+  error.provider_error_code = sanitizeErrorValue(firstNestedValue(body, [
+    "err_code",
+    "error.code",
+    "code",
+    "status_code",
+  ]));
+  error.provider_body_shape = summarizeResultShape(body);
   error.provider_step = step;
   error.provider_task_id = taskId;
   return error;
@@ -826,10 +919,12 @@ async function invokeViduProviderFallback({
     gateway_mode: gatewayMode,
     minimal_mode_active: minimalModeActive,
     workflow,
-    effective_payload_json: JSON.stringify(effectivePayload),
+    effective_request: summarizeVideoPayload(effectivePayload),
     create_path: createPath,
-    create_payload_json: JSON.stringify(createPayload),
-    cloudflare_error_message: sanitizeErrorValue(cloudflareError?.message || null),
+    create_request: summarizeVideoPayload(createPayload),
+    cloudflare_error_name: cloudflareError?.name || null,
+    cloudflare_error_code: cloudflareError?.code || null,
+    cloudflare_error_status: cloudflareError?.status || null,
   });
 
   let createResponse;
@@ -1039,7 +1134,13 @@ function buildMusicProviderError(raw) {
   error.provider_status_code = providerCode;
   error.provider_status_message = statusMessage || null;
   error.traceId = raw?.trace_id || null;
-  error.provider_body = sanitizeErrorValue(raw?.data ?? raw ?? null);
+  error.provider_error_code = sanitizeErrorValue(firstNestedValue(raw?.data ?? raw ?? null, [
+    "err_code",
+    "error.code",
+    "code",
+    "status_code",
+  ]));
+  error.provider_body_shape = summarizeResultShape(raw?.data ?? raw ?? null);
   return error;
 }
 
@@ -1403,7 +1504,8 @@ export async function invokeMusic(env, model, input) {
       provider_status_message: providerError.provider_status_message,
       provider_status: raw?.data?.status ?? raw?.status ?? null,
       raw_shape: summarizeResultShape(raw),
-      provider_body: providerError.provider_body,
+      provider_error_code: providerError.provider_error_code || null,
+      provider_body_shape: providerError.provider_body_shape || null,
     });
     throw providerError;
   }
@@ -1665,19 +1767,18 @@ export async function invokeVideo(env, model, input) {
     logDiagnostic({
       service: "bitbi-ai",
       component: "invoke-video",
-      event: "vidu_preflight_payload",
+      event: "vidu_preflight_request",
       level: "info",
       correlationId: input.correlationId || null,
       model: model.id,
-      payload_json: JSON.stringify(payload),
-      prompt_length: promptStr.length,
-      prompt_empty_after_trim: promptStr.trim().length === 0,
-      prompt_has_control_chars: hasControlChars,
-      prompt_preview: promptStr.slice(0, 120),
-      payload_keys: Object.keys(payload).sort().join(","),
+      request_summary: {
+        ...summarizeVideoPayload(payload),
+        prompt_empty_after_trim: promptStr.trim().length === 0,
+        prompt_has_control_chars: hasControlChars,
+      },
       gateway_mode: gatewayMode,
       minimal_mode_active: minimalModeActive,
-      gateway_options: runOptions ? JSON.stringify(runOptions) : "none",
+      ...summarizeGatewayOptions(runOptions),
       ...payloadTypeMap,
     });
 
@@ -1690,11 +1791,9 @@ export async function invokeVideo(env, model, input) {
       model: model.id,
       gateway_mode: gatewayMode,
       minimal_mode_active: minimalModeActive,
-      payload_json: JSON.stringify(payload),
-      effective_payload_json: JSON.stringify(effectivePayload),
-      gateway_options: runOptions ? JSON.stringify(runOptions) : "none",
-      payload_keys: Object.keys(payload).sort().join(","),
-      effective_payload_keys: Object.keys(effectivePayload).sort().join(","),
+      requested_summary: summarizeVideoPayload(payload),
+      effective_summary: summarizeVideoPayload(effectivePayload),
+      ...summarizeGatewayOptions(runOptions),
     });
   }
 
@@ -1705,7 +1804,7 @@ export async function invokeVideo(env, model, input) {
     level: "info",
     correlationId: input.correlationId || null,
     model: model.id,
-    has_gateway_option: !!runOptions,
+    ...summarizeGatewayOptions(runOptions),
     has_image_input: !!request.normalized.hasImageInput,
     has_end_image_input: !!request.normalized.hasEndImageInput,
     workflow: request.normalized.workflow,
@@ -1730,7 +1829,7 @@ export async function invokeVideo(env, model, input) {
       gateway_mode: gatewayMode,
       minimal_mode_active: true,
       original_payload_keys: Object.keys(payload).sort().join(","),
-      effective_payload_json: JSON.stringify(effectivePayload),
+      effective_summary: summarizeVideoPayload(effectivePayload),
     });
   }
 
@@ -1804,8 +1903,10 @@ export async function invokeVideo(env, model, input) {
             ai_gateway_log_id: aiGatewayLogId,
             gateway_mode: gatewayMode,
             minimal_mode_active: minimalModeActive,
-            effective_payload_json: JSON.stringify(effectivePayload),
-            cloudflare_error_message: sanitizeErrorValue(error?.message || null),
+            effective_request: summarizeVideoPayload(effectivePayload),
+            cloudflare_error_name: error?.name || null,
+            cloudflare_error_code: error?.code || null,
+            cloudflare_error_status: error?.status || null,
             ...getErrorFields(fallbackError),
             ...getUpstreamErrorDetails(fallbackError),
           });
@@ -1821,13 +1922,13 @@ export async function invokeVideo(env, model, input) {
         level: "error",
         correlationId: input.correlationId || null,
         model: model.id,
-        has_gateway_option: !!runOptions,
+        ...summarizeGatewayOptions(runOptions),
         ai_gateway_log_id: aiGatewayLogId,
         gateway_mode: gatewayMode,
         minimal_mode_active: minimalModeActive,
-        effective_payload_json:
+        effective_request:
           model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
-            ? JSON.stringify(effectivePayload)
+            ? summarizeVideoPayload(effectivePayload)
             : undefined,
         has_image_input: !!request.normalized.hasImageInput,
         has_end_image_input: !!request.normalized.hasEndImageInput,

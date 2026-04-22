@@ -36,7 +36,7 @@ function normalizeAdminUserSearch(value) {
 }
 
 export async function handleAdmin(ctx) {
-  const { request, env, url, pathname, method } = ctx;
+  const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
 
   const adminAiResult = await handleAdminAI(ctx);
   if (adminAiResult) {
@@ -45,7 +45,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/me
   if (pathname === "/api/admin/me" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -59,7 +59,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/users
   if (pathname === "/api/admin/users" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -137,7 +137,7 @@ export async function handleAdmin(ctx) {
     pathname.endsWith("/role") &&
     method === "PATCH"
   ) {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -228,7 +228,7 @@ export async function handleAdmin(ctx) {
     pathname.endsWith("/status") &&
     method === "PATCH"
   ) {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -319,7 +319,7 @@ export async function handleAdmin(ctx) {
     pathname.endsWith("/revoke-sessions") &&
     method === "POST"
   ) {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -398,7 +398,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/stats
   if (pathname === "/api/admin/stats" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
     const row = await env.DB.prepare(
@@ -430,7 +430,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/avatars/latest
   if (pathname === "/api/admin/avatars/latest" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
     const rows = await env.DB.prepare(
@@ -462,7 +462,7 @@ export async function handleAdmin(ctx) {
     pathname.startsWith("/api/admin/avatars/") &&
     method === "GET"
   ) {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
     const parts = pathname.split("/");
@@ -494,7 +494,7 @@ export async function handleAdmin(ctx) {
     pathname.startsWith("/api/admin/users/") &&
     method === "DELETE"
   ) {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
 
     if (result instanceof Response) {
       return result;
@@ -580,7 +580,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/activity
   if (pathname === "/api/admin/activity" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
     const limit = Math.min(
@@ -670,7 +670,7 @@ export async function handleAdmin(ctx) {
 
   // GET /api/admin/user-activity
   if (pathname === "/api/admin/user-activity" && method === "GET") {
-    const result = await requireAdmin(request, env);
+    const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
     const limit = Math.min(

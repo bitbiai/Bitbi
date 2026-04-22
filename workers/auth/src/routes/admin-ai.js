@@ -58,14 +58,14 @@ function notFoundResponse(correlationId) {
 }
 
 export async function handleAdminAI(ctx) {
-  const { request, env, pathname, method } = ctx;
+  const { request, env, pathname, method, isSecure } = ctx;
   const correlationId = ctx.correlationId || null;
 
   if (!pathname.startsWith("/api/admin/ai/")) {
     return null;
   }
 
-  const result = await requireAdmin(request, env);
+  const result = await requireAdmin(request, env, { isSecure, correlationId });
   if (result instanceof Response) {
     return withAdminAiCode(result);
   }

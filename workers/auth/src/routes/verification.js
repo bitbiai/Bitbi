@@ -1,15 +1,44 @@
 import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+} from "../lib/rate-limit.js";
 import { createAndSendVerificationToken } from "../lib/email.js";
 import { requireUser } from "../lib/session.js";
 import { logUserActivity } from "../lib/activity.js";
 
+async function evaluateSensitivePublicRateLimit(
+  env,
+  scope,
+  key,
+  maxRequests,
+  windowMs,
+  { correlationId = null, component = "auth-verification" } = {}
+) {
+  return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
+    failClosedInProduction: true,
+    correlationId,
+    component,
+  });
+}
+
 export async function handleVerifyEmail(ctx) {
-  const { request, url, env } = ctx;
+  const { request, url, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-verify-ip", ip, 10, 900_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-verify-ip",
+    ip,
+    10,
+    900_000,
+    { correlationId, component: "auth-verify-email" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const rawToken = url.searchParams.get("token");
 
@@ -67,9 +96,18 @@ export async function handleVerifyEmail(ctx) {
 }
 
 export async function handleResendVerification(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-resend-ip", ip, 3, 3600_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-resend-ip",
+    ip,
+    3,
+    3600_000,
+    { correlationId, component: "auth-resend-verification" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -98,9 +136,18 @@ export async function handleResendVerification(ctx) {
 }
 
 export async function handleRequestReverification(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-reverify-ip", ip, 3, 3600_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-reverify-ip",
+    ip,
+    3,
+    3600_000,
+    { correlationId, component: "auth-request-reverification" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;

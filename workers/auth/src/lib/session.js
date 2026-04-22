@@ -1,6 +1,12 @@
 import { json } from "./response.js";
-import { getSessionTokenFromCookies, parseCookies } from "./cookies.js";
+import {
+  SECURE_SESSION_COOKIE_NAME,
+  getSessionTokenFromCookies,
+  parseCookies,
+} from "./cookies.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
+import { isProductionEnvironment } from "./rate-limit.js";
+import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
 
 export async function getSessionUser(request, env) {
   const cookies = parseCookies(request.headers.get("Cookie"));
@@ -107,7 +113,31 @@ export async function requireUser(request, env) {
   return session;
 }
 
-export async function requireAdmin(request, env) {
+function adminSecureSessionResponse() {
+  return json(
+    { ok: false, error: "Admin access requires a secure session." },
+    { status: 403 }
+  );
+}
+
+function hasSecureAdminSessionCookie(request) {
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  return !!cookies?.[SECURE_SESSION_COOKIE_NAME];
+}
+
+function logAdminSessionPolicyRejection(correlationId, session, reason) {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "admin-auth",
+    event: "admin_session_policy_rejected",
+    level: "warn",
+    correlationId,
+    admin_user_id: session?.user?.id || null,
+    failure_reason: reason,
+  });
+}
+
+export async function requireAdmin(request, env, options = {}) {
   const result = await requireUser(request, env);
 
   if (result instanceof Response) {
@@ -119,6 +149,17 @@ export async function requireAdmin(request, env) {
       { ok: false, error: "Admin privileges required." },
       { status: 403 }
     );
+  }
+
+  if (options.enforceSecureSession !== false && isProductionEnvironment(env)) {
+    if (options.isSecure !== true) {
+      logAdminSessionPolicyRejection(options.correlationId || null, result, "insecure_transport");
+      return adminSecureSessionResponse();
+    }
+    if (!hasSecureAdminSessionCookie(request)) {
+      logAdminSessionPolicyRejection(options.correlationId || null, result, "secure_cookie_missing");
+      return adminSecureSessionResponse();
+    }
   }
 
   return result;

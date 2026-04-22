@@ -31,6 +31,10 @@ import {
   listAiImagesNeedingDerivativeWork,
   processAiImageDerivativeMessage,
 } from "./lib/ai-image-derivatives.js";
+import {
+  assertSharedRateLimitInfraReady,
+  isProductionEnvironment,
+} from "./lib/rate-limit.js";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";
@@ -194,12 +198,17 @@ export default {
       }
     }
 
+    if (isProductionEnvironment(env)) {
+      await assertSharedRateLimitInfraReady(env, {
+        component: "scheduled-rate-limit-cleanup",
+      });
+    }
     try {
       await env.DB.prepare(
         "DELETE FROM rate_limit_counters WHERE expires_at < ?"
       ).bind(now).run();
     } catch (e) {
-      if (!String(e).includes("no such table")) {
+      if (!String(e).includes("no such table") || isProductionEnvironment(env)) {
         throw e;
       }
     }

@@ -19,7 +19,7 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "RESEND_FROM_EMAIL"],
+        "vars": ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV"],
         "bindings": {
           "ai": "AI",
           "images": "IMAGES",
@@ -62,6 +62,7 @@
       "contact": {
         "name": "bitbi-contact",
         "wranglerPath": "workers/contact/wrangler.jsonc",
+        "vars": ["BITBI_ENV"],
         "bindings": {
           "d1": {
             "DB": {

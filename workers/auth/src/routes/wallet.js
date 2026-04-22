@@ -3,7 +3,12 @@ import { parseSiweMessage } from "viem/siwe";
 
 import { logUserActivity } from "../lib/activity.js";
 import { buildSessionCookie } from "../lib/cookies.js";
-import { getClientIp, isSharedRateLimited, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+} from "../lib/rate-limit.js";
 import { readJsonBody } from "../lib/request.js";
 import { json } from "../lib/response.js";
 import { createSession, getSessionUser, requireUser } from "../lib/session.js";
@@ -14,6 +19,21 @@ const SIWE_VERSION = "1";
 const SIWE_EXPIRY_MINUTES = 10;
 const LOGIN_FAILURE_MESSAGE = "That wallet cannot sign in on BITBI.";
 const LINK_FAILURE_MESSAGE = "That wallet cannot be linked to this account.";
+
+async function evaluateSensitivePublicRateLimit(
+  env,
+  scope,
+  key,
+  maxRequests,
+  windowMs,
+  { correlationId = null, component = "wallet-auth" } = {}
+) {
+  return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
+    failClosedInProduction: true,
+    correlationId,
+    component,
+  });
+}
 
 function getWalletSiweContext(env) {
   const fallback = "https://bitbi.ai";
@@ -265,7 +285,7 @@ export async function handleWalletStatus(ctx) {
 }
 
 export async function handleWalletSiweNonce(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const body = await readJsonBody(request);
   if (!body) {
     return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
@@ -277,9 +297,16 @@ export async function handleWalletSiweNonce(ctx) {
   }
 
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, `wallet-siwe-nonce-${intent}-ip`, ip, 12, 15 * 60_000)) {
-    return rateLimitResponse();
-  }
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    `wallet-siwe-nonce-${intent}-ip`,
+    ip,
+    12,
+    15 * 60_000,
+    { correlationId, component: "wallet-siwe-nonce" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   let session = null;
   if (intent === "link") {
@@ -330,7 +357,7 @@ export async function handleWalletSiweNonce(ctx) {
 }
 
 export async function handleWalletSiweVerify(ctx) {
-  const { request, env, isSecure } = ctx;
+  const { request, env, isSecure, correlationId } = ctx;
   const body = await readJsonBody(request);
   if (!body) {
     return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
@@ -341,9 +368,16 @@ export async function handleWalletSiweVerify(ctx) {
   const signature = typeof body.signature === "string" ? body.signature : "";
   const ip = getClientIp(request);
 
-  if (await isSharedRateLimited(env, `wallet-siwe-verify-${intent || "unknown"}-ip`, ip, 20, 15 * 60_000)) {
-    return rateLimitResponse();
-  }
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    `wallet-siwe-verify-${intent || "unknown"}-ip`,
+    ip,
+    20,
+    15 * 60_000,
+    { correlationId, component: "wallet-siwe-verify" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const verification = await parseAndValidateSiwePayload(env, intent, message, signature);
   if (verification.response) {

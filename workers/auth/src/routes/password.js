@@ -2,14 +2,43 @@ import { json } from "../lib/response.js";
 import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
 import { nowIso, addMinutesIso, randomTokenHex, sha256Hex } from "../lib/tokens.js";
 import { hashPassword } from "../lib/passwords.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+} from "../lib/rate-limit.js";
 import { sendResetEmail } from "../lib/email.js";
 import { logUserActivity } from "../lib/activity.js";
 
+async function evaluateSensitivePublicRateLimit(
+  env,
+  scope,
+  key,
+  maxRequests,
+  windowMs,
+  { correlationId = null, component = "auth-password" } = {}
+) {
+  return evaluateSharedRateLimit(env, scope, key, maxRequests, windowMs, {
+    failClosedInProduction: true,
+    correlationId,
+    component,
+  });
+}
+
 export async function handleForgotPassword(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-forgot-ip", ip, 5, 3600_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-forgot-ip",
+    ip,
+    5,
+    3600_000,
+    { correlationId, component: "auth-forgot-password" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
@@ -26,7 +55,16 @@ export async function handleForgotPassword(ctx) {
   if (!email || !isValidEmail(email)) return genericOk;
 
   // Per-email rate limit (returns generic to avoid revealing email existence)
-  if (await isSharedRateLimited(env, "auth-forgot-email", email, 3, 3600_000)) return genericOk;
+  const emailLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-forgot-email",
+    email,
+    3,
+    3600_000,
+    { correlationId, component: "auth-forgot-password" }
+  );
+  if (emailLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (emailLimit.limited) return genericOk;
 
   const user = await env.DB.prepare(
     "SELECT id, email, status FROM users WHERE email = ? LIMIT 1"
@@ -62,9 +100,18 @@ export async function handleForgotPassword(ctx) {
 }
 
 export async function handleValidateReset(ctx) {
-  const { request, url, env } = ctx;
+  const { request, url, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-reset-validate-ip", ip, 10, 900_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-reset-validate-ip",
+    ip,
+    10,
+    900_000,
+    { correlationId, component: "auth-reset-validate" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const rawToken = url.searchParams.get("token");
 
@@ -87,9 +134,18 @@ export async function handleValidateReset(ctx) {
 }
 
 export async function handleResetPassword(ctx) {
-  const { request, env } = ctx;
+  const { request, env, correlationId } = ctx;
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "auth-reset-ip", ip, 5, 3600_000)) return rateLimitResponse();
+  const ipLimit = await evaluateSensitivePublicRateLimit(
+    env,
+    "auth-reset-ip",
+    ip,
+    5,
+    3600_000,
+    { correlationId, component: "auth-reset-password" }
+  );
+  if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (ipLimit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(request);
 
