@@ -48,7 +48,8 @@ src/
 │   ├── session.js        ← getSessionUser, requireUser, requireAdmin
 │   ├── rate-limit.js     ← in-memory + shared Durable Object / D1 rate limiting helpers
 │   ├── email.js          ← sendVerificationEmail, sendResetEmail, createAndSendVerificationToken
-│   ├── activity.js       ← fire-and-forget user activity logging
+│   ├── activity.js       ← queue-backed admin audit / user activity producers + fallback inserts
+│   ├── activity-ingestion.js ← queue consumer batch persistence for audit/activity tables
 │   ├── admin-ai-response.js ← admin-only AI proxy response-code normalization
 │   └── constants.js      ← VALID_MONSTER_IDS
 └── routes/
@@ -146,6 +147,8 @@ src/
 
 **R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
 
+**Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
+
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
@@ -169,7 +172,7 @@ Key migration-dependent behavior:
 ## Conventions
 
 - All user-facing error messages are in **English**
-- Admin actions are logged to `admin_audit_log` with action type and JSON metadata
+- Admin actions are logged to `admin_audit_log` with action type and JSON metadata, now normally via the auth activity-ingest queue with a narrow direct-D1 fallback if queue publish fails
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 10 minutes per session
 - Production admin access is centrally MFA-gated: unenrolled admins can only reach `/api/admin/me` plus `/api/admin/mfa/*` bootstrap routes until TOTP setup is enabled, and enrolled admins must present a valid `__Host-bitbi_admin_mfa` proof cookie bound to the primary session before other admin routes are allowed
@@ -181,5 +184,6 @@ Key migration-dependent behavior:
 - Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
+- Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, and `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
 - Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

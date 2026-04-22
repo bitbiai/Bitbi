@@ -65,6 +65,8 @@ async function loadPublicMediaContractModule() {
   return import(contractPath);
 }
 
+const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
+
 async function loadWalletTestModules() {
   const accounts = await import('viem/accounts');
   return {
@@ -539,7 +541,7 @@ function createAiImageDerivativeMessage({
   };
 }
 
-function createQueueBatch(messages, { attempts = 1 } = {}) {
+function createQueueBatch(messages, { attempts = 1, queue = null } = {}) {
   const states = messages.map(() => ({
     acked: false,
     retried: false,
@@ -547,6 +549,7 @@ function createQueueBatch(messages, { attempts = 1 } = {}) {
   }));
   return {
     batch: {
+      queue,
       messages: messages.map((body, index) => ({
         body,
         attempts,
@@ -560,6 +563,20 @@ function createQueueBatch(messages, { attempts = 1 } = {}) {
       })),
     },
     states,
+  };
+}
+
+async function drainActivityIngestQueue(authWorker, env, { attempts = 1 } = {}) {
+  const queued = env.ACTIVITY_INGEST_QUEUE.messages.splice(0);
+  const queuedClone = queued.map((message) => JSON.parse(JSON.stringify(message)));
+  const batch = createQueueBatch(queued, {
+    attempts,
+    queue: ACTIVITY_INGEST_QUEUE_NAME,
+  });
+  await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+  return {
+    queued: queuedClone,
+    states: batch.states,
   };
 }
 
@@ -694,6 +711,7 @@ test.describe('Wallet SIWE routes', () => {
     expect(verifyBody.linked_wallet.address).toBe(signedPayload.account.address);
     expect(env.DB.state.linkedWallets).toHaveLength(1);
     expect(env.DB.state.linkedWallets[0].user_id).toBe(user.id);
+    await drainActivityIngestQueue(worker, env);
     expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_link')).toBe(true);
   });
 
@@ -753,6 +771,7 @@ test.describe('Wallet SIWE routes', () => {
     expect(verifyBody.ok).toBe(true);
     expect(env.DB.state.sessions.length).toBe(1);
     expect(env.DB.state.linkedWallets[0].last_login_at).toBeTruthy();
+    await drainActivityIngestQueue(worker, env);
     expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_login')).toBe(true);
   });
 
@@ -1097,6 +1116,7 @@ test.describe('Wallet SIWE routes', () => {
     expect(body.ok).toBe(true);
     expect(body.linked_wallet).toBe(null);
     expect(env.DB.state.linkedWallets).toHaveLength(0);
+    await drainActivityIngestQueue(worker, env);
     expect(env.DB.state.userActivityLog.some((row) => row.action === 'wallet_unlink')).toBe(true);
   });
 });
@@ -5287,6 +5307,278 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('user activity login enqueues instead of direct-writing on the common path and the consumer persists it', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'queued-login-user',
+          email: 'queued-login@example.com',
+          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+          created_at: '2026-04-01T00:00:00.000Z',
+          status: 'active',
+          role: 'user',
+          email_verified_at: '2026-04-01T00:10:00.000Z',
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'queued-login@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.210',
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toHaveLength(1);
+    expect(env.ACTIVITY_INGEST_QUEUE.messages[0]).toMatchObject({
+      type: 'bitbi.activity_ingest',
+      table: 'user_activity_log',
+      action: 'login',
+      user_id: 'queued-login-user',
+      ip_address: '203.0.113.210',
+    });
+    expect(
+      env.DB.runCalls.some((call) => call.query.includes('user_activity_log'))
+    ).toBe(false);
+
+    const consumed = await drainActivityIngestQueue(authWorker, env);
+    expect(consumed.states).toHaveLength(1);
+    expect(consumed.states[0].acked).toBe(true);
+    expect(consumed.states[0].retried).toBe(false);
+    expect(env.DB.state.userActivityLog).toHaveLength(1);
+    expect(env.DB.state.userActivityLog[0]).toMatchObject({
+      user_id: 'queued-login-user',
+      action: 'login',
+      ip_address: '203.0.113.210',
+    });
+  });
+
+  test('admin audit change-status enqueues instead of direct-writing on the common path and the consumer persists it', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('queued-admin'),
+        createContractUser({ id: 'queued-target', role: 'user', email: 'queued-target@example.com' }),
+      ],
+    });
+
+    const adminToken = await seedSession(env, 'queued-admin');
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/queued-target/status', 'PATCH', {
+        status: 'disabled',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.211',
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    expect(env.ACTIVITY_INGEST_QUEUE.messages).toHaveLength(1);
+    expect(env.ACTIVITY_INGEST_QUEUE.messages[0]).toMatchObject({
+      type: 'bitbi.activity_ingest',
+      table: 'admin_audit_log',
+      action: 'change_status',
+      admin_user_id: 'queued-admin',
+      target_user_id: 'queued-target',
+    });
+    expect(
+      env.DB.runCalls.some((call) => call.query.includes('admin_audit_log'))
+    ).toBe(false);
+
+    const consumed = await drainActivityIngestQueue(authWorker, env);
+    expect(consumed.states).toHaveLength(1);
+    expect(consumed.states[0].acked).toBe(true);
+    expect(consumed.states[0].retried).toBe(false);
+    expect(env.DB.state.adminAuditLog).toHaveLength(1);
+    expect(env.DB.state.adminAuditLog[0]).toMatchObject({
+      admin_user_id: 'queued-admin',
+      action: 'change_status',
+      target_user_id: 'queued-target',
+    });
+  });
+
+  test('activity ingest consumer retries on D1 failure and ignores duplicate redelivery by row id', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const message = {
+      schema_version: 1,
+      type: 'bitbi.activity_ingest',
+      table: 'user_activity_log',
+      event_id: 'activity-queued-1',
+      user_id: 'queued-user',
+      action: 'login',
+      meta_json: JSON.stringify({ email: 'queued-user@example.com' }),
+      ip_address: '203.0.113.212',
+      created_at: nowIso(),
+      correlation_id: 'corr-queued-activity-1',
+    };
+
+    const failingEnv = createAuthTestEnv({
+      missingTables: ['user_activity_log'],
+    });
+    const retryBatch = createQueueBatch([message], {
+      queue: ACTIVITY_INGEST_QUEUE_NAME,
+    });
+    await authWorker.queue(retryBatch.batch, failingEnv, createExecutionContext().execCtx);
+    expect(retryBatch.states[0].acked).toBe(false);
+    expect(retryBatch.states[0].retried).toBe(true);
+
+    const env = createAuthTestEnv();
+    const firstBatch = createQueueBatch([message], {
+      queue: ACTIVITY_INGEST_QUEUE_NAME,
+    });
+    await authWorker.queue(firstBatch.batch, env, createExecutionContext().execCtx);
+    expect(firstBatch.states[0].acked).toBe(true);
+    expect(env.DB.state.userActivityLog).toHaveLength(1);
+
+    const secondBatch = createQueueBatch([message], {
+      queue: ACTIVITY_INGEST_QUEUE_NAME,
+      attempts: 2,
+    });
+    await authWorker.queue(secondBatch.batch, env, createExecutionContext().execCtx);
+    expect(secondBatch.states[0].acked).toBe(true);
+    expect(secondBatch.states[0].retried).toBe(false);
+    expect(env.DB.state.userActivityLog).toHaveLength(1);
+    expect(env.DB.state.userActivityLog[0].id).toBe('activity-queued-1');
+  });
+
+  test('user activity queue publish failures fail soft without direct D1 fallback', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const diagnostics = captureDiagnosticLogs();
+
+    try {
+      const env = createAuthTestEnv({
+        users: [
+          {
+            id: 'soft-fail-user',
+            email: 'soft-fail@example.com',
+            password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+            created_at: '2026-04-01T00:00:00.000Z',
+            status: 'active',
+            role: 'user',
+            email_verified_at: '2026-04-01T00:10:00.000Z',
+            verification_method: 'email_verified',
+          },
+        ],
+      });
+      env.ACTIVITY_INGEST_QUEUE.failWith = new Error('activity queue unavailable');
+
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: 'soft-fail@example.com',
+          password: 'password123',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': '203.0.113.213',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      expect(env.ACTIVITY_INGEST_QUEUE.messages).toHaveLength(0);
+      expect(env.DB.state.userActivityLog).toHaveLength(0);
+      expect(
+        env.DB.runCalls.some((call) => call.query.includes('user_activity_log'))
+      ).toBe(false);
+      expect(findDiagnosticEvent(diagnostics.entries, 'user_activity_enqueue_failed')).toEqual(
+        expect.objectContaining({
+          component: 'activity-ingest-producer',
+          table: 'user_activity_log',
+          action: 'login',
+          fallback: 'none',
+          user_id: 'soft-fail-user',
+          request_path: '/api/login',
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('admin audit queue publish failures use the narrow direct D1 fallback', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const diagnostics = captureDiagnosticLogs();
+
+    try {
+      const env = createAuthTestEnv({
+        users: [
+          createAdminUser('fallback-admin'),
+          createContractUser({ id: 'fallback-target', role: 'user', email: 'fallback-target@example.com' }),
+        ],
+      });
+      env.ACTIVITY_INGEST_QUEUE.failWith = new Error('admin activity queue unavailable');
+      const adminToken = await seedSession(env, 'fallback-admin');
+      const exec = createExecutionContext();
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/users/fallback-target/role', 'PATCH', {
+          role: 'admin',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'CF-Connecting-IP': '203.0.113.214',
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      expect(env.ACTIVITY_INGEST_QUEUE.messages).toHaveLength(0);
+      expect(env.DB.state.adminAuditLog).toHaveLength(1);
+      expect(env.DB.state.adminAuditLog[0]).toMatchObject({
+        admin_user_id: 'fallback-admin',
+        action: 'change_role',
+        target_user_id: 'fallback-target',
+      });
+      expect(
+        env.DB.runCalls.some((call) =>
+          call.query.includes('INSERT OR IGNORE INTO admin_audit_log')
+        )
+      ).toBe(true);
+      expect(findDiagnosticEvent(diagnostics.entries, 'admin_audit_enqueue_failed')).toEqual(
+        expect.objectContaining({
+          component: 'activity-ingest-producer',
+          table: 'admin_audit_log',
+          action: 'change_role',
+          fallback: 'direct_d1',
+          request_path: '/api/admin/users/fallback-target/role',
+        })
+      );
+      expect(findDiagnosticEvent(diagnostics.entries, 'admin_audit_fallback_persisted')).toEqual(
+        expect.objectContaining({
+          component: 'activity-ingest-producer',
+          table: 'admin_audit_log',
+          action: 'change_role',
+          fallback: 'direct_d1',
+          admin_user_id: 'fallback-admin',
+          target_user_id: 'fallback-target',
+        })
+      );
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
   test('/api/me accepts the legacy session cookie name for backward compatibility', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -5669,6 +5961,7 @@ test.describe('Worker routes', () => {
       deletedUserId: 'user-plain',
     });
     expect(env.DB.state.users.some((user) => user.id === 'user-plain')).toBe(false);
+    await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog).toHaveLength(1);
     expect(env.DB.state.adminAuditLog[0].action).toBe('delete_user');
   });
@@ -12060,6 +12353,7 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.objects.has('users/feedface/folders/projects/aa55bb66.txt')).toBe(true);
     expect(env.USER_IMAGES.objects.has('users/feedface/derivatives/v1/aa55bb66/poster.webp')).toBe(true);
     expect(env.PRIVATE_MEDIA.objects.has('avatars/feedface')).toBe(false);
+    await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog.at(-1).action).toBe('delete_user');
   });
 });

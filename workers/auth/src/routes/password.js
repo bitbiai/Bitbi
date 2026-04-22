@@ -233,8 +233,10 @@ export async function handleResetPassword(ctx) {
 
   // Log password reset (durable background write)
   ctx.execCtx.waitUntil(
-    logUserActivity(env, tokenRow.user_id, "reset_password", null, ip)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, tokenRow.user_id, "reset_password", null, ip, {
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
   );
 
   return json({

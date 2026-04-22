@@ -149,8 +149,10 @@ export async function handleUpdateProfile(ctx) {
   // Log profile update (durable background write)
   const changedFields = Object.keys(fields);
   ctx.execCtx.waitUntil(
-    logUserActivity(env, userId, "update_profile", { fields: changedFields }, null)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, userId, "update_profile", { fields: changedFields }, null, {
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
   );
 
   return json({

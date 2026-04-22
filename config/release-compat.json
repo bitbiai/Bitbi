@@ -68,11 +68,20 @@
           },
           "queues": {
             "producers": {
+              "ACTIVITY_INGEST_QUEUE": {
+                "queue": "bitbi-auth-activity-ingest"
+              },
               "AI_IMAGE_DERIVATIVES_QUEUE": {
                 "queue": "bitbi-ai-image-derivatives"
               }
             },
             "consumers": [
+              {
+                "queue": "bitbi-auth-activity-ingest",
+                "max_batch_size": 50,
+                "max_batch_timeout": 5,
+                "max_retries": 6
+              },
               {
                 "queue": "bitbi-ai-image-derivatives",
                 "max_batch_size": 5,
@@ -182,6 +191,16 @@
         "requiredForRelease": true,
         "documentation": "docs/ai-image-derivatives-runbook.md",
         "summary": "Cloudflare Images must be enabled so the IMAGES binding can attach."
+      },
+      {
+        "id": "auth-activity-ingest-queue-created",
+        "kind": "cloudflare_queue",
+        "worker": "auth",
+        "binding": "ACTIVITY_INGEST_QUEUE",
+        "queue": "bitbi-auth-activity-ingest",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "The auth activity ingest queue must exist before the auth worker deploy that enqueues admin audit and user activity events."
       },
       {
         "id": "auth-derivatives-queue-created",

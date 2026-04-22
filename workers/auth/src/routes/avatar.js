@@ -227,8 +227,12 @@ async function handleSavedAssetAvatarSelection(ctx, session, imageId, ip, correl
       session.user.id,
       "select_avatar_saved_asset",
       { image_id: imageId },
-      ip
-    ).catch((error) => console.error("activity log failed:", error))
+      ip,
+      {
+        correlationId,
+        requestInfo: ctx,
+      }
+    )
   );
 
   return withCorrelationId(json({
@@ -348,8 +352,10 @@ export async function handleUploadAvatar(ctx) {
 
   // Log avatar upload (durable background write)
   ctx.execCtx.waitUntil(
-    logUserActivity(env, session.user.id, "upload_avatar", { type: file.type }, ip)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, session.user.id, "upload_avatar", { type: file.type }, ip, {
+      correlationId,
+      requestInfo: ctx,
+    })
   );
 
   return respond({ ok: true, message: "Avatar uploaded." });
@@ -378,8 +384,10 @@ export async function handleDeleteAvatar(ctx) {
   // Log avatar deletion (durable background write)
   const ip = getClientIp(request);
   ctx.execCtx.waitUntil(
-    logUserActivity(env, session.user.id, "delete_avatar", null, ip)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, session.user.id, "delete_avatar", null, ip, {
+      correlationId,
+      requestInfo: ctx,
+    })
   );
 
   return withCorrelationId(json({ ok: true, message: "Avatar removed." }), correlationId);

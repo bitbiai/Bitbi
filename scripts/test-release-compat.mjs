@@ -67,9 +67,16 @@ const baseManifest = {
           },
           queues: {
             producers: {
+              ACTIVITY_INGEST_QUEUE: { queue: "bitbi-auth-activity-ingest" },
               AI_IMAGE_DERIVATIVES_QUEUE: { queue: "bitbi-ai-image-derivatives" },
             },
             consumers: [
+              {
+                queue: "bitbi-auth-activity-ingest",
+                max_batch_size: 50,
+                max_batch_timeout: 5,
+                max_retries: 6,
+              },
               {
                 queue: "bitbi-ai-image-derivatives",
                 max_batch_size: 5,
@@ -169,6 +176,16 @@ const baseManifest = {
         requiredForRelease: true,
         documentation: "docs/ai-image-derivatives-runbook.md",
         summary: "Cloudflare Images must be enabled for IMAGES.",
+      },
+      {
+        id: "auth-activity-ingest-queue-created",
+        kind: "cloudflare_queue",
+        worker: "auth",
+        binding: "ACTIVITY_INGEST_QUEUE",
+        queue: "bitbi-auth-activity-ingest",
+        requiredForRelease: true,
+        documentation: "workers/auth/CLAUDE.md",
+        summary: "The auth activity ingest queue must exist before auth deploy.",
       },
       {
         id: "auth-derivatives-queue-created",
@@ -422,11 +439,21 @@ function createValidContext() {
           queues: {
             producers: [
               {
+                binding: "ACTIVITY_INGEST_QUEUE",
+                queue: "bitbi-auth-activity-ingest",
+              },
+              {
                 binding: "AI_IMAGE_DERIVATIVES_QUEUE",
                 queue: "bitbi-ai-image-derivatives",
               },
             ],
             consumers: [
+              {
+                queue: "bitbi-auth-activity-ingest",
+                max_batch_size: 50,
+                max_batch_timeout: 5,
+                max_retries: 6,
+              },
               {
                 queue: "bitbi-ai-image-derivatives",
                 max_batch_size: 5,
@@ -642,6 +669,19 @@ function createValidContext() {
   context.manifest.release.schemaCheckpoints.auth.latest = "0016_add_ai_text_assets.sql";
   const issues = validateReleaseCompatibility(context);
   assert(issues.some((issue) => issue.includes('schema checkpoint "auth"')));
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.queues.producers = context.workerConfigs.auth.wrangler.queues.producers.filter(
+    (row) => row.binding !== "ACTIVITY_INGEST_QUEUE"
+  );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('Worker "auth" is missing queue producer binding "ACTIVITY_INGEST_QUEUE"')
+    )
+  );
 }
 
 {

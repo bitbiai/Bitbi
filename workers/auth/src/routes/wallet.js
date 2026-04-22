@@ -440,8 +440,10 @@ export async function handleWalletSiweVerify(ctx) {
 
     const linkedWallet = await getLinkedWalletByUserId(env, session.user.id);
     ctx.execCtx.waitUntil(
-      logUserActivity(env, session.user.id, "wallet_link", { address: parsedAddress.display, chain_id: MAINNET_CHAIN_ID }, ip)
-        .catch((error) => console.error("activity log failed:", error))
+      logUserActivity(env, session.user.id, "wallet_link", { address: parsedAddress.display, chain_id: MAINNET_CHAIN_ID }, ip, {
+        correlationId: ctx.correlationId || null,
+        requestInfo: ctx,
+      })
     );
 
     return json({
@@ -490,8 +492,10 @@ export async function handleWalletSiweVerify(ctx) {
   }
 
   ctx.execCtx.waitUntil(
-    logUserActivity(env, loginRow.user_id, "wallet_login", { address: parsedAddress.display, chain_id: MAINNET_CHAIN_ID }, ip)
-      .catch((error) => console.error("activity log failed:", error))
+    logUserActivity(env, loginRow.user_id, "wallet_login", { address: parsedAddress.display, chain_id: MAINNET_CHAIN_ID }, ip, {
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
   );
 
   return response;
@@ -516,8 +520,10 @@ export async function handleWalletUnlink(ctx) {
     .run();
 
   ctx.execCtx.waitUntil(
-    logUserActivity(env, session.user.id, "wallet_unlink", { address: linkedWallet.address_display, chain_id: linkedWallet.chain_id }, getClientIp(request))
-      .catch((error) => console.error("activity log failed:", error))
+    logUserActivity(env, session.user.id, "wallet_unlink", { address: linkedWallet.address_display, chain_id: linkedWallet.chain_id }, getClientIp(request), {
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
   );
 
   return json({

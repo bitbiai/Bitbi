@@ -515,6 +515,29 @@ class MockD1 {
       return this.state.users.find((row) => row.email === email) || null;
     }
 
+    if (query === 'SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1') {
+      const [userId] = bindings;
+      return this.state.users.find((row) => row.id === userId) || null;
+    }
+
+    if (query === 'UPDATE users SET role = ?, updated_at = ? WHERE id = ?') {
+      const [role, updatedAt, userId] = bindings;
+      const row = this.state.users.find((item) => item.id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.role = role;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE users SET status = ?, updated_at = ? WHERE id = ?') {
+      const [status, updatedAt, userId] = bindings;
+      const row = this.state.users.find((item) => item.id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = status;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) VALUES')) {
       const [id, userId, tokenHash, createdAt, expiresAt, lastSeenAt] = bindings;
       this.state.sessions.push({
@@ -541,8 +564,15 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.sessions.length } };
     }
 
-    if (query.startsWith('INSERT INTO user_activity_log (id, user_id, action, meta_json, ip_address, created_at) VALUES')) {
+    if (
+      query.startsWith('INSERT INTO user_activity_log (id, user_id, action, meta_json, ip_address, created_at) VALUES')
+      || query.startsWith('INSERT OR IGNORE INTO user_activity_log (id, user_id, action, meta_json, ip_address, created_at) VALUES')
+    ) {
       const [id, userId, action, metaJson, ipAddress, createdAt] = bindings;
+      const existing = this.state.userActivityLog.find((row) => row.id === id);
+      if (existing) {
+        return { success: true, meta: { changes: query.startsWith('INSERT OR IGNORE') ? 0 : 0 } };
+      }
       this.state.userActivityLog.push({
         id,
         user_id: userId,
@@ -1218,8 +1248,15 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at) VALUES')) {
+    if (
+      query.startsWith('INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at) VALUES')
+      || query.startsWith('INSERT OR IGNORE INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at) VALUES')
+    ) {
       const [id, adminUserId, action, targetUserId, metaJson, createdAt] = bindings;
+      const existing = this.state.adminAuditLog.find((row) => row.id === id);
+      if (existing) {
+        return { success: true, meta: { changes: query.startsWith('INSERT OR IGNORE') ? 0 : 0 } };
+      }
       this.state.adminAuditLog.push({
         id,
         admin_user_id: adminUserId,
@@ -3047,6 +3084,9 @@ function createAuthTestEnv(seed = {}) {
   const PRIVATE_MEDIA = new MockBucket(seed.privateMedia);
   const USER_IMAGES = new MockBucket(seed.userImages);
   const AUDIT_ARCHIVE = seed.disableAuditArchiveBinding ? undefined : new MockBucket(seed.auditArchive);
+  const ACTIVITY_INGEST_QUEUE = seed.disableActivityIngestQueueBinding
+    ? undefined
+    : (seed.activityIngestQueue || new MockQueueProducer());
   const AI_IMAGE_DERIVATIVES_QUEUE = seed.aiImageDerivativesQueue || new MockQueueProducer();
   const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
   const PUBLIC_RATE_LIMITER = Object.prototype.hasOwnProperty.call(seed, 'PUBLIC_RATE_LIMITER')
@@ -3067,6 +3107,7 @@ function createAuthTestEnv(seed = {}) {
     PRIVATE_MEDIA,
     USER_IMAGES,
     AUDIT_ARCHIVE,
+    ACTIVITY_INGEST_QUEUE,
     AI_IMAGE_DERIVATIVES_QUEUE,
     IMAGES,
     PUBLIC_RATE_LIMITER,

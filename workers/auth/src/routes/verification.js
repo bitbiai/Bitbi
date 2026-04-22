@@ -88,8 +88,10 @@ export async function handleVerifyEmail(ctx) {
 
   // Log email verification (durable background write)
   ctx.execCtx.waitUntil(
-    logUserActivity(env, tokenRow.user_id, "verify_email", null, getClientIp(request))
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, tokenRow.user_id, "verify_email", null, getClientIp(request), {
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
   );
 
   return json({

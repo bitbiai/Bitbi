@@ -1,5 +1,6 @@
 import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
+import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import { getActivityRetentionMetadata } from "../lib/activity-archive.js";
@@ -27,20 +28,6 @@ import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js"
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
 const DEFAULT_ADMIN_USERS_LIMIT = 50;
 const MAX_ADMIN_USERS_LIMIT = 100;
-
-function auditStatement(env, adminUserId, action, targetUserId, meta, now) {
-  return env.DB.prepare(
-    `INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(
-    crypto.randomUUID(),
-    adminUserId,
-    action,
-    targetUserId,
-    JSON.stringify(meta),
-    now
-  );
-}
 
 function normalizeAdminUserSearch(value) {
   return String(value || "").trim();
@@ -238,18 +225,31 @@ export async function handleAdmin(ctx) {
 
     const now = nowIso();
 
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
-      ).bind(newRole, now, targetUserId),
-      auditStatement(env, result.user.id, "change_role", targetUserId, {
-        role: newRole,
-        target_email: targetUser.email,
-        target_role: targetUser.role,
-        target_status: targetUser.status,
-        actor_email: result.user.email,
-      }, now),
-    ]);
+    await env.DB.prepare(
+      "UPDATE users SET role = ?, updated_at = ? WHERE id = ?"
+    ).bind(newRole, now, targetUserId).run();
+
+    await enqueueAdminAuditEvent(
+      env,
+      {
+        adminUserId: result.user.id,
+        action: "change_role",
+        targetUserId,
+        meta: {
+          role: newRole,
+          target_email: targetUser.email,
+          target_role: targetUser.role,
+          target_status: targetUser.status,
+          actor_email: result.user.email,
+        },
+        createdAt: now,
+      },
+      {
+        correlationId,
+        requestInfo: ctx,
+        allowDirectFallback: true,
+      }
+    );
 
     const updatedUser = await env.DB.prepare(
       "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
@@ -329,18 +329,31 @@ export async function handleAdmin(ctx) {
 
     const now = nowIso();
 
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
-      ).bind(newStatus, now, targetUserId),
-      auditStatement(env, result.user.id, "change_status", targetUserId, {
-        status: newStatus,
-        target_email: targetUser.email,
-        target_role: targetUser.role,
-        target_status: targetUser.status,
-        actor_email: result.user.email,
-      }, now),
-    ]);
+    await env.DB.prepare(
+      "UPDATE users SET status = ?, updated_at = ? WHERE id = ?"
+    ).bind(newStatus, now, targetUserId).run();
+
+    await enqueueAdminAuditEvent(
+      env,
+      {
+        adminUserId: result.user.id,
+        action: "change_status",
+        targetUserId,
+        meta: {
+          status: newStatus,
+          target_email: targetUser.email,
+          target_role: targetUser.role,
+          target_status: targetUser.status,
+          actor_email: result.user.email,
+        },
+        createdAt: now,
+      },
+      {
+        correlationId,
+        requestInfo: ctx,
+        allowDirectFallback: true,
+      }
+    );
 
     const updatedUser = await env.DB.prepare(
       "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
@@ -408,27 +421,27 @@ export async function handleAdmin(ctx) {
 
     const now = nowIso();
 
-    await env.DB.prepare(
-      `
-      INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id, meta_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      `
-    )
-      .bind(
-        crypto.randomUUID(),
-        result.user.id,
-        "revoke_sessions",
+    await enqueueAdminAuditEvent(
+      env,
+      {
+        adminUserId: result.user.id,
+        action: "revoke_sessions",
         targetUserId,
-        JSON.stringify({
+        meta: {
           revokedSessions: deleteResult.meta.changes,
           target_email: targetUser.email,
           target_role: targetUser.role,
           target_status: targetUser.status,
           actor_email: result.user.email,
-        }),
-        now
-      )
-      .run();
+        },
+        createdAt: now,
+      },
+      {
+        correlationId,
+        requestInfo: ctx,
+        allowDirectFallback: true,
+      }
+    );
 
     return json({
       ok: true,
@@ -587,13 +600,6 @@ export async function handleAdmin(ctx) {
           env.DB.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").bind(targetUserId),
           env.DB.prepare("DELETE FROM profiles WHERE user_id = ?").bind(targetUserId),
           env.DB.prepare("DELETE FROM users WHERE id = ?").bind(targetUserId),
-          auditStatement(env, result.user.id, "delete_user", targetUserId, {
-            deletedUserId: targetUserId,
-            target_email: targetUser.email,
-            target_role: targetUser.role,
-            target_status: targetUser.status,
-            actor_email: result.user.email,
-          }, now),
         ],
       });
     } catch (error) {
@@ -612,6 +618,28 @@ export async function handleAdmin(ctx) {
     } catch (e) {
       console.error("Admin delete: avatar cleanup failed", e);
     }
+
+    await enqueueAdminAuditEvent(
+      env,
+      {
+        adminUserId: result.user.id,
+        action: "delete_user",
+        targetUserId,
+        meta: {
+          deletedUserId: targetUserId,
+          target_email: targetUser.email,
+          target_role: targetUser.role,
+          target_status: targetUser.status,
+          actor_email: result.user.email,
+        },
+        createdAt: now,
+      },
+      {
+        correlationId,
+        requestInfo: ctx,
+        allowDirectFallback: true,
+      }
+    );
 
     return json({
       ok: true,

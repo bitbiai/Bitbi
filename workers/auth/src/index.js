@@ -33,6 +33,13 @@ import {
   processAiImageDerivativeMessage,
 } from "./lib/ai-image-derivatives.js";
 import {
+  ACTIVITY_INGEST_QUEUE_NAME,
+} from "./lib/activity.js";
+import {
+  isLikelyActivityIngestMessage,
+  processActivityIngestQueueBatch,
+} from "./lib/activity-ingestion.js";
+import {
   AI_GENERATED_TEMP_OBJECT_PREFIX,
   isAiGeneratedTempObjectExpired,
 } from "./routes/ai/generated-image-save-reference.js";
@@ -42,6 +49,8 @@ import {
   isProductionEnvironment,
 } from "./lib/rate-limit.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
+
+const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
 
 function getAllowedOrigins(env) {
   const base = env.APP_BASE_URL || "https://bitbi.ai";
@@ -411,6 +420,34 @@ export default {
   },
 
   async queue(batch, env, ctx) {
+    const queueName = typeof batch?.queue === "string" ? batch.queue : null;
+    const messages = Array.isArray(batch?.messages) ? batch.messages : [];
+    const isActivityBatch =
+      queueName === ACTIVITY_INGEST_QUEUE_NAME ||
+      messages.every((message) => isLikelyActivityIngestMessage(message?.body));
+    if (isActivityBatch) {
+      await processActivityIngestQueueBatch(batch, env);
+      return;
+    }
+
+    const isAiDerivativeBatch =
+      queueName === AI_IMAGE_DERIVATIVES_QUEUE_NAME ||
+      messages.every((message) => message?.body?.type === "ai_image_derivative.generate");
+    if (!isAiDerivativeBatch) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "queue",
+        event: "queue_batch_unrecognized",
+        level: "error",
+        queue: queueName,
+        batch_size: messages.length,
+      });
+      for (const message of messages) {
+        message.ack();
+      }
+      return;
+    }
+
     for (const message of batch.messages) {
       const startedAt = Date.now();
       const rawBody = message?.body && typeof message.body === "object" ? message.body : {};

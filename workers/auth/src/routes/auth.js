@@ -209,8 +209,10 @@ export async function handleRegister(ctx) {
 
   // Log registration (durable background write)
   ctx.execCtx.waitUntil(
-    logUserActivity(env, userId, "register", { email }, ip)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, userId, "register", { email }, ip, {
+      correlationId,
+      requestInfo: ctx,
+    })
   );
 
   return json(
@@ -371,8 +373,10 @@ export async function handleLogin(ctx) {
 
   // Log login (durable background write)
   ctx.execCtx.waitUntil(
-    logUserActivity(env, user.id, "login", { email: user.email }, ip)
-      .catch(e => console.error("activity log failed:", e))
+    logUserActivity(env, user.id, "login", { email: user.email }, ip, {
+      correlationId,
+      requestInfo: ctx,
+    })
   );
 
   const response = json({
@@ -414,8 +418,10 @@ export async function handleLogout(ctx) {
 
   if (loggedOutUserId) {
     ctx.execCtx.waitUntil(
-      logUserActivity(env, loggedOutUserId, "logout", null, getClientIp(request))
-        .catch(e => console.error("activity log failed:", e))
+      logUserActivity(env, loggedOutUserId, "logout", null, getClientIp(request), {
+        correlationId: ctx.correlationId || null,
+        requestInfo: ctx,
+      })
     );
   }
 

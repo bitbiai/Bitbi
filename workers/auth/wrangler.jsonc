@@ -25,6 +25,10 @@
 			{
 				"queue": "bitbi-ai-image-derivatives",
 				"binding": "AI_IMAGE_DERIVATIVES_QUEUE"
+			},
+			{
+				"queue": "bitbi-auth-activity-ingest",
+				"binding": "ACTIVITY_INGEST_QUEUE"
 			}
 		],
 		"consumers": [
@@ -33,6 +37,12 @@
 				"max_batch_size": 5,
 				"max_batch_timeout": 5,
 				"max_retries": 8
+			},
+			{
+				"queue": "bitbi-auth-activity-ingest",
+				"max_batch_size": 50,
+				"max_batch_timeout": 5,
+				"max_retries": 6
 			}
 		]
 	},
