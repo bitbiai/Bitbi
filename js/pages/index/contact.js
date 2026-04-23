@@ -26,6 +26,7 @@ export function initContact() {
         if (!trigger || !panel || !drawer) return;
         isOpen = !!nextOpen;
         drawer.classList.toggle('is-open', isOpen);
+        document.body.classList.toggle('contact-drawer-open', isOpen);
         trigger.setAttribute('aria-expanded', String(isOpen));
         panel.setAttribute('aria-hidden', String(!isOpen));
         setCollapsedState(!isOpen);
@@ -35,9 +36,24 @@ export function initContact() {
         }
     }
 
-    function openForContactAnchor() {
+    function scrollSectionIntoView(behavior = 'auto') {
+        if (!section) return;
+        section.scrollIntoView({
+            behavior,
+            block: 'start',
+        });
+    }
+
+    function getPreferredScrollBehavior() {
+        return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    }
+
+    function openForContactAnchor({ behavior = 'auto' } = {}) {
         if (!trigger || !panel || !drawer) return;
         setOpen(true);
+        requestAnimationFrame(() => {
+            scrollSectionIntoView(behavior);
+        });
     }
 
     if (trigger && panel && drawer && panelInner) {
@@ -47,26 +63,21 @@ export function initContact() {
             setOpen(!isOpen);
         });
 
-        document.addEventListener('click', (event) => {
-            const anchor = event.target.closest('a[href]');
-            if (!anchor) return;
-
-            const targetUrl = new URL(anchor.href, window.location.href);
-            if (targetUrl.origin !== window.location.origin) return;
-            if (targetUrl.pathname !== window.location.pathname) return;
-            if (targetUrl.hash !== '#contact') return;
-
-            openForContactAnchor();
+        document.querySelectorAll('a[href="#contact"]').forEach((anchor) => {
+            anchor.addEventListener('click', (event) => {
+                event.preventDefault();
+                openForContactAnchor({ behavior: getPreferredScrollBehavior() });
+            });
         });
 
         window.addEventListener('hashchange', () => {
             if (window.location.hash === '#contact') {
-                openForContactAnchor();
+                openForContactAnchor({ behavior: 'auto' });
             }
         });
 
         if (window.location.hash === '#contact') {
-            openForContactAnchor();
+            openForContactAnchor({ behavior: 'auto' });
         }
     }
 

@@ -1086,8 +1086,9 @@
 
     .models-overlay__card {
         display: flex;
-        align-items: baseline;
-        gap: 0.75rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.4rem;
         padding: 0.5rem 0.875rem;
         border-radius: 6px;
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1117,7 +1118,8 @@
         }
 
         .models-overlay__col--left .models-overlay__card {
-            flex-direction: row-reverse;
+            align-items: flex-end;
+            text-align: right;
         }
     }
 
@@ -1131,7 +1133,20 @@
         font-size: 0.8125rem;
         font-weight: 500;
         color: rgba(255, 255, 255, 0.85);
-        white-space: nowrap;
+        white-space: normal;
+    }
+
+    .models-overlay__meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+    }
+
+    @media (min-width: 768px) {
+        .models-overlay__col--left .models-overlay__meta {
+            justify-content: flex-end;
+        }
     }
 
     .models-overlay__vendor {
@@ -1142,6 +1157,37 @@
         text-transform: uppercase;
         letter-spacing: 0.08em;
         white-space: nowrap;
+    }
+
+    .models-overlay__vendor:empty {
+        display: none;
+    }
+
+    .models-overlay__status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.125rem;
+        padding-inline: 0.45rem;
+        border-radius: var(--radius-full);
+        font-family: var(--font-mono);
+        font-size: 0.53125rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .models-overlay__status--live {
+        color: rgba(0, 240, 255, 0.86);
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.16);
+    }
+
+    .models-overlay__status--coming-soon {
+        color: rgba(255, 179, 0, 0.82);
+        background: rgba(255, 179, 0, 0.09);
+        border: 1px solid rgba(255, 179, 0, 0.16);
     }
 
     /* Reset animation state when the overlay closes so reopen re-triggers the entrance. */

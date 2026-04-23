@@ -5,15 +5,20 @@
    ============================================================ */
 
 import { listAdminAiCatalog } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
+import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 
 const MODEL_GROUPS = [
-    { task: 'text', category: 'Text Generation', side: 'left' },
-    { task: 'embeddings', category: 'Embeddings', side: 'left' },
-    { task: 'image', category: 'Image Generation', side: 'right' },
-    { task: 'music', category: 'Music', side: 'right' },
-    { task: 'video', category: 'Video', side: 'right' },
+    { task: 'image', category: 'IMAGE GENERATION', side: 'left' },
+    { task: 'music', category: 'MUSIC GENERATION', side: 'right' },
+    { task: 'video', category: 'VIDEO GENERATION', side: 'right' },
 ];
+
+const USER_LIVE_MODELS = {
+    image: AI_IMAGE_MODELS,
+    music: [],
+    video: [],
+};
 
 function buildModelCatalog() {
     const catalog = listAdminAiCatalog();
@@ -22,14 +27,35 @@ function buildModelCatalog() {
     return MODEL_GROUPS.map(({ task, category, side }) => ({
         category,
         side,
-        models: Array.isArray(modelsByTask[task])
-            ? modelsByTask[task]
-                .map((model) => ({
-                    name: model?.label || model?.id || '',
-                    vendor: model?.vendor || '',
-                }))
-                .filter((model) => model.name)
-            : [],
+        models: (() => {
+            const adminModels = Array.isArray(modelsByTask[task]) ? modelsByTask[task] : [];
+            const adminById = new Map(adminModels.map((model) => [model?.id, model]));
+            const liveModels = Array.isArray(USER_LIVE_MODELS[task]) ? USER_LIVE_MODELS[task] : [];
+            const liveIds = new Set();
+            const entries = [];
+
+            for (const model of liveModels) {
+                if (!model?.id) continue;
+                liveIds.add(model.id);
+                const adminModel = adminById.get(model.id);
+                entries.push({
+                    name: model.label || adminModel?.label || model.id,
+                    vendor: adminModel?.vendor || '',
+                    availability: 'live',
+                });
+            }
+
+            for (const model of adminModels) {
+                if (!model?.id || liveIds.has(model.id)) continue;
+                entries.push({
+                    name: model.label || model.id,
+                    vendor: model.vendor || '',
+                    availability: 'coming-soon',
+                });
+            }
+
+            return entries.filter((model) => model.name);
+        })(),
     })).filter((group) => group.models.length > 0);
 }
 
@@ -86,17 +112,27 @@ function buildOverlay() {
             const li = document.createElement('li');
             li.className = 'models-overlay__card';
             li.style.setProperty('--card-delay', `${cardIndex * 60 + 80}ms`);
+            li.dataset.modelAvailability = model.availability;
 
             const name = document.createElement('span');
             name.className = 'models-overlay__name';
             name.textContent = model.name;
 
+            const meta = document.createElement('span');
+            meta.className = 'models-overlay__meta';
+
             const vendor = document.createElement('span');
             vendor.className = 'models-overlay__vendor';
             vendor.textContent = model.vendor;
 
+            const status = document.createElement('span');
+            status.className = `models-overlay__status models-overlay__status--${model.availability}`;
+            status.textContent = model.availability === 'live' ? 'Live' : 'Coming soon';
+
             li.appendChild(name);
-            li.appendChild(vendor);
+            meta.appendChild(vendor);
+            meta.appendChild(status);
+            li.appendChild(meta);
             list.appendChild(li);
             cardIndex++;
         }

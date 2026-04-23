@@ -4,9 +4,9 @@
 
 export function initSmoothScroll() {
     document.querySelectorAll('a[href^="#"]').forEach(a => {
-        if (a.hasAttribute('data-category-link')) return;
+        const href = a.getAttribute('href');
+        if (a.hasAttribute('data-category-link') || href === '#contact') return;
         a.addEventListener('click', (e) => {
-            const href = a.getAttribute('href');
             if (href === '#') return;
             e.preventDefault();
             try {

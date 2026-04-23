@@ -158,8 +158,12 @@ function initMobileGuestBanner() {
     const menuBtn = document.getElementById('mobileMenuBtn');
     if (!hero || !menuBtn) return;
 
-    const mobileQuery = window.matchMedia('(max-width: 639px)');
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
     let banner = null;
+    let cta = null;
+    let eyebrow = null;
+    let title = null;
+    let hint = null;
 
     function bindMediaQueryChange(query, listener) {
         if (typeof query.addEventListener === 'function') {
@@ -178,25 +182,51 @@ function initMobileGuestBanner() {
         banner.id = 'mobileGuestBanner';
         banner.className = 'mobile-guest-banner';
 
-        const cta = document.createElement('button');
+        cta = document.createElement('button');
         cta.type = 'button';
         cta.className = 'mobile-guest-banner__cta';
-        cta.setAttribute('aria-label', 'Open the menu to create a free BITBI account');
-        cta.innerHTML = `
-            <span class="mobile-guest-banner__eyebrow">Free Account</span>
-            <span class="mobile-guest-banner__title">Create your BITBI account for free</span>
-            <span class="mobile-guest-banner__hint">Open the menu to sign in or register</span>
-        `;
-        cta.addEventListener('click', () => menuBtn.click());
+        eyebrow = document.createElement('span');
+        eyebrow.className = 'mobile-guest-banner__eyebrow';
+
+        title = document.createElement('span');
+        title.className = 'mobile-guest-banner__title';
+
+        hint = document.createElement('span');
+        hint.className = 'mobile-guest-banner__hint';
+
+        cta.append(eyebrow, title, hint);
+        cta.addEventListener('click', () => {
+            if (desktopQuery.matches) {
+                openAuthModal('register');
+                return;
+            }
+            menuBtn.click();
+        });
 
         banner.appendChild(cta);
         hero.appendChild(banner);
         return banner;
     }
 
+    function syncBannerCopy() {
+        if (!cta || !eyebrow || !title || !hint) return;
+
+        eyebrow.textContent = 'Free Account';
+        title.textContent = 'Create your BITBI account for free';
+
+        if (desktopQuery.matches) {
+            cta.setAttribute('aria-label', 'Create a free BITBI account');
+            hint.textContent = 'Sign in or register to start creating';
+            return;
+        }
+
+        cta.setAttribute('aria-label', 'Open the menu to create a free BITBI account');
+        hint.textContent = 'Open the menu to sign in or register';
+    }
+
     function renderBanner() {
         const { ready, loggedIn } = getAuthState();
-        const shouldShow = mobileQuery.matches && ready && !loggedIn;
+        const shouldShow = ready && !loggedIn;
 
         if (!shouldShow) {
             if (banner?.isConnected) banner.remove();
@@ -204,9 +234,10 @@ function initMobileGuestBanner() {
         }
 
         ensureBanner();
+        syncBannerCopy();
     }
 
-    bindMediaQueryChange(mobileQuery, renderBanner);
+    bindMediaQueryChange(desktopQuery, renderBanner);
     document.addEventListener('bitbi:auth-change', renderBanner);
     renderBanner();
 }

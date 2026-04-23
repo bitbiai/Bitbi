@@ -31,22 +31,58 @@ async function getExpectedHomepageModelCatalog() {
   const contractModule = await import(
     pathToFileURL(path.join(__dirname, '..', 'js/shared/admin-ai-contract.mjs')).href
   );
+  const imageModelsModule = await import(
+    pathToFileURL(path.join(__dirname, '..', 'js/shared/ai-image-models.mjs')).href
+  );
   const { models } = contractModule.listAdminAiCatalog();
-  const groups = [
-    ['Text Generation', models.text],
-    ['Embeddings', models.embeddings],
-    ['Image Generation', models.image],
-    ['Music', models.music],
-    ['Video', models.video],
-  ];
+  const liveImageModels = Array.isArray(imageModelsModule.AI_IMAGE_MODELS)
+    ? imageModelsModule.AI_IMAGE_MODELS
+    : [];
+  const adminImageModels = Array.isArray(models.image) ? models.image : [];
+  const adminImageById = new Map(adminImageModels.map((entry) => [entry.id, entry]));
+  const liveImageIds = new Set();
 
-  expectedHomepageModelCatalog = groups.map(([category, entries]) => ({
-    category,
-    models: (entries || []).map((entry) => ({
+  const imageEntries = liveImageModels.map((entry) => {
+    liveImageIds.add(entry.id);
+    const adminEntry = adminImageById.get(entry.id);
+    return {
+      name: entry.label,
+      vendor: adminEntry?.vendor || '',
+      status: 'Live',
+    };
+  });
+
+  for (const entry of adminImageModels) {
+    if (!entry?.id || liveImageIds.has(entry.id)) continue;
+    imageEntries.push({
       name: entry.label,
       vendor: entry.vendor,
-    })),
-  }));
+      status: 'Coming soon',
+    });
+  }
+
+  expectedHomepageModelCatalog = [
+    {
+      category: 'IMAGE GENERATION',
+      models: imageEntries,
+    },
+    {
+      category: 'MUSIC GENERATION',
+      models: (models.music || []).map((entry) => ({
+        name: entry.label,
+        vendor: entry.vendor,
+        status: 'Coming soon',
+      })),
+    },
+    {
+      category: 'VIDEO GENERATION',
+      models: (models.video || []).map((entry) => ({
+        name: entry.label,
+        vendor: entry.vendor,
+        status: 'Coming soon',
+      })),
+    },
+  ];
 
   return expectedHomepageModelCatalog;
 }
@@ -71,6 +107,7 @@ async function expectModelsOverlayOpenState(page) {
       models: Array.from(node.querySelectorAll('.models-overlay__card')).map((card) => ({
         name: card.querySelector('.models-overlay__name')?.textContent?.trim() || '',
         vendor: card.querySelector('.models-overlay__vendor')?.textContent?.trim() || '',
+        status: card.querySelector('.models-overlay__status')?.textContent?.trim() || '',
       })),
     }))
   ));
@@ -614,7 +651,7 @@ test.describe('Homepage', () => {
     await expectModelsOverlayOpenState(page);
   });
 
-  test('mobile guest banner appears only for logged-out visitors and does not block the burger menu', async ({ page }) => {
+  test('mobile guest banner appears only for logged-out visitors and keeps the menu CTA behavior', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -631,6 +668,10 @@ test.describe('Homepage', () => {
     await expect(banner).toContainText('Create your BITBI account for free');
     await expect(page.locator('#mobileMenuBtn')).toBeVisible();
 
+    await banner.click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+
+    await page.locator('#mobileNavClose').click();
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
   });
@@ -656,12 +697,41 @@ test.describe('Homepage', () => {
     await expect(page.locator('#mobileGuestBanner')).toHaveCount(0);
   });
 
-  test('guest banner stays absent on desktop', async ({ page }) => {
+  test('desktop guest banner appears for logged-out visitors and opens the auth modal', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.goto('/');
+    const banner = page.locator('#mobileGuestBanner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Create your BITBI account for free');
+    await expect(banner).toContainText('Sign in or register to start creating');
+    await expect(page.locator('#authModal .auth-modal__overlay')).toHaveCount(1);
+
+    await banner.click();
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Create Account');
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+  });
+
+  test('desktop guest banner stays hidden for logged-in users', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: {
+            id: 'desktop-banner-user',
+            email: 'desktop@bitbi.ai',
+            role: 'user',
+          },
+        }),
       });
     });
 
@@ -731,12 +801,24 @@ test.describe('Homepage', () => {
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
-  test('Contact nav still scrolls the homepage to the contact section', async ({ page }) => {
+  test('Contact nav aligns the contact divider flush with the header', async ({ page }) => {
     await page.goto('/');
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Contact' }).click();
 
     await expect(page.locator('#contactDrawerTrigger')).toBeInViewport();
+    await expect.poll(async () => {
+      const metrics = await page.evaluate(() => {
+        const navEl = document.getElementById('navbar');
+        const contactEl = document.getElementById('contact');
+        const targetEl = contactEl?.previousElementSibling?.classList.contains('section-divider')
+          ? contactEl.previousElementSibling
+          : contactEl;
+        if (!navEl || !targetEl) return null;
+        return Math.abs(targetEl.getBoundingClientRect().top - navEl.getBoundingClientRect().bottom);
+      });
+      return metrics === null ? null : Math.round(metrics * 100) / 100;
+    }).toBeLessThanOrEqual(2);
   });
 
   test('contact drawer is collapsed by default on desktop and preserves submit behavior when expanded', async ({ page }) => {
@@ -771,12 +853,15 @@ test.describe('Homepage', () => {
       const panelInner = panelEl?.querySelector('.contact-drawer__panel-inner');
       const drawerEl = document.querySelector('.contact-drawer');
       const triggerEl = document.getElementById('contactDrawerTrigger');
+      const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
       const drawerRect = drawerEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
+      const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
       return {
         panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
         inert: panelInner?.hasAttribute('inert') || false,
         triggerHeight: Math.round((triggerRect?.height || 0) * 100) / 100,
+        exploreBtnHeight: Math.round((exploreBtnRect?.height || 0) * 100) / 100,
         triggerWidthRatio: Math.round((((triggerRect?.width || 0) / (drawerRect?.width || 1)) * 100)) / 100,
         triggerCenterOffset: Math.round(Math.abs(
           ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
@@ -788,6 +873,7 @@ test.describe('Homepage', () => {
     expect(collapsedState.panelHeight).toBeLessThanOrEqual(2);
     expect(collapsedState.inert).toBe(true);
     expect(collapsedState.triggerHeight).toBeLessThanOrEqual(90);
+    expect(Math.abs(collapsedState.triggerHeight - collapsedState.exploreBtnHeight)).toBeLessThanOrEqual(8);
     expect(collapsedState.triggerWidthRatio).toBeLessThan(0.8);
     expect(collapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
 
@@ -857,11 +943,14 @@ test.describe('Homepage', () => {
       const panelEl = document.getElementById('contactDrawerPanel');
       const drawerEl = document.querySelector('.contact-drawer');
       const triggerEl = document.getElementById('contactDrawerTrigger');
+      const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
       const drawerRect = drawerEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
+      const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
       return {
         panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
         triggerHeight: Math.round((triggerRect?.height || 0) * 100) / 100,
+        exploreBtnHeight: Math.round((exploreBtnRect?.height || 0) * 100) / 100,
         triggerCenterOffset: Math.round(Math.abs(
           ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
           - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
@@ -870,6 +959,7 @@ test.describe('Homepage', () => {
     });
     expect(mobileCollapsedState.panelHeight).toBeLessThanOrEqual(2);
     expect(mobileCollapsedState.triggerHeight).toBeLessThanOrEqual(84);
+    expect(Math.abs(mobileCollapsedState.triggerHeight - mobileCollapsedState.exploreBtnHeight)).toBeLessThanOrEqual(8);
     expect(mobileCollapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
 
     await trigger.click();
@@ -887,6 +977,67 @@ test.describe('Homepage', () => {
 
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  test('homepage section spacing compacts on desktop only and adds mobile divider accents', async ({ browser }) => {
+    const desktopContext = await browser.newContext();
+    const mobileContext = await browser.newContext({ ...devices['iPhone 12'] });
+
+    try {
+      const desktopPage = await desktopContext.newPage();
+      await desktopPage.goto('/');
+
+      const desktopMetrics = await desktopPage.evaluate(() => {
+        const section = document.querySelector('#video-creations');
+        const header = section?.querySelector('.section__header--sm');
+        const before = section ? window.getComputedStyle(section, '::before') : null;
+        const sectionRect = section?.getBoundingClientRect();
+        const sectionStyle = section ? window.getComputedStyle(section) : null;
+        const headerStyle = header ? window.getComputedStyle(header) : null;
+        return {
+          sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
+          headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
+          dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
+          dividerWidth: before ? parseFloat(before.width) : 0,
+          sectionWidth: sectionRect?.width || 0,
+        };
+      });
+
+      expect(desktopMetrics.sectionPaddingTop).toBeGreaterThan(30);
+      expect(desktopMetrics.sectionPaddingTop).toBeLessThan(35);
+      expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(37);
+      expect(desktopMetrics.headerMarginBottom).toBeLessThan(40);
+      expect(desktopMetrics.dividerVisible).toBe(false);
+
+      const mobilePage = await mobileContext.newPage();
+      await mobilePage.goto('/');
+
+      const mobileMetrics = await mobilePage.evaluate(() => {
+        const section = document.querySelector('#video-creations');
+        const header = section?.querySelector('.section__header--sm');
+        const before = section ? window.getComputedStyle(section, '::before') : null;
+        const sectionRect = section?.getBoundingClientRect();
+        const sectionStyle = section ? window.getComputedStyle(section) : null;
+        const headerStyle = header ? window.getComputedStyle(header) : null;
+        return {
+          sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
+          headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
+          dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
+          dividerWidth: before ? parseFloat(before.width) : 0,
+          sectionWidth: sectionRect?.width || 0,
+        };
+      });
+
+      expect(mobileMetrics.sectionPaddingTop).toBe(48);
+      expect(mobileMetrics.headerMarginBottom).toBe(48);
+      expect(mobileMetrics.dividerVisible).toBe(true);
+      expect(mobileMetrics.dividerWidth).toBeLessThan(mobileMetrics.sectionWidth * 0.7);
+    } finally {
+      await Promise.all([
+        desktopContext.close(),
+        mobileContext.close(),
+      ]);
+    }
   });
 
   test('gallery has Explore/Create mode toggle', async ({ page }) => {
