@@ -1,205 +1,155 @@
 # AGENTS.md
 
-## Project identity
+## Purpose and scope
 
-This repository powers **bitbi.ai**.
-
-Core architecture:
-- Static frontend
-- Vanilla JavaScript with ES modules
-- Cloudflare Workers backend
-- D1 database
-- R2 storage
-- Cloudflare Workers AI / related AI routes
-- Existing authenticated/private member flows
-- Existing admin area
-- Existing image-studio / saved-assets / folder-management flows
-
-Treat the current architecture as intentional.
-Preserve it unless a change is absolutely necessary to satisfy the task safely.
+This file is the repo-wide operating guide for Codex in `bitbi.ai`.
+It applies to the whole repository unless a deeper `AGENTS.md` overrides it (for example `workers/auth/AGENTS.md`).
 
 ---
 
-## Primary engineering principles
+## Repository reality (verified)
 
-- Prefer **robustness, correctness, and future scalability** over clever shortcuts.
-- Prefer **low-risk, repo-native changes** over large refactors.
-- Preserve working behavior unless the task explicitly requires behavior changes.
-- Be conservative with auth, permissions, private media, and ownership boundaries.
-- Do not introduce speculative abstractions.
-- Do not switch frameworks.
-- Do not add dependencies unless clearly necessary and justified.
+- Frontend is a static site (plain HTML/CSS/vanilla ES modules), served locally with `serve`.
+- Backend logic is in Cloudflare Workers:
+  - `workers/auth` (primary API/auth/admin/media)
+  - `workers/ai` (AI service worker used by auth/admin flows)
+  - `workers/contact` (contact form endpoint)
+- Persistent/cloud resources in use: Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images.
+- Static deployment is GitHub Pages via `.github/workflows/static.yml`.
+- Workers deploy separately from static Pages deploy.
 
----
-
-## Hard guardrails
-
-- Do not break existing auth flows.
-- Do not break session handling.
-- Do not break admin protections.
-- Do not break favorites behavior.
-- Do not break folder management.
-- Do not break saved-assets flows.
-- Do not break private media access rules.
-- Do not make private/member assets public to simplify implementation.
-- Do not replace existing architecture with a different stack.
-- Do not silently change API response shapes unless all affected callers are updated.
-- Do not remove or weaken ownership checks.
-- Do not bypass existing requireUser / requireAdmin style protections where they exist.
+Treat this architecture as intentional. Do not replace it with framework rewrites or cross-stack refactors unless explicitly required.
 
 ---
 
-## Backend rules
+## High-risk areas (change conservatively)
 
-- Reuse existing backend conventions, helpers, and response patterns.
-- Prefer extending the existing `workers/auth` worker rather than creating new workers, unless separation materially reduces risk.
-- Reuse current route organization and naming style.
-- Respect current D1 migration style and naming conventions.
-- Respect current R2 bucket responsibilities.
-- Respect current Cloudflare binding names unless there is a strong reason to change them.
-- Keep async/background pipelines idempotent and retry-safe.
-- Design queue consumers and background jobs to tolerate duplicate delivery and partial failure.
-- Prefer deterministic object keys and durable state transitions.
+- Auth/session/cookie logic (`workers/auth/src/lib/session.js`, auth routes, password/wallet/admin MFA flows).
+- Admin authorization and privileged routes (`workers/auth/src/routes/admin*.js`).
+- Private media serving and ownership checks (`workers/auth/src/routes/media.js`, `public-media.js`, related helpers).
+- AI generation/save/publish flows and derivative pipelines (`/api/ai/*`, derivative queue, image studio integrations).
+- D1 migrations and any schema-dependent code (`workers/auth/migrations`, worker route assumptions).
+- Wrangler bindings/routes/config (`workers/*/wrangler.jsonc`) and release contract (`config/release-compat.json`).
+- Caching/security-sensitive behavior (public vs private asset delivery, rate limiting, cron cleanup).
 
-### Data and migration rules
-
-- New schema changes must be implemented through proper D1 migrations.
-- Migrations must be safe, explicit, and compatible with existing production data.
-- Avoid destructive migrations unless explicitly required.
-- For evolving image/media pipelines, prefer versioned fields and version-aware logic over one-off hacks.
-- Keep backfill/rebuild paths resumable.
-
-### API rules
-
-- Preserve existing API ergonomics unless the task requires a change.
-- Keep JSON response shapes consistent with surrounding code.
-- Validate input carefully.
-- Return explicit errors for invalid requests.
-- Keep protected endpoints protected.
-- Call out any manual Cloudflare/dashboard/configuration step clearly in the final report.
+Do not weaken auth/admin/ownership protections or silently change API shapes used by existing frontend modules.
 
 ---
 
-## Frontend rules
+## Key paths to inspect before editing
 
-- Preserve the current vanilla JS + ES module architecture.
-- Preserve current file organization unless there is a strong reason to move files.
-- Preserve current styling system and CSS structure.
-- Avoid layout regressions.
-- Preserve current mobile and desktop behavior unless the task explicitly changes UX.
-- Do not regress:
-  - mobile deck/swipe behavior
-  - folder navigation
-  - selection mode
-  - overlay/viewer flows
-  - responsive behavior
-  - existing admin navigation
-  - favorites/profile integrations
+- Root app/pages: `index.html`, `account/`, `admin/`, `legal/`
+- Frontend modules: `js/shared/`, `js/pages/*/main.js`
+- Styles: `css/base/`, `css/components/`, `css/pages/`, `css/account/`, `css/admin/`
+- Worker entrypoints:
+  - `workers/auth/src/index.js`
+  - `workers/ai/src/index.js`
+  - `workers/contact/src/index.js`
+- Auth worker routes/libs: `workers/auth/src/routes/`, `workers/auth/src/lib/`
+- Schema/migrations: `workers/auth/migrations/`
+- Release/deploy contract: `config/release-compat.json`
+- CI workflow: `.github/workflows/static.yml`
+- Release/validation scripts: `scripts/*.mjs`
 
-### UI behavior rules
-
-- Do not let small preview/card/grid contexts load unnecessarily large originals when a smaller derivative/preset is the intended architecture.
-- Prefer placeholders/skeletons/pending states over hidden fragile fallback behavior.
-- Do not silently degrade private media protections for convenience.
+If changing `workers/auth/*`, read `workers/auth/AGENTS.md` and `workers/auth/CLAUDE.md` first.
 
 ---
 
-## Image and media rules
+## Verified commands (only use real repo commands)
 
-- Originals are the source of truth unless the task explicitly changes that.
-- Prefer fixed derivative presets over arbitrary on-demand sizes for private/member assets.
-- Keep derivative/object-key strategies stable and deterministic.
-- Avoid making derivative paths depend on mutable folder placement when a stable image-based path is safer.
-- Preserve secure serving for private assets.
-- For private/member-generated assets, prefer authenticated serving paths over public shortcuts.
+### Local/static + tests
 
----
+- `npm run dev`
+- `npm test`
+- `npm run test:static`
+- `npm run test:workers`
+- `npm run test:headed`
 
-## Performance and reliability rules
+### Release compatibility + asset-version checks
 
-- Keep request paths lightweight.
-- Avoid unnecessary reads/writes.
-- Avoid race conditions.
-- Prefer explicit state tracking for long-running or async flows.
-- Queue-based/background designs must be:
-  - idempotent
-  - retry-safe
-  - safe under duplicate delivery
-  - safe under stale-message arrival
-- Prefer boring, durable engineering over clever but fragile solutions.
+- `npm run test:release-compat`
+- `npm run test:asset-version`
+- `npm run validate:release`
+- `npm run validate:asset-version`
+- `npm run build:static`
+- `npm run release:plan`
+- `npm run release:preflight`
+- `npm run release:apply`
 
----
+### Worker-local commands (from each worker directory)
 
-## Testing rules
+- `npx wrangler dev`
+- `npx wrangler deploy`
+- Auth DB migrations:
+  - `npx wrangler d1 migrations apply bitbi-auth-db --local`
+  - `npx wrangler d1 migrations apply bitbi-auth-db --remote`
 
-- Inspect the repo before changing code.
-- Add or update meaningful tests for behavior you change.
-- Do not add placeholder tests just to say tests were added.
-- Reuse the repo’s current testing style and tooling.
-- Run relevant tests after changes.
-- Mention exactly which tests were run.
-- Mention what was not tested if something could not be tested.
-
-### High-priority regression areas
-
-Always watch for regressions in:
-- auth and session behavior
-- private asset exposure
-- ownership checks
-- folder/image relationships
-- saved-assets rendering
-- admin-only behavior
-- response shape compatibility
-- mobile image/folder UX
-- existing image studio flows
+Do not invent commands/scripts that are not present in this repo.
 
 ---
 
-## Preferred workflow for tasks
+## How to make safe changes
 
-1. Inspect the real repo structure first.
-2. Identify the current implementation path before proposing changes.
-3. Choose the lowest-risk implementation that fully satisfies the requirement.
-4. Reuse existing patterns wherever possible.
-5. Make coherent end-to-end changes instead of partial patchwork.
-6. Update tests and docs/runbook when needed.
-7. End with a concise implementation report.
-
-Do not ask unnecessary clarification questions when the answer can be derived from repo inspection.
-Make the best grounded choice and proceed.
+1. Inspect nearby code and follow existing patterns in the same area.
+2. Keep diffs targeted; avoid opportunistic refactors.
+3. Preserve existing behavior unless the task explicitly requires behavior changes.
+4. Reuse existing helpers/response patterns/guards before introducing new abstractions.
+5. For schema changes, add explicit forward-only migrations; avoid destructive edits.
+6. For worker config changes, update related release contract/docs in the same change when needed.
+7. Explicitly call out any Cloudflare dashboard/manual dependency; never guess it.
 
 ---
 
-## Reporting rules
+## Validation expectations (proportional)
 
-Every substantial change should end with an implementation report that includes:
+Run the smallest set that truly covers changed surfaces:
 
-- Exact files changed
-- Exact files added, if any
-- Why each file changed
-- Schema or migration changes
-- Config/binding/deploy changes
-- Manual Cloudflare/dashboard steps still required
-- Deployment order
-- Backfill/rebuild steps, if applicable
-- Tests run
-- Known limitations or follow-up risks
+- Static/UI changes: `npm run test:static`
+- Worker route/contract changes: `npm run test:workers`
+- Release/config/migration/binding changes: `npm run test:release-compat`, `npm run validate:release`
+- Asset version/build-pipeline changes: `npm run test:asset-version`, `npm run validate:asset-version`, `npm run build:static`
 
-Be concrete.
-Do not give vague summaries.
+If you cannot run something, state exactly what was not run and why.
 
 ---
 
-## Bitbi.ai-specific priorities
+## Deploy-sensitive rules
 
-When multiple valid approaches exist, prefer the one that best preserves:
+- Static Pages deploy (`.github/workflows/static.yml`) does **not** deploy workers.
+- Keep worker routes/bindings consistent with `config/release-compat.json`.
+- Apply auth migrations before deploying auth code that depends on them.
+- Do not assume secrets/bindings/dashboard rules exist; verify in repo docs/config and call out manual requirements.
+- Preserve current deploy ordering expectations (migrations, workers, then static) unless task explicitly changes release design.
 
-- existing auth/security posture
-- current Workers + D1 + R2 architecture
-- current image-studio and saved-assets flows
-- current folder model
-- existing admin tooling
-- responsive/mobile behavior
-- long-term maintainability under growth
+---
 
-For this repo, correctness and durability matter more than minimal code size.
+## Frontend-specific guardrails
+
+- Keep vanilla JS + ES module architecture.
+- Avoid layout or responsive regressions across `index`, `account/*`, and `admin` pages.
+- Preserve existing image studio, saved-assets browser, folder flows, favorites, and auth-modal behavior unless explicitly changed.
+- Do not switch self-hosted assets to third-party CDNs when local assets/patterns already exist.
+
+---
+
+## Backend-specific guardrails
+
+- Keep protected endpoints protected (`requireUser`/`requireAdmin` style patterns where present).
+- Preserve ownership checks and private/public media boundaries.
+- Keep queue/async flows idempotent and retry-safe.
+- Do not silently alter JSON response shapes consumed by frontend modules/tests.
+
+---
+
+## Output/reporting requirements for Codex changes
+
+When finishing substantial work, include:
+
+- Exact files changed (and added/removed if any)
+- Why each change was made
+- Any schema/migration/config/binding impact
+- Any manual Cloudflare/dashboard follow-up required
+- Tests/checks run, plus what was not run
+- Known risks/limitations
+
+Keep reports concrete and repository-specific.
