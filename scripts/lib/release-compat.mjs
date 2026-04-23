@@ -207,6 +207,27 @@ function hasManifestQueue(workerManifest, queueName) {
   return false;
 }
 
+function getBindingNames(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((entry) => entry?.binding || entry?.name)
+    .filter((value) => typeof value === "string" && value.length > 0);
+}
+
+function getQueueConsumerNames(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((entry) => entry?.queue)
+    .filter((value) => typeof value === "string" && value.length > 0);
+}
+
+function getMigrationTags(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((entry) => entry?.tag)
+    .filter((value) => typeof value === "string" && value.length > 0);
+}
+
 function validateReleaseManifestShape(manifest) {
   const issues = [];
   if (manifest?.schemaVersion !== 1) {
@@ -369,6 +390,12 @@ function validateWorkerContracts(manifest, context) {
         );
       }
     }
+    compareExactStringSets(
+      Object.keys(bindings.d1 || {}),
+      getBindingNames(wrangler.d1_databases),
+      `Worker "${workerId}" D1 binding contract`,
+      issues
+    );
 
     for (const [binding, spec] of Object.entries(bindings.r2 || {})) {
       const row = findNamedBinding(wrangler.r2_buckets, binding);
@@ -382,6 +409,12 @@ function validateWorkerContracts(manifest, context) {
         );
       }
     }
+    compareExactStringSets(
+      Object.keys(bindings.r2 || {}),
+      getBindingNames(wrangler.r2_buckets),
+      `Worker "${workerId}" R2 binding contract`,
+      issues
+    );
 
     for (const [binding, spec] of Object.entries(bindings.services || {})) {
       const row = findNamedBinding(wrangler.services, binding);
@@ -416,6 +449,12 @@ function validateWorkerContracts(manifest, context) {
         }
       }
     }
+    compareExactStringSets(
+      Object.keys(bindings.services || {}),
+      getBindingNames(wrangler.services),
+      `Worker "${workerId}" service binding contract`,
+      issues
+    );
 
     for (const [binding, spec] of Object.entries(bindings.durableObjects || {})) {
       const row = findNamedBinding(wrangler.durable_objects?.bindings, binding);
@@ -429,6 +468,12 @@ function validateWorkerContracts(manifest, context) {
         );
       }
     }
+    compareExactStringSets(
+      Object.keys(bindings.durableObjects || {}),
+      getBindingNames(wrangler.durable_objects?.bindings),
+      `Worker "${workerId}" Durable Object binding contract`,
+      issues
+    );
 
     for (const [binding, spec] of Object.entries(bindings.queues?.producers || {})) {
       const row = findNamedBinding(wrangler.queues?.producers, binding);
@@ -442,6 +487,12 @@ function validateWorkerContracts(manifest, context) {
         );
       }
     }
+    compareExactStringSets(
+      Object.keys(bindings.queues?.producers || {}),
+      getBindingNames(wrangler.queues?.producers),
+      `Worker "${workerId}" queue producer contract`,
+      issues
+    );
 
     for (const consumerSpec of bindings.queues?.consumers || []) {
       const row = findQueueConsumer(wrangler.queues?.consumers, consumerSpec?.queue);
@@ -460,6 +511,12 @@ function validateWorkerContracts(manifest, context) {
         }
       }
     }
+    compareExactStringSets(
+      (bindings.queues?.consumers || []).map((entry) => entry?.queue),
+      getQueueConsumerNames(wrangler.queues?.consumers),
+      `Worker "${workerId}" queue consumer contract`,
+      issues
+    );
 
     for (const migrationSpec of workerManifest.migrations || []) {
       const row = findMigrationEntry(wrangler.migrations, migrationSpec?.tag);
@@ -474,6 +531,12 @@ function validateWorkerContracts(manifest, context) {
         issues
       );
     }
+    compareExactStringSets(
+      (workerManifest.migrations || []).map((entry) => entry?.tag),
+      getMigrationTags(wrangler.migrations),
+      `Worker "${workerId}" wrangler migration tag contract`,
+      issues
+    );
   }
 
   return issues;
@@ -487,6 +550,7 @@ function validateDeployOrder(manifest) {
   const stepIndexes = new Map();
   const workerStepIds = new Map();
   const checkpointStepIds = new Map();
+  const staticStepIds = [];
 
   for (const [index, step] of steps.entries()) {
     if (!step?.id || typeof step.id !== "string") {
@@ -542,6 +606,10 @@ function validateDeployOrder(manifest) {
         checkpointStepIds.set(step.checkpoint, step.id);
       }
     }
+
+    if (step.type === "static") {
+      staticStepIds.push(step.id);
+    }
   }
 
   for (const workerId of Object.keys(getWorkers(manifest))) {
@@ -555,6 +623,13 @@ function validateDeployOrder(manifest) {
         `Release manifest deployOrder is missing a deploy step for schema checkpoint "${checkpointId}".`
       );
     }
+  }
+  if (staticStepIds.length === 0) {
+    issues.push("Release manifest deployOrder must include a static deploy step.");
+  } else if (staticStepIds.length > 1) {
+    issues.push(
+      `Release manifest deployOrder defines multiple static deploy steps: ${staticStepIds.join(", ")}.`
+    );
   }
 
   for (const step of steps) {
@@ -604,6 +679,19 @@ function validateDeployOrder(manifest) {
       if (checkpointStepId && !dependsOn.has(checkpointStepId)) {
         issues.push(
           `Release manifest deploy step "${workerStepId}" must depend on "${checkpointStepId}" because worker "${workerId}" uses D1 database "${checkpointManifest.databaseName}".`
+        );
+      }
+    }
+  }
+
+  if (staticStepIds.length === 1) {
+    const staticStepId = staticStepIds[0];
+    const staticIndex = stepIndexes.get(staticStepId) ?? -1;
+    for (const dependencyStepId of workerStepIds.values()) {
+      const workerIndex = stepIndexes.get(dependencyStepId) ?? -1;
+      if (workerIndex >= staticIndex) {
+        issues.push(
+          `Release manifest deploy step "${staticStepId}" must appear after "${dependencyStepId}" so static deploy runs last.`
         );
       }
     }
@@ -836,6 +924,9 @@ function validateWorkflowCompatibility(context) {
   }
   if (!includesRouteLiteral(workflowSource, "npm run test:release-compat")) {
     issues.push('Static workflow does not run "npm run test:release-compat".');
+  }
+  if (!includesRouteLiteral(workflowSource, "npm run test:release-plan")) {
+    issues.push('Static workflow does not run "npm run test:release-plan".');
   }
   if (!includesRouteLiteral(workflowSource, "npm run validate:release")) {
     issues.push('Static workflow does not run "npm run validate:release".');
