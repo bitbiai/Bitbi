@@ -56,7 +56,7 @@ npx playwright test -c playwright.config.js tests/smoke.spec.js       # run a si
 npx playwright test -c playwright.config.js -g "hero section renders" # run a single test by name
 ```
 
-**Static tests** (`playwright.config.js`): `tests/smoke.spec.js` (page loads, nav, assets, legal), `tests/auth-admin.spec.js` (auth modal, admin page). Chromium only, `baseURL: http://localhost:3000`, auto-starts `npx serve -l 3000`.
+**Static tests** (`playwright.config.js`): `tests/smoke.spec.js` (page loads, nav, assets, legal), `tests/auth-admin.spec.js` (auth modal, admin page), `tests/wallet-nav.spec.js` (wallet navigation), `tests/audio-player.spec.js` (global audio player). Chromium only, `baseURL: http://localhost:3000`, auto-starts `npx serve -l 3000`.
 
 **Worker contract tests** (`playwright.workers.config.js`): `tests/workers.spec.js` validates auth worker route handlers against a mock D1/R2/AI harness (`tests/helpers/auth-worker-harness.js`) — no network, no Wrangler required. Tests run sequentially (`workers: 1`) with no webServer.
 
@@ -88,10 +88,15 @@ Current migration-to-worker dependencies:
 - `0010_add_r2_cleanup_queue` — auth worker AI delete flows and scheduled R2 cleanup retries
 - `0012_add_user_activity_log` — admin user-activity views and durable activity logging
 - `0014_add_ai_daily_quota_usage` — `/api/ai/quota` and non-admin daily image quota enforcement
-- `0015_add_rate_limit_counters` — shared durable rate limiting in both auth and contact workers
+- `0015_add_rate_limit_counters` — remaining D1-backed limiter paths (avatar, favorites, admin, AI generation)
 - `0016_add_ai_text_assets` — admin AI text-asset persistence and shared-folder save flows
 - `0017_add_ai_image_derivatives` — saved-image derivative tracking, queue generation, and derivative backfill
 - `0018_add_profile_avatar_state` — `/api/me` cached avatar-state hot path and avatar cache updates
+- `0020_add_wallet_siwe` — wallet SIWE login/link/unlink routes
+- `0023_add_text_asset_publication` / `0024_add_text_asset_poster` — text-asset publication and poster routes
+- `0025_add_media_favorite_types` — favorites support for media item types beyond gallery-only
+- `0026_add_cursor_pagination_support` — admin activity and cursor-based asset listing
+- `0027_add_admin_mfa` — admin TOTP MFA enrollment/verification and recovery codes
 
 Some paths degrade gracefully if a table is missing, but the intended production deploy path is still migrations first, then worker deploys.
 
@@ -99,9 +104,9 @@ Some paths degrade gracefully if a table is missing, but the intended production
 
 | Worker | Required bindings / secrets | Operational note |
 |--------|-----------------------------|------------------|
-| `workers/auth/` | D1 `DB`; AI `AI`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron also cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, and pending R2 cleanup jobs; `/api/admin/ai/*` now proxies admin-only lab traffic into `workers/ai/` |
+| `workers/auth/` | D1 `DB`; AI `AI`; Cloudflare Images `IMAGES`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`, `AUDIT_ARCHIVE`; Durable Object `PUBLIC_RATE_LIMITER`; Queues `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, pending R2 cleanup jobs, and archives cold audit logs; `/api/admin/ai/*` proxies admin-only lab traffic into `workers/ai/`; admin access MFA-gated via TOTP |
 | `workers/ai/` | AI `AI` | Internal service-only worker for admin AI experiments; deploy this before auth when changing the lab proxy flow |
-| `workers/contact/` | D1 `DB`; secret `RESEND_API_KEY` | Uses the shared `rate_limit_counters` table for durable contact abuse limiting |
+| `workers/contact/` | Durable Object `PUBLIC_RATE_LIMITER`; secret `RESEND_API_KEY` | Uses worker-local Durable Object counters for public abuse-sensitive rate limiting (no longer depends on D1) |
 
 ### Post-Deploy Checks
 
@@ -112,6 +117,20 @@ Some paths degrade gracefully if a table is missing, but the intended production
 - Pages deploy should be built from `npm run build:static` output so `__ASSET_VERSION__` placeholders are rewritten consistently
 
 **Cloudflare Free plan constraint**: the single WAF rate-limiting rule slot is already used by the auth-domain rule documented in `docs/cloudflare-rate-limiting-wave1.md`, so `contact.bitbi.ai` depends on worker-side limiting rather than dashboard WAF protection.
+
+### Release Management
+
+A release compatibility system in `config/release-compat.json` declares the canonical deploy order, all worker bindings/secrets, queue/bucket/DO prerequisites, and auth route contracts. Tooling in `scripts/`:
+
+```bash
+npm run release:plan       # generate a deploy plan from release-compat.json
+npm run release:preflight  # check prerequisites before deploying
+npm run release:apply      # execute the deploy plan
+npm run validate:release   # validate current repo state matches release-compat contracts
+npm run test:release-compat # test the release compatibility validation itself
+```
+
+The release-compat config is the source of truth for deploy ordering and is checked in CI before every deploy. When adding new worker routes, bindings, or migrations, update `config/release-compat.json` accordingly.
 
 ## Architecture
 
@@ -141,7 +160,8 @@ Public content loads directly from `pub.bitbi.ai`. Private content routes throug
 - `index.html` — Main landing page (particle effects, gallery, soundlab, auth-gated sections)
 - `account/profile.html` — User profile page (avatar upload, account settings, requires auth)
 - `account/image-studio.html` — AI image generation studio (prompt-to-image, folder management, requires auth)
-- `admin/index.html` — Admin dashboard (user management, requires admin role)
+- `account/wallet.html` — Ethereum wallet page (connect wallet, SIWE link/unlink, requires auth)
+- `admin/index.html` — Admin dashboard (user management, requires admin role + MFA)
 - `account/forgot-password.html`, `account/reset-password.html`, `account/verify-email.html` — Auth flow pages
 - `legal/privacy.html`, `legal/datenschutz.html`, `legal/imprint.html` — Legal/GDPR pages
 
@@ -149,11 +169,17 @@ Public content loads directly from `pub.bitbi.ai`. Private content routes throug
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, image-studio, forgot-password, reset-password, verify-email each have one). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, image-studio, wallet, forgot-password, reset-password, verify-email each have one). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
-**Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `ai-image-models.mjs` (shared AI image model config used by both gallery studio and image-studio page), `studio-deck.js` (saved-images deck with touch-swipe and modal/lightbox for studio pages).
+**Shared `.mjs` contract modules**: Several `.mjs` files in `js/shared/` are imported by both frontend code and Cloudflare Workers — they must remain isomorphic (no DOM, no Node-only APIs). These include `public-media-contract.mjs` (public media URL builders), `admin-ai-contract.mjs` (AI model catalog shared between admin UI and workers), `worker-observability.mjs` (structured logging / correlation IDs), and `ai-image-models.mjs` (AI image model config). Workers import them via relative paths (e.g. `../../../../js/shared/...`).
 
-**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `soundlab.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`, `studio.js` (inline gallery studio — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
+**Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `studio-deck.js` (saved-images deck with touch-swipe and modal/lightbox for studio pages), `saved-assets-browser.js` (unified folder/asset browser with bulk operations used by image-studio and other studio pages), `models-overlay.js` (AI model catalog overlay panel), `soft-nav.js` (SPA-like soft navigation for legal pages — keeps audio player and auth alive across page transitions).
+
+**Audio subsystem** (`js/shared/audio/`): Three-module global audio player — `audio-library.js` (track catalog + R2 URL builders), `audio-manager.js` (singleton `<audio>` element, state machine, global playback API), `audio-ui.js` (injects persistent player shell before `<main>` on all pages). The player survives soft-nav transitions. All pages import `initGlobalAudioUI()` from `audio-ui.js`.
+
+**Wallet subsystem** (`js/shared/wallet/`): Ethereum wallet connection via SIWE (Sign-In with Ethereum). Modules: `wallet-config.js` (chain IDs, storage keys), `wallet-connectors.js` (MetaMask/WalletConnect detection), `wallet-state.js` (connection state machine), `wallet-controller.js` (orchestrates connect/disconnect + SIWE link/unlink via auth API), `wallet-ui.js` (connection modal rendering), `wallet-qr.js` (WalletConnect QR display), `wallet-workspace.js` (full wallet management page), `siwe-message.js` (SIWE message construction). Uses the `viem` npm package for address validation and SIWE message parsing (the only non-dev npm dependency).
+
+**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `video-gallery.js`, `category-carousel.js`, `soundlab.js`, `contact.js`, `smooth-scroll.js`, `locked-sections.js`, `studio.js` (inline gallery studio — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
@@ -166,9 +192,11 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Shared module defaults pattern**: `particles.js` and `binary-rain.js` define conservative default configs (e.g. `maxParticles: 35`, `maxCols: 16`). The index page overrides these with heavier settings via its `main.js` (e.g. `maxParticles: 100`, `maxCols: 30`). Subpages use the lighter defaults. Changing defaults only affects subpages; changing index overrides only affects the homepage.
 
+**Soft navigation** (`js/shared/soft-nav.js`): Progressive-enhancement SPA-style transitions for a strict allowlist of internal pages (currently the three legal pages). Fetches the target page, swaps `<main>` content, and updates the URL via `history.pushState` — the shared shell (header, audio player, auth state, cookie banner) stays alive without a full reload.
+
 ### Gallery
 
-**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items. Currently empty — Mempics are fetched from the API, and exclusive/private items (Little Monster) are injected separately by `locked-sections.js`.
+**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items. Currently empty — Mempics are fetched from `/api/gallery/mempics` (cursor-paginated, served by `workers/auth/src/routes/gallery.js`), and exclusive/private items (Little Monster) are injected separately by `locked-sections.js`.
 
 **Rendering** (`js/pages/index/gallery.js`): Imports `galleryItems` from `gallery-data.js`. Grid cards load **only thumb** images with explicit `width`/`height` and `loading="lazy"`. Modal loads **only preview** images. Full images are opened in a new tab via `window.open()` only on explicit click of the top-left modal action button. The full-link button (`#modalFullLink`) is shown only for public items (those with `item.full.url`) and hidden for exclusive items.
 
@@ -199,9 +227,9 @@ Both share `js/shared/studio-deck.js` for the saved-images lightbox/modal patter
 
 - `@layer` cascade order: `tokens → reset → base → components → pages → utilities` — each layer maps to a file in `css/base/` or `css/components/`
 - `css/base/` — `tokens.css` (design tokens, `@property`, oklch colors), `reset.css`, `base.css` (@font-face, gradients, glass, animations), `utilities.css`
-- `css/components/` — `components.css`, `auth.css` (auth modal, locked-area overlays, auth flow page styles), `cookie-banner.css` (standalone, hardcoded values, no CSS variable dependencies — intentional so game pages don't need tokens.css)
+- `css/components/` — `components.css`, `auth.css` (auth modal, locked-area overlays, auth flow page styles), `wallet.css` (wallet connection modal + wallet nav elements), `cookie-banner.css` (standalone, hardcoded values, no CSS variable dependencies — intentional so game pages don't need tokens.css)
 - `css/pages/` — `index.css` (index page styles), `legal.css` (shared legal page styles)
-- `css/account/` — `profile.css`, `image-studio.css`, `forgot-password.css`, `reset-password.css`
+- `css/account/` — `profile.css`, `image-studio.css`, `wallet.css` (wallet workspace page), `forgot-password.css`, `reset-password.css`
 - `css/admin/` — `admin.css`
 - Color palette: `--color-midnight`, `--color-navy`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
@@ -209,12 +237,12 @@ Both share `js/shared/studio-deck.js` for the saved-images lightbox/modal patter
 
 ### Cloudflare Workers
 
-Four workers, deployed separately from the static site:
+Three workers, deployed separately from the static site:
 
 | Worker | Endpoint | Purpose |
 |--------|----------|---------|
-| `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256. **Read `workers/auth/CLAUDE.md` before modifying** — it has full route docs, handler signatures, DB schema, and rate limits |
-| `workers/ai/src/index.js` | internal service binding only | Admin-only AI lab worker — model routing, text/image/embedding experiments, and compare flows via `workers/auth` |
+| `workers/auth/src/index.js` | `bitbi.ai/api/*` | Auth API — D1, R2, cookie sessions, PBKDF2-SHA256, wallet SIWE, admin MFA. **Read `workers/auth/CLAUDE.md` before modifying** — it has full route docs, handler signatures, DB schema, and rate limits |
+| `workers/ai/src/index.js` | internal service binding only | Admin-only AI lab worker — model routing, text/image/embedding/music/video experiments, and compare flows via `workers/auth` |
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
 
 All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
