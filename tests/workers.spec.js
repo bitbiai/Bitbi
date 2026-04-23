@@ -7320,6 +7320,89 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('security regression: protected member/admin routes reject tampered session cookies', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'tampered-member-user', role: 'user' }),
+        createAdminUser('tampered-admin-user'),
+      ],
+    });
+
+    const memberToken = await seedSession(env, 'tampered-member-user');
+    const adminToken = await seedSession(env, 'tampered-admin-user');
+    const tamperedMemberToken = `${memberToken.slice(0, -1)}x`;
+    const tamperedAdminToken = `${adminToken.slice(0, -1)}x`;
+
+    const memberRes = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'tampered-member-favorite',
+        title: 'Tampered Member Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${tamperedMemberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(memberRes.status).toBe(401);
+    await expect(memberRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Not authenticated.',
+    });
+
+    const adminRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/stats', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${tamperedAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(adminRes.status).toBe(401);
+    await expect(adminRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Not authenticated.',
+    });
+  });
+
+  test('security regression: production admin route allows secure same-origin request when MFA proof is present', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('allowed-admin-user')],
+    });
+
+    const token = await seedSession(env, 'allowed-admin-user');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { mfaCookie } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'allowed-admin-user',
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/stats', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `${secureSessionCookie}; ${mfaCookie}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      stats: expect.objectContaining({
+        totalUsers: expect.any(Number),
+        admins: expect.any(Number),
+      }),
+    });
+  });
+
   test('AI generate: default model still uses the existing JSON path when no model is provided', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     let capturedModelId = null;
