@@ -630,6 +630,7 @@ function createValidContext() {
   release-compatibility:
     steps:
       - run: npm run test:release-compat
+      - run: npm run test:release-plan
       - run: npm run test:asset-version
       - run: npm run validate:release
       - run: npm run validate:asset-version
@@ -796,6 +797,51 @@ function createValidContext() {
   assert(
     issues.some((issue) =>
       issue.includes('Worker "contact" is missing wrangler migration tag "v1-public-rate-limiter"')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.r2_buckets.push({
+    binding: "TEMP_BUCKET",
+    bucket_name: "bitbi-temp",
+  });
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('Worker "auth" R2 binding contract has unexpected entries: TEMP_BUCKET.')
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.workerConfigs.auth.wrangler.queues.consumers.push({
+    queue: "bitbi-untracked-queue",
+    max_batch_size: 1,
+    max_batch_timeout: 1,
+    max_retries: 1,
+  });
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes(
+        'Worker "auth" queue consumer contract has unexpected entries: bitbi-untracked-queue.'
+      )
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.release.deployOrder = context.manifest.release.deployOrder.filter(
+    (step) => step.type !== "static"
+  );
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("deployOrder must include a static deploy step")
     )
   );
 }
