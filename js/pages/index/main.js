@@ -299,6 +299,7 @@ try { initCookieConsent(); } catch (e) { console.warn('cookieConsent:', e); }
 await authReady;
 try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
+document.dispatchEvent(new CustomEvent('bitbi:homepage-auth-ui-ready'));
 try { initLockedSections(revealObserver); } catch (e) { console.warn('lockedSections:', e); }
 
 /* Load user favorites (updates star button states) */

@@ -86,7 +86,7 @@ function createBanner(onConsent) {
             </label>
             <label class="cookie-banner__label">
                 <input type="checkbox" id="ckMarketing">
-                <span><strong>Marketing</strong> \u2014 Embedded content (YouTube)</span>
+                <span><strong>Marketing</strong> \u2014 Optional third-party embeds</span>
             </label>
         </div>
         <div class="cookie-banner__actions">

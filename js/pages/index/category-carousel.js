@@ -5,6 +5,7 @@
    ============================================================ */
 
 const CATEGORY_ORDER = ['gallery', 'video', 'sound'];
+const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
 
 const CATEGORY_META = {
     gallery: {
@@ -28,6 +29,11 @@ function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
 }
 
+function getPendingCategoryHash() {
+    const pendingHash = window.sessionStorage?.getItem(HOME_CATEGORY_NAV_STATE_KEY) || '';
+    return resolveCategoryFromHash(pendingHash) ? pendingHash : '';
+}
+
 function bindMediaQueryChange(query, listener) {
     if (!query) return;
     if (typeof query.addEventListener === 'function') {
@@ -46,6 +52,18 @@ function setPanelInert(panel, inert) {
         return;
     }
     panel.removeAttribute('inert');
+}
+
+function shouldHonorInitialCategoryHash() {
+    if (resolveCategoryFromHash(window.location.hash)) {
+        const pendingHash = getPendingCategoryHash();
+        if (pendingHash === window.location.hash) return true;
+        const navEntry = performance.getEntriesByType?.('navigation')?.[0];
+        return navEntry?.type !== 'reload';
+    }
+    if (!getPendingCategoryHash()) return false;
+    const navEntry = performance.getEntriesByType?.('navigation')?.[0];
+    return navEntry?.type !== 'reload';
 }
 
 export function initCategoryCarousel() {
@@ -68,7 +86,9 @@ export function initCategoryCarousel() {
 
     if (panels.size !== CATEGORY_ORDER.length) return;
 
-    let activeCategory = resolveCategoryFromHash(window.location.hash) || 'video';
+    let activeCategory = resolveCategoryFromHash(window.location.hash)
+        || resolveCategoryFromHash(getPendingCategoryHash())
+        || 'video';
     let isTransitioning = false;
     let pendingCategory = null;
     let transitionTimer = 0;
@@ -436,4 +456,70 @@ export function initCategoryCarousel() {
 
     bindMediaQueryChange(desktopStageQuery, syncStageMode);
     syncStageMode();
+
+    if (shouldHonorInitialCategoryHash()) {
+        const initialCategoryHash = resolveCategoryFromHash(window.location.hash)
+            ? window.location.hash
+            : getPendingCategoryHash();
+        const initialCategory = resolveCategoryFromHash(initialCategoryHash);
+        const shouldPrimeDeferredAlignment = initialCategoryHash === getPendingCategoryHash();
+        const alignInitialCategory = () => {
+            if (!initialCategory) return;
+            if (desktopStageEnabled) {
+                setActiveCategory(initialCategory, { alignStage: false });
+                alignStageToHeaderEdge();
+            }
+        };
+        const queueInitialAlignment = () => {
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(alignInitialCategory);
+            });
+            window.setTimeout(alignInitialCategory, 120);
+            window.setTimeout(alignInitialCategory, 320);
+        };
+        const handleInitialAuthUiReady = () => {
+            if (!initialCategory || !desktopStageEnabled) return;
+            setActiveCategory(initialCategory, { alignStage: true });
+        };
+        const watchNavbarForInitialAlignment = () => {
+            if (!navbar || typeof ResizeObserver !== 'function') return;
+            let disconnectTimer = 0;
+            const observer = new ResizeObserver(() => {
+                alignInitialCategory();
+                if (disconnectTimer) window.clearTimeout(disconnectTimer);
+                disconnectTimer = window.setTimeout(() => {
+                    observer.disconnect();
+                }, 420);
+            });
+            observer.observe(navbar);
+            disconnectTimer = window.setTimeout(() => {
+                observer.disconnect();
+            }, 1400);
+        };
+        const finalizePendingHash = () => {
+            if (!shouldPrimeDeferredAlignment) return;
+            window.sessionStorage?.removeItem(HOME_CATEGORY_NAV_STATE_KEY);
+        };
+
+        document.addEventListener('bitbi:homepage-auth-ui-ready', handleInitialAuthUiReady, { once: true });
+
+        if (document.readyState === 'complete') {
+            watchNavbarForInitialAlignment();
+            queueInitialAlignment();
+            if (shouldPrimeDeferredAlignment) {
+                window.setTimeout(finalizePendingHash, 360);
+            }
+            return;
+        }
+
+        window.addEventListener('load', () => {
+            watchNavbarForInitialAlignment();
+            queueInitialAlignment();
+            if (shouldPrimeDeferredAlignment) {
+                window.setTimeout(finalizePendingHash, 360);
+                return;
+            }
+            finalizePendingHash();
+        }, { once: true });
+    }
 }

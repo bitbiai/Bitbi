@@ -8,6 +8,8 @@ import { createStarButton } from '../../shared/favorites.js';
 import { initMobileCardDeck } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
+const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const DESKTOP_VISIBLE_MEMVIDS = 5;
 
 let focusTrapCleanup = null;
 
@@ -17,6 +19,7 @@ export function initVideoGallery() {
     if (!container) return;
 
     let memvidsPromise = null;
+    const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
     const memvidsState = {
         items: [],
         nextCursor: null,
@@ -24,6 +27,7 @@ export function initVideoGallery() {
         loaded: false,
         loadingMore: false,
     };
+    let memvidsDrawerExpanded = false;
 
     /* Replace the teaser placeholder with a live grid */
     container.innerHTML = '';
@@ -43,11 +47,42 @@ export function initVideoGallery() {
 
     const $paginationStatus = document.createElement('div');
     $paginationStatus.className = 'browse-pagination__status';
+    const $drawerToggle = document.createElement('button');
+    $drawerToggle.type = 'button';
+    $drawerToggle.className = 'browse-pagination__toggle';
+    $drawerToggle.setAttribute('aria-controls', 'videoGrid');
     const $loadMore = document.createElement('button');
     $loadMore.type = 'button';
     $loadMore.className = 'browse-pagination__btn';
     $loadMore.textContent = 'Load More';
-    $pagination?.append($paginationStatus, $loadMore);
+    $pagination?.append($paginationStatus, $drawerToggle, $loadMore);
+
+    function bindMediaQueryChange(query, listener) {
+        if (!query) return;
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', listener);
+            return;
+        }
+        if (typeof query.addListener === 'function') {
+            query.addListener(listener);
+        }
+    }
+
+    function isDesktopDrawerEnabled() {
+        return !!desktopDrawerQuery?.matches;
+    }
+
+    function hasCollapsedMemvids() {
+        return isDesktopDrawerEnabled()
+            && memvidsState.items.length > DESKTOP_VISIBLE_MEMVIDS;
+    }
+
+    function getVisibleMemvidsCount() {
+        if (!hasCollapsedMemvids() || memvidsDrawerExpanded) {
+            return memvidsState.items.length;
+        }
+        return DESKTOP_VISIBLE_MEMVIDS;
+    }
 
     /* ── Modal ── */
     const modal = buildVideoModal();
@@ -65,6 +100,7 @@ export function initVideoGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
+            $drawerToggle.style.display = 'none';
             $loadMore.style.display = 'none';
             $loadMore.disabled = false;
             return;
@@ -73,11 +109,16 @@ export function initVideoGallery() {
             $pagination.style.display = 'none';
             return;
         }
+        const drawerAvailable = hasCollapsedMemvids();
+        const visibleCount = getVisibleMemvidsCount();
         $pagination.style.display = '';
-        $paginationStatus.textContent = memvidsState.hasMore
-            ? `Showing ${memvidsState.items.length} Memvids.`
-            : `Showing all ${memvidsState.items.length} Memvids.`;
-        $loadMore.style.display = memvidsState.hasMore ? '' : 'none';
+        $paginationStatus.textContent = memvidsState.hasMore || drawerAvailable
+            ? `Showing all ${visibleCount} Memvids`
+            : `Showing all ${memvidsState.items.length} Memvids`;
+        $drawerToggle.style.display = drawerAvailable ? '' : 'none';
+        $drawerToggle.textContent = memvidsDrawerExpanded ? 'Show Less' : 'Show More';
+        $drawerToggle.setAttribute('aria-expanded', String(drawerAvailable && memvidsDrawerExpanded));
+        $loadMore.style.display = memvidsState.hasMore && (!drawerAvailable || memvidsDrawerExpanded) ? '' : 'none';
         $loadMore.disabled = memvidsState.loadingMore;
         $loadMore.textContent = memvidsState.loadingMore ? 'Loading...' : 'Load More';
     }
@@ -165,10 +206,35 @@ export function initVideoGallery() {
         const info = document.createElement('div');
         info.className = 'video-card__info';
 
-        const title = document.createElement('h4');
-        title.className = 'video-card__title';
-        title.textContent = item.title || 'Memvids';
-        info.appendChild(title);
+        const publisher = item.publisher || null;
+        const publisherRow = document.createElement('div');
+        publisherRow.className = 'public-media-meta__identity public-media-meta__identity--video';
+        if (publisher?.avatar?.url) {
+            const avatar = document.createElement('img');
+            avatar.className = 'public-media-meta__avatar';
+            avatar.src = publisher.avatar.url;
+            avatar.alt = '';
+            avatar.loading = 'lazy';
+            avatar.decoding = 'async';
+            avatar.onerror = () => avatar.remove();
+            publisherRow.appendChild(avatar);
+        }
+
+        const publisherName = document.createElement('h4');
+        publisherName.className = 'video-card__title';
+        publisherName.textContent = publisher?.display_name || item.title || 'Memvids';
+        publisherRow.appendChild(publisherName);
+        info.appendChild(publisherRow);
+
+        const hasCustomTitle = typeof item.title === 'string'
+            && item.title.trim()
+            && item.title.trim().toLowerCase() !== 'memvids';
+        if (hasCustomTitle) {
+            const subtitle = document.createElement('p');
+            subtitle.className = 'video-card__subtitle';
+            subtitle.textContent = item.title.trim();
+            info.appendChild(subtitle);
+        }
 
         const caption = document.createElement('p');
         caption.className = 'video-card__caption';
@@ -213,8 +279,12 @@ export function initVideoGallery() {
             return;
         }
 
-        items.forEach((item) => {
-            grid.appendChild(buildVideoCard(item));
+        items.forEach((item, index) => {
+            const card = buildVideoCard(item);
+            if (hasCollapsedMemvids() && !memvidsDrawerExpanded && index >= DESKTOP_VISIBLE_MEMVIDS) {
+                card.hidden = true;
+            }
+            grid.appendChild(card);
         });
         updateMemvidsPagination();
     }
@@ -349,6 +419,18 @@ export function initVideoGallery() {
 
     $loadMore?.addEventListener('click', () => {
         loadMoreMemvids();
+    });
+
+    $drawerToggle?.addEventListener('click', () => {
+        memvidsDrawerExpanded = !memvidsDrawerExpanded;
+        render();
+    });
+
+    bindMediaQueryChange(desktopDrawerQuery, () => {
+        if (!isDesktopDrawerEnabled()) {
+            memvidsDrawerExpanded = false;
+        }
+        render();
     });
 
     render();

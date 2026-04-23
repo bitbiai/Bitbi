@@ -12,6 +12,8 @@ import { createStarButton } from '../../shared/favorites.js';
 const items = galleryItems;
 const MEMPICS_CATEGORY = 'mempics';
 const MEMPICS_LIMIT = 60;
+const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const DESKTOP_VISIBLE_MEMPICS = 5;
 
 let focusTrapCleanup = null;
 
@@ -22,6 +24,7 @@ export function initGallery() {
     if (!grid || !modal) return;
     let renderSeq = 0;
     let mempicsPromise = null;
+    const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
     const mempicsState = {
         items: [],
         nextCursor: null,
@@ -29,14 +32,47 @@ export function initGallery() {
         loaded: false,
         loadingMore: false,
     };
+    let currentFilter = MEMPICS_CATEGORY;
+    let mempicsDrawerExpanded = false;
 
     const $paginationStatus = document.createElement('div');
     $paginationStatus.className = 'browse-pagination__status';
+    const $drawerToggle = document.createElement('button');
+    $drawerToggle.type = 'button';
+    $drawerToggle.className = 'browse-pagination__toggle';
+    $drawerToggle.setAttribute('aria-controls', 'galleryGrid');
     const $loadMore = document.createElement('button');
     $loadMore.type = 'button';
     $loadMore.className = 'browse-pagination__btn';
     $loadMore.textContent = 'Load More';
-    $pagination?.append($paginationStatus, $loadMore);
+    $pagination?.append($paginationStatus, $drawerToggle, $loadMore);
+
+    function bindMediaQueryChange(query, listener) {
+        if (!query) return;
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', listener);
+            return;
+        }
+        if (typeof query.addListener === 'function') {
+            query.addListener(listener);
+        }
+    }
+
+    function isDesktopDrawerEnabled() {
+        return !!desktopDrawerQuery?.matches;
+    }
+
+    function hasCollapsedMempics() {
+        return isDesktopDrawerEnabled()
+            && mempicsState.items.length > DESKTOP_VISIBLE_MEMPICS;
+    }
+
+    function getVisibleMempicsCount() {
+        if (!hasCollapsedMempics() || mempicsDrawerExpanded) {
+            return mempicsState.items.length;
+        }
+        return DESKTOP_VISIBLE_MEMPICS;
+    }
 
     function renderGalleryState(message) {
         const empty = document.createElement('div');
@@ -54,6 +90,7 @@ export function initGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
+            $drawerToggle.style.display = 'none';
             $loadMore.style.display = 'none';
             $loadMore.disabled = false;
             return;
@@ -62,11 +99,16 @@ export function initGallery() {
             $pagination.style.display = 'none';
             return;
         }
+        const drawerAvailable = hasCollapsedMempics();
+        const visibleCount = getVisibleMempicsCount();
         $pagination.style.display = '';
-        $paginationStatus.textContent = mempicsState.hasMore
-            ? `Showing ${mempicsState.items.length} Mempics.`
-            : `Showing all ${mempicsState.items.length} Mempics.`;
-        $loadMore.style.display = mempicsState.hasMore ? '' : 'none';
+        $paginationStatus.textContent = mempicsState.hasMore || drawerAvailable
+            ? `Showing all ${visibleCount} Mempics`
+            : `Showing all ${mempicsState.items.length} Mempics`;
+        $drawerToggle.style.display = drawerAvailable ? '' : 'none';
+        $drawerToggle.textContent = mempicsDrawerExpanded ? 'Show Less' : 'Show More';
+        $drawerToggle.setAttribute('aria-expanded', String(drawerAvailable && mempicsDrawerExpanded));
+        $loadMore.style.display = mempicsState.hasMore && (!drawerAvailable || mempicsDrawerExpanded) ? '' : 'none';
         $loadMore.disabled = mempicsState.loadingMore;
         $loadMore.textContent = mempicsState.loadingMore ? 'Loading...' : 'Load More';
     }
@@ -162,19 +204,37 @@ export function initGallery() {
         overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px;z-index:1';
 
         const copy = document.createElement('div');
+        copy.className = 'public-media-meta';
+
+        const publisher = item.publisher || null;
+        const publisherRow = document.createElement('div');
+        publisherRow.className = 'public-media-meta__identity';
+        if (publisher?.avatar?.url) {
+            const avatar = new Image();
+            avatar.className = 'public-media-meta__avatar';
+            avatar.src = publisher.avatar.url;
+            avatar.alt = '';
+            avatar.loading = 'lazy';
+            avatar.decoding = 'async';
+            avatar.onerror = () => avatar.remove();
+            publisherRow.appendChild(avatar);
+        }
 
         const title = document.createElement('h4');
-        title.style.cssText = "font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)";
-        title.textContent = item.title;
-        copy.appendChild(title);
+        title.className = 'public-media-meta__title';
+        title.textContent = publisher?.display_name || item.title;
+        publisherRow.appendChild(title);
+        copy.appendChild(publisherRow);
 
-        const category = document.createElement('p');
-        category.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px;text-transform:capitalize';
-        category.textContent = item.category;
-        copy.appendChild(category);
+        if (item.caption) {
+            const caption = document.createElement('p');
+            caption.className = 'public-media-meta__caption';
+            caption.textContent = item.caption;
+            copy.appendChild(caption);
+        }
 
         const cta = document.createElement('span');
-        cta.style.cssText = "display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF";
+        cta.className = 'public-media-meta__cta';
         cta.textContent = 'View Full →';
         copy.appendChild(cta);
 
@@ -202,6 +262,7 @@ export function initGallery() {
     }
 
     async function render(filter) {
+        currentFilter = filter;
         const seq = ++renderSeq;
         updateMempicsPagination(filter);
         /* Preserve exclusive cards injected by locked-sections.js */
@@ -251,8 +312,12 @@ export function initGallery() {
             return;
         }
 
-        list.forEach((item) => {
-            grid.appendChild(buildGalleryCard(item));
+        list.forEach((item, index) => {
+            const card = buildGalleryCard(item);
+            if (filter === MEMPICS_CATEGORY && hasCollapsedMempics() && !mempicsDrawerExpanded && index >= DESKTOP_VISIBLE_MEMPICS) {
+                card.hidden = true;
+            }
+            grid.appendChild(card);
         });
         updateMempicsPagination(filter);
     }
@@ -260,6 +325,11 @@ export function initGallery() {
     render('mempics');
     $loadMore?.addEventListener('click', () => {
         loadMoreMempics();
+    });
+
+    $drawerToggle?.addEventListener('click', () => {
+        mempicsDrawerExpanded = !mempicsDrawerExpanded;
+        render(currentFilter);
     });
 
     /* Listen for exclusive filter from locked-sections.js */
@@ -271,6 +341,9 @@ export function initGallery() {
     const filterBtns = document.querySelectorAll('.filter-btn');
     filterBtns.forEach((btn, idx) => {
         btn.addEventListener('click', () => {
+            if (btn.dataset.filter === MEMPICS_CATEGORY && !isDesktopDrawerEnabled()) {
+                mempicsDrawerExpanded = false;
+            }
             filterBtns.forEach(x => {
                 x.classList.remove('active');
                 x.setAttribute('aria-selected', 'false');
@@ -458,6 +531,13 @@ export function initGallery() {
             render(cat);
         }
     }
+
+    bindMediaQueryChange(desktopDrawerQuery, () => {
+        if (!isDesktopDrawerEnabled()) {
+            mempicsDrawerExpanded = false;
+        }
+        render(currentFilter);
+    });
 
     function galCreateFilterBar() {
         const bar = document.createElement('div');

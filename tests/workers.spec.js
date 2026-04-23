@@ -9601,6 +9601,8 @@ test.describe('Worker routes', () => {
           bio: '',
           website: '',
           youtube_url: '',
+          has_avatar: 1,
+          avatar_updated_at: '2026-04-11T10:00:00.000Z',
           created_at: '2026-04-01T00:00:00.000Z',
           updated_at: '2026-04-01T00:00:00.000Z',
         },
@@ -9685,7 +9687,17 @@ test.describe('Worker routes', () => {
           derivatives_version: 1,
         },
       ],
+      privateMedia: {
+        'avatars/artist-a': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+            ONE_PIXEL_PNG_BYTES.byteOffset,
+            ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+          ),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
     });
+    const avatarVersion = `av${Date.parse('2026-04-11T10:00:00.000Z').toString(36)}`;
 
     const listRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),
@@ -9705,6 +9717,12 @@ test.describe('Worker routes', () => {
             title: 'Mempics',
             caption: 'Published by Ada Member on 2026-04-10.',
             category: 'mempics',
+            publisher: {
+              display_name: 'Ada Member',
+              avatar: {
+                url: `/api/gallery/mempics/a1b2c3d4/${avatarVersion}/avatar`,
+              },
+            },
             thumb: {
               url: buildPublicMempicUrl('a1b2c3d4', buildPublicMempicVersion(env.DB.state.aiImages[0]), 'thumb'),
               w: 320,
@@ -9725,6 +9743,9 @@ test.describe('Worker routes', () => {
             title: 'Mempics',
             caption: 'Published by a bitbi member on 2026-04-08.',
             category: 'mempics',
+            publisher: {
+              display_name: 'a bitbi member',
+            },
             thumb: {
               url: buildPublicMempicUrl('c0ffee12', buildPublicMempicVersion(env.DB.state.aiImages[1]), 'thumb'),
               w: 320,
@@ -9754,6 +9775,14 @@ test.describe('Worker routes', () => {
     expect(body.data.items[1].user_id).toBeUndefined();
     expect(body.data.items[1].folder_id).toBeUndefined();
     expect(body.data.items[1].r2_key).toBeUndefined();
+
+    const avatarRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai/api/gallery/mempics/a1b2c3d4/${avatarVersion}/avatar`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(avatarRes.status).toBe(200);
+    expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
   test('public Mempics pagination keeps ordering stable across page boundaries', async () => {
@@ -9913,6 +9942,8 @@ test.describe('Worker routes', () => {
           bio: '',
           website: '',
           youtube_url: '',
+          has_avatar: 1,
+          avatar_updated_at: '2026-04-12T12:00:00.000Z',
           created_at: '2026-04-01T00:00:00.000Z',
           updated_at: '2026-04-01T00:00:00.000Z',
         },
@@ -9944,9 +9975,19 @@ test.describe('Worker routes', () => {
           httpMetadata: { contentType: 'image/webp' },
         },
       },
+      privateMedia: {
+        'avatars/video-owner': {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(
+            ONE_PIXEL_PNG_BYTES.byteOffset,
+            ONE_PIXEL_PNG_BYTES.byteOffset + ONE_PIXEL_PNG_BYTES.byteLength
+          ),
+          httpMetadata: { contentType: 'image/png' },
+        },
+      },
     });
 
     const version = buildPublicMemvidVersion(env.DB.state.aiTextAssets[0]);
+    const avatarVersion = `av${Date.parse('2026-04-12T12:00:00.000Z').toString(36)}`;
 
     const listRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/gallery/memvids?limit=10'),
@@ -9963,6 +10004,12 @@ test.describe('Worker routes', () => {
         items: [
           {
             id: 'bada55e1',
+            publisher: {
+              display_name: 'Ada Member',
+              avatar: {
+                url: `/api/gallery/memvids/bada55e1/${avatarVersion}/avatar`,
+              },
+            },
             file: { url: buildPublicMemvidUrl('bada55e1', version, 'file') },
             poster: { url: buildPublicMemvidUrl('bada55e1', version, 'poster') },
           },
@@ -10003,6 +10050,14 @@ test.describe('Worker routes', () => {
     );
     expect(posterRes.status).toBe(200);
     expect(posterRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    const avatarRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai/api/gallery/memvids/bada55e1/${avatarVersion}/avatar`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(avatarRes.status).toBe(200);
+    expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
   test('public Memvids pagination keeps ordering stable across page boundaries', async () => {

@@ -7,6 +7,7 @@ import {
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
+import { avatarKey } from "../lib/profile-avatar-state.js";
 import {
   buildPublicMempicUrl,
   buildPublicMempicVersion,
@@ -15,6 +16,12 @@ import {
 const DEFAULT_MEMPICS_LIMIT = 60;
 const MAX_MEMPICS_LIMIT = 120;
 const PUBLIC_MEMPICS_CURSOR_TYPE = "public_mempics";
+
+function buildPublicPublisherAvatarVersion(avatarUpdatedAt) {
+  const timestamp = Date.parse(String(avatarUpdatedAt || ""));
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  return `av${timestamp.toString(36)}`;
+}
 
 function getPublicMempicTitle() {
   return "Mempics";
@@ -38,12 +45,22 @@ function getPublicMempicCaption(displayName, publishedAt) {
 
 function toPublicMempicRecord(row) {
   const version = buildPublicMempicVersion(row);
+  const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
+  const publisher = {
+    display_name: getPublicMempicOwnerLabel(row.owner_display_name),
+  };
+  if (avatarVersion) {
+    publisher.avatar = {
+      url: `/api/gallery/mempics/${row.id}/${avatarVersion}/avatar`,
+    };
+  }
   return {
     id: row.id,
     slug: `mempic-${row.id}`,
     title: getPublicMempicTitle(),
     caption: getPublicMempicCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "mempics",
+    publisher,
     thumb: {
       url: buildPublicMempicUrl(row.id, version, "thumb"),
       w: Number(row.thumb_width) || 320,
@@ -72,6 +89,14 @@ const PUBLIC_MEMPIC_SELECT = `SELECT created_at,
                               FROM ai_images
                               WHERE id = ?
                                 AND visibility = 'public'`;
+
+const PUBLIC_MEMPIC_AVATAR_SELECT = `SELECT ai_images.user_id,
+                                            profiles.has_avatar,
+                                            profiles.avatar_updated_at
+                                     FROM ai_images
+                                     LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
+                                     WHERE ai_images.id = ?
+                                       AND ai_images.visibility = 'public'`;
 
 async function handleListMempics(ctx) {
   const { env, url } = ctx;
@@ -124,7 +149,9 @@ async function handleListMempics(ctx) {
             medium_height,
             derivatives_version,
             derivatives_ready_at,
-            owner_display_name
+            owner_display_name,
+            owner_has_avatar,
+            owner_avatar_updated_at
      FROM (
        SELECT ai_images.id,
               ai_images.created_at,
@@ -139,7 +166,9 @@ async function handleListMempics(ctx) {
               ai_images.medium_height,
               ai_images.derivatives_version,
               ai_images.derivatives_ready_at,
-              profiles.display_name AS owner_display_name
+              profiles.display_name AS owner_display_name,
+              profiles.has_avatar AS owner_has_avatar,
+              profiles.avatar_updated_at AS owner_avatar_updated_at
        FROM ai_images
        LEFT JOIN profiles ON profiles.user_id = ai_images.user_id
        WHERE ai_images.visibility = 'public'
@@ -178,8 +207,16 @@ async function getPublicMempicRouteRow(env, imageId) {
   return env.DB.prepare(PUBLIC_MEMPIC_SELECT).bind(imageId).first();
 }
 
+async function getPublicMempicAvatarRow(env, imageId) {
+  return env.DB.prepare(PUBLIC_MEMPIC_AVATAR_SELECT).bind(imageId).first();
+}
+
 function hasMatchingPublicMempicVersion(row, version) {
   return version === buildPublicMempicVersion(row);
+}
+
+function hasMatchingPublicPublisherAvatarVersion(row, version) {
+  return version === buildPublicPublisherAvatarVersion(row?.avatar_updated_at);
 }
 
 async function handleGetMempicFile(ctx, imageId, version) {
@@ -252,11 +289,39 @@ async function handleGetMempicDerivative(ctx, imageId, variant, version) {
   );
 }
 
+async function handleGetMempicAvatar(ctx, imageId, version) {
+  const row = await getPublicMempicAvatarRow(ctx.env, imageId);
+  if (!row?.user_id || !Number(row.has_avatar) || !hasMatchingPublicPublisherAvatarVersion(row, version)) {
+    return json({ ok: false, error: "Avatar not found." }, { status: 404 });
+  }
+
+  const object = await ctx.env.PRIVATE_MEDIA.get(avatarKey(row.user_id));
+  if (!object) {
+    return json({ ok: false, error: "Avatar not found." }, { status: 404 });
+  }
+
+  return new Response(
+    object.body,
+    {
+      headers: buildPublicMediaHeaders(
+        object.httpMetadata?.contentType || "image/webp",
+        object.size,
+        { immutable: true }
+      ),
+    }
+  );
+}
+
 export async function handleGallery(ctx) {
   const { pathname, method } = ctx;
 
   if (pathname === "/api/gallery/mempics" && method === "GET") {
     return handleListMempics(ctx);
+  }
+
+  const versionedAvatarMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/([^/]+)\/avatar$/);
+  if (versionedAvatarMatch && method === "GET") {
+    return handleGetMempicAvatar(ctx, versionedAvatarMatch[1], versionedAvatarMatch[2]);
   }
 
   const versionedFileMatch = pathname.match(/^\/api\/gallery\/mempics\/([a-f0-9]+)\/([^/]+)\/file$/);

@@ -85,7 +85,6 @@ const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
 const $bio            = document.getElementById('bio');
 const $website        = document.getElementById('website');
-const $youtubeUrl     = document.getElementById('youtubeUrl');
 const $submitBtn      = document.getElementById('submitBtn');
 const $formMsg        = document.getElementById('formMsg');
 const $logoutBtn      = document.getElementById('logoutBtn');
@@ -888,7 +887,6 @@ function renderProfile(profile, account) {
     $displayName.value = profile.display_name;
     $bio.value = profile.bio;
     $website.value = profile.website;
-    $youtubeUrl.value = profile.youtube_url;
 
     renderWalletSection();
 }
@@ -1617,7 +1615,6 @@ async function init() {
             display_name: $displayName.value,
             bio: $bio.value,
             website: $website.value,
-            youtube_url: $youtubeUrl.value,
         });
 
         $submitBtn.disabled = false;

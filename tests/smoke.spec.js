@@ -188,10 +188,13 @@ async function readHomepageCategoryStageMetrics(page) {
     const readArrow = (button) => {
       if (!button || !stageRect) return null;
       const rect = button.getBoundingClientRect();
+      const iconRect = button.querySelector('svg')?.getBoundingClientRect() || null;
       return {
         width: Math.round(rect.width * 100) / 100,
         height: Math.round(rect.height * 100) / 100,
         centerRatio: Math.round((((rect.top + (rect.height / 2)) - stageRect.top) / stageRect.height) * 1000) / 1000,
+        iconWidth: iconRect ? Math.round(iconRect.width * 100) / 100 : 0,
+        iconHeight: iconRect ? Math.round(iconRect.height * 100) / 100 : 0,
       };
     };
 
@@ -351,8 +354,130 @@ test.describe('Homepage', () => {
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
   });
 
+  test('cross-page header links land Gallery, Video, and Sound Lab with the same fixed-header-safe alignment', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: Array.from({ length: 6 }, (_, index) => ({
+              id: `cross-mempic-${index + 1}`,
+              slug: `cross-mempic-${index + 1}`,
+              title: 'Mempics',
+              caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+              category: 'mempics',
+              publisher: {
+                display_name: 'Ada Member',
+              },
+              thumb: {
+                url: `/api/gallery/mempics/cross-mempic-${index + 1}/thumb`,
+                w: 320,
+                h: 320,
+              },
+              preview: {
+                url: `/api/gallery/mempics/cross-mempic-${index + 1}/medium`,
+                w: 1280,
+                h: 1280,
+              },
+              full: {
+                url: `/api/gallery/mempics/cross-mempic-${index + 1}/file`,
+              },
+            })),
+            has_more: false,
+            next_cursor: null,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+(?:\/[^/]+)?\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: Array.from({ length: 6 }, (_, index) => ({
+              id: `cross-memvid-${index + 1}`,
+              slug: `cross-memvid-${index + 1}`,
+              title: `Launch Cut ${index + 1}`,
+              caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+              category: 'memvids',
+              publisher: {
+                display_name: 'Ada Member',
+              },
+              file: {
+                url: `/api/gallery/memvids/cross-memvid-${index + 1}/file`,
+              },
+              poster: {
+                url: `/api/gallery/memvids/cross-memvid-${index + 1}/poster`,
+                w: 1280,
+                h: 720,
+              },
+            })),
+            has_more: false,
+            next_cursor: null,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    const targets = [
+      { label: 'Gallery', category: 'gallery' },
+      { label: 'Video', category: 'video' },
+      { label: 'Sound Lab', category: 'sound' },
+    ];
+
+    for (const target of targets) {
+      await page.goto('/legal/imprint.html');
+      await page.locator('.site-nav__links').getByRole('link', { name: target.label }).click();
+      await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+      await waitForHomepageCategoryStage(page);
+      await expectActiveHomepageCategory(page, target.category);
+      await waitForHomepageCategoryAlignment(page);
+    }
+  });
+
   test('homepage category carousel defaults to Video Creations and navigates the three staged states safely', async ({ page }) => {
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -394,7 +519,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/memvids**', async (route) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -424,6 +549,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -458,10 +592,14 @@ test.describe('Homepage', () => {
     [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
       expect(arrowMetrics.width).toBeGreaterThan(69);
       expect(arrowMetrics.width).toBeLessThan(72.5);
-      expect(arrowMetrics.height).toBeGreaterThan(69);
-      expect(arrowMetrics.height).toBeLessThan(72.5);
+      expect(arrowMetrics.height).toBeGreaterThan(153);
+      expect(arrowMetrics.height).toBeLessThan(157);
       expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
       expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
+      expect(arrowMetrics.iconWidth).toBeGreaterThan(28);
+      expect(arrowMetrics.iconWidth).toBeLessThan(31);
+      expect(arrowMetrics.iconHeight).toBeGreaterThan(42);
+      expect(arrowMetrics.iconHeight).toBeLessThan(46);
     });
 
     const idleSparkOpacity = await prevButton.evaluate((button) => (
@@ -1069,7 +1207,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1111,7 +1249,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/memvids**', async (route) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1141,6 +1279,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -1205,7 +1352,8 @@ test.describe('Homepage', () => {
 
   test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {
     const mempicVersion = 'vpubmempic';
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    const avatarVersion = 'avpubmempic';
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1219,6 +1367,12 @@ test.describe('Homepage', () => {
                 title: 'Mempics',
                 caption: 'Published by Ada Member on 2026-04-12.',
                 category: 'mempics',
+                publisher: {
+                  display_name: 'Ada Member',
+                  avatar: {
+                    url: `/api/gallery/mempics/a1b2c3d4/${avatarVersion}/avatar`,
+                  },
+                },
                 thumb: {
                   url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/thumb`,
                   w: 320,
@@ -1239,6 +1393,14 @@ test.describe('Homepage', () => {
       });
     });
 
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/[^/]+\/avatar$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
     await page.route(/\/api\/gallery\/mempics\/[^/]+(?:\/[^/]+)?\/(thumb|medium|file)$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -1254,9 +1416,11 @@ test.describe('Homepage', () => {
     await expect(mempicsBtn).toBeVisible();
     await mempicsBtn.click();
 
-    const mempicsCard = page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Mempics' });
-    await expect(mempicsCard).toHaveCount(1);
+    const mempicsCard = page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').first();
     await expect(mempicsCard).toBeVisible();
+    await mempicsCard.hover();
+    await expect(mempicsCard.locator('.public-media-meta__title')).toHaveText('Ada Member');
+    await expect(mempicsCard.locator('.public-media-meta__avatar')).toBeVisible();
 
     await mempicsCard.click();
     await expect(page.locator('#modalTitle')).toHaveText('Mempics');
@@ -1265,6 +1429,221 @@ test.describe('Homepage', () => {
     await page.locator('.modal-close').click();
 
     await page.locator('.filter-btn[data-filter="mempics"]').click();
+  });
+
+  test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'bada55e1',
+                slug: 'memvid-bada55e1',
+                title: 'Memvids',
+                caption: 'Published by Ada Member on 2026-04-14.',
+                category: 'memvids',
+                publisher: {
+                  display_name: 'Ada Member',
+                  avatar: {
+                    url: '/api/gallery/memvids/bada55e1/avpubmemvid/avatar',
+                  },
+                },
+                file: {
+                  url: '/api/gallery/memvids/bada55e1/file',
+                },
+                poster: {
+                  url: '/api/gallery/memvids/bada55e1/poster',
+                  w: 1280,
+                  h: 720,
+                },
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memvids\/[^/]+\/[^/]+\/avatar$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.goto('/');
+    await switchHomepageCategory(page, 'video');
+
+    const videoCard = page.locator('#videoGrid .video-card').first();
+    await expect(videoCard.locator('.video-card__title')).toHaveText('Ada Member');
+    await expect(videoCard.locator('.public-media-meta__avatar')).toBeVisible();
+    await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
+  });
+
+  test('desktop published Mempics and Memvids start at five items and expand downward on demand without changing mobile behavior', async ({ page }) => {
+    const mempicItems = Array.from({ length: 8 }, (_, index) => ({
+      id: `mempic-${index + 1}`,
+      slug: `mempic-${index + 1}`,
+      title: 'Mempics',
+      caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+      category: 'mempics',
+      publisher: {
+        display_name: 'Ada Member',
+      },
+      thumb: {
+        url: `/api/gallery/mempics/mempic-${index + 1}/thumb`,
+        w: 320,
+        h: 320,
+      },
+      preview: {
+        url: `/api/gallery/mempics/mempic-${index + 1}/medium`,
+        w: 1280,
+        h: 1280,
+      },
+      full: {
+        url: `/api/gallery/mempics/mempic-${index + 1}/file`,
+      },
+    }));
+
+    const memvidItems = Array.from({ length: 7 }, (_, index) => ({
+      id: `memvid-${index + 1}`,
+      slug: `memvid-${index + 1}`,
+      title: `Launch Cut ${index + 1}`,
+      caption: `Published by Ada Member on 2026-04-${String(index + 10).padStart(2, '0')}.`,
+      category: 'memvids',
+      publisher: {
+        display_name: 'Ada Member',
+      },
+      file: {
+        url: `/api/gallery/memvids/memvid-${index + 1}/file`,
+      },
+      poster: {
+        url: `/api/gallery/memvids/memvid-${index + 1}/poster`,
+        w: 1280,
+        h: 720,
+      },
+    }));
+
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: mempicItems,
+            has_more: false,
+            next_cursor: null,
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/mempics\/[^/]+\/(thumb|medium|file)$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: memvidItems,
+            has_more: false,
+            next_cursor: null,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'video/mp4',
+        body: Buffer.from('mock-video'),
+      });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+    await switchHomepageCategory(page, 'gallery');
+
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 5 Mempics');
+    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(5);
+
+    const galleryToggle = page.locator('#galleryPagination .browse-pagination__toggle');
+    await expect(galleryToggle).toHaveAttribute('aria-expanded', 'false');
+    await galleryToggle.click();
+    await expect(galleryToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(8);
+
+    await switchHomepageCategory(page, 'video');
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 5 Memvids');
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(5);
+
+    const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
+    await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');
+    await videoToggle.click();
+    await expect(videoToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(7);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await switchHomepageCategory(page, 'gallery');
+    await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();
   });
 
   test('homepage Gallery fits five cards across on wide desktop while preserving the mobile layout', async ({ page }) => {
@@ -1292,7 +1671,7 @@ test.describe('Homepage', () => {
       };
     });
 
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1384,7 +1763,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1426,7 +1805,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/memvids**', async (route) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1456,6 +1835,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -1564,7 +1952,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1575,7 +1963,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/memvids**', async (route) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1617,6 +2005,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -1764,7 +2161,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/mempics**', async (route) => {
+    await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1772,7 +2169,7 @@ test.describe('Homepage', () => {
       });
     });
 
-    await page.route('**/api/gallery/memvids**', async (route) => {
+    await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1796,6 +2193,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memvids/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -1918,7 +2324,8 @@ test.describe('Shared MODELS overlay', () => {
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+    await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
   });
 
   test('profile page uses the full shared header navigation instead of the logo-only fallback', async ({ page }) => {
@@ -1928,7 +2335,8 @@ test.describe('Shared MODELS overlay', () => {
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+    await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
   });
 
   test('shared-header subpages ship the full static header shell before JS enhancement', async ({ browser }) => {
@@ -1945,7 +2353,8 @@ test.describe('Shared MODELS overlay', () => {
         await expect(page.locator('#mobileNav')).toHaveCount(1);
         await expect
           .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-          .toEqual(['Gallery', 'Video', 'Sound Lab', 'YouTube', 'Contact', 'Models']);
+          .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+        await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
       }
     } finally {
       await context.close();

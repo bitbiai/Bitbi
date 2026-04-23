@@ -1003,7 +1003,7 @@ function loadAccess() {
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab (5 tracks)</span><span class="badge badge--active">Public</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks (5)</span><span class="badge badge--admin">Auth</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">YouTube Exclusives</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Video Exclusives</span><span class="badge badge--admin">Auth</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Image Studio</span><span class="badge badge--admin">Auth</span></div>';
         html += '</div>';
         mapEl.innerHTML = html;

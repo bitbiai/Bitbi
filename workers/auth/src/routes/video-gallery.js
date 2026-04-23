@@ -7,6 +7,7 @@ import {
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { buildPublicMediaAliasRedirect, buildPublicMediaHeaders } from "../lib/public-media.js";
+import { avatarKey } from "../lib/profile-avatar-state.js";
 import {
   buildPublicMemvidUrl,
   buildPublicMemvidVersion,
@@ -15,6 +16,12 @@ import {
 const DEFAULT_MEMVIDS_LIMIT = 60;
 const MAX_MEMVIDS_LIMIT = 120;
 const PUBLIC_MEMVIDS_CURSOR_TYPE = "public_memvids";
+
+function buildPublicPublisherAvatarVersion(avatarUpdatedAt) {
+  const timestamp = Date.parse(String(avatarUpdatedAt || ""));
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  return `av${timestamp.toString(36)}`;
+}
 
 function getPublicMemvidOwnerLabel(displayName) {
   const normalized = String(displayName || "")
@@ -35,18 +42,28 @@ function getPublicMemvidCaption(displayName, publishedAt) {
 function toPublicMemvidRecord(row) {
   const meta = parseMetadataJson(row.metadata_json);
   const version = buildPublicMemvidVersion(row);
+  const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
+  const publisher = {
+    display_name: getPublicMemvidOwnerLabel(row.owner_display_name),
+  };
   const record = {
     id: row.id,
     slug: `memvid-${row.id}`,
     title: row.title || "Memvids",
     caption: getPublicMemvidCaption(row.owner_display_name, row.published_at || row.created_at),
     category: "memvids",
+    publisher,
     mime_type: row.mime_type || "video/mp4",
     file: {
       url: buildPublicMemvidUrl(row.id, version, "file"),
     },
     duration_seconds: meta.duration_seconds ?? null,
   };
+  if (avatarVersion) {
+    record.publisher.avatar = {
+      url: `/api/gallery/memvids/${row.id}/${avatarVersion}/avatar`,
+    };
+  }
   if (row.poster_r2_key) {
     record.poster = {
       url: buildPublicMemvidUrl(row.id, version, "poster"),
@@ -75,6 +92,15 @@ const PUBLIC_MEMVID_SELECT = `SELECT created_at,
                               WHERE id = ?
                                 AND visibility = 'public'
                                 AND source_module = 'video'`;
+
+const PUBLIC_MEMVID_AVATAR_SELECT = `SELECT ai_text_assets.user_id,
+                                            profiles.has_avatar,
+                                            profiles.avatar_updated_at
+                                     FROM ai_text_assets
+                                     LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id
+                                     WHERE ai_text_assets.id = ?
+                                       AND ai_text_assets.visibility = 'public'
+                                       AND ai_text_assets.source_module = 'video'`;
 
 async function handleListMemvids(ctx) {
   const { env, url } = ctx;
@@ -125,7 +151,9 @@ async function handleListMemvids(ctx) {
             poster_r2_key,
             poster_width,
             poster_height,
-            owner_display_name
+            owner_display_name,
+            owner_has_avatar,
+            owner_avatar_updated_at
      FROM (
        SELECT ai_text_assets.id,
               ai_text_assets.title,
@@ -138,7 +166,9 @@ async function handleListMemvids(ctx) {
               ai_text_assets.poster_r2_key,
               ai_text_assets.poster_width,
               ai_text_assets.poster_height,
-              profiles.display_name AS owner_display_name
+              profiles.display_name AS owner_display_name,
+              profiles.has_avatar AS owner_has_avatar,
+              profiles.avatar_updated_at AS owner_avatar_updated_at
        FROM ai_text_assets
        LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id
        WHERE ai_text_assets.visibility = 'public'
@@ -175,8 +205,16 @@ async function getPublicMemvidRouteRow(env, videoId) {
   return env.DB.prepare(PUBLIC_MEMVID_SELECT).bind(videoId).first();
 }
 
+async function getPublicMemvidAvatarRow(env, videoId) {
+  return env.DB.prepare(PUBLIC_MEMVID_AVATAR_SELECT).bind(videoId).first();
+}
+
 function hasMatchingPublicMemvidVersion(row, version) {
   return version === buildPublicMemvidVersion(row);
+}
+
+function hasMatchingPublicPublisherAvatarVersion(row, version) {
+  return version === buildPublicPublisherAvatarVersion(row?.avatar_updated_at);
 }
 
 async function handleGetMemvidFile(ctx, videoId, version) {
@@ -247,11 +285,39 @@ async function handleGetMemvidPoster(ctx, videoId, version) {
   );
 }
 
+async function handleGetMemvidAvatar(ctx, videoId, version) {
+  const row = await getPublicMemvidAvatarRow(ctx.env, videoId);
+  if (!row?.user_id || !Number(row.has_avatar) || !hasMatchingPublicPublisherAvatarVersion(row, version)) {
+    return json({ ok: false, error: "Avatar not found." }, { status: 404 });
+  }
+
+  const object = await ctx.env.PRIVATE_MEDIA.get(avatarKey(row.user_id));
+  if (!object) {
+    return json({ ok: false, error: "Avatar not found." }, { status: 404 });
+  }
+
+  return new Response(
+    object.body,
+    {
+      headers: buildPublicMediaHeaders(
+        object.httpMetadata?.contentType || "image/webp",
+        object.size,
+        { immutable: true }
+      ),
+    }
+  );
+}
+
 export async function handleVideoGallery(ctx) {
   const { pathname, method } = ctx;
 
   if (pathname === "/api/gallery/memvids" && method === "GET") {
     return handleListMemvids(ctx);
+  }
+
+  const versionedAvatarMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/([^/]+)\/avatar$/);
+  if (versionedAvatarMatch && method === "GET") {
+    return handleGetMemvidAvatar(ctx, versionedAvatarMatch[1], versionedAvatarMatch[2]);
   }
 
   const versionedFileMatch = pathname.match(/^\/api\/gallery\/memvids\/([a-f0-9]+)\/([^/]+)\/file$/);

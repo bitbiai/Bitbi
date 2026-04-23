@@ -2004,6 +2004,8 @@ class MockD1 {
           thumb_key: row.thumb_key,
           medium_key: row.medium_key,
           owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
+          owner_has_avatar: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.has_avatar ?? null,
+          owner_avatar_updated_at: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.avatar_updated_at ?? null,
           thumb_width: row.thumb_width,
           thumb_height: row.thumb_height,
           medium_width: row.medium_width,
@@ -2030,6 +2032,18 @@ class MockD1 {
             derivatives_ready_at: row.derivatives_ready_at,
           }
         : null;
+    }
+
+    if (query === "SELECT ai_images.user_id, profiles.has_avatar, profiles.avatar_updated_at FROM ai_images LEFT JOIN profiles ON profiles.user_id = ai_images.user_id WHERE ai_images.id = ? AND ai_images.visibility = 'public'") {
+      const [imageId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.visibility === 'public');
+      if (!row) return null;
+      const profile = this.state.profiles.find((item) => item.user_id === row.user_id);
+      return {
+        user_id: row.user_id,
+        has_avatar: profile?.has_avatar ?? null,
+        avatar_updated_at: profile?.avatar_updated_at ?? null,
+      };
     }
 
     if (
@@ -2094,6 +2108,8 @@ class MockD1 {
           poster_width: row.poster_width ?? null,
           poster_height: row.poster_height ?? null,
           owner_display_name: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.display_name ?? null,
+          owner_has_avatar: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.has_avatar ?? null,
+          owner_avatar_updated_at: this.state.profiles.find((profile) => profile.user_id === row.user_id)?.avatar_updated_at ?? null,
         })),
       };
     }
@@ -2110,6 +2126,18 @@ class MockD1 {
             poster_r2_key: row.poster_r2_key ?? null,
           }
         : null;
+    }
+
+    if (query === "SELECT ai_text_assets.user_id, profiles.has_avatar, profiles.avatar_updated_at FROM ai_text_assets LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id WHERE ai_text_assets.id = ? AND ai_text_assets.visibility = 'public' AND ai_text_assets.source_module = 'video'") {
+      const [assetId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.visibility === 'public' && item.source_module === 'video');
+      if (!row) return null;
+      const profile = this.state.profiles.find((item) => item.user_id === row.user_id);
+      return {
+        user_id: row.user_id,
+        has_avatar: profile?.has_avatar ?? null,
+        avatar_updated_at: profile?.avatar_updated_at ?? null,
+      };
     }
 
     if (query.includes('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at') && query.includes('FROM ai_text_assets WHERE user_id = ?')) {
