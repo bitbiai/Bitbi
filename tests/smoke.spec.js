@@ -35,6 +35,22 @@ const COMPACT_HERO_PATHS = [
   '/account/verify-email.html',
 ];
 
+const FOOTER_COPY_PATHS = [
+  '/',
+  '/legal/privacy.html',
+  '/legal/imprint.html',
+  '/legal/datenschutz.html',
+  '/admin/index.html',
+  '/account/profile.html',
+  '/account/image-studio.html',
+  '/account/forgot-password.html',
+  '/account/reset-password.html',
+  '/account/verify-email.html',
+];
+
+const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
+const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
+
 let expectedHomepageModelCatalog = null;
 
 async function getExpectedHomepageModelCatalog() {
@@ -831,7 +847,13 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' })).toHaveCount(0);
     const modelsButton = page.locator('#hero .hero__models-cta');
+    const modelsImage = modelsButton.locator('img.hero__models-cta-image');
+    await expect(modelsButton).toHaveCount(1);
     await expect(modelsButton).toBeVisible();
+    await expect(modelsButton).toHaveAccessibleName('Open Models');
+    await expect(modelsButton).not.toContainText('Models');
+    await expect(modelsImage).toBeVisible();
+    await expect(modelsImage).toHaveAttribute('src', /\/assets\/images\/botton\/pivimu\.webp$/);
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
@@ -1002,6 +1024,31 @@ test.describe('Homepage', () => {
     await expect(teaser).toContainText('Generate Lab');
     await expect(teaser).toContainText('Coming Soon');
     await expect(hero.getByRole('link', { name: /Generate Lab/i })).toHaveCount(0);
+  });
+
+  test('repo footers use the shortened footer sentence and end cleanly', async ({ page }) => {
+    for (const pathname of FOOTER_COPY_PATHS) {
+      await page.goto(pathname);
+
+      const footerCopy = page.locator('.site-footer__copy');
+      await expect(footerCopy).toHaveCount(1);
+      await expect(footerCopy).toHaveText(FOOTER_COPY_TEXT);
+      await expect(page.getByText(REMOVED_FOOTER_FRAGMENT)).toHaveCount(0);
+
+      const footerStructure = await page.evaluate(() => {
+        const footerInner = document.querySelector('.site-footer__inner');
+        const footerCopyEl = footerInner?.querySelector('.site-footer__copy');
+        return {
+          footerCopyIsLastChild: Boolean(footerInner && footerCopyEl && footerInner.lastElementChild === footerCopyEl),
+          emptyParagraphCount: footerInner
+            ? Array.from(footerInner.querySelectorAll('p')).filter((node) => !node.textContent.trim()).length
+            : 0,
+        };
+      });
+
+      expect(footerStructure.footerCopyIsLastChild).toBe(true);
+      expect(footerStructure.emptyParagraphCount).toBe(0);
+    }
   });
 
   test('hero uses the mobile background video asset on narrow viewports', async ({ page }) => {

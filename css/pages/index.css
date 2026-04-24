@@ -1725,11 +1725,10 @@
     @media (min-width: 1024px) {
         .hero__models-cta-wrap {
             position: absolute;
-            inset-block-start: clamp(-4.75rem, -6vw, -2.8rem);
-            inset-inline-start: clamp(0rem, 1.2vw, 1.4rem);
-            z-index: 2;
-            display: flex;
-            justify-content: flex-start;
+            inset-block-start: calc(6.35rem + env(safe-area-inset-top, 0px));
+            inset-inline-start: max(1.5rem, calc((100vw - var(--container-max)) / 2 + var(--space-8)));
+            z-index: 12;
+            display: inline-flex;
             pointer-events: none;
         }
 
@@ -1739,44 +1738,42 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-inline-size: clamp(8.5rem, 10vw, 10.25rem);
-            padding: 0.96rem 1.45rem;
-            border-radius: var(--radius-full);
-            color: rgba(243, 251, 255, 0.96);
-            font-family: var(--font-mono);
-            font-size: 0.76rem;
-            font-weight: 700;
-            letter-spacing: 0.22em;
-            text-transform: uppercase;
-            text-shadow: 0 0 16px rgba(110, 212, 255, 0.22);
-            background:
-                linear-gradient(135deg, rgba(0, 240, 255, 0.16), rgba(7, 12, 20, 0.82) 58%, rgba(6, 10, 18, 0.94)),
-                rgba(6, 10, 18, 0.84);
-            border: 1px solid rgba(128, 225, 255, 0.22);
-            box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
-                0 18px 34px rgba(0, 0, 0, 0.22),
-                0 0 28px rgba(0, 240, 255, 0.14),
-                0 0 58px rgba(26, 98, 255, 0.08);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            padding: 0;
+            border-radius: 1.25rem;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
             transition:
                 transform 0.28s var(--ease-smooth),
-                border-color 0.28s var(--ease-default),
                 box-shadow 0.28s var(--ease-default),
-                color 0.28s var(--ease-default),
-                background 0.28s var(--ease-default);
+                filter 0.28s var(--ease-default);
+        }
+
+        .hero__models-cta-image {
+            display: block;
+            inline-size: clamp(10.75rem, 13vw, 13.25rem);
+            block-size: auto;
+            object-fit: contain;
+            object-position: center;
+            filter:
+                brightness(1)
+                saturate(1.04)
+                drop-shadow(0 14px 22px rgba(0, 0, 0, 0.24))
+                drop-shadow(0 0 20px rgba(0, 240, 255, 0.12));
+            transition:
+                transform 0.28s var(--ease-smooth),
+                filter 0.28s var(--ease-default);
         }
 
         .hero__models-cta::before {
             content: '';
             position: absolute;
-            inset: -0.75rem;
+            inset: 8% 6%;
             z-index: -1;
-            border-radius: inherit;
-            background: radial-gradient(circle, rgba(0, 240, 255, 0.24) 0%, rgba(0, 240, 255, 0.08) 44%, transparent 78%);
-            filter: blur(18px);
-            opacity: 0.44;
+            border-radius: 1.4rem;
+            background: radial-gradient(circle, rgba(0, 240, 255, 0.22) 0%, rgba(0, 240, 255, 0.08) 42%, transparent 78%);
+            filter: blur(20px);
+            opacity: 0.34;
             transition:
                 opacity 0.28s var(--ease-default),
                 transform 0.28s var(--ease-smooth);
@@ -1785,29 +1782,32 @@
         .hero__models-cta:hover,
         .hero__models-cta:focus-visible {
             outline: none;
-            color: rgba(255, 255, 255, 0.99);
             transform: translateY(-2px);
-            border-color: rgba(181, 238, 255, 0.38);
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.12),
-                0 22px 40px rgba(0, 0, 0, 0.24),
-                0 0 32px rgba(0, 240, 255, 0.22),
-                0 0 68px rgba(26, 98, 255, 0.11);
+                0 0 0 1px rgba(181, 238, 255, 0.08),
+                0 18px 34px rgba(0, 0, 0, 0.22);
+        }
+
+        .hero__models-cta:hover .hero__models-cta-image,
+        .hero__models-cta:focus-visible .hero__models-cta-image {
+            transform: scale(1.02);
+            filter:
+                brightness(1.04)
+                saturate(1.08)
+                drop-shadow(0 16px 26px rgba(0, 0, 0, 0.28))
+                drop-shadow(0 0 24px rgba(0, 240, 255, 0.18));
         }
 
         .hero__models-cta:hover::before,
         .hero__models-cta:focus-visible::before {
-            opacity: 0.7;
-            transform: scale(1.06);
+            opacity: 0.58;
+            transform: scale(1.08);
         }
 
         .hero__models-cta:focus-visible {
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.12),
                 0 0 0 2px rgba(0, 240, 255, 0.24),
-                0 22px 40px rgba(0, 0, 0, 0.24),
-                0 0 32px rgba(0, 240, 255, 0.22),
-                0 0 68px rgba(26, 98, 255, 0.11);
+                0 18px 34px rgba(0, 0, 0, 0.22);
         }
     }
 
