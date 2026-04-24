@@ -127,9 +127,11 @@ export function initCategoryCarousel() {
         if (!desktopStageEnabled) {
             prevButton.hidden = true;
             prevButton.disabled = true;
+            prevButton.removeAttribute('data-category-target');
             prevButton.removeAttribute('title');
             nextButton.hidden = true;
             nextButton.disabled = true;
+            nextButton.removeAttribute('data-category-target');
             nextButton.removeAttribute('title');
             return;
         }
@@ -148,22 +150,26 @@ export function initCategoryCarousel() {
         if (prevTarget) {
             prevButton.hidden = false;
             prevButton.disabled = isTransitioning;
+            prevButton.dataset.categoryTarget = prevTarget;
             prevButton.setAttribute('aria-label', `Show ${CATEGORY_META[prevTarget].label}`);
             prevButton.title = `Show ${CATEGORY_META[prevTarget].label}`;
         } else {
             prevButton.hidden = true;
             prevButton.disabled = true;
+            prevButton.removeAttribute('data-category-target');
             prevButton.removeAttribute('title');
         }
 
         if (nextTarget) {
             nextButton.hidden = false;
             nextButton.disabled = isTransitioning;
+            nextButton.dataset.categoryTarget = nextTarget;
             nextButton.setAttribute('aria-label', `Show ${CATEGORY_META[nextTarget].label}`);
             nextButton.title = `Show ${CATEGORY_META[nextTarget].label}`;
         } else {
             nextButton.hidden = true;
             nextButton.disabled = true;
+            nextButton.removeAttribute('data-category-target');
             nextButton.removeAttribute('title');
         }
     }

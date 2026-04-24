@@ -200,13 +200,17 @@ async function readHomepageCategoryStageMetrics(page) {
     const readArrow = (button) => {
       if (!button || !stageRect) return null;
       const rect = button.getBoundingClientRect();
-      const iconRect = button.querySelector('svg')?.getBoundingClientRect() || null;
+      const media = button.querySelector('.home-categories__arrow-media');
+      const mediaRect = media?.getBoundingClientRect() || null;
+      const mediaStyle = media ? window.getComputedStyle(media) : null;
       return {
         width: Math.round(rect.width * 100) / 100,
         height: Math.round(rect.height * 100) / 100,
         centerRatio: Math.round((((rect.top + (rect.height / 2)) - stageRect.top) / stageRect.height) * 1000) / 1000,
-        iconWidth: iconRect ? Math.round(iconRect.width * 100) / 100 : 0,
-        iconHeight: iconRect ? Math.round(iconRect.height * 100) / 100 : 0,
+        target: button.dataset.categoryTarget || '',
+        mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
+        mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
+        mediaBackgroundImage: mediaStyle?.backgroundImage || '',
       };
     };
 
@@ -602,17 +606,20 @@ test.describe('Homepage', () => {
 
     const initialStageMetrics = await readHomepageCategoryStageMetrics(page);
     [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
-      expect(arrowMetrics.width).toBeGreaterThan(69);
-      expect(arrowMetrics.width).toBeLessThan(72.5);
-      expect(arrowMetrics.height).toBeGreaterThan(153);
-      expect(arrowMetrics.height).toBeLessThan(157);
+      expect(arrowMetrics.width).toBeGreaterThan(110);
+      expect(arrowMetrics.width).toBeLessThan(140);
+      expect(arrowMetrics.height).toBeGreaterThan(68);
+      expect(arrowMetrics.height).toBeLessThan(92);
       expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
       expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
-      expect(arrowMetrics.iconWidth).toBeGreaterThan(28);
-      expect(arrowMetrics.iconWidth).toBeLessThan(31);
-      expect(arrowMetrics.iconHeight).toBeGreaterThan(42);
-      expect(arrowMetrics.iconHeight).toBeLessThan(46);
+      expect(arrowMetrics.mediaWidth).toBeGreaterThan(105);
+      expect(arrowMetrics.mediaHeight).toBeGreaterThan(62);
+      expect(arrowMetrics.mediaBackgroundImage).toContain('.webp');
     });
+    expect(initialStageMetrics.prev.target).toBe('gallery');
+    expect(initialStageMetrics.prev.mediaBackgroundImage).toContain('gallery.webp');
+    expect(initialStageMetrics.next.target).toBe('sound');
+    expect(initialStageMetrics.next.mediaBackgroundImage).toContain('soundlab.webp');
 
     const idleSparkOpacity = await prevButton.evaluate((button) => (
       Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0')
@@ -642,6 +649,8 @@ test.describe('Homepage', () => {
     await expect(prevButton).toBeHidden();
     await expect(nextButton).toBeVisible();
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
+    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.target || '').toBe('video');
+    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.mediaBackgroundImage || '').toContain('video.webp');
 
     await nextButton.click();
     await expectActiveHomepageCategory(page, 'video');
@@ -659,6 +668,8 @@ test.describe('Homepage', () => {
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeHidden();
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
+    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).prev?.target || '').toBe('video');
+    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).prev?.mediaBackgroundImage || '').toContain('video.webp');
 
     await prevButton.click();
     await expectActiveHomepageCategory(page, 'video');
