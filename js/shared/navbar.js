@@ -22,6 +22,9 @@ export function initMobileNav() {
     let rainObjectUrl = null;
     let captureGen = 0;
     let settleTimer = null;
+    let closeInteractionGuardUntil = 0;
+
+    const CLOSE_INTERACTION_GUARD_MS = 420;
 
     panel.dataset.state = 'closed';
 
@@ -50,6 +53,30 @@ export function initMobileNav() {
         panel.dataset.state = expectedOpen ? 'open' : 'closed';
         clearSettleTimer();
     }
+
+    function armCloseInteractionGuard() {
+        closeInteractionGuardUntil = Date.now() + CLOSE_INTERACTION_GUARD_MS;
+    }
+
+    function shouldSuppressOutsideInteraction(event) {
+        if (Date.now() > closeInteractionGuardUntil) return false;
+        const target = event.target;
+        if (!(target instanceof Element)) return true;
+        if (panel.contains(target) || btn.contains(target)) return false;
+        return true;
+    }
+
+    function suppressOutsideInteraction(event) {
+        if (!shouldSuppressOutsideInteraction(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+        }
+    }
+
+    document.addEventListener('touchend', suppressOutsideInteraction, true);
+    document.addEventListener('click', suppressOutsideInteraction, true);
 
     function schedulePanelStateSync(expectedOpen) {
         clearSettleTimer();
@@ -180,6 +207,7 @@ export function initMobileNav() {
         open = nextOpen;
 
         if (open) captureBackdrop();
+        if (!open) armCloseInteractionGuard();
 
         panel.dataset.state = open ? 'opening' : 'closing';
         panel.classList.toggle('open', open);

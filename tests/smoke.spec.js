@@ -2138,6 +2138,42 @@ test.describe('Homepage', () => {
     expect(metrics.cardBottom).toBeLessThanOrEqual(metrics.layoutBottom + 1);
   });
 
+  test('mobile Wallet nav action closes the menu, opens wallet workspace, and does not click-through into gallery media', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const popupUrls = [];
+    page.on('popup', (popup) => {
+      popupUrls.push(popup.url());
+      void popup.close().catch(() => {});
+    });
+
+    await page.goto('/');
+
+    const walletWorkspace = page.locator('#walletWorkspace');
+    await expect(walletWorkspace).toHaveCount(1);
+    await expect(walletWorkspace).toBeHidden();
+
+    await page.getByRole('button', { name: 'Toggle menu' }).click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+
+    const walletButton = page.locator('#mobileNav').getByRole('button', { name: /Wallet/i }).first();
+    await expect(walletButton).toBeVisible();
+    await walletButton.click();
+
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+    await expect(walletWorkspace).toBeVisible();
+    await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
+    await expect.poll(() => popupUrls.length).toBe(0);
+
+    await page.getByRole('button', { name: 'Close wallet workspace' }).first().click();
+    await expect(walletWorkspace).toBeHidden();
+
+    await page.getByRole('button', { name: 'Toggle menu' }).click();
+    await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+    await expectPathUnchanged(page, '/');
+    await expectModelsOverlayOpenState(page);
+  });
+
   test('mobile video modal keeps favorite and close controls above the player surface', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
