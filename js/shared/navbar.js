@@ -58,11 +58,30 @@ export function initMobileNav() {
         closeInteractionGuardUntil = Date.now() + CLOSE_INTERACTION_GUARD_MS;
     }
 
+    function resolveEventElement(event) {
+        const directTarget = event.target;
+        if (directTarget instanceof Element) return directTarget;
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        return path.find((node) => node instanceof Element) || null;
+    }
+
+    function isGuardExemptTarget(target) {
+        if (!(target instanceof Element)) return false;
+        if (panel.contains(target) || btn.contains(target)) return true;
+        return !!target.closest([
+            '#walletModal.is-open',
+            '#walletWorkspace.is-open',
+            '.auth-modal__overlay.active',
+            '.models-overlay.is-active',
+            '.cookie-banner',
+            '.modal-overlay.active',
+        ].join(', '));
+    }
+
     function shouldSuppressOutsideInteraction(event) {
         if (Date.now() > closeInteractionGuardUntil) return false;
-        const target = event.target;
-        if (!(target instanceof Element)) return true;
-        if (panel.contains(target) || btn.contains(target)) return false;
+        const target = resolveEventElement(event);
+        if (isGuardExemptTarget(target)) return false;
         return true;
     }
 

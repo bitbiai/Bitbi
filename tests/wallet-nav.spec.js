@@ -271,12 +271,13 @@ async function openMobileWalletWorkspace(page) {
 }
 
 async function dismissCookieBanner(page) {
+  const banner = page.locator('#cookieBanner');
   const accept = page.locator('#ckAcceptAll');
-  if (await accept.count()) {
+  await accept.waitFor({ state: 'visible', timeout: 1500 }).catch(() => {});
+  if (await accept.isVisible().catch(() => false)) {
     await accept.click({ trial: true }).catch(() => {});
-    if (await accept.isVisible().catch(() => false)) {
-      await accept.click();
-    }
+    await accept.click();
+    await banner.waitFor({ state: 'hidden', timeout: 1500 }).catch(() => {});
   }
 }
 

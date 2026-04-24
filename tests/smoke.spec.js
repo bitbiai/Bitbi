@@ -2165,7 +2165,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
     await expect.poll(() => popupUrls.length).toBe(0);
 
-    await page.getByRole('button', { name: 'Close wallet workspace' }).first().click();
+    await page.locator('[data-wallet-workspace-close="panel"]').click();
     await expect(walletWorkspace).toBeHidden();
 
     await page.getByRole('button', { name: 'Toggle menu' }).click();
