@@ -172,7 +172,9 @@ function ensureMobileTrigger() {
         createElement('span', 'wallet-nav__mobile-meta', 'Open wallet workspace'),
     );
     mobilePageLink.appendChild(pageCopy);
-    mobilePageLink.addEventListener('click', () => {
+    mobilePageLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         document.getElementById('mobileNavClose')?.click();
         window.setTimeout(() => actionsRef?.openWorkspace?.(), 40);
     });
@@ -183,7 +185,9 @@ function ensureMobileTrigger() {
     mobileTrigger.setAttribute('aria-label', 'Open wallet panel');
     const triggerLabel = createElement('span', 'wallet-nav__mobile-trigger-label', 'Panel');
     mobileTrigger.appendChild(triggerLabel);
-    mobileTrigger.addEventListener('click', () => {
+    mobileTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         document.getElementById('mobileNavClose')?.click();
         window.setTimeout(() => actionsRef?.openPanel?.(), 40);
     });
