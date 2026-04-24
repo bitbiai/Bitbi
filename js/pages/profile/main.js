@@ -58,7 +58,6 @@ const $loading        = document.getElementById('loadingState');
 const $denied         = document.getElementById('deniedState');
 const $content        = document.getElementById('profileContent');
 const $hero           = document.getElementById('profileHero');
-const $heroLabel      = document.getElementById('profileHeroLabel');
 const $heroTitle      = document.getElementById('profileHeroTitle');
 const $heroDesc       = document.getElementById('profileHeroDesc');
 const $homeView       = document.getElementById('profileHomeView');
@@ -114,13 +113,11 @@ let walletViewState = null;
 const HERO_CONTENT = {
     [PROFILE_VIEW]: {
         ariaLabel: 'My Profile',
-        label: 'Member',
         title: 'My Profile',
         desc: 'View and manage your account',
     },
     [AI_LAB_HASH]: {
         ariaLabel: 'Profile / AI Lab',
-        label: 'Profile / AI Lab',
         title: 'AI Lab',
         desc: 'Admin-only testing surface, kept inside your Profile workspace.',
     },
@@ -158,7 +155,6 @@ function applyHeroContent(view) {
     const heroContent = HERO_CONTENT[view] || HERO_CONTENT[PROFILE_VIEW];
 
     $hero?.setAttribute('aria-label', heroContent.ariaLabel);
-    if ($heroLabel) $heroLabel.textContent = heroContent.label;
     if ($heroTitle) $heroTitle.textContent = heroContent.title;
     if ($heroDesc) $heroDesc.textContent = heroContent.desc;
 }

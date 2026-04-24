@@ -4187,7 +4187,7 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('#profileAdminAiLabCard').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
-    await expect(page.locator('#profileHeroLabel')).toHaveText('Profile / AI Lab');
+    await expect(page.locator('#profileHeroLabel')).toHaveCount(0);
     await expect(page.locator('#profileHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#profileHeroDesc')).toHaveText(
       'Admin-only testing surface, kept inside your Profile workspace.',
@@ -4211,7 +4211,7 @@ test.describe('Profile page (authenticated)', () => {
 
     await page.locator('#profileAiLabBack').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
-    await expect(page.locator('#profileHeroLabel')).toHaveText('Member');
+    await expect(page.locator('#profileHeroLabel')).toHaveCount(0);
     await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
     await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
     await expect(page.locator('#profileAiLabView')).toBeHidden();

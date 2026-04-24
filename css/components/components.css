@@ -1269,16 +1269,16 @@
 
     .hero--compact {
         min-block-size: auto;
-        padding-block: calc(5rem + env(safe-area-inset-top, 0px)) 3rem;
+        padding-block: calc(4.5rem + env(safe-area-inset-top, 0px)) 2.25rem;
         overflow: hidden;
     }
 
     .hero--compact + .section-divider + .section {
-        padding-block-start: 2rem;
+        padding-block-start: 1.5rem;
     }
 
     @media (min-width: 1024px) {
-        .hero--compact { padding-block: calc(7rem + env(safe-area-inset-top, 0px)) 4rem; }
+        .hero--compact { padding-block: calc(6rem + env(safe-area-inset-top, 0px)) 3rem; }
     }
 
     .hero__gradient-overlay {
@@ -1543,8 +1543,8 @@
         font-family: var(--font-display);
         font-weight: 900;
         font-size: 2.25rem;
-        margin-block-start: var(--space-3);
-        margin-block-end: var(--space-4);
+        margin-block-start: 0;
+        margin-block-end: var(--space-3);
     }
 
     @media (min-width: 640px) {

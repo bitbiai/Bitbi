@@ -23,6 +23,18 @@ const STATIC_SHARED_HEADER_PATHS = [
   '/account/verify-email.html',
 ];
 
+const COMPACT_HERO_PATHS = [
+  '/legal/privacy.html',
+  '/legal/imprint.html',
+  '/legal/datenschutz.html',
+  '/account/profile.html',
+  '/account/image-studio.html',
+  '/admin/index.html',
+  '/account/forgot-password.html',
+  '/account/reset-password.html',
+  '/account/verify-email.html',
+];
+
 let expectedHomepageModelCatalog = null;
 
 async function getExpectedHomepageModelCatalog() {
@@ -2367,6 +2379,15 @@ test.describe('Legal pages', () => {
   test('datenschutz page loads', async ({ page }) => {
     const response = await page.goto('/legal/datenschutz.html');
     expect(response.status()).toBe(200);
+  });
+
+  test('non-homepage compact heroes remove eyebrow labels while keeping the main hero copy visible', async ({ page }) => {
+    for (const pathname of COMPACT_HERO_PATHS) {
+      await page.goto(pathname);
+      await expect(page.locator('.hero.hero--compact .legal-hero__title')).toBeVisible();
+      await expect(page.locator('.hero.hero--compact .legal-hero__desc')).toBeVisible();
+      await expect(page.locator('.hero.hero--compact .legal-hero__label, #profileHeroLabel')).toHaveCount(0);
+    }
   });
 });
 
