@@ -77,8 +77,6 @@
                 <a href="#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
                 <a href="#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
                 <a href="#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
-                <a href="#contact" class="site-nav__link nav-link">Contact</a>
-                <button type="button" class="site-nav__link nav-link" data-models-link="desktop">Models</button>
             </div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
@@ -157,6 +155,9 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
 
     <div class="hero__content">
+        <div class="hero__models-cta-wrap">
+            <button type="button" class="hero__models-cta" data-models-link="desktop">Models</button>
+        </div>
         <div class="hero__title-wrap float-anim">
             <h1 class="hero__title">
                 <img src="assets/images/1.png" alt="BITBI" class="hero__title-img"
@@ -184,9 +185,11 @@
         <div class="home-categories__nav" role="group" aria-label="Category navigation">
             <button type="button" class="home-categories__arrow home-categories__arrow--prev" data-category-nav="prev" aria-label="Show AI Creations Gallery">
                 <span class="home-categories__arrow-media" aria-hidden="true"></span>
+                <span class="home-categories__arrow-hint" aria-hidden="true"></span>
             </button>
             <button type="button" class="home-categories__arrow home-categories__arrow--next" data-category-nav="next" aria-label="Show Sound Lab">
                 <span class="home-categories__arrow-media" aria-hidden="true"></span>
+                <span class="home-categories__arrow-hint" aria-hidden="true"></span>
             </button>
         </div>
 

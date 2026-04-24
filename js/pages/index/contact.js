@@ -36,11 +36,29 @@ export function initContact() {
         }
     }
 
+    function getScrollAnchor() {
+        if (!section) return null;
+        return section.previousElementSibling?.classList.contains('section-divider')
+            ? section.previousElementSibling
+            : section;
+    }
+
     function scrollSectionIntoView(behavior = 'auto') {
         if (!section) return;
-        section.scrollIntoView({
+        const scrollAnchor = getScrollAnchor();
+        const nav = document.getElementById('navbar');
+        if (!scrollAnchor || !nav) {
+            section.scrollIntoView({
+                behavior,
+                block: 'start',
+            });
+            return;
+        }
+
+        const targetTop = window.scrollY + scrollAnchor.getBoundingClientRect().top - nav.getBoundingClientRect().bottom;
+        window.scrollTo({
+            top: Math.max(0, targetTop),
             behavior,
-            block: 'start',
         });
     }
 
@@ -52,7 +70,9 @@ export function initContact() {
         if (!trigger || !panel || !drawer) return;
         setOpen(true);
         requestAnimationFrame(() => {
-            scrollSectionIntoView(behavior);
+            requestAnimationFrame(() => {
+                scrollSectionIntoView(behavior);
+            });
         });
     }
 

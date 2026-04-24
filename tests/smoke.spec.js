@@ -398,19 +398,32 @@ test.describe('Homepage', () => {
     expect(afterReload.alignmentDelta).toBeGreaterThan(120);
   });
 
-  test('navigation links are present', async ({ page }) => {
+  test('desktop header keeps only the centered homepage section links', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
     const nav = page.locator('#navbar .site-nav__links');
 
     await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Contact' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Models' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
 
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+
+    const centerDelta = await page.evaluate(() => {
+      const navEl = document.querySelector('#navbar .site-nav__links');
+      const barEl = document.querySelector('#navbar .site-nav__bar');
+      if (!navEl || !barEl) return null;
+      const navRect = navEl.getBoundingClientRect();
+      const barRect = barEl.getBoundingClientRect();
+      return Math.abs((navRect.left + (navRect.width / 2)) - (barRect.left + (barRect.width / 2)));
+    });
+
+    expect(centerDelta).not.toBeNull();
+    expect(centerDelta).toBeLessThanOrEqual(2);
   });
 
   test('cross-page header links land Gallery, Video, and Sound Lab with the same fixed-header-safe alignment', async ({ page }) => {
@@ -812,10 +825,13 @@ test.describe('Homepage', () => {
     }
   });
 
-  test('MODELS opens the homepage models overlay from the top navigation without navigation', async ({ page }) => {
+  test('MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
 
-    const modelsButton = page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' });
+    await expect(page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' })).toHaveCount(0);
+    const modelsButton = page.locator('#hero .hero__models-cta');
+    await expect(modelsButton).toBeVisible();
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
@@ -830,9 +846,12 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
+    await expect(page.locator('#hero .hero__models-cta')).toBeHidden();
     await page.getByRole('button', { name: 'Toggle menu' }).click();
     const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
+    const mobileConnect = page.locator('#mobileNav .mobile-nav__section[aria-label="Connect"]');
     await expect(mobileExplore.getByRole('link', { name: 'Video' })).toBeVisible();
+    await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
@@ -994,10 +1013,8 @@ test.describe('Homepage', () => {
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
-  test('Contact nav aligns the contact divider flush with the header', async ({ page }) => {
-    await page.goto('/');
-
-    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Contact' }).click();
+  test('Contact hash navigation aligns the contact divider flush with the header', async ({ page }) => {
+    await page.goto('/#contact');
 
     await expect(page.locator('#contactDrawerTrigger')).toBeInViewport();
     await expect.poll(async () => {
@@ -2435,7 +2452,8 @@ test.describe('Legal pages', () => {
 });
 
 test.describe('Shared MODELS overlay', () => {
-  test('shared subpage header exposes the Video link', async ({ page }) => {
+  test('shared subpage desktop header keeps only the centered homepage section links', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/legal/imprint.html');
 
     const nav = page.locator('.site-nav__links');
@@ -2444,7 +2462,21 @@ test.describe('Shared MODELS overlay', () => {
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+    await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
+
+    const centerDelta = await page.evaluate(() => {
+      const navEl = document.querySelector('#navbar .site-nav__links');
+      const barEl = document.querySelector('#navbar .site-nav__bar');
+      if (!navEl || !barEl) return null;
+      const navRect = navEl.getBoundingClientRect();
+      const barRect = barEl.getBoundingClientRect();
+      return Math.abs((navRect.left + (navRect.width / 2)) - (barRect.left + (barRect.width / 2)));
+    });
+
+    expect(centerDelta).not.toBeNull();
+    expect(centerDelta).toBeLessThanOrEqual(2);
     await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
   });
 
@@ -2455,7 +2487,9 @@ test.describe('Shared MODELS overlay', () => {
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+    await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
     await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
   });
 
@@ -2473,7 +2507,9 @@ test.describe('Shared MODELS overlay', () => {
         await expect(page.locator('#mobileNav')).toHaveCount(1);
         await expect
           .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-          .toEqual(['Gallery', 'Video', 'Sound Lab', 'Contact', 'Models']);
+          .toEqual(['Gallery', 'Video', 'Sound Lab']);
+        await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
+        await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
         await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
       }
     } finally {
@@ -2487,18 +2523,22 @@ test.describe('Shared MODELS overlay', () => {
 
     await page.getByRole('button', { name: 'Toggle menu' }).click();
     const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
+    const mobileConnect = page.locator('#mobileNav .mobile-nav__section[aria-label="Connect"]');
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
       .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
+    await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
   });
 
   for (const pathname of MODELS_OVERLAY_PATHS) {
-    test(`${pathname} opens the local MODELS overlay without navigation`, async ({ page }) => {
+    test(`${pathname} opens the local MODELS overlay from the mobile menu without navigation`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(pathname);
       const currentUrl = new URL(page.url());
       const currentPath = `${currentUrl.pathname}${currentUrl.hash}`;
 
-      const modelsButton = page.locator('.site-nav__links').getByRole('button', { name: 'Models' });
+      await page.getByRole('button', { name: 'Toggle menu' }).click();
+      const modelsButton = page.locator('#mobileNav').getByRole('button', { name: 'Models' });
       await modelsButton.click();
 
       await expectPathUnchanged(page, currentPath);
