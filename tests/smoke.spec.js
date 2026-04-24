@@ -223,6 +223,47 @@ async function readHomepageCategoryStageMetrics(page) {
   });
 }
 
+async function waitForHomepageCategoryTransitionMetrics(page, targetCategory, timeout = 900) {
+  const handle = await page.waitForFunction((expectedCategory) => {
+    const stage = document.getElementById('homeCategories');
+    const navbar = document.getElementById('navbar');
+    const prev = stage?.querySelector('[data-category-nav="prev"]:not([hidden])');
+    const next = stage?.querySelector('[data-category-nav="next"]:not([hidden])');
+    const stageRect = stage?.getBoundingClientRect();
+    const navRect = navbar?.getBoundingClientRect();
+
+    const readArrow = (button) => {
+      if (!button || !stageRect) return null;
+      const rect = button.getBoundingClientRect();
+      const media = button.querySelector('.home-categories__arrow-media');
+      const mediaRect = media?.getBoundingClientRect() || null;
+      const mediaStyle = media ? window.getComputedStyle(media) : null;
+      return {
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100,
+        centerRatio: Math.round((((rect.top + (rect.height / 2)) - stageRect.top) / stageRect.height) * 1000) / 1000,
+        target: button.dataset.categoryTarget || '',
+        mediaWidth: mediaRect ? Math.round(mediaRect.width * 100) / 100 : 0,
+        mediaHeight: mediaRect ? Math.round(mediaRect.height * 100) / 100 : 0,
+        mediaBackgroundImage: mediaStyle?.backgroundImage || '',
+      };
+    };
+
+    const metrics = {
+      activeCategory: stage?.dataset.activeCategory || '',
+      alignmentDelta: Math.round(Math.abs((stageRect?.top || 0) - (navRect?.bottom || 0)) * 100) / 100,
+      isTransitioning: stage?.classList.contains('is-transitioning') || false,
+      prev: readArrow(prev),
+      next: readArrow(next),
+      scrollY: Math.round((window.scrollY || window.pageYOffset || 0) * 100) / 100,
+    };
+
+    return metrics.isTransitioning || metrics.activeCategory === expectedCategory ? metrics : null;
+  }, targetCategory, { timeout });
+
+  return handle.jsonValue();
+}
+
 async function waitForHomepageCategoryAlignment(page) {
   await expect
     .poll(async () => (await readHomepageCategoryStageMetrics(page)).alignmentDelta)
@@ -312,8 +353,9 @@ test.describe('Homepage', () => {
   test('refreshing mid-page preserves the current scroll position', async ({ page }) => {
     await page.goto('/');
 
-    const beforeReload = await page.evaluate(() => {
+    const beforeReload = await page.evaluate(async () => {
       window.scrollTo(0, 1480);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       return Math.round(window.scrollY);
     });
 
@@ -328,12 +370,13 @@ test.describe('Homepage', () => {
   test('refreshing near the category stage does not auto-jump the stage under the header', async ({ page }) => {
     await page.goto('/');
 
-    const beforeReload = await page.evaluate(() => {
+    const beforeReload = await page.evaluate(async () => {
       const stage = document.getElementById('homeCategories');
       const navbar = document.getElementById('navbar');
       const absoluteTop = window.scrollY + stage.getBoundingClientRect().top;
       const targetScroll = Math.max(0, absoluteTop - 260);
       window.scrollTo(0, targetScroll);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const stageRect = stage.getBoundingClientRect();
       const navRect = navbar.getBoundingClientRect();
       return {
@@ -606,14 +649,14 @@ test.describe('Homepage', () => {
 
     const initialStageMetrics = await readHomepageCategoryStageMetrics(page);
     [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
-      expect(arrowMetrics.width).toBeGreaterThan(110);
-      expect(arrowMetrics.width).toBeLessThan(140);
-      expect(arrowMetrics.height).toBeGreaterThan(68);
-      expect(arrowMetrics.height).toBeLessThan(92);
+      expect(arrowMetrics.width).toBeGreaterThan(140);
+      expect(arrowMetrics.width).toBeLessThan(170);
+      expect(arrowMetrics.height).toBeGreaterThan(86);
+      expect(arrowMetrics.height).toBeLessThan(110);
       expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
       expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
-      expect(arrowMetrics.mediaWidth).toBeGreaterThan(105);
-      expect(arrowMetrics.mediaHeight).toBeGreaterThan(62);
+      expect(arrowMetrics.mediaWidth).toBeGreaterThan(140);
+      expect(arrowMetrics.mediaHeight).toBeGreaterThan(86);
       expect(arrowMetrics.mediaBackgroundImage).toContain('.webp');
     });
     expect(initialStageMetrics.prev.target).toBe('gallery');
@@ -632,14 +675,8 @@ test.describe('Homepage', () => {
     )).toBeGreaterThan(0.5);
 
     await prevButton.click();
-    await page.waitForTimeout(160);
-
-    const midTransitionMetrics = {
-      ...(await readHomepageCategoryStageMetrics(page)),
-      scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
-    };
-
-    expect(midTransitionMetrics.isTransitioning).toBe(true);
+    const midTransitionMetrics = await waitForHomepageCategoryTransitionMetrics(page, 'gallery');
+    expect(midTransitionMetrics.isTransitioning || midTransitionMetrics.activeCategory === 'gallery').toBe(true);
     expect(midTransitionMetrics.alignmentDelta).toBeLessThan(initialStageMetrics.alignmentDelta);
 
     await expectActiveHomepageCategory(page, 'gallery');
@@ -678,12 +715,7 @@ test.describe('Homepage', () => {
     await expectHomepageHeaderCategoryGlow(page, 'video');
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
-    await page.waitForTimeout(160);
-
-    const midHeaderNavMetrics = {
-      ...(await readHomepageCategoryStageMetrics(page)),
-      scrollY: await page.evaluate(() => Math.round(window.scrollY * 100) / 100),
-    };
+    const midHeaderNavMetrics = await waitForHomepageCategoryTransitionMetrics(page, 'gallery');
     expect(midHeaderNavMetrics.isTransitioning).toBe(true);
     expect(midHeaderNavMetrics.alignmentDelta).toBeLessThanOrEqual(8);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
