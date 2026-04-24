@@ -1623,6 +1623,7 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'gallery');
 
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 5 Mempics');
+    await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
     await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(5);
 
     const galleryToggle = page.locator('#galleryPagination .browse-pagination__toggle');
@@ -1630,9 +1631,12 @@ test.describe('Homepage', () => {
     await galleryToggle.click();
     await expect(galleryToggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(8);
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 8 Mempics.');
+    await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
 
     await switchHomepageCategory(page, 'video');
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 5 Memvids');
+    await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
     await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(5);
 
     const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
@@ -1640,6 +1644,8 @@ test.describe('Homepage', () => {
     await videoToggle.click();
     await expect(videoToggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(7);
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 7 Memvids.');
+    await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
 
     await page.setViewportSize({ width: 390, height: 844 });
     await switchHomepageCategory(page, 'gallery');

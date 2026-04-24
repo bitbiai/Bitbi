@@ -53,7 +53,7 @@ let workspaceHashRequested = false;
 const PERSISTED_SELECTION_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSIENT_DISCONNECT_GRACE_MS = 1800;
 const LIFECYCLE_RECONCILE_DELAY_MS = 240;
-const INJECTED_DISCOVERY_SETTLE_MS = 900;
+const INJECTED_DISCOVERY_SETTLE_MS = 2200;
 
 function readStorage(key) {
     try {

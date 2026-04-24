@@ -463,6 +463,9 @@ export function initCategoryCarousel() {
             : getPendingCategoryHash();
         const initialCategory = resolveCategoryFromHash(initialCategoryHash);
         const shouldPrimeDeferredAlignment = initialCategoryHash === getPendingCategoryHash();
+        let initialAlignmentFrame = 0;
+        let initialAlignmentTimer = 0;
+
         const alignInitialCategory = () => {
             if (!initialCategory) return;
             if (desktopStageEnabled) {
@@ -470,31 +473,61 @@ export function initCategoryCarousel() {
                 alignStageToHeaderEdge();
             }
         };
+
+        const stopInitialAlignmentWatch = () => {
+            if (initialAlignmentFrame) {
+                window.cancelAnimationFrame(initialAlignmentFrame);
+                initialAlignmentFrame = 0;
+            }
+            if (initialAlignmentTimer) {
+                window.clearTimeout(initialAlignmentTimer);
+                initialAlignmentTimer = 0;
+            }
+        };
+
+        const startInitialAlignmentWatch = () => {
+            if (!initialCategory) return;
+            stopInitialAlignmentWatch();
+
+            let stableFrames = 0;
+            const step = () => {
+                if (!desktopStageEnabled) {
+                    stableFrames = 0;
+                    initialAlignmentFrame = window.requestAnimationFrame(step);
+                    return;
+                }
+
+                alignInitialCategory();
+                const delta = Math.abs(getStageAlignmentDelta());
+                stableFrames = delta <= 1 ? stableFrames + 1 : 0;
+
+                if (stableFrames >= 6) {
+                    stopInitialAlignmentWatch();
+                    return;
+                }
+
+                initialAlignmentFrame = window.requestAnimationFrame(step);
+            };
+
+            initialAlignmentFrame = window.requestAnimationFrame(step);
+            initialAlignmentTimer = window.setTimeout(() => {
+                stopInitialAlignmentWatch();
+            }, 2400);
+        };
+
         const queueInitialAlignment = () => {
+            alignInitialCategory();
             window.requestAnimationFrame(() => {
-                window.requestAnimationFrame(alignInitialCategory);
+                window.requestAnimationFrame(() => {
+                    alignInitialCategory();
+                    startInitialAlignmentWatch();
+                });
             });
-            window.setTimeout(alignInitialCategory, 120);
-            window.setTimeout(alignInitialCategory, 320);
+            window.setTimeout(startInitialAlignmentWatch, 120);
         };
         const handleInitialAuthUiReady = () => {
             if (!initialCategory || !desktopStageEnabled) return;
-            setActiveCategory(initialCategory, { alignStage: true });
-        };
-        const watchNavbarForInitialAlignment = () => {
-            if (!navbar || typeof ResizeObserver !== 'function') return;
-            let disconnectTimer = 0;
-            const observer = new ResizeObserver(() => {
-                alignInitialCategory();
-                if (disconnectTimer) window.clearTimeout(disconnectTimer);
-                disconnectTimer = window.setTimeout(() => {
-                    observer.disconnect();
-                }, 420);
-            });
-            observer.observe(navbar);
-            disconnectTimer = window.setTimeout(() => {
-                observer.disconnect();
-            }, 1400);
+            startInitialAlignmentWatch();
         };
         const finalizePendingHash = () => {
             if (!shouldPrimeDeferredAlignment) return;
@@ -504,7 +537,6 @@ export function initCategoryCarousel() {
         document.addEventListener('bitbi:homepage-auth-ui-ready', handleInitialAuthUiReady, { once: true });
 
         if (document.readyState === 'complete') {
-            watchNavbarForInitialAlignment();
             queueInitialAlignment();
             if (shouldPrimeDeferredAlignment) {
                 window.setTimeout(finalizePendingHash, 360);
@@ -513,7 +545,6 @@ export function initCategoryCarousel() {
         }
 
         window.addEventListener('load', () => {
-            watchNavbarForInitialAlignment();
             queueInitialAlignment();
             if (shouldPrimeDeferredAlignment) {
                 window.setTimeout(finalizePendingHash, 360);

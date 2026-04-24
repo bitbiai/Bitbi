@@ -100,8 +100,10 @@ export function initVideoGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
-            $drawerToggle.style.display = 'none';
-            $loadMore.style.display = 'none';
+            $drawerToggle.hidden = true;
+            $drawerToggle.textContent = '';
+            $loadMore.hidden = true;
+            $loadMore.textContent = '';
             $loadMore.disabled = false;
             return;
         }
@@ -111,16 +113,26 @@ export function initVideoGallery() {
         }
         const drawerAvailable = hasCollapsedMemvids();
         const visibleCount = getVisibleMemvidsCount();
+        const showDrawerToggle = drawerAvailable;
+        const showLoadMore = memvidsState.hasMore;
         $pagination.style.display = '';
-        $paginationStatus.textContent = memvidsState.hasMore || drawerAvailable
-            ? `Showing all ${visibleCount} Memvids`
-            : `Showing all ${memvidsState.items.length} Memvids`;
-        $drawerToggle.style.display = drawerAvailable ? '' : 'none';
-        $drawerToggle.textContent = memvidsDrawerExpanded ? 'Show Less' : 'Show More';
-        $drawerToggle.setAttribute('aria-expanded', String(drawerAvailable && memvidsDrawerExpanded));
-        $loadMore.style.display = memvidsState.hasMore && (!drawerAvailable || memvidsDrawerExpanded) ? '' : 'none';
+        if (drawerAvailable && !memvidsDrawerExpanded) {
+            $paginationStatus.textContent = `Showing all ${visibleCount} Memvids`;
+        } else if (memvidsState.hasMore) {
+            $paginationStatus.textContent = `Showing ${visibleCount} Memvids.`;
+        } else {
+            $paginationStatus.textContent = `Showing all ${visibleCount} Memvids.`;
+        }
+        $drawerToggle.hidden = !showDrawerToggle;
+        $drawerToggle.textContent = showDrawerToggle
+            ? (memvidsDrawerExpanded ? 'Show Less' : 'Show More')
+            : '';
+        $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && memvidsDrawerExpanded));
+        $loadMore.hidden = !showLoadMore;
         $loadMore.disabled = memvidsState.loadingMore;
-        $loadMore.textContent = memvidsState.loadingMore ? 'Loading...' : 'Load More';
+        $loadMore.textContent = showLoadMore
+            ? (memvidsState.loadingMore ? 'Loading...' : 'Load More')
+            : '';
     }
 
     async function fetchMemvids(cursor = null) {
