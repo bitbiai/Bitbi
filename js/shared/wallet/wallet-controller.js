@@ -1269,7 +1269,7 @@ async function unlinkLinkedWallet() {
 
 function openWalletPanel() {
     const state = getWalletState();
-    if (state.injectedWallets.length === 0) {
+    if (state.status !== 'connected') {
         refreshInjectedDiscovery();
     }
     patchWalletState({ isOpen: true });
@@ -1370,11 +1370,8 @@ export function initWalletController() {
     startInjectedDiscovery((wallets) => {
         patchWalletState({
             injectedWallets: wallets,
-            injectedDiscoveryState: wallets.length > 0 ? 'ready' : getWalletState().injectedDiscoveryState,
+            injectedDiscoveryState: getWalletState().injectedDiscoveryState,
         });
-        if (wallets.length > 0) {
-            clearInjectedDiscoverySettleTimer();
-        }
 
         const persisted = readPersistedSelection();
         const hasPersistedInjectedSelection = persisted?.type === 'injected'

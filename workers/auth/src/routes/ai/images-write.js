@@ -2,7 +2,12 @@ import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { readJsonBody } from "../../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../../lib/tokens.js";
-import { isSharedRateLimited, rateLimitResponse } from "../../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "../../lib/rate-limit.js";
 import {
   AI_IMAGE_DERIVATIVE_VERSION,
   enqueueAiImageDerivativeJob,
@@ -217,7 +222,15 @@ export async function handleGenerateImage(ctx) {
   const isAdmin = session.user.role === "admin";
   let quotaReservationId = null;
 
-  if (await isSharedRateLimited(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS)) {
+  const limit = await evaluateSharedRateLimit(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS, sensitiveRateLimitOptions({
+    component: "ai-generate",
+    correlationId,
+    requestInfo: { request, pathname: "/api/ai/generate-image", method: request.method },
+  }));
+  if (limit.unavailable) {
+    return rateLimitUnavailableResponse(correlationId);
+  }
+  if (limit.limited) {
     return rateLimitResponse();
   }
 

@@ -28,7 +28,16 @@ const baseManifest = {
         previewUrls: false,
         bindings: {
           ai: "AI",
+          durableObjects: {
+            SERVICE_AUTH_REPLAY: { className: "AiServiceAuthReplayDurableObject" },
+          },
         },
+        migrations: [
+          {
+            tag: "v1-service-auth-replay",
+            newSqliteClasses: ["AiServiceAuthReplayDurableObject"],
+          },
+        ],
       },
       auth: {
         name: "bitbi-auth",
@@ -392,6 +401,20 @@ function createValidContext() {
           workers_dev: false,
           preview_urls: false,
           ai: { binding: "AI" },
+          durable_objects: {
+            bindings: [
+              {
+                name: "SERVICE_AUTH_REPLAY",
+                class_name: "AiServiceAuthReplayDurableObject",
+              },
+            ],
+          },
+          migrations: [
+            {
+              tag: "v1-service-auth-replay",
+              new_sqlite_classes: ["AiServiceAuthReplayDurableObject"],
+            },
+          ],
         },
       },
       auth: {

@@ -5,10 +5,12 @@ import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
 import { getActivityRetentionMetadata } from "../lib/activity-archive.js";
 import {
+  evaluateSharedRateLimit,
   isProductionEnvironment,
-  isSharedRateLimited,
   getClientIp,
   rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
 } from "../lib/rate-limit.js";
 import {
   buildAdminMfaDeniedResponse,
@@ -31,6 +33,26 @@ const MAX_ADMIN_USERS_LIMIT = 100;
 
 function normalizeAdminUserSearch(value) {
   return String(value || "").trim();
+}
+
+async function enforceAdminActionRateLimit(ctx) {
+  const { request, env, pathname, method, correlationId } = ctx;
+  const ip = getClientIp(request);
+  const result = await evaluateSharedRateLimit(
+    env,
+    "admin-action-ip",
+    ip,
+    30,
+    900_000,
+    sensitiveRateLimitOptions({
+      component: "admin-action",
+      correlationId,
+      requestInfo: { request, pathname, method },
+    })
+  );
+  if (result.unavailable) return rateLimitUnavailableResponse(correlationId);
+  if (result.limited) return rateLimitResponse();
+  return null;
 }
 
 export async function handleAdmin(ctx) {
@@ -171,8 +193,8 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
-    const ip = getClientIp(request);
-    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "role"]
@@ -275,8 +297,8 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
-    const ip = getClientIp(request);
-    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "status"]
@@ -379,8 +401,8 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
-    const ip = getClientIp(request);
-    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id", "revoke-sessions"]
@@ -554,8 +576,8 @@ export async function handleAdmin(ctx) {
       return result;
     }
 
-    const ip = getClientIp(request);
-    if (await isSharedRateLimited(env, "admin-action-ip", ip, 30, 900_000)) return rateLimitResponse();
+    const limited = await enforceAdminActionRateLimit(ctx);
+    if (limited) return limited;
 
     const parts = pathname.split("/");
     // ["", "api", "admin", "users", ":id"]

@@ -15,8 +15,19 @@
         "workersDev": false,
         "previewUrls": false,
         "bindings": {
-          "ai": "AI"
-        }
+          "ai": "AI",
+          "durableObjects": {
+            "SERVICE_AUTH_REPLAY": {
+              "className": "AiServiceAuthReplayDurableObject"
+            }
+          }
+        },
+        "migrations": [
+          {
+            "tag": "v1-service-auth-replay",
+            "newSqliteClasses": ["AiServiceAuthReplayDurableObject"]
+          }
+        ]
       },
       "auth": {
         "name": "bitbi-auth",
@@ -173,6 +184,24 @@
         "requiredForRelease": true,
         "documentation": "workers/auth/CLAUDE.md",
         "summary": "Required for password reset and verification email delivery."
+      },
+      {
+        "id": "auth-ai-service-auth-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "AI_SERVICE_AUTH_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for HMAC signing of auth-worker requests to the internal AI worker. Must match the AI worker AI_SERVICE_AUTH_SECRET before Phase 0-A/0-A+ production deploy."
+      },
+      {
+        "id": "ai-service-auth-secret",
+        "kind": "secret",
+        "worker": "ai",
+        "name": "AI_SERVICE_AUTH_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/ai/src/index.js",
+        "summary": "Required for HMAC verification of internal AI worker requests. Must match the auth worker AI_SERVICE_AUTH_SECRET before Phase 0-A/0-A+ production deploy."
       },
       {
         "id": "contact-resend-secret",

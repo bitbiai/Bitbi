@@ -1,0 +1,1339 @@
+# AUDIT_NEXT_LEVEL.md
+
+Date: 2026-04-24
+
+Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
+
+Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
+
+## Remediation Progress
+
+This section records remediation progress after the original 2026-04-24 audit. The findings, risk ratings, command output, and maturity assessment below remain historically accurate for the repository state at audit time; they should not be read as the current status of every Phase 0 item.
+
+Reference documents:
+
+- `PHASE0_REMEDIATION_REPORT.md` contains the detailed Phase 0-A/0-A+ implementation evidence, validation results, merge readiness, deploy blockers, and remaining risks.
+- `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
+
+Phase 0-A completed summary:
+
+- Fixed the three failing static smoke tests from the original audit; final `npm run test:static` is recorded as passing 155/155.
+- Added fail-closed app-layer throttling for priority admin/MFA/auth/AI/avatar routes.
+- Added HMAC service authentication for Auth-to-AI Worker requests using `AI_SERVICE_AUTH_SECRET`.
+- Added fail-closed Worker config validation for Phase 0 critical auth and AI service-auth configuration.
+- Added `workers/ai/package-lock.json` and CI/package checks for root and Worker packages.
+- Expanded Worker security tests and release/preflight checks.
+
+Phase 0-A+ completed summary:
+
+- Added nonce-backed replay protection for internal AI service auth using `x-bitbi-service-nonce` and the `SERVICE_AUTH_REPLAY` Durable Object.
+- Required every `/internal/ai/*` route to verify signed service-auth requests before dispatch.
+- Converted additional priority routes to fail-closed limiter behavior, including auth/session mutations, wallet SIWE, favorites add, admin mutations, admin AI, MFA operations, member AI generation, and avatar write paths.
+- Added regression coverage for service-auth replay rejection, missing/malformed/expired/invalid signatures, body tampering, unavailable nonce backend, fail-closed limiter behavior, admin MFA throttling, and selected CSRF-sensitive mutations.
+- Updated release compatibility/config evidence for `AI_SERVICE_AUTH_SECRET` prerequisites and the `SERVICE_AUTH_REPLAY` Durable Object binding/migration.
+
+Findings resolved:
+
+| Original finding | Current status | Evidence |
+| --- | --- | --- |
+| Failing static smoke tests | Resolved | `PHASE0_REMEDIATION_REPORT.md` records `npm run test:static` PASS, 155/155. |
+| Missing `workers/ai/package-lock.json` and unreproducible AI worker package checks | Resolved | `workers/ai/package-lock.json` exists; `.github/workflows/static.yml` runs worker `npm ci`, `npm ls --depth=0`, and `npm audit --audit-level=low`. |
+| Unsigned internal Auth-to-AI Worker requests | Resolved in code | `js/shared/service-auth.mjs`, `workers/auth/src/lib/admin-ai-proxy.js`, and `workers/ai/src/index.js` implement and enforce HMAC service auth. |
+| Timestamp-only service-auth replay window | Resolved in code | `workers/ai/src/lib/service-auth-replay.js`, `workers/ai/src/lib/service-auth-replay-do.js`, and `workers/ai/wrangler.jsonc` implement nonce-backed replay protection via `SERVICE_AUTH_REPLAY`. |
+
+Findings reduced but not fully resolved:
+
+| Original finding | Current status | Remaining risk |
+| --- | --- | --- |
+| Admin MFA brute-force exposure | Reduced | MFA operations now use fail-closed fixed-window throttling, but there is no dedicated failed-attempt state machine with explicit reset-on-success semantics. |
+| Sensitive route rate limits fail open or degrade to isolate-local memory | Reduced | Priority routes now fail closed, but lower-priority authenticated write routes still need Phase 0-B route-by-route throttling review. |
+| Missing fail-closed Worker config validation | Reduced | Phase 0 critical auth/AI service-auth config fails closed, but route-specific R2/Queue/Images/contact/dashboard validation is not exhaustive. |
+| Cloudflare dashboard drift | Partially addressed | Release config now records new service-auth and replay prerequisites, but live Cloudflare WAF/header/RUM/secrets/bindings are not fully repo-enforced or verified. |
+| CI security gates | Reduced | Root and Worker npm audit/install checks were added, but CodeQL/SAST, secret scanning, dependency review, SBOM, and license gates remain open. |
+
+Findings still open:
+
+- Synchronous AI video provider polling remains in request path; async job design is still needed.
+- Request body-size limited parsers are still missing for several JSON and multipart paths.
+- Lint/typecheck/checkJs and safe DOM rules are still missing.
+- Large admin/frontend/test modules remain monolithic.
+- Scalable activity indexes, signed activity cursors, queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, observability/SLOs, load/performance budgets, and toolchain pinning remain open or deferred.
+
+Current merge/deploy status:
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Merge readiness | Conditional | Tests and release checks pass, but all untracked security/audit files listed in `PHASE0_REMEDIATION_REPORT.md` and `AUDIT_ACTION_PLAN.md` must be committed with the tracked Phase 0-A/0-A+ changes. |
+| Production deploy readiness | Blocked | Do not deploy until `AI_SERVICE_AUTH_SECRET` exists with the same value in both `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, and staging verification passes. |
+| Current recommended next phase | Phase 0-B | Track/commit all security files, provision/verify Cloudflare secrets and bindings, add dashboard-aware preflight, add body-size limits, continue route throttling, decide MFA failed-attempt state, and design async AI video jobs. |
+
+## Executive Summary
+
+This repository is a real product codebase, not a toy prototype. It has meaningful Cloudflare Worker route tests, release compatibility checks, D1 migrations, admin MFA, private media handling, R2 cleanup flows, queue consumers, signed pagination in some places, and deliberate static asset versioning. Those are serious foundations.
+
+It is not yet state-of-the-art SaaS production standard. The main blockers are not one-off bugs. They are systemic gaps: failing static smoke tests, inconsistent rate-limit fail-closed behavior on privileged and expensive paths, no defense-in-depth authentication on the internal AI worker, synchronous long-running AI video work, no enforced Cloudflare infrastructure-as-code for dashboard-managed security behavior, weak supply-chain reproducibility for `workers/ai`, no static type system, large monolithic modules, and missing enterprise SaaS primitives such as organizations, tenant isolation, billing enforcement, compliance-grade data lifecycle, SLOs, structured alerting, and disaster recovery evidence.
+
+Current maturity estimate: functional single-product SaaS foundation, approximately 4.5 out of 10 for enterprise SaaS readiness. The repository can likely support a controlled launch if the failing tests are fixed and operational runbooks are followed. It should not be treated as enterprise-ready or investor/security-review-ready without the Phase 0 and Phase 1 work in this document.
+
+## Repository Map
+
+Observed architecture:
+
+| Area | Evidence | Assessment |
+| --- | --- | --- |
+| Static frontend | `index.html`, `account/`, `admin/`, `legal/`, `js/`, `css/` | Plain HTML/CSS/vanilla ES modules. Intentional according to `AGENTS.md`. |
+| Auth/API worker | `workers/auth/src/index.js`, `workers/auth/src/routes/`, `workers/auth/src/lib/` | Primary API surface for auth, account, admin, private media, member AI assets, admin AI proxy, queues, cron. |
+| AI service worker | `workers/ai/src/index.js`, `workers/ai/src/routes/`, `workers/ai/src/lib/` | Internal AI lab service behind service binding. Handles Cloudflare AI, AI Gateway, Vidu fallback, live agent. |
+| Contact worker | `workers/contact/src/index.js` | Contact form endpoint on `contact.bitbi.ai` using Resend and Durable Object rate limiting. |
+| Database | `workers/auth/migrations/*.sql` | Cloudflare D1 schema with users, sessions, reset/verification tokens, profiles, favorites, AI folders/images/assets, quota usage, wallet SIWE, admin MFA. |
+| Object storage | `workers/auth/wrangler.jsonc:81-97` | R2 buckets for private media, user images, audit archive. |
+| Queues | `workers/auth/wrangler.jsonc:23-47` | AI image derivatives and activity ingest queues. |
+| Durable Objects | `workers/auth/wrangler.jsonc:67-80`, `workers/contact/wrangler.jsonc` | Public rate limiter DOs. |
+| Cloudflare Images | `workers/auth/wrangler.jsonc:58-60` | Image derivative pipeline depends on Images binding. |
+| Release contract | `config/release-compat.json` | Strong repo-enforced release compatibility model, but manual dashboard prerequisites remain. |
+| CI/CD | `.github/workflows/static.yml` | GitHub Pages deploy only. Workers deploy separately. Runs release checks, worker tests, static smoke tests, build. |
+| Tests | `tests/*.spec.js`, `playwright.config.js`, `playwright.workers.config.js` | Playwright static and worker tests. Worker suite is broad; static suite currently fails locally. |
+| Tooling | `package.json`, worker package files | No TypeScript, no lint script, no formatter script, no coverage script. `workers/ai` lacks package lock. |
+
+Main execution flows:
+
+| Flow | Path evidence | Notes |
+| --- | --- | --- |
+| Register/login/session | `workers/auth/src/routes/auth.js`, `workers/auth/src/lib/session.js`, `workers/auth/src/lib/cookies.js` | D1 user/session model, session tokens hashed with `SESSION_SECRET`, cookies are `HttpOnly`, production admin secure-session policy exists. |
+| Password reset/email verification | `workers/auth/src/routes/password.js`, `workers/auth/src/routes/verification.js`, `workers/auth/src/lib/email.js` | Token-hash model, Resend email, some best-effort behavior if email send fails. |
+| Admin protection | `workers/auth/src/lib/session.js:187-257`, `workers/auth/src/routes/admin-mfa.js` | Role check plus production MFA enforcement. MFA endpoints lack route-level rate limiting. |
+| Admin AI | `workers/auth/src/routes/admin-ai.js`, `workers/auth/src/lib/admin-ai-proxy.js`, `workers/ai/src/index.js` | Auth worker proxies admin requests to AI worker via service binding. AI worker itself does not verify a signed service credential. |
+| Member AI image generation | `workers/auth/src/routes/ai/images-write.js` | Per-user generation limiter and daily quota slots. Generated image payloads are returned to client and later saved. |
+| Private media | `workers/auth/src/routes/media.js`, `workers/auth/src/routes/avatar.js`, `workers/auth/src/routes/ai/files-read.js` | Authenticated ownership checks for private images/music/text assets. |
+| Favorites and galleries | `workers/auth/src/routes/favorites.js`, static modules under `js/pages/index/` | Static catalog plus authenticated favorite state. |
+| Wallet/SIWE | `workers/auth/src/routes/wallet.js`, `js/shared/wallet/` | Nonce/challenge flow, address checks, local wallet UI state. |
+| Background work | `workers/auth/src/index.js:300-459` | Cron R2 cleanup and derivative re-enqueue; queue consumer processes activity and derivatives. |
+
+Product domain:
+
+The codebase appears to power BITBI, a media and AI creative SaaS with public galleries, Sound Lab, video/gallery decks, user accounts, saved AI images/assets, favorites, profile/avatar features, admin user management, admin AI lab tooling, wallet sign-in/linking, and contact form.
+
+Missing production context that matters:
+
+| Missing evidence | Why it matters | How to verify |
+| --- | --- | --- |
+| Cloudflare dashboard WAF/rate-limit rules | Repo explicitly says some security behavior is dashboard-managed. | Export Cloudflare rules or codify with Terraform/OpenTofu/Cloudflare API validation. |
+| Static security headers transform rules | Static Pages headers depend on dashboard state. | Verify live response headers and encode rules in IaC or deployment checks. |
+| Secret inventory and rotation policy | `SESSION_SECRET`, Resend, Vidu, AI Gateway and future billing secrets need lifecycle control. | Document secret owners, rotation cadence, break-glass, and validation tests. |
+| Backup/restore evidence for D1/R2 | SaaS data durability cannot be inferred from code alone. | Run restore drills and add runbooks with RPO/RTO. |
+| Production observability dashboards/alerts | Logs are enabled but traces, alerts, SLOs are not repo-defined. | Link dashboards, alert rules, on-call policy, and SLO burn alerts. |
+| Load/performance baselines | No load tests or capacity targets were found. | Add k6/Artillery/Workers load tests and set budgets. |
+| Legal/compliance operating procedures | App handles accounts, email, IPs, generated assets and audit logs. | Document retention, deletion, export, DPA/privacy flows, subprocessors. |
+
+## Command Results
+
+All commands below were non-destructive. Deployment, production mutation, destructive git commands, D1 remote migrations, and `release:apply` were not run.
+
+| Command | Result | Interpretation |
+| --- | --- | --- |
+| `git status --short` | Clean before audit documentation work | Baseline was clean before report files were added. |
+| `npm run test:release-compat` | Passed | Release compatibility contract is currently internally consistent. |
+| `npm run test:release-plan` | Passed | Release planner tests pass. |
+| `npm run test:asset-version` | Passed | Static asset-version placeholders and references pass current validation. |
+| `npm run validate:release` | Passed | Release contract validates against repo state. |
+| `npm run validate:asset-version` | Passed | Asset version validation passes. |
+| `npm run test:workers` | Passed, 245 tests | Worker route tests are a relative strength. |
+| `npm run test:static` | Failed, 152 passed and 3 failed | Main static smoke suite is not green locally. This is release-blocking because `.github/workflows/static.yml:190-191` runs it before deploy. |
+| `npm audit --audit-level=low` at repo root | Initial sandbox DNS failure, rerun with approved network succeeded, 0 vulnerabilities | Root dependency audit is clean at current lockfile. |
+| `npm audit --audit-level=low` in `workers/auth` | Initial sandbox DNS failure, rerun with approved network succeeded, 0 vulnerabilities | Auth worker dependency audit is clean at current lockfile. |
+| `npm audit --audit-level=low` in `workers/contact` | Initial sandbox DNS failure, rerun with approved network succeeded, 0 vulnerabilities | Contact worker dependency audit is clean at current lockfile. |
+| `npm audit --audit-level=low` in `workers/ai` | Failed with `ENOLOCK` | Real repo issue: `workers/ai` has no lockfile, so it cannot be audited reproducibly. |
+| `npm ls --depth=0` at root | Passed | Root installed packages resolve. |
+| `npm ls --depth=0` in `workers/auth` | Passed | Auth worker installed packages resolve. |
+| `npm ls --depth=0` in `workers/contact` | Passed | Contact worker installed packages resolve. |
+| `npm ls --depth=0` in `workers/ai` | Failed, `UNMET DEPENDENCY wrangler@^4.81.0` | Real repo issue: AI worker install state is incomplete and no lockfile exists. |
+| `node --version` | `v24.14.0` | Local runtime differs from CI Node 20 in `.github/workflows/static.yml:33-39`, `57-63`, `181-187`. |
+| `npm --version` | `11.9.0` | Local npm likely differs from CI. Pinning via `engines` or toolchain file is absent. |
+| `npm run release:plan` | Passed, no file changes | Release plan script reports manual prerequisites and deploy order. |
+| `npm run release:preflight` | Passed | Aggregated release checks passed, but note static smoke failure was run separately and failed. |
+| `npm run build:static` | Not run by design | It rewrites `_site`; audit scope allowed documentation files only. |
+| `npx wrangler deploy`, D1 remote migrations, `npm run release:apply` | Not run | Production-affecting commands were intentionally avoided. |
+| Typecheck/lint/format/coverage | Not available as repo scripts | Tooling maturity gap. `package.json:4-20` has no lint, typecheck, format, or coverage script. |
+
+Static test failures observed:
+
+| Test | Evidence | Failure meaning |
+| --- | --- | --- |
+| `refreshing mid-page preserves the current scroll position` | `tests/smoke.spec.js:369-383`, source candidate `index.html:44` | Reload scroll restoration regressed by 793 px locally. |
+| `refreshing near the category stage does not auto-jump the stage under the header` | `tests/smoke.spec.js:386-414`, source candidate `index.html:44` and `js/pages/index/category-carousel.js` | Reload near home category stage regressed by 237 px locally. |
+| `Sign In with Ethereum shows a discovery state...` | `tests/wallet-nav.spec.js:369-383`, source candidate `js/shared/wallet/wallet-controller.js` | Wallet discovery UI state regressed; modal skips the expected discovery text when injected wallet announcement is delayed. |
+
+## Top Critical Findings
+
+| ID | Severity | Category | Evidence | Summary |
+| --- | --- | --- | --- | --- |
+| C1 | High | Release quality | `npm run test:static` failed; `.github/workflows/static.yml:190-191` | Static smoke suite is failing. The repo is not in a releasable state until this is fixed or explained as an environment-specific false positive. |
+| C2 | High | Security | `workers/auth/src/routes/admin-mfa.js:52-240` | Admin MFA setup/enable/verify/disable/recovery endpoints lack route-level rate limiting and lockout/backoff. |
+| C3 | High | Security/abuse | `workers/auth/src/lib/rate-limit.js:300-360`, `workers/auth/src/lib/admin-ai-proxy.js:37-41`, `workers/auth/src/routes/admin.js:174-176` | Privileged and expensive route rate limits fail open to per-isolate memory unless configured otherwise. |
+| C4 | High | Service security | `workers/ai/src/index.js:15-72`, `workers/auth/src/lib/admin-ai-proxy.js:134-151` | Internal AI worker accepts `/internal/ai/*` requests without signed service authentication. |
+| C5 | High | Reliability/scalability | `workers/ai/src/lib/invoke-ai-video.js:327-563` | Vidu video fallback can synchronously poll for up to 450 seconds in a request path. |
+| C6 | High | Supply chain | `workers/ai/package.json:1-14`; no `workers/ai/package-lock.json` | AI worker dependency install/audit is not reproducible and currently fails `npm ls`. |
+| C7 | Medium/High | Operations | `config/release-compat.json:224-244` | WAF, static security headers, and RUM settings remain dashboard-managed and are not repo-enforced. |
+| C8 | Medium/High | Maintainability | `wc -l`: `js/pages/admin/ai-lab.js` 4613 lines, `tests/workers.spec.js` 12497 lines | Critical code and tests are monolithic, untyped, and hard to safely scale across a team. |
+| C9 | Medium/High | Database/performance | `workers/auth/src/routes/admin.js:679-703`, `746-788`; `workers/auth/migrations/0012_add_user_activity_log.sql` | Admin/activity search and counts will scan large tables; cursors are raw unsigned strings in activity endpoints. |
+| C10 | Medium/High | SaaS readiness | Schema and routes are user-centric only | No organization/team model, tenant isolation boundary, billing model, feature flags, compliance-grade data export/deletion, or SLO-defined operations. |
+
+## Security Audit
+
+### S1. Admin MFA endpoints lack route-level abuse controls
+
+Severity: High
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/routes/admin-mfa.js` | Setup, enable, verify, disable, and recovery-code regeneration handlers parse bodies and call MFA functions without any `isSharedRateLimited` or lockout check at `52-240`. |
+| `workers/auth/src/lib/admin-mfa.js` | TOTP is 6 digits with one time-step window at `16-21`; replay guard exists later, but brute-force throttling is not visible at the route boundary. |
+
+Why it is dangerous:
+
+Admin MFA is the final gate after password/session compromise. Without route-level throttling and account/IP backoff, a compromised admin password/session can repeatedly attempt TOTP or recovery code verification until external rate limits intervene. Dashboard WAF cannot be the only control because same-origin authenticated traffic can still be abusive.
+
+Exploit or failure scenario:
+
+An attacker obtains an admin password and session cookie, then scripts `/api/admin/mfa/verify` with TOTP guesses or stolen recovery code candidates. Application-layer audit logs see failures, but no deterministic per-admin/per-IP lockout stops attempts.
+
+Recommended fix:
+
+Add fail-closed Durable Object rate limiting and lockout for MFA verification and recovery-code attempts, keyed by admin user id plus IP. Add separate lower limits for setup/disable/regenerate. Record failed attempt counters and lockout expiration in D1 for durable account protection.
+
+Best-practice alternative:
+
+Use WebAuthn/passkeys for admin step-up and keep TOTP only as a fallback. Require fresh password or WebAuthn assertion for disabling MFA or regenerating recovery codes.
+
+Estimated difficulty: Medium
+
+Priority: P0
+
+### S2. Privileged and expensive rate limits fail open on infrastructure failure
+
+Severity: High
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/lib/rate-limit.js:300-360` | `isSharedRateLimited` falls back to in-memory counters unless `failClosed` is set. |
+| `workers/auth/src/lib/admin-ai-proxy.js:37-41` | Admin AI rate limiting does not pass `failClosedInProduction` or Durable Object backend options. |
+| `workers/auth/src/routes/admin.js:174-176` | Admin role mutation uses shared rate limiting without fail-closed options. |
+| `workers/auth/src/routes/avatar.js:274-276` | Avatar upload limiter uses default behavior, then parses multipart form data. |
+| `workers/auth/src/routes/ai/images-write.js:220-221` | Member AI generation limiter uses default behavior. |
+
+Why it is dangerous:
+
+The code has good fail-closed patterns for public auth/contact paths, but not consistently for expensive or privileged authenticated paths. If D1 rate-limit counters are unavailable, the fallback is per-isolate memory. Under Cloudflare scaling, that is not a global abuse control.
+
+Exploit or failure scenario:
+
+D1 has an outage or migration issue. An attacker with a valid low-privilege account sends many AI generation requests. Each isolate enforces its own memory counter, bypassing the intended global quota, increasing costs and load.
+
+Recommended fix:
+
+Make a default policy: privileged, auth, admin, upload, and AI-cost paths must use Durable Object rate limiting and fail closed in production. Keep fail-open only for low-risk read-only paths, and make that explicit with a named option.
+
+Best-practice alternative:
+
+Centralize abuse policy in a declarative route registry with per-route limiter backend, key, limits, fail behavior, and audit event names.
+
+Estimated difficulty: Medium
+
+Priority: P0
+
+### S3. Internal AI worker has no signed service authentication
+
+Severity: High
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/ai/src/index.js:15-72` | `/internal/ai/*` routes dispatch directly to handlers. No token, mTLS, HMAC, or service-auth validation is present. |
+| `workers/auth/src/lib/admin-ai-proxy.js:134-151` | Auth worker sends admin id/email headers and correlation id, but no signed proof. |
+| `workers/ai/wrangler.jsonc:5-6` | `workers_dev:false` and `preview_urls:false` reduce exposure, but are deployment configuration controls, not application authentication. |
+
+Why it is dangerous:
+
+The AI worker is protected by topology rather than by a cryptographic service boundary. A future route misconfiguration, preview exposure, custom domain, or additional service binding could expose expensive AI endpoints.
+
+Exploit or failure scenario:
+
+An operator adds a route for debugging or enables preview URLs. Attackers call `/internal/ai/test-video` directly and trigger AI/Vidu spend without an admin session.
+
+Recommended fix:
+
+Add a shared service secret for auth-to-AI calls. Sign method, path, timestamp, body hash, correlation id, and admin id with HMAC. Reject missing, expired, replayed, or invalid signatures in `workers/ai` before dispatch.
+
+Best-practice alternative:
+
+Use Cloudflare service binding plus application-level HMAC plus narrow per-route allowlist and structured audit logs of rejected internal calls.
+
+Estimated difficulty: Medium
+
+Priority: P0
+
+### S4. Session and security material overuse `SESSION_SECRET`
+
+Severity: Medium/High
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/lib/session.js:52,99` | Session token hashes derive from `SESSION_SECRET`. |
+| `workers/auth/src/lib/admin-mfa.js:115-180` | Admin MFA proof HMAC keys and AES-GCM encryption keys derive from `SESSION_SECRET`. |
+| `config/release-compat.json:158-167` | Manual prerequisite states `SESSION_SECRET` is required for sessions, signed pagination cursors, and admin MFA material. |
+
+Why it is dangerous:
+
+One secret compromise invalidates multiple independent security boundaries: sessions, admin MFA secret encryption, admin MFA proof signing, signed cursor material if used by pagination. It also complicates safe rotation because every use case has different blast radius and migration needs.
+
+Exploit or failure scenario:
+
+If `SESSION_SECRET` leaks, an attacker may not only attack sessions but also decrypt MFA secrets or mint MFA proof material depending on implementation details and available ciphertexts.
+
+Recommended fix:
+
+Split secrets by purpose: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `AI_SERVICE_AUTH_SECRET`. Add key ids and rotation support.
+
+Best-practice alternative:
+
+Use a small key-management module with versioned keys, purpose labels, rotation plan, and tests proving old tokens remain valid only for defined grace periods.
+
+Estimated difficulty: Medium/Large
+
+Priority: P1
+
+### S5. `getSessionUser` lacks fail-closed secret validation
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/lib/session.js:52,99` | `env.SESSION_SECRET` is interpolated directly. |
+| `workers/auth/src/lib/admin-mfa.js:115-119` | MFA helper explicitly throws if missing, but session hashing does not. |
+
+Why it is dangerous:
+
+If `SESSION_SECRET` is absent in a non-production or misconfigured production environment, token hashing uses the string value of an undefined binding. That weakens isolation between environments and hides critical config mistakes.
+
+Exploit or failure scenario:
+
+A preview or staging Worker lacks `SESSION_SECRET`, silently uses predictable hash material, and sessions become transferable or forgeable within that environment.
+
+Recommended fix:
+
+Add environment validation on every Worker startup/fetch path before security-sensitive logic. Fail closed with a generic 503 and log a redacted config error if critical secrets are absent or too short.
+
+Best-practice alternative:
+
+Create `assertAuthWorkerConfig(env)` and `assertAiWorkerConfig(env)` functions with tests for missing/invalid bindings.
+
+Estimated difficulty: Small
+
+Priority: P0/P1
+
+### S6. Request body size is not enforced before parsing JSON or multipart bodies
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/contact/src/index.js:133-155` | Calls `request.json()` before field slicing/length limits. |
+| `workers/auth/src/routes/avatar.js:298-323` | Calls `request.formData()` before checking `file.size`. |
+| `workers/auth/src/routes/ai/images-write.js:224-235` | Reads JSON prompt body through common helper; repository evidence did not show a global byte-size gate. |
+
+Why it is dangerous:
+
+Field-level limits after parsing do not protect CPU/memory from large request bodies. Workers have runtime limits; attackers can cause high memory or latency before validation rejects data.
+
+Exploit or failure scenario:
+
+An unauthenticated or low-privilege client posts an oversized JSON/multipart body to contact or avatar endpoints. The Worker spends memory parsing before applying small field limits.
+
+Recommended fix:
+
+Enforce `Content-Length` limits where present, stream/size-limit body reads, and reject unsupported media types before parsing. Use endpoint-specific max body sizes.
+
+Best-practice alternative:
+
+Centralize request parsing helpers: `readJsonBodyLimited(request, maxBytes)` and `readFormDataLimited(request, maxBytes)`.
+
+Estimated difficulty: Small/Medium
+
+Priority: P1
+
+### S7. Admin and activity searches perform broad wildcard searches over sensitive logs
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/routes/admin.js:679-682` | Admin audit search uses `%search%` over admin email, target email, action, and `meta_json`. |
+| `workers/auth/src/routes/admin.js:770-773` | User activity search uses `%search%` over user email, action, and `meta_json`. |
+
+Why it is dangerous:
+
+This is mostly performance and data-governance risk, not SQL injection because bindings are used. Searching raw JSON metadata broadens accidental sensitive-data exposure to admins and becomes expensive on large logs.
+
+Exploit or failure scenario:
+
+An admin searches short terms repeatedly; D1 scans large log tables and returns metadata containing fields that should not be routinely browsed.
+
+Recommended fix:
+
+Define an explicit searchable audit projection. Index action, created_at/id, actor, target, and normalized email prefixes. Avoid `%term%` over raw JSON.
+
+Best-practice alternative:
+
+Move audit search to a dedicated log/search store with field-level redaction and RBAC for support/admin roles.
+
+Estimated difficulty: Medium
+
+Priority: P2
+
+### S8. Frontend has many `innerHTML` sinks without a repository-wide safe rendering policy
+
+Severity: Medium
+
+Confidence: Medium
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `js/pages/index/soundlab.js:47` | Large template uses `${tr.artwork}` and `${tr.title}` in `innerHTML`. |
+| `js/pages/index/locked-sections.js:218,326` | Templates insert media URLs/titles into HTML. |
+| `js/shared/soft-nav.js:59` | Copies `newMain.innerHTML` during soft navigation. |
+| `js/pages/admin/ai-lab.js` | Many `innerHTML` sinks in a 4613-line admin file. |
+
+Why it is dangerous:
+
+The current catalog data appears mostly local/static, and some modules escape data. But the codebase has no enforced safe DOM abstraction, no lint rule, and no CSP evidence in repo. As the product grows, one user/admin-supplied value flowing into a template becomes XSS.
+
+Exploit or failure scenario:
+
+A future admin-provided title or AI-generated metadata is rendered through an existing template without escaping, executing script in an authenticated user/admin context.
+
+Recommended fix:
+
+Create safe DOM helpers, ban raw `innerHTML` except reviewed constants, and add an ESLint/Semgrep rule. Convert data-driven templates to `textContent`, `setAttribute`, and DOM node construction.
+
+Best-practice alternative:
+
+Adopt a small trusted rendering layer that requires explicit `htmlTrustedConstant()` for static SVG/markup and default-escapes all dynamic values.
+
+Estimated difficulty: Medium/Large
+
+Priority: P1/P2
+
+### S9. Password hashing is constrained and lacks modern adaptive password-hardening strategy
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/lib/passwords.js` | PBKDF2-SHA256 default/cap is 100,000 iterations. |
+| `workers/auth/src/routes/auth.js` | Registration enforces length but not broader password-risk controls. |
+
+Why it is dangerous:
+
+PBKDF2 at 100k is acceptable in constrained Workers but not world-class password storage compared to Argon2id/scrypt. Length-only validation also misses compromised password checks.
+
+Exploit or failure scenario:
+
+If the D1 user table leaks, password cracking cost is lower than a modern Argon2id baseline.
+
+Recommended fix:
+
+Raise iterations if Worker latency budget allows, add password breach checks where appropriate, promote wallet/passkey login, and add admin MFA/WebAuthn requirements.
+
+Best-practice alternative:
+
+Use WebAuthn/passkeys for high-privilege roles and an auth provider or isolated password-hashing service if stronger memory-hard hashing is required.
+
+Estimated difficulty: Medium
+
+Priority: P2
+
+### S10. Email verification and reset delivery lacks durable outbox/retry semantics
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/lib/email.js` | Verification/reset email helpers call Resend directly and return/suppress failures in places. |
+| `workers/auth/src/routes/password.js` | Forgot-password response is generic, which is good, but delivery failure is logged and the request still returns generic success. |
+
+Why it is dangerous:
+
+Direct provider calls couple UX-critical auth flows to a third-party transient state. Generic success is correct for enumeration prevention, but without delivery status/outbox retry, users get stuck and support has poor diagnostics.
+
+Exploit or failure scenario:
+
+Resend has a transient failure. Reset tokens are created but emails do not arrive; users retry and create more tokens, support cannot tell whether delivery failed or the user missed the email.
+
+Recommended fix:
+
+Add an auth email outbox table/queue with provider status, retry/backoff, idempotency keys, and support-visible redacted delivery diagnostics.
+
+Best-practice alternative:
+
+Use a transactional email service abstraction with durable queue, webhook event ingestion, suppression handling, and template versioning.
+
+Estimated difficulty: Medium
+
+Priority: P2
+
+### S11. Unrecognized queue batches are acknowledged
+
+Severity: Medium
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `workers/auth/src/index.js:433-448` | If a batch is neither activity nor derivative, logs an error and `ack()`s each message. |
+
+Why it is dangerous:
+
+Silently acknowledging unknown messages can permanently drop messages after routing/config bugs. This protects the queue from poison loops but reduces forensic recovery.
+
+Exploit or failure scenario:
+
+A deploy changes message shape or queue name. Messages are misclassified, acknowledged, and lost before the issue is noticed.
+
+Recommended fix:
+
+Send unrecognized messages to a dead-letter queue or durable audit table instead of ack-only. Include message id, queue, sanitized body shape, and deploy version.
+
+Best-practice alternative:
+
+Version all queue messages with schemas and reject unknown versions to a DLQ with alerting.
+
+Estimated difficulty: Medium
+
+Priority: P2
+
+### S12. Dashboard-managed security controls are outside repository enforcement
+
+Severity: Medium/High
+
+Confidence: High
+
+Affected files:
+
+| File | Evidence |
+| --- | --- |
+| `config/release-compat.json:224-244` | WAF rule, static security Transform Rules, and RUM setting are manual/dashboard-managed. |
+
+Why it is dangerous:
+
+Security controls that live only in a dashboard drift silently. The repository cannot prove production has the intended headers/rate limits/privacy settings.
+
+Exploit or failure scenario:
+
+A dashboard rule is edited or deleted during incident work. CI continues to pass, but production loses security headers or WAF throttling.
+
+Recommended fix:
+
+Move Cloudflare dashboard controls into IaC or add a CI/live validation step that fails if live settings drift.
+
+Best-practice alternative:
+
+Use Terraform/OpenTofu/Cloudflare API-managed infrastructure with drift detection and environment-specific plans.
+
+Estimated difficulty: Medium/Large
+
+Priority: P1
+
+## Security Strengths
+
+| Strength | Evidence |
+| --- | --- |
+| Same-origin guard for mutating auth worker requests | `workers/auth/src/index.js:131-143` checks `Origin` or `Referer`; email verification GET is intentionally exempt at `64-68`. |
+| Admin secure-session policy | `workers/auth/src/lib/session.js:207-219` requires secure transport and secure cookie in production. |
+| Admin MFA enforcement exists | `workers/auth/src/lib/session.js:221-253` rejects production admin access when MFA proof/enrollment is required. |
+| Session cookies are `HttpOnly`, `SameSite=Lax`, and secure in secure contexts | `workers/auth/src/lib/cookies.js`. |
+| SIWE wallet flow is relatively robust | Nonce, domain, URI, version, chain, statement, timestamp, and signature checks exist in `workers/auth/src/routes/wallet.js`; nonce/verify use fail-closed DO limits. |
+| Contact form has strict origin and fail-closed Durable Object limiter | `workers/contact/src/index.js:70-131`. |
+| Avatar MIME type and magic bytes are checked | `workers/auth/src/routes/avatar.js:311-327`. |
+| Private media access uses authenticated route ownership | `workers/auth/src/routes/media.js`, `workers/auth/src/routes/ai/files-read.js`. |
+
+## Performance Audit
+
+### P1. Synchronous video polling will not scale
+
+Evidence: `workers/ai/src/lib/invoke-ai-video.js:327-563` creates a Vidu task and polls until a URL is returned or timeout. Default timeout is 450,000 ms at `36-37`.
+
+Why it will not scale:
+
+Long-running Worker requests tie up runtime, increase failure probability, amplify provider latency, and create poor user/admin UX under load.
+
+How it manifests under load:
+
+Concurrent video tests generate many open outbound connections and long requests. Retries can duplicate provider work. Admin UI waits rather than observing job state.
+
+How to measure:
+
+Record p50/p95/p99 duration for `/api/admin/ai/test-video`, provider task creation latency, poll attempts, timeout rate, and Worker CPU/wall time. Add synthetic load for concurrent video requests.
+
+Recommended fix:
+
+Move video generation to a job model: create job row, enqueue provider work, poll/provider callback updates D1/R2, UI polls job status or uses SSE.
+
+Expected benefit:
+
+Lower request tail latency, safer retries, clearer cost control, better observability.
+
+Priority: P0/P1
+
+### P2. Admin activity search and counts are table-scan prone
+
+Evidence: `workers/auth/src/routes/admin.js:679-703` searches joined audit logs with `%search%` and runs `GROUP BY action` over all audit rows. User activity search at `770-788` has the same pattern.
+
+Why it will not scale:
+
+Wildcard search over emails/actions/raw JSON prevents efficient indexing. Counts over all history become slower as logs grow.
+
+How it manifests under load:
+
+Admin activity pages become slow, D1 query time grows, and support dashboards compete with user traffic.
+
+How to measure:
+
+Seed 100k, 1M, and 10M audit rows locally or in staging. Track query duration and D1 read units for search, empty search, and counts.
+
+Recommended fix:
+
+Use signed cursor pagination everywhere, add indexed normalized columns, pre-aggregate counts by day/action, and avoid searching `meta_json`.
+
+Expected benefit:
+
+Predictable admin latency and lower D1 cost.
+
+Priority: P1
+
+### P3. Legacy member image list endpoint is capped but unpaginated
+
+Evidence: `workers/auth/src/routes/ai/assets-read.js:25-59` returns `/api/ai/images` with `LIMIT 200`, while `/api/ai/assets` has signed cursor pagination at `61-120`.
+
+Why it will not scale:
+
+Hard-capped unpaginated endpoints create UX truncation and push clients to refetch large pages.
+
+How it manifests under load:
+
+Users with more than 200 images see incomplete results or repeated large payloads.
+
+How to measure:
+
+Create users with 50, 200, 1000 assets and measure response size, time to render, and client memory.
+
+Recommended fix:
+
+Deprecate `/api/ai/images` in favor of `/api/ai/assets` or add cursor pagination to the image-only endpoint.
+
+Expected benefit:
+
+Lower payloads and consistent asset browsing.
+
+Priority: P2
+
+### P4. Generated images are returned as base64 payloads
+
+Evidence: `workers/auth/src/routes/ai/images-write.js` decodes/saves image data and returns generation results including image data in the request/response flow.
+
+Why it will not scale:
+
+Base64 adds approximately 33 percent payload overhead and increases Worker/client memory pressure. Large generated assets are better stored once and referenced.
+
+How it manifests under load:
+
+Slow generation responses, higher egress, higher memory, larger browser heap, higher chance of request failure.
+
+How to measure:
+
+Track response sizes, browser heap, and Worker memory/latency for each model output size.
+
+Recommended fix:
+
+Write generated outputs directly to R2 temporary storage and return signed references/URLs. Keep save references HMAC-signed and short-lived.
+
+Expected benefit:
+
+Smaller responses and safer asset lifecycle.
+
+Priority: P1/P2
+
+### P5. Cron cleanup jobs use small fixed batches
+
+Evidence: temp object cleanup lists only 1000 objects at `workers/auth/src/index.js:81-85`; R2 cleanup queue processes 50 rows at `300-356`; derivative recovery enqueues 25 rows at `361-419`.
+
+Why it will not scale:
+
+Fixed small batches are safe, but without backlog metrics and alerts they can fall permanently behind after outages or traffic spikes.
+
+How it manifests under load:
+
+Expired temp objects accumulate, cleanup queues grow, derivative backlog persists, storage cost increases.
+
+How to measure:
+
+Emit metrics for scanned/deleted/failed counts, queue depth, oldest pending row age, derivative backlog and oldest pending derivative.
+
+Recommended fix:
+
+Add backlog metrics/alerts and adaptive pagination loops bounded by runtime budget.
+
+Expected benefit:
+
+Operational visibility and predictable cleanup.
+
+Priority: P2
+
+### P6. Static frontend has no bundle or performance budget
+
+Evidence: No bundler or performance budget exists in `package.json:4-20` or CI. The frontend uses many ES modules and large files such as `js/pages/admin/ai-lab.js` with 4613 lines.
+
+Why it will not scale:
+
+Without bundle/perf budgets, page weight and module waterfalls can grow invisibly.
+
+How it manifests under load:
+
+Slow first load on mobile, more requests, worse Core Web Vitals, harder cache invalidation.
+
+How to measure:
+
+Add Lighthouse CI or WebPageTest scripts for homepage/account/admin with budgets for JS bytes, CSS bytes, LCP, CLS, INP.
+
+Recommended fix:
+
+Keep vanilla architecture if desired, but add performance budgets, module splitting discipline, and static analysis of JS/CSS sizes.
+
+Expected benefit:
+
+Prevents front-end degradation without requiring framework migration.
+
+Priority: P2
+
+### P7. D1 rate limiter writes on hot paths
+
+Evidence: `workers/auth/src/lib/rate-limit.js:321-333` writes/updates a D1 counter for each limited request unless Durable Object backend is selected.
+
+Why it will not scale:
+
+D1 is not ideal as a high-frequency global counter backend for hot abuse paths.
+
+How it manifests under load:
+
+Write contention, increased latency, rate-limit failures during DB degradation.
+
+How to measure:
+
+Compare D1 limiter p95 latency and error rate against DO limiter under concurrent request load.
+
+Recommended fix:
+
+Use Durable Object counters for hot abuse paths; reserve D1 for durable audit snapshots or low-rate limits.
+
+Expected benefit:
+
+Lower DB pressure and cleaner failure modes.
+
+Priority: P1
+
+## Architecture Audit
+
+### What exists today
+
+The architecture is a Cloudflare-native, mostly serverless SaaS:
+
+| Layer | Current design |
+| --- | --- |
+| Frontend | Static GitHub Pages site, vanilla JS modules, CSS, no SPA framework. |
+| API gateway | `workers/auth` handles `/api/*` on `bitbi.ai`. |
+| Internal AI service | `workers/ai` via Cloudflare service binding, no public route in wrangler config. |
+| Contact service | Separate Worker on custom domain. |
+| Data | D1 for relational account/app metadata, R2 for binary assets, Cloudflare Images for derivatives, Queues for async derivatives/activity ingest, DOs for rate limits. |
+| Release | GitHub Pages workflow for static deploy; Workers deploy separately via wrangler/release scripts. |
+
+Good architecture choices:
+
+| Choice | Evidence | Why it is good |
+| --- | --- | --- |
+| Static frontend is intentionally simple | `AGENTS.md`, `package.json:4-20` | Low hosting complexity and small dependency surface. |
+| Auth, AI, contact are separate Workers | `workers/*` | Clear service-level separation. |
+| Release compatibility contract exists | `config/release-compat.json` | Prevents drift in critical routes/bindings/migrations. |
+| Queues are used for derivatives/activity | `workers/auth/wrangler.jsonc:23-47` | Correct direction for async work. |
+| D1 migrations are explicit | `workers/auth/migrations` | Better than implicit schema drift. |
+| Some cursor pagination is signed | `workers/auth/src/routes/admin.js:102-156`, `workers/auth/src/routes/ai/assets-read.js:74-93` | Protects pagination state where applied. |
+
+Dangerous or missing boundaries:
+
+| Missing/dangerous boundary | Evidence | Risk |
+| --- | --- | --- |
+| No service-auth boundary for AI worker | `workers/ai/src/index.js:15-72` | Topology-only protection fails under misconfiguration. |
+| No tenant/org boundary | Schema is user-centric; no organization/team tables found | Hard to add B2B, RBAC, billing, audit scoping later. |
+| Manual route dispatcher is growing | `workers/auth/src/index.js:145-210` plus delegated route modules | As routes increase, policy consistency becomes harder. |
+| No shared typed API contracts | No `tsconfig`, no typecheck script, no schema library | Frontend/backend contracts rely on tests and convention. |
+| Admin UI is monolithic | `js/pages/admin/ai-lab.js` 4613 lines | Risky to evolve admin product safely. |
+| Async model only partially applied | video remains synchronous | Expensive workflows are not uniformly job-based. |
+
+Where current structure will break:
+
+| Growth pressure | Failure point |
+| --- | --- |
+| More admins/support roles | Current `role` is effectively `user` or `admin`; no permission model for least privilege. |
+| Organizations/teams | Tables and route ownership checks assume `user_id`; retrofitting `org_id` will touch most queries. |
+| More AI providers/models | Admin AI lab and AI worker invocation modules are large and provider-specific logic is embedded in handlers. |
+| Higher traffic/cost attacks | Rate limiting is inconsistent and some paths fail open. |
+| Audit/compliance review | Dashboard-managed controls, no data retention/deletion/export proof, no restore drill evidence. |
+| Team expansion | Lack of type system, linting, modular ownership and contract tests will increase review burden. |
+
+### Proposed target architecture
+
+Target design:
+
+| Layer | Target state |
+| --- | --- |
+| Static frontend | Keep vanilla if intentional, but add safe DOM layer, route-level modules, performance budgets, and optional build step for analysis only. |
+| API policy layer | Central route registry for auth level, body size, rate limit, CSRF/origin policy, response schema, audit event. |
+| Domain modules | `auth`, `accounts`, `orgs`, `media`, `ai-assets`, `admin`, `billing`, `audit`, `notifications`, `wallets`. |
+| Internal service auth | Signed HMAC service-to-service requests for Auth to AI. |
+| Async jobs | Job table plus queues for video/music/image derivatives/email outbox/audit archive. |
+| Data model | Organization/tenant tables, memberships, roles/permissions, plan/quota, audit scopes, data export/deletion jobs. |
+| Observability | Structured logs plus traces, metrics, SLOs, alert definitions, correlation ids across workers and queues. |
+| Infrastructure | Wrangler plus Terraform/OpenTofu or Cloudflare API validation for WAF, headers, RUM, routes, queues, buckets, D1, secrets metadata. |
+| Contracts | Shared validators/schemas and contract tests for frontend/backend/admin/internal APIs. |
+
+Suggested folder evolution:
+
+```text
+workers/auth/src/
+  app/
+    route-registry.js
+    request-policy.js
+    config.js
+  domains/
+    auth/
+    accounts/
+    orgs/
+    admin/
+    media/
+    ai-assets/
+    audit/
+    billing/
+    notifications/
+    wallets/
+  platform/
+    d1/
+    r2/
+    queues/
+    rate-limit/
+    observability/
+    crypto/
+  contracts/
+    public-api/
+    admin-api/
+    internal-events/
+```
+
+Migration strategy:
+
+1. Add route policy wrappers around existing handlers without moving logic.
+2. Add typed/runtime schemas for new or changed endpoints first.
+3. Move one domain at a time behind interfaces.
+4. Introduce org/tenant model with dual-write/compatibility views before enforcing tenancy.
+5. Move long-running AI work to job model before adding more providers.
+
+## Code Quality Audit
+
+Major issues:
+
+| Issue | Evidence | Why it matters | Recommended implementation style |
+| --- | --- | --- | --- |
+| Large monolithic modules | `js/pages/admin/ai-lab.js` 4613 lines; `js/shared/saved-assets-browser.js` 1531; `js/shared/wallet/wallet-controller.js` 1460; `workers/auth/src/lib/admin-mfa.js` 961; `workers/ai/src/lib/invoke-ai-video.js` 984 | Hard to review, test, and own. Changes become risky and conflicts increase. | Split by domain responsibility: state, API, rendering, validation, provider adapters, persistence. |
+| Monolithic tests | `tests/workers.spec.js` 12497 lines; `tests/auth-admin.spec.js` 6004 lines | Hard to isolate failures and parallelize ownership. | Split by domain and route group; add test fixtures/builders. |
+| No static type checking | `find` showed no root `tsconfig.json`; `package.json:4-20` has no typecheck | Runtime errors and API contract drift are caught late. | Start with `// @ts-check` plus JSDoc in Workers, then migrate contracts/domains to TypeScript if accepted. |
+| No lint/format script | `package.json:4-20` | Code style and security rules cannot be enforced automatically. | Add ESLint or Biome with targeted rules for DOM sinks, no unbounded body reads, no raw service internal routes. |
+| Mixed safe/unsafe rendering patterns | Some modules escape HTML, others use raw templates | Security quality depends on reviewer memory. | Provide safe rendering primitives and ban raw `innerHTML` except trusted constants. |
+| Manual route dispatch | `workers/auth/src/index.js:145-210`, `workers/ai/src/index.js:23-71` | Policy is scattered across handlers. | Centralize route metadata and middleware/policy evaluation. |
+
+What becomes expensive later:
+
+| Current shortcut | Future cost |
+| --- | --- |
+| User-only data model | Adding teams/orgs later requires rewriting most ownership checks and indexes. |
+| Untyped frontend/backend contracts | Every endpoint change requires manual grep/test inference. |
+| Raw dashboard prerequisites | Production drift investigations become manual and incident-prone. |
+| Synchronous provider calls | Hard to add retries, idempotency, cost controls, and user-facing progress. |
+
+## Technology Maturity Audit
+
+| Area | Rating | Evidence | Assessment |
+| --- | --- | --- | --- |
+| Cloudflare platform usage | Good but incomplete | Workers, D1, R2, Queues, DO, Images all used | Modern platform choices; missing IaC, traces, and consistent fail-closed policies. |
+| Frontend stack | Simple and maintainable at small scale | Vanilla modules, static deploy | Not inherently bad. Needs safe DOM, performance budgets, and stronger modular discipline. |
+| Type safety | Weak | No `tsconfig`, no typecheck script | Behind professional SaaS standard. |
+| Dependency management | Mixed | Root/auth/contact locks exist; `workers/ai` lock missing | AI worker is below production standard. |
+| CI/CD | Medium | Release checks and tests exist; no security gates | Good release-contract idea, but missing CodeQL/SAST/audit/coverage/perf gates. |
+| Testing stack | Medium/Good | Broad Playwright worker tests | Strong worker route coverage, but static suite failing and no unit/load/security/contract coverage baseline. |
+| Observability | Medium/Weak | Logs enabled, traces disabled | Correlation IDs/logging exist; metrics/alerts/SLOs not repo-defined. |
+| Database tooling | Medium | Explicit migrations and indexes | No migration dry-run/rollback proof, no schema diagram, no load-tested query plans. |
+
+Clear answer:
+
+This repo is partially modern. The Cloudflare-native architecture and release compatibility checks are forward-looking. The absence of type safety, linting, reproducible AI worker dependency state, IaC for dashboard controls, SLOs, and load/security gates is behind top-tier SaaS practice.
+
+Parts that are state-of-the-art or close:
+
+| Part | Why |
+| --- | --- |
+| Release compatibility contract | Repository-specific, practical, and valuable. |
+| Worker route tests | 245 passing tests is substantial. |
+| Cloudflare service decomposition | Auth/AI/contact separation is sound. |
+| Some signed cursor pagination | Correct pattern where applied. |
+| SIWE validation detail | Good security discipline. |
+
+Parts that are amateur-level or risky:
+
+| Part | Why |
+| --- | --- |
+| `workers/ai` dependency state | No lockfile and failed install/audit checks. |
+| No lint/typecheck/coverage scripts | Not acceptable for a scaling engineering team. |
+| Dashboard-managed production security | Cannot prove production state from repo. |
+| Long synchronous video polling | Classic pre-scale implementation pattern. |
+| Huge untyped UI/admin modules | Fragile under team expansion. |
+
+## SaaS Readiness Audit
+
+SaaS maturity score: 4.5 out of 10.
+
+Why:
+
+| Capability | Status |
+| --- | --- |
+| User/account model | Present. |
+| Sessions/password reset/email verification | Present. |
+| Admin role and MFA | Present but hardening needed. |
+| Private media ownership | Present. |
+| Quotas | Basic member AI daily slots exist. |
+| Organization/team model | Missing. |
+| Tenant isolation | Missing beyond per-user ownership checks. |
+| Billing/subscription | Missing. |
+| Plan limits/entitlements | Missing except hardcoded AI quota. |
+| Abuse prevention | Present but inconsistent. |
+| Audit logs | Present for admin/user activity, but search/retention/compliance maturity is incomplete. |
+| Data export/deletion | Not proven as product-grade user-facing capability. |
+| Feature flags | Missing. |
+| Environment separation | Some config exists; no full IaC evidence. |
+| Backup/restore | Missing evidence. |
+| Incident readiness | Missing SLOs, alerts, runbooks, on-call evidence. |
+| Monitoring/error tracking | Logs/correlation exist, but no repo-defined alerting/tracing/metrics. |
+
+SaaS blockers:
+
+| Blocker | Why it blocks |
+| --- | --- |
+| No org/tenant model | Enterprise customers need teams, roles, invitations, audit scoping, ownership transfer. |
+| No billing/entitlements | Cannot enforce paid plans, usage limits, or cost controls. |
+| No compliance-grade data lifecycle | Users/customers will ask for export, deletion, retention, subprocessors, audit logs. |
+| Incomplete ops posture | No evidence of backups, restore drills, SLOs, alerting, incident workflow. |
+| Static tests failing | Release pipeline cannot be trusted until green. |
+
+## Reliability and Operations Audit
+
+Findings:
+
+| Finding | Evidence | Risk | Recommended action |
+| --- | --- | --- | --- |
+| Static deploy path fails local static tests | `npm run test:static` failure; CI runs same script | Deploy blocks or flakes. | Fix failing scroll/wallet tests or isolate environment-specific cause. |
+| Queue unknown messages are acked | `workers/auth/src/index.js:433-448` | Message loss on schema/config mismatch. | DLQ unknown message shapes. |
+| Cron cleanup lacks backlog alerts | `workers/auth/src/index.js:81-85`, `300-419` | Backlog can grow silently. | Emit queue depth/oldest age metrics and alerts. |
+| Traces disabled | `workers/auth/wrangler.jsonc:19-21`, `workers/ai/wrangler.jsonc:12-14` | Cross-service debugging is harder. | Enable traces where cost/privacy allows; propagate correlation IDs. |
+| Manual Cloudflare prerequisites | `config/release-compat.json:158-244` | Production drift. | IaC or live drift checks. |
+| Release deploys static only | `.github/workflows/static.yml` | Worker/static version skew possible. | Add coordinated release pipeline or enforced deploy order. |
+| No disaster recovery proof | No backup/restore scripts found | Data loss or long outage risk. | D1/R2 backup and restore drill runbooks. |
+| No idempotency framework for expensive operations | AI/video/provider calls are not uniformly job-idempotent | Duplicate cost under retry. | Idempotency keys and job table. |
+
+## Testing Audit
+
+Current state:
+
+| Test type | Evidence | Assessment |
+| --- | --- | --- |
+| Static E2E/smoke | `playwright.config.js`, `tests/smoke.spec.js`, `tests/wallet-nav.spec.js` | Exists but currently failing locally. |
+| Worker route tests | `playwright.workers.config.js`, `tests/workers.spec.js` | Strong. 245 passing tests. |
+| Admin/auth tests | `tests/auth-admin.spec.js` | Broad but monolithic. |
+| Release compatibility tests | `scripts/test-release-compat.mjs`, `scripts/validate-release-compat.mjs` | Strong custom validation. |
+| Unit tests | Not clearly separated | Most tests are broad Playwright-style integration tests. |
+| Contract tests | Partial through release tests, not schema-based | Needs explicit API contract validation. |
+| Security tests | Partial route tests; no SAST or negative security suite baseline | Needs dedicated abuse/security tests. |
+| Load/performance tests | Not found | Missing. |
+| Coverage | Not found | Missing. |
+
+Important missing tests:
+
+| Missing test | Why it matters | Where it should live | Suggested cases |
+| --- | --- | --- | --- |
+| Admin MFA throttling/lockout | Protects admin boundary | `tests/auth-admin.spec.js` or split `tests/admin-mfa.spec.js` | Repeated invalid TOTP, recovery code failures, lockout expiry, fail-closed limiter outage. |
+| AI service HMAC auth | Prevents internal endpoint exposure | `tests/workers.spec.js` | Missing signature, bad signature, expired timestamp, replay, valid service call. |
+| Request body size limits | Prevents memory abuse | Worker tests | Oversized JSON to contact/auth/AI, oversized multipart avatar before parse. |
+| Rate limiter fail-closed policy | Consistency for expensive routes | Worker tests | D1 missing/outage on admin AI/member AI/avatar/admin action. |
+| Queue schema/DLQ behavior | Prevents silent message loss | Worker queue tests | Unknown message shape, bad version, partial failure, retry exhaustion. |
+| Video job lifecycle | Required after async refactor | New AI job tests | create job, poll status, provider timeout, retry, duplicate idempotency key. |
+| DB pagination/search at scale | Prevents future slow admin screens | Scripted integration/perf tests | 100k audit rows, cursor correctness, search latency, count aggregates. |
+| Data deletion/export | Compliance | Worker tests | User delete removes/archives PII and R2 assets, export contains expected records. |
+| CSP/XSS regression | Frontend security | Static tests plus lint/Semgrep | Inject generated metadata/title and verify it renders as text. |
+| Backup/restore smoke | Ops | Scripts/CI manual workflow | Restore D1 export to staging/local and verify schema/checkpoints. |
+
+## Database and Data Model Audit
+
+Strengths:
+
+| Strength | Evidence |
+| --- | --- |
+| Explicit migrations | `workers/auth/migrations/*.sql`. |
+| User/session/token indexes exist | `workers/auth/migrations/0001_init.sql`, `0002_add_password_reset_tokens.sql`, `0004_add_email_verification.sql`. |
+| Some cascade cleanup exists | Later migrations add `ON DELETE CASCADE` for profiles/activity-related tables and wallet tables. |
+| Daily AI quota uses unique slots | `workers/auth/migrations/0014_add_ai_daily_quota_usage.sql` and reservation logic in `workers/auth/src/routes/ai/images-write.js:175-199`. |
+| Cursor-support indexes exist | `workers/auth/migrations/0026_add_cursor_pagination_support.sql`. |
+
+Risks:
+
+| Risk | Evidence | Recommendation |
+| --- | --- | --- |
+| No org/tenant tables | No `organizations`, `memberships`, `tenant_id`, or plan tables found | Add org/membership/role/plan schema before enterprise growth. |
+| Some early user-owned tables lack cascade and rely on manual cleanup | `ai_images` and `ai_folders` originally reference users without cascade in `0007_add_image_studio.sql` | Decide between cascade and explicit deletion services; test all paths. |
+| Activity search is not index-friendly | `workers/auth/src/routes/admin.js:679-703`, `770-788` | Add searchable projection and indexes, avoid raw JSON search. |
+| Table-recreate migrations for CHECK changes | `0021`, `0022`, `0025` | Acceptable for D1 constraints, but needs migration rehearsals and backups. |
+| D1 batch used for related security updates | Password reset/email verification use batch-style operations | Verify D1 transactional guarantees; use explicit transactions if available or single guarded statements where possible. |
+| Timestamps are plain ISO strings | Repo pattern | Standardize timezone, precision, and DB defaults. |
+
+Target data model additions:
+
+| Table/domain | Purpose |
+| --- | --- |
+| `organizations` | Tenant boundary and billing owner. |
+| `organization_memberships` | User roles within orgs. |
+| `roles` / `permissions` or enum policy table | Least-privilege admin/support/product roles. |
+| `subscriptions` / `plans` / `entitlements` | Billing and feature enforcement. |
+| `usage_events` / `usage_counters` | Billable and quota usage. |
+| `jobs` | Async AI/email/export/deletion lifecycle. |
+| `audit_events` normalized projection | Searchable, exportable, retention-aware audit stream. |
+| `data_exports` / `deletion_requests` | Compliance operations. |
+
+## Frontend Audit
+
+Findings:
+
+| Finding | Evidence | Risk | Recommended action |
+| --- | --- | --- | --- |
+| Static smoke failures in homepage scroll restore | `tests/smoke.spec.js:369-414`, `index.html:43-44` | UX regressions and failed CI deploy. | Fix scroll restoration logic and add stable waits/test instrumentation. |
+| Wallet discovery state failure | `tests/wallet-nav.spec.js:369-383`, `js/shared/wallet/wallet-controller.js` | Authentication UX regression. | Make discovery state deterministic until announcement timeout expires. |
+| Many `innerHTML` sinks | `rg innerHTML` output across `js/` | Future XSS risk. | Safe DOM helper and lint rule. |
+| Large admin AI page | `js/pages/admin/ai-lab.js` 4613 lines | Hard to secure and evolve. | Split into API client, provider panels, save modal, state reducer/store, render helpers. |
+| Local storage state not threat-modeled | Wallet/audio/admin AI store local state | Privacy/session confusion risk. | Define persisted keys, TTLs, clear-on-logout semantics, and tests. |
+| No accessibility audit evidence | Static tests likely cover some UI, but no axe/lighthouse config found | Enterprise UX/compliance gap. | Add accessibility scans for critical flows. |
+| No performance budget | No Lighthouse CI or asset budget script | Regressions hidden. | Add budgets for homepage/account/admin. |
+
+## Backend/API Audit
+
+Strengths:
+
+| Strength | Evidence |
+| --- | --- |
+| Route-level auth helpers | `requireUser`, `requireAdmin`. |
+| Same-origin mutating request guard | `workers/auth/src/index.js:131-143`. |
+| Parameter binding for SQL queries | Admin/search code uses bound placeholders, reducing SQL injection risk. |
+| Some signed pagination | Admin users and member assets. |
+| Structured diagnostics | Shared observability module imported widely. |
+
+Weaknesses:
+
+| Weakness | Evidence | Recommendation |
+| --- | --- | --- |
+| API policy is not centralized | Each route manually applies auth, rate limit, body parsing, validation | Route registry with policy metadata. |
+| Response schemas are informal | No shared schema/types | Add validators and contract tests. |
+| Pagination consistency gaps | Activity endpoints use raw cursors, assets endpoint uses signed cursors | Sign all cursors. |
+| Versioning strategy absent | No `/v1` or explicit contract version | Add explicit API version or compatibility policy before external integrations. |
+| Admin RBAC is binary | `role` is `user` or `admin` | Introduce permissions for support/admin/security/billing roles. |
+| Expensive provider calls not idempotent enough | Video path synchronous | Job/idempotency framework. |
+
+## Infrastructure and Deployment Audit
+
+Findings:
+
+| Finding | Evidence | Risk | Recommended action |
+| --- | --- | --- | --- |
+| Static CI deploy does not deploy Workers | `.github/workflows/static.yml` deploys GitHub Pages only | Static/backend version skew. | Use release pipeline that enforces migrations, workers, static deploy order or blocks incompatible static deploys. |
+| Manual prerequisites remain | `config/release-compat.json:158-244` | Drift and human error. | IaC or live validation. |
+| No security scanning in CI | `.github/workflows/static.yml` lacks audit/CodeQL/SAST/secret scanning | Supply-chain/security regressions can merge. | Add security jobs. |
+| `workers/ai` no lockfile | no package lock found | Non-reproducible deploy. | Add lockfile and `npm ci` validation. |
+| Worker traces disabled | wrangler configs | Harder incident investigation. | Enable traces or documented alternative. |
+| No health checks for all services | Auth has `/api/health`; AI/contact health not evident | Monitoring blind spots. | Add health/readiness endpoints or synthetic checks. |
+| Node version mismatch | CI Node 20, local Node 24 | Reproducibility risk. | Pin engines/toolchain and use same version locally/CI. |
+
+## Prioritized Findings
+
+| Rank | Severity | Category | Affected area/files | What is wrong | Why it matters | If ignored | Fix | Effort | Blocks SaaS readiness |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | High | Release | `npm run test:static`, `tests/smoke.spec.js`, `tests/wallet-nav.spec.js` | Static smoke suite fails. | CI deploy path is not trustworthy. | Broken UX or blocked deploys. | Fix scroll restore and wallet discovery regressions. | M | Yes |
+| 2 | High | Security | `workers/auth/src/routes/admin-mfa.js` | Admin MFA attempts are not rate limited/locked. | Admin boundary can be brute-forced after password/session compromise. | Privilege escalation risk. | Add fail-closed DO limiter and lockout. | M | Yes |
+| 3 | High | Abuse/cost | `rate-limit.js`, `admin-ai-proxy.js`, `admin.js`, `images-write.js` | Expensive/privileged rate limits fail open. | Cost and abuse controls degrade under DB failure. | AI spend and admin endpoints exposed to abuse. | Make fail-closed DO rate limits default for sensitive paths. | M | Yes |
+| 4 | High | Service security | `workers/ai/src/index.js`, `admin-ai-proxy.js` | Internal AI endpoints lack HMAC. | Misconfiguration can expose expensive endpoints. | Direct AI abuse. | Signed service authentication. | M | Yes |
+| 5 | High | Reliability | `invoke-ai-video.js` | Long synchronous video polling. | Tail latency, duplicate provider cost, Worker limits. | Unstable AI/video operations. | Async job/queue model. | L | Yes |
+| 6 | High | Supply chain | `workers/ai/package.json` | No lockfile, `npm ls` fails. | Non-reproducible deploy/audit. | Hidden dependency drift. | Add lockfile, CI `npm ci` for worker packages. | S | Yes |
+| 7 | Medium/High | Operations | `config/release-compat.json` | Dashboard rules outside repo. | Cannot prove production security state. | Drift, missing headers/WAF. | IaC or live drift checks. | M/L | Yes |
+| 8 | Medium/High | Architecture | schema/routes | No tenant/org/billing model. | Enterprise SaaS cannot be layered cleanly. | Costly rewrite later. | Add org/membership/plan/entitlement model. | XL | Yes |
+| 9 | Medium/High | Maintainability | large JS/test files | Monoliths and no typecheck. | Team velocity and safety degrade. | Regressions increase. | Split modules, add type/lint. | L | Partially |
+| 10 | Medium | Database | `admin.js` activity queries | Broad scans and raw cursors. | Admin pages slow as logs grow. | D1 pressure and support pain. | Indexed projections, signed cursors, aggregates. | M | Partially |
+| 11 | Medium | Security | request parsing | Body limits after parsing or not visible. | Memory/CPU abuse. | Worker exhaustion. | Byte-limited parsers. | S/M | Partially |
+| 12 | Medium | Ops | queue handler | Unknown messages acked. | Silent data loss. | Lost jobs/audit. | DLQ/versioned messages. | M | Partially |
+| 13 | Medium | Observability | wrangler traces disabled, no alert definitions | Logs exist but no SLOs/alerts. | Incidents discovered late. | Longer outages. | SLO/metrics/alerts/runbooks. | M/L | Yes |
+| 14 | Medium | Frontend security | many `innerHTML` sinks | No enforced safe rendering policy. | Future XSS risk. | Account/admin compromise via XSS. | Safe DOM layer and lint rule. | M/L | Partially |
+| 15 | Medium | Data lifecycle | no export/delete proof | Compliance gap. | Enterprise blockers. | Legal/support risk. | Export/delete jobs and tests. | L | Yes |
+| 16 | Medium | Email reliability | direct Resend calls | No durable outbox/retry. | Auth emails can silently fail. | Support burden/login failure. | Email outbox/queue/webhook status. | M | Partially |
+| 17 | Medium | Performance | no load/perf budgets | No capacity evidence. | Unknown scaling limits. | Surprises under traffic. | k6/Lighthouse budgets. | M | Partially |
+| 18 | Medium | DX | no lint/type/format/coverage | Weak quality gates. | Review burden. | Slow team growth. | Add scripts and CI. | M | Partially |
+| 19 | Low/Medium | Password security | PBKDF2 100k | Acceptable but not elite. | Lower breach resistance. | Faster offline cracking if DB leaks. | Improve hashing/passkeys/breach checks. | M | No |
+| 20 | Low/Medium | Runtime reproducibility | CI Node 20, local Node 24 | Tooling drift. | Environment-specific bugs. | Flaky builds/tests. | Pin Node/npm versions. | S | No |
+
+## Scores
+
+| Dimension | Score | Evidence | What raises it to 9+ | Current blocker |
+| --- | --- | --- | --- | --- |
+| Overall code quality | 6.2 | Working product, broad tests, but large untyped modules | Modular typed domains, lint, coverage, contract tests | Monoliths, no type/lint gates |
+| Security | 6.5 | Good auth/session/MFA basics, SIWE, origin checks | MFA throttling, service HMAC, body limits, IaC security, SAST | Inconsistent fail-closed controls and internal service auth |
+| Architecture | 6.0 | Clean Cloudflare service split | Route policy layer, domain boundaries, org/tenant model | User-centric architecture and scattered policy |
+| Performance | 5.5 | Static site and Cloudflare edge are efficient foundations | Load tests, async AI, query indexes, perf budgets | Synchronous video, scan-prone admin queries |
+| Scalability | 5.2 | Queues/DOs exist | Job model, org/tenant scaling, global rate limits, capacity tests | D1 hot counters and missing tenant architecture |
+| Maintainability | 5.4 | Clear file structure and tests | Smaller modules, typed contracts, owners, lint | Large files and informal contracts |
+| Testing | 7.0 | 245 worker tests and many static tests | Green full suite, unit/contract/security/load/coverage gates | Static suite failing, no coverage/load/security gates |
+| SaaS readiness | 4.5 | Accounts/admin/private media exist | Org/billing/compliance/ops primitives | Missing enterprise platform features |
+| Operational readiness | 4.8 | Logs, release plan, queues | SLOs, alerts, restore drills, IaC, incident runbooks | Dashboard drift and no backup/alert evidence |
+| Developer experience | 5.8 | Simple scripts and tests | Unified `npm ci` for all workspaces, lint/type/format, docs | Worker package inconsistency and no type/lint |
+| Technology modernity | 5.6 | Cloudflare-native stack is modern | Typed JS/TS, IaC, security tooling, observability | Tooling gaps and manual dashboard controls |
+| Future-proofing | 4.8 | Some release discipline | Tenant architecture, async jobs, contracts, governance | Current model will be expensive to evolve for enterprise |
+
+## Target-State Recommendation
+
+Target security model:
+
+| Area | Target |
+| --- | --- |
+| Authentication | Sessions with purpose-specific secrets, rotation support, admin WebAuthn/passkeys, strict secure cookies. |
+| Authorization | Central policy engine with roles/permissions scoped to org/team/admin/support contexts. |
+| Service-to-service | HMAC-signed Auth to AI calls with timestamp/replay protection. |
+| Rate limiting | Durable Object fail-closed by default for sensitive/expensive routes. |
+| Input validation | Per-route body-size limits and schema validation before business logic. |
+| Secrets | Purpose-specific key material with key ids and rotation runbooks. |
+| Audit | Immutable append-only audit events with searchable redacted projections. |
+
+Target performance strategy:
+
+| Area | Target |
+| --- | --- |
+| AI generation | Asynchronous jobs for video/music/large images, idempotency keys, provider status tracking. |
+| DB queries | Indexed pagination, precomputed aggregates, no raw JSON wildcard search on hot paths. |
+| Static frontend | Performance budgets and asset-size checks in CI. |
+| Media | Store binary assets in R2/Images and return references rather than base64 payloads. |
+| Rate limiting | DO counters for hot paths; D1 for durable snapshots only. |
+
+Target testing strategy:
+
+| Layer | Target |
+| --- | --- |
+| Unit | Domain logic, validators, crypto helpers, pagination, rate policy. |
+| Integration | Worker route tests by domain. |
+| Contract | Shared request/response schemas for frontend/backend/internal APIs. |
+| E2E | Static flows, wallet, auth, admin, media, AI happy paths. |
+| Security | Abuse, CSRF/origin, auth bypass, BOLA, size limits, MFA lockout. |
+| Load | k6/Artillery for auth, admin activity, AI jobs, media reads. |
+| Ops | Backup restore, queue retry/DLQ, migration rehearsal. |
+
+Target CI/CD:
+
+| Gate | Target |
+| --- | --- |
+| Install | `npm ci` root and every worker package with lockfiles. |
+| Static checks | lint, typecheck/checkJs, format, dependency audit, secret scan. |
+| Tests | unit, worker, static, contract, release compatibility. |
+| Security | CodeQL/Semgrep, dependency review, license/SBOM, audit. |
+| Release | Plan, apply migrations, deploy workers in order, deploy static, run live canaries. |
+| Drift | Validate Cloudflare route/binding/WAF/header/RUM state. |
+
+## Roadmap
+
+### Phase 0: Critical Blockers
+
+Objectives:
+
+Fix releasability, close immediate admin/AI abuse gaps, restore supply-chain reproducibility.
+
+Tasks:
+
+| Order | Task | Files/areas | Impact | Effort |
+| --- | --- | --- | --- | --- |
+| 1 | Fix failing static smoke tests | `index.html`, `js/pages/index/category-carousel.js`, `js/shared/wallet/` | Restores deploy confidence | M |
+| 2 | Add MFA rate limiting and lockout | `workers/auth/src/routes/admin-mfa.js`, `workers/auth/src/lib/admin-mfa.js`, tests | Reduces admin takeover risk | M |
+| 3 | Make sensitive rate limits fail closed | `rate-limit.js`, admin, avatar, AI generation/proxy routes | Reduces abuse/cost exposure | M |
+| 4 | Add Auth-to-AI HMAC service auth | `admin-ai-proxy.js`, `workers/ai/src/index.js`, tests | Protects internal AI endpoints | M |
+| 5 | Add `workers/ai/package-lock.json` and CI install/audit | `workers/ai`, `.github/workflows/static.yml` | Reproducible AI worker builds | S |
+| 6 | Add config validation for critical secrets/bindings | all Workers | Fail-closed misconfiguration | S/M |
+
+Expected risk reduction:
+
+High. These items address release failure, admin boundary, AI spend exposure, and supply-chain reproducibility.
+
+### Phase 1: SaaS Foundation
+
+Objectives:
+
+Harden auth/input validation, add quality gates, make behavior observable and testable.
+
+Tasks:
+
+| Order | Task | Files/areas | Impact | Effort |
+| --- | --- | --- | --- | --- |
+| 1 | Add request body size limited parsers | `workers/auth/src/lib/request.js`, contact/avatar/AI routes | Prevents memory abuse | S/M |
+| 2 | Split security secrets by purpose | config, crypto helpers, migrations if needed | Reduces blast radius | M/L |
+| 3 | Add lint/typecheck/checkJs and safe DOM rules | root tooling, `js/`, `workers/` | Improves maintainability/security | M |
+| 4 | Add route policy registry | `workers/auth/src/app/` | Consistent auth/rate/body policies | M/L |
+| 5 | Add CI security gates | `.github/workflows/static.yml` | Prevents supply-chain/security drift | M |
+| 6 | Add alert/runbook baseline | docs, scripts, wrangler observability | Incident readiness | M |
+
+### Phase 2: Scalability and Architecture
+
+Objectives:
+
+Move expensive work async, improve database/query patterns, introduce domain boundaries.
+
+Tasks:
+
+| Order | Task | Files/areas | Impact | Effort |
+| --- | --- | --- | --- | --- |
+| 1 | Convert video generation to job/queue model | `workers/ai`, `workers/auth`, migrations, admin UI | Reliability and cost control | L |
+| 2 | Add indexed audit/search projection and signed activity cursors | `workers/auth/migrations`, `routes/admin.js` | Scalable admin pages | M |
+| 3 | Deprecate or paginate `/api/ai/images` | `assets-read.js`, frontend asset browser | Lower payloads | M |
+| 4 | Split large admin/wallet/asset modules | `js/pages/admin/ai-lab.js`, shared modules | Team scalability | L |
+| 5 | Add load/perf tests | `scripts/`, CI optional workflow | Capacity visibility | M |
+
+### Phase 3: Enterprise Readiness
+
+Objectives:
+
+Add SaaS platform primitives and compliance-grade operations.
+
+Tasks:
+
+| Order | Task | Files/areas | Impact | Effort |
+| --- | --- | --- | --- | --- |
+| 1 | Add organization/team/membership model | migrations, auth/session, routes, UI | Tenant foundation | XL |
+| 2 | Add RBAC/permissions | domain policy, admin UI | Least privilege | L |
+| 3 | Add billing/plan/entitlement/usage model | migrations, AI quotas, admin/account UI | Monetization and cost controls | XL |
+| 4 | Add data export/deletion jobs | migrations, queues, R2/D1 services | Compliance readiness | L |
+| 5 | Add audit archive/search improvements | audit domain, R2 archive, admin tools | Enterprise support | L |
+| 6 | Add feature flags | config/domain | Safer rollout | M |
+
+### Phase 4: World-Class Engineering Maturity
+
+Objectives:
+
+Automate quality governance and operational excellence.
+
+Tasks:
+
+| Order | Task | Files/areas | Impact | Effort |
+| --- | --- | --- | --- | --- |
+| 1 | Full IaC/drift management | Cloudflare resources, repo CI | Production reproducibility | L/XL |
+| 2 | SLOs/error budgets and alerting | dashboards/runbooks/CI docs | Incident maturity | L |
+| 3 | Continuous security program | CodeQL/Semgrep/dependency review/SBOM/license | Audit readiness | M/L |
+| 4 | Restore drills and chaos tests | scripts/docs/staging | Disaster recovery confidence | M/L |
+| 5 | Architecture governance | ADRs, ownership, module boundaries | Long-term maintainability | M |
+| 6 | Advanced test matrix | unit/contract/load/security/visual/a11y | Regression prevention | L |
+
+## Appendices With Evidence
+
+### A. Key file and line evidence
+
+| Evidence | Meaning |
+| --- | --- |
+| `package.json:4-20` | Scripts include tests/release/build but no lint/typecheck/format/coverage. |
+| `.github/workflows/static.yml:28-66` | Release compatibility and worker validation jobs. |
+| `.github/workflows/static.yml:190-200` | Static tests run before static build/deploy. |
+| `workers/auth/wrangler.jsonc:14-21` | Logs enabled, traces disabled. |
+| `workers/auth/wrangler.jsonc:23-47` | Queue producers/consumers configured. |
+| `workers/auth/wrangler.jsonc:61-65` | Auth worker binds to AI worker as `AI_LAB`. |
+| `workers/ai/wrangler.jsonc:5-6` | AI worker public dev/preview exposure disabled. |
+| `config/release-compat.json:158-244` | Manual prerequisites and dashboard-managed controls. |
+| `workers/auth/src/lib/session.js:52,99` | Session token hash uses `SESSION_SECRET`. |
+| `workers/auth/src/lib/session.js:207-253` | Admin secure session and MFA enforcement. |
+| `workers/auth/src/routes/admin-mfa.js:52-240` | Admin MFA handlers lack explicit route-level limiter. |
+| `workers/auth/src/lib/admin-mfa.js:20-21` | MFA proof TTL is 12 hours. |
+| `workers/auth/src/lib/admin-mfa.js:140-180` | MFA secret encryption derives key from `SESSION_SECRET`. |
+| `workers/auth/src/lib/rate-limit.js:300-360` | Shared limiter falls back to memory unless fail-closed. |
+| `workers/auth/src/lib/admin-ai-proxy.js:37-41` | Admin AI limiter uses default behavior. |
+| `workers/ai/src/index.js:15-72` | AI internal routes have no HMAC/auth check. |
+| `workers/ai/src/lib/invoke-ai-video.js:327-563` | Synchronous Vidu provider create and poll loop. |
+| `workers/auth/src/routes/admin.js:679-703` | Admin activity wildcard search/counts. |
+| `workers/auth/src/routes/admin.js:746-788` | User activity wildcard search/raw cursor. |
+| `workers/auth/src/routes/avatar.js:298-323` | `request.formData()` before file-size rejection. |
+| `workers/contact/src/index.js:133-155` | `request.json()` before field size validation. |
+| `workers/auth/src/index.js:433-448` | Unknown queue batches are acked. |
+| `tests/smoke.spec.js:369-414` | Static scroll restoration tests that failed locally. |
+| `tests/wallet-nav.spec.js:369-383` | Wallet discovery test that failed locally. |
+
+### B. Large files observed
+
+| File | Lines |
+| --- | --- |
+| `js/pages/admin/ai-lab.js` | 4613 |
+| `js/shared/saved-assets-browser.js` | 1531 |
+| `js/shared/wallet/wallet-controller.js` | 1460 |
+| `workers/auth/src/lib/admin-mfa.js` | 961 |
+| `workers/auth/src/routes/ai/images-write.js` | 761 |
+| `workers/ai/src/lib/invoke-ai-video.js` | 984 |
+| `tests/workers.spec.js` | 12497 |
+| `tests/auth-admin.spec.js` | 6004 |
+
+### C. What was not changed
+
+No application code, tests, layouts, styles, configs, migrations, package files, or assets were modified during this audit. Only audit documentation files were created.

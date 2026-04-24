@@ -15,5 +15,19 @@
   },
   "ai": {
     "binding": "AI"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SERVICE_AUTH_REPLAY",
+        "class_name": "AiServiceAuthReplayDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-service-auth-replay",
+      "new_sqlite_classes": ["AiServiceAuthReplayDurableObject"]
+    }
+  ]
 }

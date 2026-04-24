@@ -1,5 +1,12 @@
 import { readJsonBody } from "../lib/request.js";
 import { json } from "../lib/response.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "../lib/rate-limit.js";
 import { requireAdmin } from "../lib/session.js";
 import {
   AdminMfaError,
@@ -21,6 +28,52 @@ function badJsonResponse(correlationId) {
     json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 }),
     correlationId
   );
+}
+
+async function enforceAdminMfaThrottle(ctx, admin, operation, {
+  adminMax = 5,
+  ipMax = 30,
+  windowMs = 15 * 60_000,
+} = {}) {
+  const { request, env, pathname, method, correlationId } = ctx;
+  const ip = getClientIp(request);
+  const requestInfo = { request, pathname, method };
+  const checks = [
+    [`admin-mfa-${operation}-admin`, admin.user.id, adminMax],
+    [`admin-mfa-${operation}-ip`, ip, ipMax],
+  ];
+
+  for (const [scope, key, maxRequests] of checks) {
+    const result = await evaluateSharedRateLimit(
+      env,
+      scope,
+      key,
+      maxRequests,
+      windowMs,
+      sensitiveRateLimitOptions({
+        component: "admin-mfa",
+        correlationId,
+        requestInfo,
+      })
+    );
+    if (result.unavailable) {
+      return rateLimitUnavailableResponse(correlationId);
+    }
+    if (result.limited) {
+      logAdminMfaDiagnostic({
+        request,
+        correlationId,
+        adminUserId: admin.user.id,
+        event: "admin_mfa_rate_limited",
+        level: "warn",
+        failureReason: scope,
+        status: 429,
+      });
+      return withCorrelationId(rateLimitResponse(), correlationId);
+    }
+  }
+
+  return null;
 }
 
 export async function handleAdminMfa(ctx) {
@@ -50,6 +103,12 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/setup" && method === "POST") {
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "setup", {
+      adminMax: 3,
+      ipMax: 12,
+      windowMs: 60 * 60_000,
+    });
+    if (limited) return limited;
     try {
       const setup = await createAdminMfaSetup(env, admin.user);
       logAdminMfaDiagnostic({
@@ -99,6 +158,8 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/enable" && method === "POST") {
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "enable");
+    if (limited) return limited;
     const body = await readJsonBody(request);
     if (!body) return badJsonResponse(correlationId);
     try {
@@ -140,6 +201,8 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/verify" && method === "POST") {
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "verify");
+    if (limited) return limited;
     const body = await readJsonBody(request);
     if (!body) return badJsonResponse(correlationId);
     try {
@@ -186,6 +249,12 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/disable" && method === "POST") {
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "disable", {
+      adminMax: 5,
+      ipMax: 20,
+      windowMs: 60 * 60_000,
+    });
+    if (limited) return limited;
     const body = await readJsonBody(request);
     if (!body) return badJsonResponse(correlationId);
     try {
@@ -224,6 +293,12 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/recovery-codes/regenerate" && method === "POST") {
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "recovery-regenerate", {
+      adminMax: 5,
+      ipMax: 20,
+      windowMs: 60 * 60_000,
+    });
+    if (limited) return limited;
     const body = await readJsonBody(request);
     if (!body) return badJsonResponse(correlationId);
     try {

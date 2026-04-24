@@ -102,6 +102,35 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: [
+      "tests/workers.spec.js",
+      "AUDIT_NEXT_LEVEL.md",
+      "PHASE0_REMEDIATION_REPORT.md",
+    ],
+  });
+  assert.equal(plan.deploySteps.length, 0);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "AUDIT_NEXT_LEVEL.md",
+    "PHASE0_REMEDIATION_REPORT.md",
+    "tests/workers.spec.js",
+  ]);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["workers/ai/package-lock.json"],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.workers), ["ai"]);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["ai-worker"]
+  );
+  assert(plan.recommendedChecks.includes("npm run test:workers"));
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: ["js/shared/admin-ai-contract.mjs"],
   });
   assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth"]);

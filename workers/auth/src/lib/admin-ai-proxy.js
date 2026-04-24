@@ -1,6 +1,18 @@
 import { json } from "./response.js";
-import { getClientIp, isSharedRateLimited } from "./rate-limit.js";
+import { buildServiceAuthHeaders } from "../../../../js/shared/service-auth.mjs";
 import { withAdminAiCode } from "./admin-ai-response.js";
+import {
+  assertAuthAiServiceConfig,
+  logWorkerConfigFailure,
+  workerConfigUnavailableResponse,
+  WorkerConfigError,
+} from "./config.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "./rate-limit.js";
 import {
   BITBI_CORRELATION_HEADER,
   getDurationMs,
@@ -36,10 +48,53 @@ function adminAiRateLimitResponse(correlationId = null) {
 
 export async function rateLimitAdminAi(request, env, scope, maxRequests, windowMs, correlationId = null) {
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, scope, ip, maxRequests, windowMs)) {
+  const url = new URL(request.url);
+  const result = await evaluateSharedRateLimit(env, scope, ip, maxRequests, windowMs, sensitiveRateLimitOptions({
+    component: "admin-ai",
+    correlationId,
+    requestInfo: { request, pathname: url.pathname, method: request.method },
+  }));
+  if (result.unavailable) {
+    return rateLimitUnavailableResponse(correlationId);
+  }
+  if (result.limited) {
     return adminAiRateLimitResponse(correlationId);
   }
   return null;
+}
+
+async function buildSignedAiLabHeaders({ env, method, path, bodyText, adminUser, correlationId, requestInfo = null }) {
+  try {
+    assertAuthAiServiceConfig(env);
+    return await buildServiceAuthHeaders({
+      secret: env.AI_SERVICE_AUTH_SECRET,
+      method,
+      path,
+      body: bodyText || "",
+    });
+  } catch (error) {
+    if (error instanceof WorkerConfigError || error?.code === "service_auth_unavailable") {
+      logWorkerConfigFailure({
+        env,
+        error,
+        correlationId,
+        requestInfo,
+        component: "admin-ai-service-auth",
+      });
+      return null;
+    }
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-ai-service-auth",
+      event: "admin_ai_service_auth_sign_failed",
+      level: "error",
+      correlationId,
+      admin_user_id: adminUser?.id || null,
+      ...getRequestLogFields(requestInfo),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return null;
+  }
 }
 
 export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlationId, requestInfo = null) {
@@ -61,8 +116,20 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
 
   let response;
   try {
+    const path = "/internal/ai/live-agent";
+    const bodyText = JSON.stringify(payload);
+    const serviceAuthHeaders = await buildSignedAiLabHeaders({
+      env,
+      method: "POST",
+      path,
+      bodyText,
+      adminUser,
+      correlationId,
+      requestInfo,
+    });
+    if (!serviceAuthHeaders) return workerConfigUnavailableResponse(correlationId);
     response = await env.AI_LAB.fetch(
-      new Request(`${AI_LAB_BASE_URL}/internal/ai/live-agent`, {
+      new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: "POST",
         headers: {
           "content-type": "application/json; charset=utf-8",
@@ -70,8 +137,9 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
           "x-bitbi-admin-user-id": adminUser.id,
           "x-bitbi-admin-user-email": adminUser.email,
           [BITBI_CORRELATION_HEADER]: correlationId,
+          ...serviceAuthHeaders,
         },
-        body: JSON.stringify(payload),
+        body: bodyText,
       })
     );
   } catch (error) {
@@ -131,11 +199,24 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
     return serviceUnavailableResponse(correlationId);
   }
 
+  const bodyText = init.body !== undefined ? JSON.stringify(init.body) : "";
+  const serviceAuthHeaders = await buildSignedAiLabHeaders({
+    env,
+    method: init.method,
+    path,
+    bodyText,
+    adminUser,
+    correlationId,
+    requestInfo,
+  });
+  if (!serviceAuthHeaders) return workerConfigUnavailableResponse(correlationId);
+
   const headers = new Headers({
     accept: "application/json",
     "x-bitbi-admin-user-id": adminUser.id,
     "x-bitbi-admin-user-email": adminUser.email,
     [BITBI_CORRELATION_HEADER]: correlationId,
+    ...serviceAuthHeaders,
   });
 
   if (init.body !== undefined) {
@@ -148,7 +229,7 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
       new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: init.method,
         headers,
-        body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+        body: init.body !== undefined ? bodyText : undefined,
       })
     );
   } catch (error) {

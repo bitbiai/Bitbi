@@ -1,6 +1,7 @@
 const WINDOW_START_MS_KEY = "window_start_ms";
 const COUNT_KEY = "count";
 const EXPIRES_AT_MS_KEY = "expires_at_ms";
+const NONCE_USED_KEY = "nonce_used";
 const JSON_HEADERS = {
   "content-type": "application/json",
 };
@@ -28,6 +29,14 @@ function parsePositiveInteger(value) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function getRequestPathname(request) {
+  try {
+    return new URL(request.url).pathname;
+  } catch {
+    return "/";
+  }
 }
 
 function getFixedWindowStartMs(nowMs, windowMs) {
@@ -69,10 +78,11 @@ export async function clearDurableRateLimitState(state) {
     storage.delete?.(WINDOW_START_MS_KEY),
     storage.delete?.(COUNT_KEY),
     storage.delete?.(EXPIRES_AT_MS_KEY),
+    storage.delete?.(NONCE_USED_KEY),
   ]);
 }
 
-export async function handleDurableRateLimitRequest(state, request) {
+async function handleDurableFixedWindowLimitRequest(state, request) {
   if (request.method !== "POST") {
     return buildJsonResponse(
       { ok: false, error: "Method not allowed." },
@@ -117,4 +127,64 @@ export async function handleDurableRateLimitRequest(state, request) {
     window_start_ms: windowStartMs,
     expires_at_ms: expiresAtMs,
   });
+}
+
+export async function handleDurableNonceReplayRequest(state, request) {
+  if (request.method !== "POST") {
+    return buildJsonResponse(
+      { ok: false, error: "Method not allowed." },
+      405,
+      { Allow: "POST" }
+    );
+  }
+
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    return buildJsonResponse({ ok: false, error: "Invalid JSON body." }, 400);
+  }
+
+  const ttlMs = parsePositiveInteger(body?.ttlMs);
+  if (!ttlMs || ttlMs > 60 * 60 * 1000) {
+    return buildJsonResponse({ ok: false, error: "Invalid nonce replay request." }, 400);
+  }
+
+  const storage = state?.storage;
+  if (!storage) {
+    return buildJsonResponse({ ok: false, error: "Durable storage unavailable." }, 503);
+  }
+
+  const nowMs = Date.now();
+  const existingExpiresAtMs = await storage.get(EXPIRES_AT_MS_KEY);
+  if (Number.isInteger(existingExpiresAtMs) && existingExpiresAtMs > nowMs) {
+    return buildJsonResponse({
+      ok: true,
+      replayed: true,
+      expires_at_ms: existingExpiresAtMs,
+    });
+  }
+
+  const expiresAtMs = nowMs + ttlMs;
+  await Promise.all([
+    storage.put(NONCE_USED_KEY, true),
+    storage.put(EXPIRES_AT_MS_KEY, expiresAtMs),
+  ]);
+  if (typeof storage.setAlarm === "function") {
+    await storage.setAlarm(expiresAtMs);
+  }
+
+  return buildJsonResponse({
+    ok: true,
+    replayed: false,
+    expires_at_ms: expiresAtMs,
+  });
+}
+
+export async function handleDurableRateLimitRequest(state, request) {
+  const pathname = getRequestPathname(request);
+  if (pathname.endsWith("/nonce")) {
+    return handleDurableNonceReplayRequest(state, request);
+  }
+  return handleDurableFixedWindowLimitRequest(state, request);
 }

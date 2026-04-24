@@ -3,6 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 const {
+  MockDurableRateLimiterNamespace,
   createAuthTestEnv,
   createExecutionContext,
   loadWorker,
@@ -56,6 +57,13 @@ async function loadAdminAiResultStateModule() {
 async function loadInvokeAiVideoModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'workers/ai/src/lib/invoke-ai-video.js')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadServiceAuthModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/service-auth.mjs')
   ).href;
   return import(modulePath);
 }
@@ -219,6 +227,9 @@ function createAiLabServiceBinding(aiWorker, aiEnv, observedRequests = null) {
           url: request.url,
           method: request.method,
           correlationId: request.headers.get('x-bitbi-correlation-id'),
+          serviceTimestamp: request.headers.get('x-bitbi-service-timestamp'),
+          serviceNonce: request.headers.get('x-bitbi-service-nonce'),
+          serviceSignature: request.headers.get('x-bitbi-service-signature'),
         });
       }
       return aiWorker.fetch(request, aiEnv, createExecutionContext().execCtx);
@@ -241,6 +252,8 @@ async function createAdminAiContractHarness(options = {}) {
   const aiEnvOverrides = options.aiEnv && typeof options.aiEnv === 'object' ? options.aiEnv : {};
   const { AI: _ignoredAiEnvOverride, ...safeAiEnvOverrides } = aiEnvOverrides;
   env.AI_LAB = createAiLabServiceBinding(aiWorker, {
+    AI_SERVICE_AUTH_SECRET: env.AI_SERVICE_AUTH_SECRET,
+    SERVICE_AUTH_REPLAY: options.serviceAuthReplay || new MockDurableRateLimiterNamespace(),
     ...safeAiEnvOverrides,
     AI: {
       get aiGatewayLogId() {
@@ -2593,7 +2606,332 @@ test.describe('Worker routes', () => {
         method: 'GET',
         url: 'https://bitbi-ai.internal/internal/ai/models',
         correlationId,
+        serviceTimestamp: expect.stringMatching(/^\d+$/),
+        serviceNonce: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
+        serviceSignature: expect.stringMatching(/^v1=[a-f0-9]{64}$/),
       }));
+    });
+
+    test('AI worker service auth accepts a valid signed internal request', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const headers = await buildServiceAuthHeaders({
+        secret,
+        method: 'GET',
+        path: '/internal/ai/models',
+        body: '',
+      });
+
+      const res = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers,
+        }),
+        {
+          AI_SERVICE_AUTH_SECRET: secret,
+          SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+          AI: { run: createAiLabRunStub() },
+        },
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        task: 'models',
+      });
+    });
+
+    test('AI worker service auth rejects missing, invalid, expired, and tampered requests', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: { run: createAiLabRunStub() },
+      };
+
+      const missing = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', { method: 'GET' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(401);
+
+      const invalid = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers: {
+            'x-bitbi-service-timestamp': String(Date.now()),
+            'x-bitbi-service-nonce': 'invalidsignature0001',
+            'x-bitbi-service-signature': `v1=${'0'.repeat(64)}`,
+          },
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalid.status).toBe(401);
+
+      const expiredHeaders = await buildServiceAuthHeaders({
+        secret,
+        method: 'GET',
+        path: '/internal/ai/models',
+        body: '',
+        timestamp: Date.now() - (10 * 60 * 1000),
+      });
+      const expired = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers: expiredHeaders,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(expired.status).toBe(401);
+
+      const signedBody = JSON.stringify({ preset: 'balanced', prompt: 'original' });
+      const tamperedHeaders = await buildServiceAuthHeaders({
+        secret,
+        method: 'POST',
+        path: '/internal/ai/test-text',
+        body: signedBody,
+      });
+      const tampered = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/test-text', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...tamperedHeaders,
+          },
+          body: JSON.stringify({ preset: 'balanced', prompt: 'tampered' }),
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(tampered.status).toBe(401);
+    });
+
+    test('AI worker service auth enforces nonce replay protection', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: { run: createAiLabRunStub() },
+      };
+      const headers = await buildServiceAuthHeaders({
+        secret,
+        method: 'GET',
+        path: '/internal/ai/models',
+        body: '',
+      });
+
+      const first = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(200);
+
+      const replay = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(replay.status).toBe(401);
+
+      const fixedNonce = 'fixednonce123456';
+      const bodyA = JSON.stringify({ preset: 'balanced', prompt: 'first body' });
+      const bodyB = JSON.stringify({ preset: 'balanced', prompt: 'second body' });
+      const firstBodyHeaders = await buildServiceAuthHeaders({
+        secret,
+        method: 'POST',
+        path: '/internal/ai/test-text',
+        body: bodyA,
+        nonce: fixedNonce,
+      });
+      const bodyARes = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/test-text', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...firstBodyHeaders,
+          },
+          body: bodyA,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(bodyARes.status).toBe(200);
+
+      const secondBodyHeaders = await buildServiceAuthHeaders({
+        secret,
+        method: 'POST',
+        path: '/internal/ai/test-text',
+        body: bodyB,
+        nonce: fixedNonce,
+      });
+      const bodyBRes = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/test-text', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...secondBodyHeaders,
+          },
+          body: bodyB,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(bodyBRes.status).toBe(401);
+      expect(env.SERVICE_AUTH_REPLAY.fetchCalls.map((call) => call.id)).toContain(`service-auth:${fixedNonce}`);
+    });
+
+    test('AI worker service auth rejects missing and malformed nonces', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: { run: createAiLabRunStub() },
+      };
+      const signed = await buildServiceAuthHeaders({
+        secret,
+        method: 'GET',
+        path: '/internal/ai/models',
+        body: '',
+      });
+
+      const missingNonceHeaders = { ...signed };
+      delete missingNonceHeaders['x-bitbi-service-nonce'];
+      const missingNonce = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers: missingNonceHeaders,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingNonce.status).toBe(401);
+
+      const malformedNonce = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers: {
+            ...signed,
+            'x-bitbi-service-nonce': 'bad nonce with spaces',
+          },
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(malformedNonce.status).toBe(401);
+    });
+
+    test('AI worker service auth fails closed when its shared secret is missing', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const res = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', { method: 'GET' }),
+        {
+          AI: { run: createAiLabRunStub() },
+          SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        },
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'service_unavailable',
+      });
+    });
+
+    test('AI worker service auth fails closed when nonce replay state is unavailable', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const headers = await buildServiceAuthHeaders({
+        secret,
+        method: 'GET',
+        path: '/internal/ai/models',
+        body: '',
+      });
+      const missingBinding = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers,
+        }),
+        {
+          AI_SERVICE_AUTH_SECRET: secret,
+          AI: { run: createAiLabRunStub() },
+        },
+        createExecutionContext().execCtx
+      );
+      expect(missingBinding.status).toBe(503);
+
+      const failingBinding = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/models', {
+          method: 'GET',
+          headers: await buildServiceAuthHeaders({
+            secret,
+            method: 'GET',
+            path: '/internal/ai/models',
+            body: '',
+          }),
+        }),
+        {
+          AI_SERVICE_AUTH_SECRET: secret,
+          SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace({ failWith: new Error('nonce do down') }),
+          AI: { run: createAiLabRunStub() },
+        },
+        createExecutionContext().execCtx
+      );
+      expect(failingBinding.status).toBe(503);
+    });
+
+    test('auth admin AI proxy fails closed when the service auth secret is missing', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        AI_SERVICE_AUTH_SECRET: '',
+        users: [createAdminUser('admin-ai-missing-secret')],
+      });
+      let proxied = false;
+      env.AI_LAB = {
+        async fetch() {
+          proxied = true;
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      };
+      const token = await seedSession(env, 'admin-ai-missing-secret');
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/models', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.73',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Service temporarily unavailable. Please try again later.',
+      });
+      expect(proxied).toBe(false);
     });
 
     test('POST /api/admin/ai/test-text returns the text response contract used by the UI', async () => {
@@ -6383,7 +6721,28 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('shared limiter: test env login still falls back when the durable object limiter binding is missing', async () => {
+  test('worker config: auth worker fails closed when SESSION_SECRET is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      SESSION_SECRET: '',
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/health', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+  });
+
+  test('shared limiter: test env login fails closed when the durable object limiter binding is missing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { hashPassword } = await loadAuthModules();
     const env = createAuthTestEnv({
@@ -6414,15 +6773,37 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     await expect(res.json()).resolves.toMatchObject({
-      ok: true,
-      message: 'Login successful.',
-      user: expect.objectContaining({
-        id: 'test-rate-login-user',
-      }),
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
     });
     expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+  });
+
+  test('shared limiter: wallet SIWE nonce fails closed when the durable limiter binding is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/wallet/siwe/nonce', 'POST', {
+        intent: 'login',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.157',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(env.DB.state.siweChallenges).toHaveLength(0);
   });
 
   test('shared limiter: AI generation is blocked when the durable per-user rate limit is exhausted', async () => {
@@ -6440,7 +6821,7 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('ai-generate-user', 'ai-rate-user', 20, 3_600_000),
       ],
       aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
@@ -6463,6 +6844,47 @@ test.describe('Worker routes', () => {
     await expect(res.json()).resolves.toMatchObject({
       ok: false,
       error: 'Too many requests. Please try again later.',
+    });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('ai-generate-user:ai-rate-user');
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+  });
+
+  test('shared limiter: sensitive AI generation fails closed when the durable limiter binding is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+      users: [
+        {
+          id: 'ai-fail-closed-user',
+          email: 'aifailclosed@example.com',
+          password_hash: 'unused',
+          created_at: nowIso(),
+          status: 'active',
+          role: 'user',
+          email_verified_at: nowIso(),
+          verification_method: 'email_verified',
+        },
+      ],
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const token = await seedSession(env, 'ai-fail-closed-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'should fail closed before generation',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
     });
   });
 
@@ -6548,7 +6970,7 @@ test.describe('Worker routes', () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'avatar-rate-user', role: 'user' })],
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('avatar-upload-ip', '203.0.113.60', 10, 3_600_000),
       ],
     });
@@ -6571,15 +6993,50 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
-    expect(env.PUBLIC_RATE_LIMITER.fetchCalls).toHaveLength(0);
-    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(true);
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('avatar-upload-ip:203.0.113.60');
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+  });
+
+  test('shared limiter: admin AI fails closed before proxying when the durable limiter binding is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+      users: [createAdminUser('admin-ai-fail-closed')],
+    });
+    let proxied = false;
+    env.AI_LAB = {
+      async fetch() {
+        proxied = true;
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    };
+
+    const token = await seedSession(env, 'admin-ai-fail-closed');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/models', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.62',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(proxied).toBe(false);
   });
 
   test('shared limiter: favorites add is blocked when the durable IP limit is exhausted', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'fav-rate-user', role: 'user' })],
-      rateLimitCounters: [
+      publicRateLimitCounters: [
         makeActiveRateLimitCounter('favorites-add-ip', '203.0.113.61', 30, 60_000),
       ],
     });
@@ -6605,7 +7062,40 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Too many requests. Please try again later.',
     });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('favorites-add-ip:203.0.113.61');
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
     expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-rate-user')).toHaveLength(0);
+  });
+
+  test('shared limiter: favorites add fails closed when the durable limiter binding is missing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+      users: [createContractUser({ id: 'fav-fail-closed-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'fav-fail-closed-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'gallery',
+        item_id: 'not-added-when-limiter-missing',
+        title: 'Blocked Favorite',
+        thumb_url: '/assets/images/1.jpg',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.63',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-fail-closed-user')).toHaveLength(0);
   });
 
   test('scheduled cleanup: production fails explicitly when the durable limiter table is missing', async () => {
@@ -7073,6 +7563,116 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('admin MFA: repeated failed verification attempts lock the admin out of verify routes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { generateTotpCode } = await loadAdminMfaModule();
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-lockout-admin')],
+    });
+    const token = await seedSession(env, 'mfa-lockout-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { setupBody, recoveryCodes } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'mfa-lockout-admin',
+    });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const invalidRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/mfa/verify', 'POST', {
+          code: '000000',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: secureSessionCookie,
+          'CF-Connecting-IP': '203.0.113.71',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidRes.status).toBe(400);
+      await expect(invalidRes.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ADMIN_MFA_INVALID_CODE',
+      });
+    }
+
+    const validCode = await generateTotpCode(setupBody.setup.secret);
+    const lockedTotpRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        code: validCode,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(lockedTotpRes.status).toBe(429);
+    await expect(lockedTotpRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+
+    const lockedRecoveryRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        recovery_code: recoveryCodes[0],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(lockedRecoveryRes.status).toBe(429);
+
+    const adminRouteRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(adminRouteRes.status).toBe(403);
+    await expect(adminRouteRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'admin_mfa_required',
+    });
+  });
+
+  test('admin MFA: fail-closed throttle blocks MFA operations when limiter state is unavailable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      disablePublicRateLimiterBinding: true,
+      users: [createAdminUser('mfa-fail-closed-admin')],
+    });
+    const token = await seedSession(env, 'mfa-fail-closed-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/setup', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.72',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(env.DB.state.adminMfaCredentials).toHaveLength(0);
+  });
+
   test('admin MFA: recovery-code regeneration and disable require proof and clear state safely', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { generateTotpCode } = await loadAdminMfaModule();
@@ -7318,6 +7918,93 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Token is missing.',
     });
+  });
+
+  test('request trust boundary: foreign Origin is rejected for auth, admin, MFA, AI, and avatar mutations before side effects', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    let aiRunCalled = false;
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('csrf-admin-user'),
+        createContractUser({ id: 'csrf-member-user', role: 'user', email: 'csrf-member@example.com' }),
+        createContractUser({ id: 'csrf-target-user', role: 'user', email: 'csrf-target@example.com' }),
+      ],
+      aiRun: async () => {
+        aiRunCalled = true;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const adminToken = await seedSession(env, 'csrf-admin-user');
+    const memberToken = await seedSession(env, 'csrf-member-user');
+
+    const loginRes = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'csrf-member@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://evil.example',
+        'CF-Connecting-IP': '203.0.113.65',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(loginRes.status).toBe(403);
+
+    const adminMutationRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/users/csrf-target-user/role', 'PATCH', {
+        role: 'admin',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.66',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(adminMutationRes.status).toBe(403);
+
+    const mfaSetupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/setup', 'POST', {}, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'CF-Connecting-IP': '203.0.113.67',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mfaSetupRes.status).toBe(403);
+
+    const aiGenerateRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'csrf should not reach ai',
+        steps: 4,
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.68',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(aiGenerateRes.status).toBe(403);
+
+    const avatarRes = await authWorker.fetch(
+      authJsonRequest('/api/profile/avatar', 'POST', {
+        source_image_id: 'deadbeef',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.69',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(avatarRes.status).toBe(403);
+
+    expect(env.DB.state.sessions.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(1);
+    expect(env.DB.state.users.find((row) => row.id === 'csrf-target-user')?.role).toBe('user');
+    expect(env.DB.state.adminMfaCredentials).toHaveLength(0);
+    expect(aiRunCalled).toBe(false);
   });
 
   test('security regression: protected member/admin routes reject tampered session cookies', async () => {

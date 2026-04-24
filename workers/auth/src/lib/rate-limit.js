@@ -188,7 +188,9 @@ export async function assertSharedRateLimitInfraReady(
 }
 
 function shouldFailClosed(env, options) {
-  return options?.failClosedInProduction === true && isProductionEnvironment(env);
+  return options?.failClosed === true || (
+    options?.failClosedInProduction === true && isProductionEnvironment(env)
+  );
 }
 
 function usesDurableObjectBackend(options) {
@@ -405,4 +407,20 @@ export function rateLimitUnavailableResponse(correlationId = null) {
     ),
     correlationId
   );
+}
+
+export function sensitiveRateLimitOptions({
+  component,
+  correlationId = null,
+  requestInfo = null,
+  logBlockedEvent = true,
+} = {}) {
+  return {
+    backend: "durable_object",
+    failClosed: true,
+    logBlockedEvent,
+    component,
+    correlationId,
+    requestInfo,
+  };
 }

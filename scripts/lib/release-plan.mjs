@@ -24,6 +24,7 @@ const VALIDATION_ONLY_PREFIXES = [
   "config/",
   "docs/",
   "scripts/",
+  "tests/",
   "workers/auth/CLAUDE.md",
   "workers/contact/CLAUDE.md",
   "workers/ai/CLAUDE.md",
@@ -112,7 +113,15 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "package.json"
     || normalized === "package-lock.json"
     || normalized === "CLAUDE.md"
-    || normalized === "README.md";
+    || normalized === "README.md"
+    || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
+    || /^PHASE0_[A-Z0-9_]+\.md$/.test(normalized);
+}
+
+function isWorkerPackagePath(relativePath, worker) {
+  const normalized = normalizePathname(relativePath);
+  return normalized === `${worker.workerDirectory}/package.json`
+    || normalized === `${worker.workerDirectory}/package-lock.json`;
 }
 
 function getWorkerDirectory(workerManifest) {
@@ -208,7 +217,8 @@ export function classifyChangedFiles(context, changedFiles) {
     for (const [workerId, worker] of Object.entries(units.workers)) {
       if (
         input === worker.wranglerPath ||
-        input.startsWith(`${worker.sourceDirectory}/`)
+        input.startsWith(`${worker.sourceDirectory}/`) ||
+        isWorkerPackagePath(input, worker)
       ) {
         addImpact(impacts.workers, workerId, input, "changes the worker runtime/config");
         matched = true;

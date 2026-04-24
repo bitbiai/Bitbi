@@ -226,6 +226,7 @@ class MockDurableRateLimiterNamespace {
         });
 
         const request = new Request(String(url), init);
+        const pathname = new URL(request.url).pathname;
         if (request.method !== 'POST') {
           return new Response(JSON.stringify({ ok: false, error: 'Method not allowed.' }), {
             status: 405,
@@ -239,6 +240,37 @@ class MockDurableRateLimiterNamespace {
         } catch {
           return new Response(JSON.stringify({ ok: false, error: 'Invalid JSON body.' }), {
             status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (pathname.endsWith('/nonce')) {
+          const ttlMs = Number(body?.ttlMs);
+          if (!Number.isInteger(ttlMs) || ttlMs <= 0) {
+            return new Response(JSON.stringify({ ok: false, error: 'Invalid nonce replay request.' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          const nowMs = Date.now();
+          if (Number.isInteger(instance.expiresAtMs) && instance.expiresAtMs > nowMs) {
+            return new Response(JSON.stringify({
+              ok: true,
+              replayed: true,
+              expires_at_ms: instance.expiresAtMs,
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          instance.expiresAtMs = nowMs + ttlMs;
+          instance.nonceUsed = true;
+          return new Response(JSON.stringify({
+            ok: true,
+            replayed: false,
+            expires_at_ms: instance.expiresAtMs,
+          }), {
+            status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
         }
@@ -284,6 +316,7 @@ class MockDurableRateLimiterNamespace {
         windowStartMs: null,
         count: 0,
         expiresAtMs: null,
+        nonceUsed: false,
       });
     }
     return this.instances.get(id);
@@ -3129,7 +3162,10 @@ function createAuthTestEnv(seed = {}) {
     APP_BASE_URL: 'https://bitbi.ai',
     BITBI_ENV: seed.BITBI_ENV || 'test',
     RESEND_FROM_EMAIL: 'BITBI <noreply@contact.bitbi.ai>',
-    SESSION_SECRET: 'test-session-secret',
+    SESSION_SECRET: seed.SESSION_SECRET === undefined ? 'test-session-secret' : seed.SESSION_SECRET,
+    AI_SERVICE_AUTH_SECRET: seed.AI_SERVICE_AUTH_SECRET === undefined
+      ? 'test-ai-service-auth-secret'
+      : seed.AI_SERVICE_AUTH_SECRET,
     PBKDF2_ITERATIONS: '100000',
     DB,
     PRIVATE_MEDIA,

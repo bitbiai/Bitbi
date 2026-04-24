@@ -1,4 +1,11 @@
-import { methodNotAllowed, notFound } from "./lib/responses.js";
+import { assertValidServiceRequest, ServiceAuthError } from "../../../js/shared/service-auth.mjs";
+import {
+  AiWorkerConfigError,
+  assertAiWorkerConfig,
+  logAiWorkerConfigFailure,
+  workerConfigUnavailableResponse,
+} from "./lib/config.js";
+import { errorResponse, methodNotAllowed, notFound } from "./lib/responses.js";
 import { handleCompare } from "./routes/compare.js";
 import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleImage } from "./routes/image.js";
@@ -11,6 +18,8 @@ import {
   getCorrelationId,
   withCorrelationId,
 } from "../../../js/shared/worker-observability.mjs";
+import { recordServiceAuthNonce } from "./lib/service-auth-replay.js";
+export { AiServiceAuthReplayDurableObject } from "./lib/service-auth-replay-do.js";
 
 export default {
   async fetch(request, env) {
@@ -19,6 +28,35 @@ export default {
     const method = request.method;
     const ctx = { request, env, url, pathname, method, correlationId: getCorrelationId(request) };
     let response = null;
+
+    if (pathname.startsWith("/internal/ai/")) {
+      try {
+        assertAiWorkerConfig(env);
+        await assertValidServiceRequest(request, {
+          secret: env.AI_SERVICE_AUTH_SECRET,
+          recordNonce: ({ nonce, replayWindowMs }) => recordServiceAuthNonce(env, {
+            nonce,
+            replayWindowMs,
+          }),
+        });
+      } catch (error) {
+        if (error instanceof AiWorkerConfigError || error?.code === "service_auth_unavailable") {
+          logAiWorkerConfigFailure({
+            error,
+            correlationId: ctx.correlationId,
+            requestInfo: { request, pathname, method },
+          });
+          return workerConfigUnavailableResponse(ctx.correlationId);
+        }
+        if (error instanceof ServiceAuthError) {
+          return withCorrelationId(errorResponse(
+            "Unauthorized.",
+            { status: error.status || 401, code: error.code || "service_auth_invalid" }
+          ), ctx.correlationId);
+        }
+        throw error;
+      }
+    }
 
     if (pathname === "/internal/ai/models") {
       if (method !== "GET") response = methodNotAllowed(["GET"]);

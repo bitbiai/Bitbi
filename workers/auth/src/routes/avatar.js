@@ -5,7 +5,13 @@
 import { json } from "../lib/response.js";
 import { readJsonBody } from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "../lib/rate-limit.js";
 import { logUserActivity } from "../lib/activity.js";
 import { nowIso } from "../lib/tokens.js";
 import {
@@ -272,7 +278,15 @@ export async function handleUploadAvatar(ctx) {
   const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
 
   const ip = getClientIp(request);
-  if (await isSharedRateLimited(env, "avatar-upload-ip", ip, 10, 3_600_000)) {
+  const limit = await evaluateSharedRateLimit(env, "avatar-upload-ip", ip, 10, 3_600_000, sensitiveRateLimitOptions({
+    component: "avatar-upload",
+    correlationId,
+    requestInfo: { request, pathname: "/api/profile/avatar", method: request.method },
+  }));
+  if (limit.unavailable) {
+    return rateLimitUnavailableResponse(correlationId);
+  }
+  if (limit.limited) {
     return rateLimitResponse();
   }
 

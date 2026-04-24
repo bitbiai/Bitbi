@@ -153,6 +153,8 @@ src/
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
+**Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
+
 Migrations in `migrations/` are numbered sequentially from `0001_init` through `0027_add_admin_mfa`.
 
 Key migration-dependent behavior:
@@ -176,7 +178,7 @@ Key migration-dependent behavior:
 - Admins cannot remove their own admin role, disable their own account, revoke their own sessions, or delete themselves
 - Sessions expire after 30 days; `last_seen_at` is updated at most every 10 minutes per session
 - Production admin access is centrally MFA-gated: unenrolled admins can only reach `/api/admin/me` plus `/api/admin/mfa/*` bootstrap routes until TOTP setup is enabled, and enrolled admins must present a valid `__Host-bitbi_admin_mfa` proof cookie bound to the primary session before other admin routes are allowed
-- Shared fixed-window rate limiting is now split by risk: register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset, wallet SIWE nonce/verify, and contact submission use worker-local Durable Object counters and fail closed in production if the `PUBLIC_RATE_LIMITER` binding is unavailable. Lower-risk/internal auth limiter paths such as avatar upload, favorites add, admin actions, and AI generation remain D1-backed via `rate_limit_counters`.
+- Shared fixed-window rate limiting is now split by risk: register/login/forgot-password/resend-verification/request-reverification/verify-email/reset-password validate/reset, wallet SIWE nonce/verify, admin MFA, admin mutations, admin AI proxying, member AI generation, avatar upload, favorites add, and contact submission use worker-local Durable Object counters. The security-sensitive auth/admin/MFA/AI/avatar/favorites paths fail closed if the `PUBLIC_RATE_LIMITER` binding is unavailable. Legacy D1-backed `rate_limit_counters` remains for scheduled cleanup and compatibility paths that have not moved to Durable Objects yet.
 - Password reset invalidates ALL unused reset tokens for the user (not just the used one)
 - Avatar uploads validated by magic bytes (JPEG/PNG/WebP signatures), not just MIME type
 - Profile URL fields (website, youtube_url) require valid `https://` URLs

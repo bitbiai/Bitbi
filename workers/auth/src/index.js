@@ -48,6 +48,12 @@ import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
 } from "./lib/rate-limit.js";
+import {
+  assertAuthCoreConfig,
+  logWorkerConfigFailure,
+  workerConfigUnavailableResponse,
+  WorkerConfigError,
+} from "./lib/config.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
@@ -127,6 +133,22 @@ export default {
       execCtx,
       correlationId: getCorrelationId(request),
     };
+
+    try {
+      assertAuthCoreConfig(env);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId: ctx.correlationId,
+          requestInfo: { request, pathname, method },
+          component: "auth-config",
+        });
+        return workerConfigUnavailableResponse(ctx.correlationId);
+      }
+      throw error;
+    }
 
     // Require a same-origin browser context for state-changing requests.
     // Email verification is exempt because it is intentionally opened from inbox links.

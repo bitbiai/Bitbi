@@ -37,6 +37,15 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Audit root dependencies
+        run: npm audit --audit-level=low
+      - name: Validate worker package dependencies
+        run: |
+          for worker in workers/auth workers/contact workers/ai; do
+            npm --prefix "$worker" ci
+            npm --prefix "$worker" ls --depth=0
+            npm --prefix "$worker" audit --audit-level=low
+          done
       - name: Run release compatibility tests
         run: npm run test:release-compat
       - name: Run release planner tests

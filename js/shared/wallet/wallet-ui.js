@@ -482,6 +482,15 @@ function renderDisconnectedState(state) {
     const injectedTitle = createElement('h4', 'wallet-modal__mini-title', 'Installed browser wallets');
     walletsWrap.appendChild(injectedTitle);
 
+    if (state.injectedDiscoveryState === 'scanning') {
+        const empty = createElement('div', 'wallet-modal__empty');
+        empty.append(
+            createElement('strong', 'wallet-modal__empty-title', 'Looking for browser wallets'),
+            createElement('span', 'wallet-modal__empty-copy', 'Scanning this browser for injected Ethereum wallets before showing connection choices.'),
+        );
+        walletsWrap.appendChild(empty);
+    }
+
     if (state.injectedWallets.length > 0) {
         state.injectedWallets.forEach((wallet) => {
             const button = createElement('button', 'wallet-modal__option');
@@ -502,14 +511,7 @@ function renderDisconnectedState(state) {
             button.addEventListener('click', () => actionsRef?.connectInjected?.(wallet.id));
             walletsWrap.appendChild(button);
         });
-    } else if (state.injectedDiscoveryState === 'scanning') {
-        const empty = createElement('div', 'wallet-modal__empty');
-        empty.append(
-            createElement('strong', 'wallet-modal__empty-title', 'Looking for browser wallets'),
-            createElement('span', 'wallet-modal__empty-copy', 'Scanning this browser for injected Ethereum wallets before showing connection choices.'),
-        );
-        walletsWrap.appendChild(empty);
-    } else {
+    } else if (state.injectedDiscoveryState !== 'scanning') {
         const empty = createElement('div', 'wallet-modal__empty');
         empty.append(
             createElement('strong', 'wallet-modal__empty-title', 'No browser wallet detected'),

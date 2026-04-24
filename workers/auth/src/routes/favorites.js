@@ -1,7 +1,13 @@
 import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
 import { readJsonBody } from "../lib/request.js";
-import { isSharedRateLimited, getClientIp, rateLimitResponse } from "../lib/rate-limit.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "../lib/rate-limit.js";
 
 const VALID_TYPES = ["gallery", "mempics", "soundlab", "video", "experiments"];
 const MAX_FAVORITES = 100;
@@ -66,7 +72,20 @@ async function handleAdd(ctx) {
   if (session instanceof Response) return session;
 
   const ip = getClientIp(ctx.request);
-  if (await isSharedRateLimited(ctx.env, "favorites-add-ip", ip, 30, 60_000)) return rateLimitResponse();
+  const limit = await evaluateSharedRateLimit(
+    ctx.env,
+    "favorites-add-ip",
+    ip,
+    30,
+    60_000,
+    sensitiveRateLimitOptions({
+      component: "favorites",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (limit.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (limit.limited) return rateLimitResponse();
 
   const body = await readJsonBody(ctx.request);
   if (!body) return json({ ok: false, error: "Invalid request body." }, { status: 400 });
