@@ -118,6 +118,7 @@
         align-items: center;
         gap: var(--space-3);
         padding-block-start: var(--space-6);
+        overflow-anchor: none;
     }
 
     .browse-pagination__status {
@@ -1942,6 +1943,12 @@
 
         .home-categories__panel .section__header--sm {
             margin-block-end: calc(var(--space-12) * 0.8);
+        }
+
+        body.home-categories-desktop-stage .site-footer::after {
+            content: '';
+            display: block;
+            block-size: 3rem;
         }
     }
 

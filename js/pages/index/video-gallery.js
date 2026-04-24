@@ -84,6 +84,17 @@ export function initVideoGallery() {
         return DESKTOP_VISIBLE_MEMVIDS;
     }
 
+    function getRenderedMemvidCards() {
+        return Array.from(grid.querySelectorAll('.video-card'));
+    }
+
+    function syncMemvidsDrawerVisibility() {
+        const hideOverflow = hasCollapsedMemvids() && !memvidsDrawerExpanded;
+        getRenderedMemvidCards().forEach((card, index) => {
+            card.hidden = hideOverflow && index >= DESKTOP_VISIBLE_MEMVIDS;
+        });
+    }
+
     /* ── Modal ── */
     const modal = buildVideoModal();
     document.body.appendChild(modal.root);
@@ -291,13 +302,11 @@ export function initVideoGallery() {
             return;
         }
 
-        items.forEach((item, index) => {
+        items.forEach((item) => {
             const card = buildVideoCard(item);
-            if (hasCollapsedMemvids() && !memvidsDrawerExpanded && index >= DESKTOP_VISIBLE_MEMVIDS) {
-                card.hidden = true;
-            }
             grid.appendChild(card);
         });
+        syncMemvidsDrawerVisibility();
         updateMemvidsPagination();
     }
 
@@ -434,8 +443,22 @@ export function initVideoGallery() {
     });
 
     $drawerToggle?.addEventListener('click', () => {
-        memvidsDrawerExpanded = !memvidsDrawerExpanded;
-        render();
+        const nextExpanded = !memvidsDrawerExpanded;
+        const previousScrollY = nextExpanded ? window.scrollY : 0;
+        memvidsDrawerExpanded = nextExpanded;
+        syncMemvidsDrawerVisibility();
+        updateMemvidsPagination();
+        try {
+            $drawerToggle.focus({ preventScroll: true });
+        } catch {
+            $drawerToggle.focus();
+        }
+        if (!nextExpanded) return;
+        window.requestAnimationFrame(() => {
+            if (window.scrollY + 1 < previousScrollY) {
+                window.scrollTo({ top: previousScrollY, behavior: 'auto' });
+            }
+        });
     });
 
     bindMediaQueryChange(desktopDrawerQuery, () => {

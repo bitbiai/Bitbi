@@ -74,6 +74,19 @@ export function initGallery() {
         return DESKTOP_VISIBLE_MEMPICS;
     }
 
+    function getRenderedMempicsCards() {
+        return Array.from(grid.querySelectorAll('.gallery-item:not(.locked-area)'));
+    }
+
+    function syncMempicsDrawerVisibility() {
+        const hideOverflow = currentFilter === MEMPICS_CATEGORY
+            && hasCollapsedMempics()
+            && !mempicsDrawerExpanded;
+        getRenderedMempicsCards().forEach((card, index) => {
+            card.hidden = hideOverflow && index >= DESKTOP_VISIBLE_MEMPICS;
+        });
+    }
+
     function renderGalleryState(message) {
         const empty = document.createElement('div');
         empty.className = 'gallery-empty-state';
@@ -185,11 +198,18 @@ export function initGallery() {
     }
 
     function buildGalleryCard(item) {
+        const publisher = item.publisher || null;
+        const publisherName = typeof publisher?.display_name === 'string'
+            ? publisher.display_name.trim()
+            : '';
+        const suppressGenericMempicsTitle = item.favoriteType === 'mempics'
+            && String(item.title || '').trim().toLowerCase() === 'mempics';
+        const visibleTitle = publisherName || (suppressGenericMempicsTitle ? '' : String(item.title || '').trim());
         const card = document.createElement('div');
         card.className = 'gallery-item';
         card.setAttribute('tabindex', '0');
         card.setAttribute('role', 'button');
-        card.setAttribute('aria-label', item.title);
+        card.setAttribute('aria-label', visibleTitle || item.title || 'Image');
 
         const inner = document.createElement('div');
         inner.className = 'gallery-inner rounded-xl overflow-hidden relative';
@@ -218,7 +238,6 @@ export function initGallery() {
         const copy = document.createElement('div');
         copy.className = 'public-media-meta';
 
-        const publisher = item.publisher || null;
         const publisherRow = document.createElement('div');
         publisherRow.className = 'public-media-meta__identity';
         if (publisher?.avatar?.url) {
@@ -232,11 +251,15 @@ export function initGallery() {
             publisherRow.appendChild(avatar);
         }
 
-        const title = document.createElement('h4');
-        title.className = 'public-media-meta__title';
-        title.textContent = publisher?.display_name || item.title;
-        publisherRow.appendChild(title);
-        copy.appendChild(publisherRow);
+        if (visibleTitle) {
+            const title = document.createElement('h4');
+            title.className = 'public-media-meta__title';
+            title.textContent = visibleTitle;
+            publisherRow.appendChild(title);
+        }
+        if (publisherRow.childElementCount) {
+            copy.appendChild(publisherRow);
+        }
 
         if (item.caption) {
             const caption = document.createElement('p');
@@ -324,13 +347,11 @@ export function initGallery() {
             return;
         }
 
-        list.forEach((item, index) => {
+        list.forEach((item) => {
             const card = buildGalleryCard(item);
-            if (filter === MEMPICS_CATEGORY && hasCollapsedMempics() && !mempicsDrawerExpanded && index >= DESKTOP_VISIBLE_MEMPICS) {
-                card.hidden = true;
-            }
             grid.appendChild(card);
         });
+        syncMempicsDrawerVisibility();
         updateMempicsPagination(filter);
     }
 
@@ -340,8 +361,22 @@ export function initGallery() {
     });
 
     $drawerToggle?.addEventListener('click', () => {
-        mempicsDrawerExpanded = !mempicsDrawerExpanded;
-        render(currentFilter);
+        const nextExpanded = !mempicsDrawerExpanded;
+        const previousScrollY = nextExpanded ? window.scrollY : 0;
+        mempicsDrawerExpanded = nextExpanded;
+        syncMempicsDrawerVisibility();
+        updateMempicsPagination(currentFilter);
+        try {
+            $drawerToggle.focus({ preventScroll: true });
+        } catch {
+            $drawerToggle.focus();
+        }
+        if (!nextExpanded) return;
+        window.requestAnimationFrame(() => {
+            if (window.scrollY + 1 < previousScrollY) {
+                window.scrollTo({ top: previousScrollY, behavior: 'auto' });
+            }
+        });
     });
 
     /* Listen for exclusive filter from locked-sections.js */

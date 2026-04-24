@@ -1133,6 +1133,7 @@ test.describe('Homepage', () => {
         const sectionStyle = section ? window.getComputedStyle(section) : null;
         const headerStyle = header ? window.getComputedStyle(header) : null;
         return {
+          descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
           headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
           dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
@@ -1141,6 +1142,7 @@ test.describe('Homepage', () => {
         };
       });
 
+      expect(desktopMetrics.descriptionsPresent).toBe(0);
       expect(desktopMetrics.sectionPaddingTop).toBeGreaterThan(30);
       expect(desktopMetrics.sectionPaddingTop).toBeLessThan(35);
       expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(37);
@@ -1158,6 +1160,7 @@ test.describe('Homepage', () => {
         const sectionStyle = section ? window.getComputedStyle(section) : null;
         const headerStyle = header ? window.getComputedStyle(header) : null;
         return {
+          descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
           headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
           dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
@@ -1166,6 +1169,7 @@ test.describe('Homepage', () => {
         };
       });
 
+      expect(mobileMetrics.descriptionsPresent).toBe(0);
       expect(mobileMetrics.sectionPaddingTop).toBe(48);
       expect(mobileMetrics.headerMarginBottom).toBe(48);
       expect(mobileMetrics.dividerVisible).toBe(true);
@@ -1421,6 +1425,7 @@ test.describe('Homepage', () => {
     await mempicsCard.hover();
     await expect(mempicsCard.locator('.public-media-meta__title')).toHaveText('Ada Member');
     await expect(mempicsCard.locator('.public-media-meta__avatar')).toBeVisible();
+    await expect(mempicsCard.locator('.public-media-meta')).not.toContainText('Mempics');
 
     await mempicsCard.click();
     await expect(page.locator('#modalTitle')).toHaveText('Mempics');
@@ -1625,12 +1630,17 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 5 Mempics');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
     await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(5);
+    await expect(page.locator('#galleryGrid .gallery-item:visible').first().locator('.public-media-meta__avatar')).toHaveCount(0);
 
     const galleryToggle = page.locator('#galleryPagination .browse-pagination__toggle');
     await expect(galleryToggle).toHaveAttribute('aria-expanded', 'false');
+    await galleryToggle.scrollIntoViewIfNeeded();
+    const galleryScrollBefore = await page.evaluate(() => window.scrollY);
     await galleryToggle.click();
     await expect(galleryToggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(() => page.locator('#galleryGrid .gallery-item:visible').count()).toBe(8);
+    const galleryScrollAfter = await page.evaluate(() => window.scrollY);
+    expect(galleryScrollAfter).toBeGreaterThanOrEqual(galleryScrollBefore - 1);
     await expect(page.locator('#galleryPagination .browse-pagination__status')).toHaveText('Showing all 8 Mempics.');
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
 
@@ -1641,9 +1651,13 @@ test.describe('Homepage', () => {
 
     const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');
+    await videoToggle.scrollIntoViewIfNeeded();
+    const videoScrollBefore = await page.evaluate(() => window.scrollY);
     await videoToggle.click();
     await expect(videoToggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(7);
+    const videoScrollAfter = await page.evaluate(() => window.scrollY);
+    expect(videoScrollAfter).toBeGreaterThanOrEqual(videoScrollBefore - 1);
     await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 7 Memvids.');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
 

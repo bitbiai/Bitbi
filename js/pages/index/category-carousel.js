@@ -283,6 +283,7 @@ export function initCategoryCarousel() {
         isTransitioning = false;
         pendingCategory = null;
         desktopStageEnabled = false;
+        document.body.classList.remove('home-categories-desktop-stage');
         stage.classList.remove('is-ready', 'is-transitioning');
         stage.dataset.stageMode = 'stacked';
         viewport.style.height = '';
@@ -300,6 +301,7 @@ export function initCategoryCarousel() {
 
     function setDesktopStageState() {
         desktopStageEnabled = true;
+        document.body.classList.add('home-categories-desktop-stage');
         stage.classList.add('is-ready');
         stage.classList.remove('is-transitioning');
         stage.dataset.stageMode = 'desktop';
@@ -465,6 +467,7 @@ export function initCategoryCarousel() {
         const shouldPrimeDeferredAlignment = initialCategoryHash === getPendingCategoryHash();
         let initialAlignmentFrame = 0;
         let initialAlignmentTimer = 0;
+        let initialAlignmentObserver = null;
 
         const alignInitialCategory = () => {
             if (!initialCategory) return;
@@ -483,13 +486,37 @@ export function initCategoryCarousel() {
                 window.clearTimeout(initialAlignmentTimer);
                 initialAlignmentTimer = 0;
             }
+            if (initialAlignmentObserver) {
+                initialAlignmentObserver.disconnect();
+                initialAlignmentObserver = null;
+            }
+        };
+
+        const startInitialAlignmentObserver = () => {
+            if (typeof window.ResizeObserver !== 'function' || initialAlignmentObserver) return;
+            const observedElements = [
+                document.body,
+                navbar,
+                document.querySelector('.hero--homepage'),
+                viewport,
+            ].filter(Boolean);
+            if (!observedElements.length) return;
+            initialAlignmentObserver = new window.ResizeObserver(() => {
+                if (!desktopStageEnabled) return;
+                alignInitialCategory();
+            });
+            observedElements.forEach((element) => {
+                initialAlignmentObserver.observe(element);
+            });
         };
 
         const startInitialAlignmentWatch = () => {
             if (!initialCategory) return;
             stopInitialAlignmentWatch();
+            startInitialAlignmentObserver();
 
             let stableFrames = 0;
+            const minWatchUntil = performance.now() + 1800;
             const step = () => {
                 if (!desktopStageEnabled) {
                     stableFrames = 0;
@@ -501,7 +528,7 @@ export function initCategoryCarousel() {
                 const delta = Math.abs(getStageAlignmentDelta());
                 stableFrames = delta <= 1 ? stableFrames + 1 : 0;
 
-                if (stableFrames >= 6) {
+                if (stableFrames >= 6 && performance.now() >= minWatchUntil) {
                     stopInitialAlignmentWatch();
                     return;
                 }
@@ -512,7 +539,7 @@ export function initCategoryCarousel() {
             initialAlignmentFrame = window.requestAnimationFrame(step);
             initialAlignmentTimer = window.setTimeout(() => {
                 stopInitialAlignmentWatch();
-            }, 2400);
+            }, 4200);
         };
 
         const queueInitialAlignment = () => {
@@ -535,6 +562,9 @@ export function initCategoryCarousel() {
         };
 
         document.addEventListener('bitbi:homepage-auth-ui-ready', handleInitialAuthUiReady, { once: true });
+        document.fonts?.ready?.then(() => {
+            startInitialAlignmentWatch();
+        }).catch(() => {});
 
         if (document.readyState === 'complete') {
             queueInitialAlignment();
