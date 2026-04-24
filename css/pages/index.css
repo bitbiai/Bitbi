@@ -1924,6 +1924,18 @@
         justify-content: center;
     }
 
+    .site-footer__contact-drawer {
+        align-items: stretch;
+        inline-size: 100%;
+        margin-block-end: var(--space-8);
+    }
+
+    .site-footer__contact-drawer .site-footer__top {
+        inline-size: 100%;
+        margin-block-end: 0;
+        gap: var(--space-5);
+    }
+
     .contact-drawer__trigger {
         position: relative;
         display: inline-grid;
@@ -2031,6 +2043,11 @@
             opacity 0.28s var(--ease-default);
     }
 
+    .site-footer__contact-drawer .contact-drawer__panel {
+        inline-size: min(100%, 48rem);
+        margin-inline: auto;
+    }
+
     .contact-drawer__panel[aria-hidden="true"] {
         pointer-events: none;
     }
@@ -2080,6 +2097,14 @@
     }
 
     @media (max-width: 639px) {
+        .site-footer__contact-drawer {
+            margin-block-end: var(--space-6);
+        }
+
+        .site-footer__contact-drawer .site-footer__top {
+            gap: var(--space-4);
+        }
+
         .contact-drawer__trigger {
             min-inline-size: min(100%, 12.25rem);
             padding: 0.5rem 0.85rem;
@@ -2097,6 +2122,31 @@
 
         .contact-drawer__panel-title {
             font-size: clamp(1.9rem, 9vw, 2.45rem);
+        }
+    }
+
+    @media (min-width: 768px) {
+        .site-footer__contact-drawer .site-footer__top {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            align-items: center;
+            column-gap: var(--space-6);
+        }
+
+        .site-footer__contact-drawer .site-footer__brand {
+            justify-self: start;
+            align-self: center;
+        }
+
+        .site-footer__contact-drawer .contact-drawer__heading {
+            inline-size: auto;
+            justify-self: center;
+            align-self: center;
+        }
+
+        .site-footer__contact-drawer .site-footer__social {
+            justify-self: end;
+            align-self: center;
         }
     }
 
@@ -2175,7 +2225,7 @@
         body.home-categories-desktop-stage .site-footer::after {
             content: '';
             display: block;
-            block-size: 3rem;
+            block-size: max(3rem, 20vh);
         }
     }
 
@@ -2188,12 +2238,12 @@
     body.contact-drawer-open .site-footer::after {
         content: '';
         display: block;
-        block-size: 8rem;
+        block-size: var(--contact-drawer-footer-spacer, max(8rem, 24vh));
     }
 
     @media (min-width: 1024px) {
         body.contact-drawer-open .site-footer::after {
-            block-size: 12rem;
+            block-size: var(--contact-drawer-footer-spacer, max(12rem, 36vh));
         }
     }
 

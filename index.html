@@ -359,74 +359,69 @@
     </div>
 </div>
 
-<!-- CONTACT -->
-<div class="section-divider" aria-hidden="true"></div>
-<section id="contact" class="section" aria-label="Contact">
-    <div class="section__inner--narrow contact-drawer" style="margin-inline:auto">
-        <h2 class="contact-drawer__heading reveal">
-            <button
-                type="button"
-                id="contactDrawerTrigger"
-                class="contact-drawer__trigger glass"
-                aria-expanded="false"
-                aria-controls="contactDrawerPanel"
-            >
-                <span class="contact-drawer__trigger-label">Contact</span>
-                <span class="contact-drawer__chevron" aria-hidden="true">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="m6 9 6 6 6-6"/>
-                    </svg>
-                </span>
-            </button>
-        </h2>
-        <div id="contactDrawerPanel" class="contact-drawer__panel" aria-hidden="true">
-            <div class="contact-drawer__panel-inner">
-                <div class="contact-drawer__panel-header">
-                    <h3 class="contact-drawer__panel-title gt-gold-cyan">Say Hello</h3>
-                </div>
-                <div class="contact-drawer__form-shell">
-                    <form id="contactForm" class="glass rounded-2xl contact-form" style="padding:var(--space-6)">
-                        <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
-                            <label for="hp_website">Website</label>
-                            <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
-                        </div>
-                        <div class="grid-form">
-                            <div>
-                                <label for="contactName" class="sr-only">Name</label>
-                                <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
-                            </div>
-                            <div>
-                                <label for="contactEmail" class="sr-only">Email</label>
-                                <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
-                            </div>
-                        </div>
-                        <label for="contactSubject" class="sr-only">Subject</label>
-                        <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
-                        <label for="contactMessage" class="sr-only">Your message</label>
-                        <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
-                        <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
-                        <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
 </main>
 
 <!-- FOOTER -->
 <footer class="site-footer">
     <div class="site-footer__inner">
-        <div class="site-footer__top">
-            <div class="site-footer__brand">
-                <span class="site-footer__brand-name gt-hero">BITBI</span>
-                <p class="site-footer__tagline">My Digital Playground</p>
+        <section id="contact" class="contact-drawer site-footer__contact-drawer" aria-label="Contact">
+            <div class="site-footer__top">
+                <div class="site-footer__brand">
+                    <span class="site-footer__brand-name gt-hero">BITBI</span>
+                    <p class="site-footer__tagline">My Digital Playground</p>
+                </div>
+                <h2 class="contact-drawer__heading reveal">
+                    <button
+                        type="button"
+                        id="contactDrawerTrigger"
+                        class="contact-drawer__trigger glass"
+                        aria-expanded="false"
+                        aria-controls="contactDrawerPanel"
+                    >
+                        <span class="contact-drawer__trigger-label">Contact</span>
+                        <span class="contact-drawer__chevron" aria-hidden="true">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m6 9 6 6 6-6"/>
+                            </svg>
+                        </span>
+                    </button>
+                </h2>
+                <div class="site-footer__social">
+                    <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+                </div>
             </div>
-            <div class="site-footer__social">
-                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            <div id="contactDrawerPanel" class="contact-drawer__panel" aria-hidden="true">
+                <div class="contact-drawer__panel-inner">
+                    <div class="contact-drawer__panel-header">
+                        <h3 class="contact-drawer__panel-title gt-gold-cyan">Say Hello</h3>
+                    </div>
+                    <div class="contact-drawer__form-shell">
+                        <form id="contactForm" class="glass rounded-2xl contact-form" style="padding:var(--space-6)">
+                            <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px">
+                                <label for="hp_website">Website</label>
+                                <input type="text" name="website" id="hp_website" tabindex="-1" autocomplete="off">
+                            </div>
+                            <div class="grid-form">
+                                <div>
+                                    <label for="contactName" class="sr-only">Name</label>
+                                    <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
+                                </div>
+                                <div>
+                                    <label for="contactEmail" class="sr-only">Email</label>
+                                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
+                                </div>
+                            </div>
+                            <label for="contactSubject" class="sr-only">Subject</label>
+                            <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
+                            <label for="contactMessage" class="sr-only">Your message</label>
+                            <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
+                            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
+                            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
+                        </form>
+                    </div>
+                </div>
             </div>
-        </div>
+        </section>
         <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
         <div class="site-footer__links">
             <a href="legal/imprint.html" class="site-footer__link">Imprint / Impressum</a>

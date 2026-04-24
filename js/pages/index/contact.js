@@ -7,7 +7,10 @@ export function initContact() {
     const form = document.getElementById('contactForm');
     const trigger = document.getElementById('contactDrawerTrigger');
     const panel = document.getElementById('contactDrawerPanel');
-    const drawer = section?.querySelector('.contact-drawer');
+    const drawer = section?.classList.contains('contact-drawer')
+        ? section
+        : section?.querySelector('.contact-drawer');
+    const footer = document.querySelector('.site-footer');
     const panelInner = panel?.querySelector('.contact-drawer__panel-inner');
     if (!form) return;
 
@@ -22,11 +25,37 @@ export function initContact() {
         panelInner.removeAttribute('inert');
     }
 
+    function clearFooterSpacer() {
+        document.documentElement.style.removeProperty('--contact-drawer-footer-spacer');
+    }
+
+    function getDefaultFooterSpacer() {
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        if (window.matchMedia?.('(min-width: 1024px)').matches) {
+            return Math.max(192, viewportHeight * 0.36);
+        }
+        return Math.max(128, viewportHeight * 0.24);
+    }
+
+    function syncFooterSpacer(buffer = 24) {
+        if (!section || !footer) return;
+        const nav = document.getElementById('navbar');
+        const navBottom = nav?.getBoundingClientRect().bottom || 0;
+        const delta = Math.max(0, section.getBoundingClientRect().top - navBottom);
+        const spacer = Math.max(getDefaultFooterSpacer(), delta + buffer);
+        document.documentElement.style.setProperty('--contact-drawer-footer-spacer', `${Math.ceil(spacer)}px`);
+    }
+
     function setOpen(nextOpen, { focusTrigger = false } = {}) {
         if (!trigger || !panel || !drawer) return;
         isOpen = !!nextOpen;
         drawer.classList.toggle('is-open', isOpen);
         document.body.classList.toggle('contact-drawer-open', isOpen);
+        if (isOpen) {
+            syncFooterSpacer();
+        } else {
+            clearFooterSpacer();
+        }
         trigger.setAttribute('aria-expanded', String(isOpen));
         panel.setAttribute('aria-hidden', String(!isOpen));
         setCollapsedState(!isOpen);
@@ -72,6 +101,15 @@ export function initContact() {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 scrollSectionIntoView(behavior);
+                requestAnimationFrame(() => {
+                    const nav = document.getElementById('navbar');
+                    const navBottom = nav?.getBoundingClientRect().bottom || 0;
+                    const delta = Math.abs((section?.getBoundingClientRect().top || 0) - navBottom);
+                    if (delta > 2) {
+                        syncFooterSpacer(48);
+                        scrollSectionIntoView('auto');
+                    }
+                });
             });
         });
     }

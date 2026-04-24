@@ -1013,10 +1013,11 @@ test.describe('Homepage', () => {
       .toContain('/assets/images/hero/hero-flow-mobile.mp4');
   });
 
-  test('Contact hash navigation aligns the contact divider flush with the header', async ({ page }) => {
+  test('Contact hash navigation aligns the footer contact row flush with the header', async ({ page }) => {
     await page.goto('/#contact');
 
     await expect(page.locator('#contactDrawerTrigger')).toBeInViewport();
+    await expect.poll(() => page.evaluate(() => Boolean(document.getElementById('contact')?.closest('.site-footer__inner')))).toBe(true);
     await expect.poll(async () => {
       const metrics = await page.evaluate(() => {
         const navEl = document.getElementById('navbar');
@@ -1031,7 +1032,7 @@ test.describe('Homepage', () => {
     }).toBeLessThanOrEqual(2);
   });
 
-  test('contact drawer is collapsed by default on desktop and preserves submit behavior when expanded', async ({ page }) => {
+  test('footer contact drawer is collapsed by default on desktop and preserves submit behavior when expanded', async ({ page }) => {
     let contactPayload = null;
 
     await page.route('https://contact.bitbi.ai/', async (route) => {
@@ -1050,8 +1051,12 @@ test.describe('Homepage', () => {
     const form = page.locator('#contactForm');
     const submit = form.locator('button[type="submit"]');
     const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
+    const brand = page.locator('.site-footer__brand');
+    const socialLink = page.locator('.site-footer__social-link[aria-label="X (Twitter)"]');
 
     await expect(trigger).toBeVisible();
+    await expect(brand).toBeVisible();
+    await expect(socialLink).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
     await expect(trigger).toContainText('Contact');
@@ -1064,9 +1069,14 @@ test.describe('Homepage', () => {
       const drawerEl = document.querySelector('.contact-drawer');
       const triggerEl = document.getElementById('contactDrawerTrigger');
       const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
+      const contactRoot = document.getElementById('contact');
+      const brandEl = document.querySelector('.site-footer__brand');
+      const socialEl = document.querySelector('.site-footer__social-link[aria-label="X (Twitter)"]');
       const drawerRect = drawerEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
       const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
+      const brandRect = brandEl?.getBoundingClientRect();
+      const socialRect = socialEl?.getBoundingClientRect();
       return {
         panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
         inert: panelInner?.hasAttribute('inert') || false,
@@ -1077,6 +1087,17 @@ test.describe('Homepage', () => {
           ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
           - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
         ) * 100) / 100,
+        triggerCount: document.querySelectorAll('#contactDrawerTrigger').length,
+        insideFooter: Boolean(contactRoot?.closest('footer')),
+        legacyContactSectionCount: document.querySelectorAll('main > section[aria-label="Contact"]').length,
+        brandTriggerOverlap: Math.round((
+          Math.min(brandRect?.bottom || 0, triggerRect?.bottom || 0)
+          - Math.max(brandRect?.top || 0, triggerRect?.top || 0)
+        ) * 100) / 100,
+        socialTriggerOverlap: Math.round((
+          Math.min(socialRect?.bottom || 0, triggerRect?.bottom || 0)
+          - Math.max(socialRect?.top || 0, triggerRect?.top || 0)
+        ) * 100) / 100,
       };
     });
 
@@ -1086,6 +1107,11 @@ test.describe('Homepage', () => {
     expect(Math.abs(collapsedState.triggerHeight - collapsedState.exploreBtnHeight)).toBeLessThanOrEqual(8);
     expect(collapsedState.triggerWidthRatio).toBeLessThan(0.8);
     expect(collapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
+    expect(collapsedState.triggerCount).toBe(1);
+    expect(collapsedState.insideFooter).toBe(true);
+    expect(collapsedState.legacyContactSectionCount).toBe(0);
+    expect(collapsedState.brandTriggerOverlap).toBeGreaterThanOrEqual(12);
+    expect(collapsedState.socialTriggerOverlap).toBeGreaterThanOrEqual(4);
 
     await trigger.click();
 
@@ -1098,6 +1124,19 @@ test.describe('Homepage', () => {
     await expect(form.locator('input[name="email"]')).toBeVisible();
     await expect(form.locator('textarea[name="message"]')).toBeVisible();
     await expect(submit).toBeVisible();
+    await expect(brand).toBeVisible();
+    await expect(socialLink).toBeVisible();
+
+    const openLayout = await page.evaluate(() => {
+      const formShellEl = document.querySelector('#contactDrawerPanel .contact-drawer__form-shell');
+      const triggerEl = document.getElementById('contactDrawerTrigger');
+      const formShellRect = formShellEl?.getBoundingClientRect();
+      const triggerRect = triggerEl?.getBoundingClientRect();
+      return {
+        formShellTopBelowTrigger: Math.round(((formShellRect?.top || 0) - (triggerRect?.bottom || 0)) * 100) / 100,
+      };
+    });
+    expect(openLayout.formShellTopBelowTrigger).toBeGreaterThanOrEqual(-1);
 
     await form.locator('input[name="name"]').fill('Ada Lovelace');
     await form.locator('input[name="email"]').fill('ada@bitbi.ai');
@@ -1133,7 +1172,7 @@ test.describe('Homepage', () => {
     }).toBeLessThanOrEqual(2);
   });
 
-  test('contact drawer stays collapsed by default on mobile and toggles open cleanly', async ({ page }) => {
+  test('footer contact drawer stays collapsed by default on mobile and toggles open cleanly', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
@@ -1141,8 +1180,12 @@ test.describe('Homepage', () => {
     const panel = page.locator('#contactDrawerPanel');
     const form = page.locator('#contactForm');
     const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
+    const brand = page.locator('.site-footer__brand');
+    const socialLink = page.locator('.site-footer__social-link[aria-label="X (Twitter)"]');
 
     await expect(trigger).toBeVisible();
+    await expect(brand).toBeVisible();
+    await expect(socialLink).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
     await expect(trigger).toContainText('Contact');
@@ -1154,6 +1197,7 @@ test.describe('Homepage', () => {
       const drawerEl = document.querySelector('.contact-drawer');
       const triggerEl = document.getElementById('contactDrawerTrigger');
       const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
+      const contactRoot = document.getElementById('contact');
       const drawerRect = drawerEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
       const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
@@ -1165,12 +1209,18 @@ test.describe('Homepage', () => {
           ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
           - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
         ) * 100) / 100,
+        triggerCount: document.querySelectorAll('#contactDrawerTrigger').length,
+        insideFooter: Boolean(contactRoot?.closest('footer')),
+        legacyContactSectionCount: document.querySelectorAll('main > section[aria-label="Contact"]').length,
       };
     });
     expect(mobileCollapsedState.panelHeight).toBeLessThanOrEqual(2);
     expect(mobileCollapsedState.triggerHeight).toBeLessThanOrEqual(84);
     expect(Math.abs(mobileCollapsedState.triggerHeight - mobileCollapsedState.exploreBtnHeight)).toBeLessThanOrEqual(8);
     expect(mobileCollapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
+    expect(mobileCollapsedState.triggerCount).toBe(1);
+    expect(mobileCollapsedState.insideFooter).toBe(true);
+    expect(mobileCollapsedState.legacyContactSectionCount).toBe(0);
 
     await trigger.click();
 
@@ -1182,6 +1232,8 @@ test.describe('Homepage', () => {
     await expect(form.locator('input[name="name"]')).toBeVisible();
     await expect(form.locator('input[name="email"]')).toBeVisible();
     await expect(form.locator('textarea[name="message"]')).toBeVisible();
+    await expect(brand).toBeVisible();
+    await expect(socialLink).toBeVisible();
 
     await trigger.click();
 
