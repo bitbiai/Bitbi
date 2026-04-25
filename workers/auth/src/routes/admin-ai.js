@@ -35,6 +35,7 @@ import {
 import {
   createAdminAiVideoJob,
   getAdminAiVideoJob,
+  getAdminAiVideoJobOutput,
   normalizeAiVideoIdempotencyKey,
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
@@ -375,6 +376,43 @@ export async function handleAdminAI(ctx) {
       return notFoundResponse(correlationId);
     }
     return videoJobResponse(job, correlationId);
+  }
+
+  const videoJobOutputMatch = pathname.match(/^\/api\/admin\/ai\/video-jobs\/([^/]+)\/(output|poster)$/);
+  if (videoJobOutputMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-job-output-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    const jobId = decodePathSegment(videoJobOutputMatch[1]);
+    if (!jobId || jobId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const { object, contentType } = await getAdminAiVideoJobOutput(
+        env,
+        result.user,
+        jobId,
+        videoJobOutputMatch[2]
+      );
+      if (!object) return notFoundResponse(correlationId);
+      const headers = new Headers();
+      headers.set("content-type", contentType || "application/octet-stream");
+      headers.set("cache-control", "private, no-store");
+      return withCorrelationId(new Response(object.body, { status: 200, headers }), correlationId);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-job-output",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
   }
 
   if (pathname === "/api/admin/ai/compare" && method === "POST") {

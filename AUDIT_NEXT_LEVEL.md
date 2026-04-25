@@ -15,6 +15,7 @@ Reference documents:
 - `PHASE0_REMEDIATION_REPORT.md` contains the detailed Phase 0-A/0-A+ implementation evidence, validation results, merge readiness, deploy blockers, and remaining risks.
 - `PHASE0B_REMEDIATION_REPORT.md` contains the Phase 0-B implementation evidence for deploy preflight, body-size limits, route throttling expansion, admin MFA failed-attempt state, CSRF coverage, and async video design.
 - `PHASE1A_REMEDIATION_REPORT.md` contains the Phase 1-A async admin video job foundation evidence, validation results, deploy requirements, and remaining risks.
+- `PHASE1B_REMEDIATION_REPORT.md` contains the Phase 1-B async admin video production-usability hardening evidence, validation results, deploy requirements, and remaining risks.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -53,6 +54,16 @@ Phase 1-A completed summary:
 - Added `scripts/check-worker-body-parsers.mjs` plus package/CI/release-preflight integration as a low-risk guardrail against new unsafe direct body parsing.
 - Added `PHASE1_OBSERVABILITY_BASELINE.md` for async video lifecycle logs, safe fields, alert candidates, and SLO candidates.
 
+Phase 1-B completed summary:
+
+- Added bounded internal AI task routes `/internal/ai/video-task/create` and `/internal/ai/video-task/poll`.
+- Updated the auth queue consumer so async video jobs no longer call `/internal/ai/test-video`.
+- Added D1 migration `0030_harden_ai_video_jobs_phase1b.sql` for polling/ingest statuses, output/poster metadata, and `ai_video_job_poison_messages`.
+- Added R2 ingest into the existing `USER_IMAGES` bucket with content-type and byte limits for video output and optional posters.
+- Made the admin AI Lab use async video job create/status polling by default and kept the synchronous route only as an explicit debug compatibility path.
+- Required `Idempotency-Key` for async video job creation.
+- Added Worker/static tests for duplicate queue messages, no duplicate provider task creation, R2 ingest, protected output routes, poison-message recording, and default UI avoidance of `/api/admin/ai/test-video`.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -63,6 +74,7 @@ Findings resolved:
 | Timestamp-only service-auth replay window | Resolved in code | `workers/ai/src/lib/service-auth-replay.js`, `workers/ai/src/lib/service-auth-replay-do.js`, and `workers/ai/wrangler.jsonc` implement nonce-backed replay protection via `SERVICE_AUTH_REPLAY`. |
 | Request body-size limited parsers for prioritized Worker routes | Resolved for Phase 0-B scope | `js/shared/request-body.mjs`, `workers/auth/src/lib/request.js`, `workers/contact/src/index.js`, and `workers/ai/src/lib/validate.js` enforce route-specific limits before parsing. |
 | Admin MFA fixed-window-only lockout | Resolved for Phase 0 hardening | `workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql` and `workers/auth/src/lib/admin-mfa.js` add durable failed-attempt state and reset-on-success behavior. |
+| Async video poison-message persistence for malformed/exhausted messages | Resolved for video jobs | `workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql` adds `ai_video_job_poison_messages`; `workers/auth/src/lib/ai-video-jobs.js` records redacted poison entries. |
 
 Findings reduced but not fully resolved:
 
@@ -72,12 +84,12 @@ Findings reduced but not fully resolved:
 | Missing fail-closed Worker config validation | Reduced | Phase 0 critical auth/AI service-auth config fails closed, and repo-side Cloudflare prereq validation exists, but live Cloudflare resources and dashboard controls are not fully verified. |
 | Cloudflare dashboard drift | Partially addressed | Release config and prereq validator now record service-auth/replay requirements, but live Cloudflare WAF/header/RUM/secrets/bindings are not fully repo-enforced or verified. |
 | CI security gates | Reduced | Root/Worker npm checks and Cloudflare prereq tests were added, but CodeQL/SAST, secret scanning, dependency review, SBOM, and license gates remain open. |
-| Async admin video job foundation | Reduced | `workers/auth/migrations/0029_add_ai_video_jobs.sql`, `workers/auth/src/lib/ai-video-jobs.js`, `workers/auth/src/index.js`, and `workers/auth/src/routes/admin-ai.js` add D1/Queue-backed job creation, status, processing, retry, and tests. Full async parity is not complete. |
-| Synchronous AI video provider polling | Reduced | New async callers can use `/api/admin/ai/video-jobs` so browser requests no longer need to hold provider execution. The queue consumer still calls the existing synchronous AI worker video path, and the admin UI still defaults to the compatibility route. |
+| Async admin video job foundation | Reduced | Phase 1-B adds default admin UI async create/status polling, queue-safe provider task create/poll, R2 output ingest, and poison-message persistence. Full operational maturity still needs staging verification, dashboards, and old sync route retirement. |
+| Synchronous AI video provider polling | Reduced | The default admin UI and async queue path no longer call the old long synchronous provider route. The legacy `/api/admin/ai/test-video` compatibility route still exists for controlled admin/debug use. |
 
 Findings still open:
 
-- Synchronous AI video provider polling is reduced but not eliminated: the async API exists, but admin UI cutover, short provider polling units, R2 ingest, and synchronous route retirement remain open.
+- Synchronous AI video provider polling is reduced but not eliminated because the legacy compatibility route still exists and must be restricted or retired after async staging verification.
 - Lint/typecheck/checkJs and safe DOM rules are still missing.
 - Large admin/frontend/test modules remain monolithic.
 - Scalable activity indexes, signed activity cursors, queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, observability/SLOs, load/performance budgets, and toolchain pinning remain open or deferred.
@@ -86,9 +98,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Pass after final Phase 1-A validation | `npm run release:preflight`, `npm run test:workers`, `npm run test:static`, release/cloudflare/asset checks, package audits, and `git diff --check` passed for the current Phase 1-A diff. All changed/new Phase 1-A files listed in `PHASE1A_REMEDIATION_REPORT.md` must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, auth migrations `0028_add_admin_mfa_failed_attempts.sql` and `0029_add_ai_video_jobs.sql` are applied, `bitbi-ai-video-jobs` exists and is bound as `AI_VIDEO_JOBS_QUEUE`, and staging verification passes. |
-| Current recommended next phase | Phase 1-B | Track/commit all files, verify Cloudflare secrets/bindings/migrations/queues in staging, then implement async video short polling units, R2 ingest, admin UI polling, DLQ/poison-message handling, and broader SaaS platform gaps. |
+| Merge readiness | Conditional pass after Phase 1-B validation | `npm run test:workers`, `npm run test:static`, `npm run test:release-compat`, `npm run test:release-plan`, `npm run test:cloudflare-prereqs`, `npm run test:asset-version`, `npm run build:static`, `npm run release:preflight`, and `git diff --check` passed for the Phase 1-B diff. All changed/new Phase 1-B files listed in `PHASE1B_REMEDIATION_REPORT.md` must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in both Workers, `SERVICE_AUTH_REPLAY` is deployed, auth migrations `0028`-`0030` are applied, `bitbi-ai-video-jobs` and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, and staging verification passes. |
+| Current recommended next phase | Phase 1-C | Finish validation, commit all Phase 1-B files, verify staging, then restrict/retire the synchronous video compatibility route and add operational dashboards/admin tooling. |
 
 ## Executive Summary
 

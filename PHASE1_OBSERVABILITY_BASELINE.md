@@ -2,7 +2,7 @@
 
 Date: 2026-04-25
 
-Scope: initial observability baseline for Phase 1-A async admin AI video jobs. This is not a full SLO/alerting program.
+Scope: observability baseline for Phase 1-A and Phase 1-B async admin AI video jobs. This is not a full SLO/alerting program.
 
 ## Logged Events
 
@@ -15,9 +15,15 @@ The auth worker emits structured JSON logs through `logDiagnostic()` for the asy
 | `ai_video_job_enqueue_failed` | `ai-video-jobs` | Job insert succeeded but queue send failed; job is marked failed and the create request returns `503`. |
 | `ai_video_job_started` | `ai-video-jobs-queue` | Queue consumer leased a job and began provider processing. |
 | `ai_video_job_retried` | `ai-video-jobs-queue` | Provider/service failure was classified retryable and the job was requeued. |
-| `ai_video_job_succeeded` | `ai-video-jobs-queue` | Provider returned a video URL and the job was marked `succeeded`. |
+| `ai_video_job_poll_scheduled` | `ai-video-jobs` | Provider task is pending and a delayed poll message was enqueued. |
+| `ai_video_job_poll_result` | `ai-video-jobs-queue` | Provider poll returned a pending state and the next poll was scheduled. |
+| `vidu_provider_task_created` | `invoke-video` | AI worker created a direct Vidu provider task without long polling. |
+| `ai_video_job_poster_ingest_failed` | `ai-video-jobs-ingest` | Optional poster ingest failed without failing the completed video. |
+| `ai_video_job_succeeded` | `ai-video-jobs-queue` | Provider returned a video URL, output ingest succeeded, and the job was marked `succeeded`. |
 | `ai_video_job_failed` | `ai-video-jobs-queue` | Job reached permanent failure or retry exhaustion. |
 | `ai_video_job_bad_queue_payload` | `ai-video-jobs-queue` | Malformed queue message was rejected and logged. |
+| `ai_video_job_poison_message_recorded` | `ai-video-jobs-queue` | Malformed or exhausted queue message was persisted with a redacted body summary. |
+| `ai_video_job_poison_message_record_failed` | `ai-video-jobs-queue` | Poison persistence failed; investigate because malformed messages may be acknowledged without durable evidence. |
 | `ai_video_job_missing` | `ai-video-jobs-queue` | Queue message referenced a missing job row. |
 
 ## Safe Fields
@@ -64,13 +70,17 @@ Cloudflare dashboard or log analytics should track:
 
 - Count of `ai_video_job_created`, `ai_video_job_succeeded`, `ai_video_job_failed`, and `ai_video_job_retried`.
 - Queue backlog and oldest message age for `bitbi-ai-video-jobs`.
+- Oldest `provider_pending` or `polling` job age in D1.
+- Count and reason split for `ai_video_job_poison_message_recorded`.
+- R2 ingest failures split by `video_output_*` and `video_poster_*` error codes.
 - Error-rate split by `error_code`, `provider`, and `model`.
 - P95/P99 queue consumer duration from `duration_ms`.
 - `ai_video_job_enqueue_failed` count; any occurrence should page or open an incident ticket.
-- `ai_video_job_bad_queue_payload` count; any non-test occurrence should be investigated.
+- `ai_video_job_bad_queue_payload` or `ai_video_job_poison_message_recorded` count; any non-test occurrence should be investigated.
 
 ## Current Limitations
 
 - Logs are present, but dashboards, alert rules, runbooks, and SLO burn-rate alerting are not repo-enforced.
-- Provider video output is not yet ingested into R2 by the async job pipeline; completed jobs currently expose the provider URL returned by the existing AI worker contract.
-- Queue processing still calls the existing AI worker synchronous provider invocation path from the queue consumer. This removes browser request blocking for the new async API, but provider polling has not yet been split into short queue-driven poll units.
+- Phase 1-B ingests completed admin video job output into R2, but there is no admin/support UI for browsing job timelines or poison-message records.
+- Queue processing uses short provider task create/poll routes for the async path, but the legacy synchronous compatibility route still exists and should be restricted or retired after staging verification.
+- Cloudflare dashboards and alerts must still be configured outside this document or added through future repo-controlled IaC/drift checks.

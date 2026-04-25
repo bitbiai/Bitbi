@@ -2,7 +2,7 @@
 
 ## Status
 
-This began as a Phase 0-B design document. Phase 1-A has now implemented the first async admin video job foundation:
+This began as a Phase 0-B design document. Phase 1-A implemented the first async admin video job foundation:
 
 - Auth D1 migration `0029_add_ai_video_jobs.sql`
 - Auth queue binding `AI_VIDEO_JOBS_QUEUE` for `bitbi-ai-video-jobs`
@@ -10,7 +10,17 @@ This began as a Phase 0-B design document. Phase 1-A has now implemented the fir
 - Queue consumer leasing/retry/failure state in D1
 - Job lifecycle observability events
 
-The design is not fully complete at runtime. The existing synchronous `/api/admin/ai/test-video` compatibility route remains, the admin UI still defaults to that route, queue processing still calls the existing `/internal/ai/test-video` provider path, and R2 video ingest is not yet implemented.
+Phase 1-B has now implemented the production-usability layer for the admin path:
+
+- AI worker internal task routes `/internal/ai/video-task/create` and `/internal/ai/video-task/poll`
+- Auth queue consumer progression through provider create, provider pending, poll, ingest, and succeeded/failed states
+- R2 video output ingest into `USER_IMAGES`
+- Optional provider poster ingest when a safe poster URL is present
+- D1 poison-message persistence in `ai_video_job_poison_messages`
+- Admin UI default async create/status polling
+- Required `Idempotency-Key` for async video job creation
+
+The design is still not fully complete as a SaaS platform. The existing synchronous `/api/admin/ai/test-video` compatibility route remains for controlled admin/debug rollback, provider behavior still needs staging verification, and there is no support/admin UI for poison-message inspection.
 
 ## Current Problem
 
@@ -20,12 +30,12 @@ Current high-risk code paths:
 
 | Area | Current files | Risk |
 |---|---|---|
-| Admin browser entrypoint | `js/pages/admin/ai-lab.js`, `js/shared/auth-api.js` | UI expects a single request/response for video generation. |
-| Auth worker admin proxy | `workers/auth/src/routes/admin-ai.js` | `/api/admin/ai/test-video` rate-limits and proxies synchronously to the AI worker. |
+| Admin browser entrypoint | `js/pages/admin/ai-lab.js`, `js/shared/auth-api.js` | Phase 1-B uses async jobs by default, but the debug compatibility path can still call the old sync route. |
+| Auth worker admin proxy | `workers/auth/src/routes/admin-ai.js` | `/api/admin/ai/test-video` still exists as admin compatibility; `/api/admin/ai/video-jobs` is now the default UI path. |
 | Service auth | `workers/auth/src/lib/admin-ai-proxy.js`, `js/shared/service-auth.mjs` | Auth-to-AI requests are signed and nonce-protected, but still request/response. |
-| AI worker route | `workers/ai/src/routes/video.js` | `/internal/ai/test-video` validates JSON and calls `invokeVideo`. |
-| Provider invocation | `workers/ai/src/lib/invoke-ai-video.js` | Vidu fallback can create a provider task and poll until completion or timeout. |
-| Saved video assets | `workers/auth/src/lib/ai-text-assets.js`, `workers/auth/src/lib/admin-ai-save-text.js` | Video save is constrained because trusted ingest from remote provider URLs is not complete. |
+| AI worker route | `workers/ai/src/routes/video.js`, `workers/ai/src/routes/video-task.js` | The async queue path uses bounded task create/poll routes; the sync test route remains. |
+| Provider invocation | `workers/ai/src/lib/invoke-ai-video.js` | Async helpers create/poll in short units; the legacy sync helper still contains long polling for compatibility. |
+| Saved video assets | `workers/auth/src/lib/ai-video-jobs.js`, `workers/auth/src/routes/admin-ai.js` | Phase 1-B ingests completed admin job output into `USER_IMAGES`; broader asset publication remains separate work. |
 
 ## Why Synchronous Polling Is Unsafe
 
@@ -75,9 +85,9 @@ Recommended states:
 | `provider_pending` | Provider accepted the job and returned a task id. | No |
 | `polling` | Worker is polling provider status or awaiting callback. | No |
 | `ingesting` | Provider output URL exists and Worker is copying bytes to R2. | No |
-| `ready` | Output persisted and safe metadata is available. | Yes |
+| `succeeded` | Output persisted and safe metadata is available. | Yes |
 | `failed` | Job failed permanently with sanitized error fields. | Yes |
-| `canceled` | User/admin canceled before terminal completion where provider supports it. | Yes |
+| `cancelled` | User/admin canceled before terminal completion where provider supports it. | Yes |
 | `expired` | Job exceeded maximum wall-clock duration or retention window. | Yes |
 
 Allowed transitions should be enforced in code, not left to ad hoc updates.

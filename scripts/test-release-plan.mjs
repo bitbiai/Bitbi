@@ -56,7 +56,7 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
-    files: ["workers/auth/migrations/0029_add_ai_video_jobs.sql"],
+    files: ["workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql"],
   });
   assert.deepEqual(Object.keys(plan.impacts.schemaCheckpoints), ["auth"]);
   assert.deepEqual(Object.keys(plan.impacts.workers), ["auth"]);
@@ -108,6 +108,7 @@ function createContext() {
       "PHASE0_REMEDIATION_REPORT.md",
       "PHASE0B_REMEDIATION_REPORT.md",
       "PHASE1A_REMEDIATION_REPORT.md",
+      "PHASE1B_REMEDIATION_REPORT.md",
       "PHASE1_OBSERVABILITY_BASELINE.md",
       "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     ],
@@ -119,6 +120,7 @@ function createContext() {
     "PHASE0B_REMEDIATION_REPORT.md",
     "PHASE0_REMEDIATION_REPORT.md",
     "PHASE1A_REMEDIATION_REPORT.md",
+    "PHASE1B_REMEDIATION_REPORT.md",
     "PHASE1_OBSERVABILITY_BASELINE.md",
     "tests/workers.spec.js",
   ]);
@@ -192,6 +194,7 @@ function createContext() {
       execute: true,
       files: [
         "workers/auth/migrations/0029_add_ai_video_jobs.sql",
+        "workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql",
         "workers/ai/src/index.js",
         "workers/auth/src/index.js",
       ],

@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0029_add_ai_video_jobs.sql",
+        latest: "0030_harden_ai_video_jobs_phase1b.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -174,6 +174,33 @@ const baseManifest = {
         requiredForRelease: true,
         documentation: "workers/auth/CLAUDE.md",
         summary: "Required for auth email delivery.",
+      },
+      {
+        id: "auth-ai-service-auth-secret",
+        kind: "secret",
+        worker: "auth",
+        name: "AI_SERVICE_AUTH_SECRET",
+        requiredForRelease: true,
+        documentation: "workers/auth/CLAUDE.md",
+        summary: "Required for signing internal AI requests.",
+      },
+      {
+        id: "ai-service-auth-secret",
+        kind: "secret",
+        worker: "ai",
+        name: "AI_SERVICE_AUTH_SECRET",
+        requiredForRelease: true,
+        documentation: "workers/ai/src/index.js",
+        summary: "Required for verifying internal AI requests.",
+      },
+      {
+        id: "ai-vidu-api-key",
+        kind: "secret",
+        worker: "ai",
+        name: "VIDU_API_KEY",
+        requiredForRelease: false,
+        documentation: "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        summary: "Required for async Vidu Q3 Pro provider tasks.",
       },
       {
         id: "contact-resend-secret",
@@ -352,6 +379,10 @@ const baseManifest = {
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent",
     },
+    internalOnlyRoutes: [
+      "/internal/ai/video-task/create",
+      "/internal/ai/video-task/poll",
+    ],
     authOnlyRoutes: [
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
@@ -360,6 +391,7 @@ const baseManifest = {
     ],
     authOnlyPatternRoutes: [
       "GET /api/admin/ai/video-jobs/:id",
+      "GET /api/admin/ai/video-jobs/:id/:param",
     ],
   },
   adminAuthRoutes: {
@@ -392,6 +424,7 @@ function createValidContext() {
   const existingPaths = new Set([
     "workers/auth/wrangler.jsonc",
     "workers/ai/wrangler.jsonc",
+    "workers/ai/src/index.js",
     "workers/contact/wrangler.jsonc",
     "workers/auth/CLAUDE.md",
     "workers/contact/src/index.js",
@@ -414,6 +447,7 @@ function createValidContext() {
           "0027_add_admin_mfa.sql",
           "0028_add_admin_mfa_failed_attempts.sql",
           "0029_add_ai_video_jobs.sql",
+          "0030_harden_ai_video_jobs_phase1b.sql",
         ],
       },
     },
@@ -667,6 +701,8 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/video-jobs" && method === "POST") return handleCreateVideoJob();
       const videoJobStatusMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)$/);
       if (videoJobStatusMatch && method === "GET") return handleVideoJobStatus();
+      const videoJobOutputMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)\\/(output|poster)$/);
+      if (videoJobOutputMatch && method === "GET") return handleVideoJobOutput();
       if (pathname === "/api/admin/ai/compare" && method === "POST") return proxyToAiLab("/internal/ai/compare");
       if (pathname === "/api/admin/ai/live-agent" && method === "POST") return proxyLiveAgentToAiLab();
       if (pathname === "/api/admin/ai/image-derivatives/backfill" && method === "POST") return handleBackfill();
@@ -685,6 +721,8 @@ function createValidContext() {
       if (pathname === "/internal/ai/test-embeddings" && method === "POST") return handleEmbeddings();
       if (pathname === "/internal/ai/test-music" && method === "POST") return handleMusic();
       if (pathname === "/internal/ai/test-video" && method === "POST") return handleVideo();
+      if (pathname === "/internal/ai/video-task/create" && method === "POST") return handleVideoTaskCreate();
+      if (pathname === "/internal/ai/video-task/poll" && method === "POST") return handleVideoTaskPoll();
       if (pathname === "/internal/ai/compare" && method === "POST") return handleCompare();
       if (pathname === "/internal/ai/live-agent" && method === "POST") return handleLiveAgent();
     `,

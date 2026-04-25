@@ -2,6 +2,12 @@
 
 Date: 2026-04-25
 
+## Phase 1-B Handoff Note
+
+Phase 1-B has since addressed several limitations recorded in this Phase 1-A report: the default admin UI now uses async video jobs, the queue consumer uses bounded provider task create/poll routes instead of `/internal/ai/test-video`, completed outputs are ingested into `USER_IMAGES` R2, and malformed/exhausted video queue messages are persisted in `ai_video_job_poison_messages`.
+
+This Phase 1-A report remains historically accurate for the foundation sprint. Current async video status and deploy requirements are tracked in `PHASE1B_REMEDIATION_REPORT.md`.
+
 ## Executive Summary
 
 Phase 1-A implements the first runtime foundation for async admin AI video generation and adds low-risk engineering guardrails. It does not implement orgs, tenants, billing, compliance workflows, full IaC, or a frontend/admin rewrite.

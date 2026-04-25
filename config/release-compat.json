@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0029_add_ai_video_jobs.sql",
+        "latest": "0030_harden_ai_video_jobs_phase1b.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -213,6 +213,15 @@
         "summary": "Required for HMAC verification of internal AI worker requests. Must match the auth worker AI_SERVICE_AUTH_SECRET before production deploy."
       },
       {
+        "id": "ai-vidu-api-key",
+        "kind": "secret",
+        "worker": "ai",
+        "name": "VIDU_API_KEY",
+        "requiredForRelease": false,
+        "documentation": "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        "summary": "Required for async Vidu Q3 Pro direct provider task create/poll support. Pixverse async jobs can run without it, but Vidu jobs fail safely if it is missing."
+      },
+      {
         "id": "contact-resend-secret",
         "kind": "secret",
         "worker": "contact",
@@ -389,6 +398,10 @@
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent"
     },
+    "internalOnlyRoutes": [
+      "/internal/ai/video-task/create",
+      "/internal/ai/video-task/poll"
+    ],
     "authOnlyRoutes": [
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
@@ -396,7 +409,8 @@
       "/api/admin/ai/proxy-video"
     ],
     "authOnlyPatternRoutes": [
-      "GET /api/admin/ai/video-jobs/:id"
+      "GET /api/admin/ai/video-jobs/:id",
+      "GET /api/admin/ai/video-jobs/:id/:param"
     ]
   },
   "adminAuthRoutes": {

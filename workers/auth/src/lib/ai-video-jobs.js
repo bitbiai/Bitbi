@@ -36,6 +36,13 @@ const JOB_COLUMN_NAMES = [
   "locked_until",
   "output_r2_key",
   "output_url",
+  "output_content_type",
+  "output_size_bytes",
+  "poster_r2_key",
+  "poster_url",
+  "poster_content_type",
+  "poster_size_bytes",
+  "provider_state",
   "error_code",
   "error_message",
   "created_at",
@@ -51,10 +58,20 @@ const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MAX_ATTEMPTS = 3;
 const JOB_LEASE_MS = 2 * 60 * 1000;
 const MAX_SAFE_ERROR_LENGTH = 240;
+const VIDEO_OUTPUT_MAX_BYTES = 100 * 1024 * 1024;
+const VIDEO_POSTER_MAX_BYTES = 5 * 1024 * 1024;
+const VIDEO_OUTPUT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const VIDEO_POSTER_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export function normalizeAiVideoIdempotencyKey(value) {
   const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) return null;
+  if (!raw) {
+    throw new AdminAiValidationError(
+      "Idempotency-Key header is required.",
+      428,
+      "idempotency_key_required"
+    );
+  }
   if (!/^[A-Za-z0-9._:-]{1,200}$/.test(raw)) {
     throw new AdminAiValidationError(
       "Invalid Idempotency-Key header.",
@@ -79,6 +96,11 @@ function assertVideoJobConfig(env) {
   if (!env?.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     throw new WorkerConfigError("Required AI service binding is missing.", {
       reason: "ai_lab_binding_missing",
+    });
+  }
+  if (!env?.USER_IMAGES || typeof env.USER_IMAGES.put !== "function" || typeof env.USER_IMAGES.get !== "function") {
+    throw new WorkerConfigError("Required user media R2 binding is missing.", {
+      reason: "user_images_binding_missing",
     });
   }
 }
@@ -145,6 +167,9 @@ export function serializeAiVideoJob(job) {
   if (job.status === "succeeded" && job.output_url) {
     serialized.outputUrl = job.output_url;
   }
+  if (job.status === "succeeded" && job.poster_url) {
+    serialized.posterUrl = job.poster_url;
+  }
 
   if (job.status === "failed") {
     serialized.error = {
@@ -169,6 +194,24 @@ export async function getAdminAiVideoJob(env, adminUser, jobId) {
   ).bind(jobId, adminUser.id).first());
 }
 
+export async function getAdminAiVideoJobOutput(env, adminUser, jobId, kind = "output") {
+  assertVideoJobConfig(env);
+  const job = await getAdminAiVideoJob(env, adminUser, jobId);
+  if (!job || job.status !== "succeeded") {
+    return { job, object: null, key: null, contentType: null };
+  }
+  const key = kind === "poster" ? job.poster_r2_key : job.output_r2_key;
+  if (!key) {
+    return { job, object: null, key: null, contentType: null };
+  }
+  const object = await env.USER_IMAGES.get(key);
+  const contentType =
+    (kind === "poster" ? job.poster_content_type : job.output_content_type) ||
+    object?.httpMetadata?.contentType ||
+    (kind === "poster" ? "image/webp" : "video/mp4");
+  return { job, object, key, contentType };
+}
+
 async function getQueueJob(env, jobId) {
   return normalizeJobRow(await env.DB.prepare(
     `SELECT ${JOB_WITH_USER_JOIN_COLUMNS} FROM ai_video_jobs INNER JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ?`
@@ -177,7 +220,7 @@ async function getQueueJob(env, jobId) {
 
 async function insertJob(env, job) {
   await env.DB.prepare(
-    `INSERT INTO ai_video_jobs (${JOB_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO ai_video_jobs (${JOB_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     job.id,
     job.user_id,
@@ -196,6 +239,13 @@ async function insertJob(env, job) {
     job.locked_until,
     job.output_r2_key,
     job.output_url,
+    job.output_content_type,
+    job.output_size_bytes,
+    job.poster_r2_key,
+    job.poster_url,
+    job.poster_content_type,
+    job.poster_size_bytes,
+    job.provider_state,
     job.error_code,
     job.error_message,
     job.created_at,
@@ -269,6 +319,13 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
     locked_until: null,
     output_r2_key: null,
     output_url: null,
+    output_content_type: null,
+    output_size_bytes: null,
+    poster_r2_key: null,
+    poster_url: null,
+    poster_content_type: null,
+    poster_size_bytes: null,
+    provider_state: null,
     error_code: null,
     error_message: null,
     created_at: now,
@@ -346,15 +403,48 @@ function permanentVideoJobError(message, code) {
 
 async function acquireJobLease(env, jobId, now, lockedUntil) {
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'processing') AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
+    "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   ).bind(lockedUntil, now, jobId, now, now).run();
   return Number(result?.meta?.changes || 0) > 0;
 }
 
+async function updateJobProviderPending(env, jobId, result, now, nextAttemptAt) {
+  await env.DB.prepare(
+    "UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?"
+  ).bind(
+    result?.providerTaskId ? "provider_pending" : "polling",
+    result?.providerTaskId || null,
+    result?.providerState || null,
+    nextAttemptAt,
+    now,
+    jobId
+  ).run();
+}
+
+async function updateJobIngesting(env, jobId, providerState, now) {
+  await env.DB.prepare(
+    "UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?, locked_until = NULL, updated_at = ? WHERE id = ?"
+  ).bind(providerState || null, now, jobId).run();
+}
+
 async function updateJobSucceeded(env, jobId, result, now) {
   await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'succeeded', output_url = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?"
-  ).bind(result?.videoUrl || null, now, now, jobId).run();
+    "UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?"
+  ).bind(
+    result?.outputR2Key || null,
+    result?.outputUrl || null,
+    result?.outputContentType || null,
+    result?.outputSizeBytes ?? null,
+    result?.posterR2Key || null,
+    result?.posterUrl || null,
+    result?.posterContentType || null,
+    result?.posterSizeBytes ?? null,
+    result?.providerTaskId || null,
+    result?.providerState || "success",
+    now,
+    now,
+    jobId
+  ).run();
 }
 
 async function updateJobFailed(env, jobId, code, message, now) {
@@ -383,12 +473,316 @@ export function getAiVideoJobRetryDelaySeconds(attempts = 0) {
   return Math.min(300, Math.max(10, 10 * (2 ** attempt)));
 }
 
+function safeQueueBodySummary(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return JSON.stringify({ type: typeof body });
+  }
+  return JSON.stringify({
+    keys: Object.keys(body).slice(0, 12).sort(),
+    schema_version: body.schema_version ?? null,
+    type: typeof body.type === "string" ? body.type.slice(0, 80) : null,
+    job_id_present: typeof body.job_id === "string" && !!body.job_id,
+    correlation_id_present: typeof body.correlation_id === "string" && !!body.correlation_id,
+  });
+}
+
+async function recordAiVideoPoisonMessage(env, body, reasonCode, correlationId = null) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO ai_video_job_poison_messages (id, queue_name, message_type, schema_version, job_id, reason_code, body_summary, correlation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+      `poison_${randomTokenHex(16)}`,
+      AI_VIDEO_JOBS_QUEUE_NAME,
+      typeof body?.type === "string" ? body.type.slice(0, 120) : null,
+      body?.schema_version == null ? null : String(body.schema_version).slice(0, 40),
+      typeof body?.job_id === "string" ? body.job_id.slice(0, 160) : null,
+      String(reasonCode || "unknown").slice(0, 120),
+      safeQueueBodySummary(body),
+      correlationId,
+      nowIso()
+    ).run();
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_poison_message_recorded",
+      level: "error",
+      correlationId,
+      reason_code: reasonCode,
+    });
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_poison_message_record_failed",
+      level: "error",
+      correlationId,
+      reason_code: reasonCode,
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+  }
+}
+
+async function enqueueAiVideoJobFollowup(env, job, correlationId, reason, delaySeconds = 0) {
+  const message = buildQueueMessage(job, correlationId, reason);
+  await env.AI_VIDEO_JOBS_QUEUE.send(
+    message,
+    delaySeconds > 0 ? { delaySeconds } : undefined
+  );
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "ai-video-jobs",
+    event: reason === "poll" ? "ai_video_job_poll_scheduled" : "ai_video_job_enqueued",
+    level: "info",
+    correlationId,
+    job_id: job.id,
+    provider: job.provider,
+    model: job.model,
+    status: job.status,
+    attempt_count: Number(job.attempt_count || 0),
+    retry_delay_seconds: delaySeconds,
+  });
+}
+
+function parseRetryAfterSeconds(result, fallbackSeconds) {
+  const raw = Number(result?.retryAfterSeconds);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(300, Math.max(5, Math.ceil(raw)));
+  }
+  return fallbackSeconds;
+}
+
+function isPrivateIpv4(hostname) {
+  const parts = String(hostname || "").split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => Number(part));
+  if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function isUnsafeRemoteHostname(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return true;
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host.includes(":") && (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:"))) return true;
+  return isPrivateIpv4(host);
+}
+
+function assertSafeRemoteUrl(value, label) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    const error = new Error(`${label} URL is missing.`);
+    error.code = `${label}_url_missing`;
+    error.permanent = true;
+    throw error;
+  }
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    const error = new Error(`${label} URL is invalid.`);
+    error.code = `${label}_url_invalid`;
+    error.permanent = true;
+    throw error;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || isUnsafeRemoteHostname(url.hostname)) {
+    const error = new Error(`${label} URL is not allowed.`);
+    error.code = `${label}_url_not_allowed`;
+    error.permanent = true;
+    throw error;
+  }
+  return url.href;
+}
+
+async function readResponseBodyLimited(response, maxBytes, label) {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    const error = new Error(`${label} exceeds the maximum allowed size.`);
+    error.code = `${label}_too_large`;
+    error.permanent = true;
+    throw error;
+  }
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes) {
+      const error = new Error(`${label} exceeds the maximum allowed size.`);
+      error.code = `${label}_too_large`;
+      error.permanent = true;
+      throw error;
+    }
+    return buffer;
+  }
+
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try {
+        await reader.cancel();
+      } catch {}
+      const error = new Error(`${label} exceeds the maximum allowed size.`);
+      error.code = `${label}_too_large`;
+      error.permanent = true;
+      throw error;
+    }
+    chunks.push(value);
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged.buffer;
+}
+
+async function fetchRemoteAsset(env, urlValue, {
+  maxBytes,
+  allowedContentTypes,
+  label,
+}) {
+  const url = assertSafeRemoteUrl(urlValue, label);
+  const fetcher = env.__TEST_FETCH || globalThis.fetch;
+  if (typeof fetcher !== "function") {
+    const error = new Error("Fetch is unavailable.");
+    error.code = `${label}_fetch_unavailable`;
+    throw error;
+  }
+  const response = await fetcher(url, { method: "GET" });
+  if (!response.ok) {
+    const error = new Error(`${label} download failed.`);
+    error.status = response.status;
+    error.code = `${label}_download_failed`;
+    throw error;
+  }
+  const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!allowedContentTypes.has(contentType)) {
+    const error = new Error(`${label} content type is not allowed.`);
+    error.code = `${label}_content_type_not_allowed`;
+    error.permanent = true;
+    throw error;
+  }
+  const body = await readResponseBodyLimited(response, maxBytes, label);
+  return {
+    body,
+    contentType,
+    sizeBytes: body.byteLength,
+  };
+}
+
+function videoOutputKey(jobId, userId) {
+  return `users/${userId}/video-jobs/${jobId}/output.mp4`;
+}
+
+function videoPosterKey(jobId, userId, contentType) {
+  const ext = contentType === "image/png" ? "png" : contentType === "image/jpeg" ? "jpg" : "webp";
+  return `users/${userId}/video-jobs/${jobId}/poster.${ext}`;
+}
+
+async function ingestProviderVideoOutput(env, job, providerResult) {
+  const output = await fetchRemoteAsset(env, providerResult.videoUrl, {
+    maxBytes: VIDEO_OUTPUT_MAX_BYTES,
+    allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
+    label: "video_output",
+  });
+  const outputKey = videoOutputKey(job.id, job.user_id);
+  await env.USER_IMAGES.put(outputKey, output.body, {
+    httpMetadata: { contentType: output.contentType },
+  });
+
+  let poster = null;
+  if (providerResult.posterUrl) {
+    try {
+      const posterAsset = await fetchRemoteAsset(env, providerResult.posterUrl, {
+        maxBytes: VIDEO_POSTER_MAX_BYTES,
+        allowedContentTypes: VIDEO_POSTER_CONTENT_TYPES,
+        label: "video_poster",
+      });
+      const posterKey = videoPosterKey(job.id, job.user_id, posterAsset.contentType);
+      await env.USER_IMAGES.put(posterKey, posterAsset.body, {
+        httpMetadata: { contentType: posterAsset.contentType },
+      });
+      poster = {
+        key: posterKey,
+        url: `/api/admin/ai/video-jobs/${encodeURIComponent(job.id)}/poster`,
+        contentType: posterAsset.contentType,
+        sizeBytes: posterAsset.sizeBytes,
+      };
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-video-jobs-ingest",
+        event: "ai_video_job_poster_ingest_failed",
+        level: "warn",
+        job_id: job.id,
+        ...getErrorFields(error, { includeMessage: false }),
+      });
+    }
+  }
+
+  return {
+    outputR2Key: outputKey,
+    outputUrl: `/api/admin/ai/video-jobs/${encodeURIComponent(job.id)}/output`,
+    outputContentType: output.contentType,
+    outputSizeBytes: output.sizeBytes,
+    posterR2Key: poster?.key || null,
+    posterUrl: poster?.url || null,
+    posterContentType: poster?.contentType || null,
+    posterSizeBytes: poster?.sizeBytes ?? null,
+  };
+}
+
+async function callVideoProviderTask(env, path, job, parsedInput, correlationId) {
+  const body = {
+    ...parsedInput,
+  };
+  if (job.provider_task_id) {
+    body.providerTaskId = job.provider_task_id;
+  }
+  return proxyToAiLab(
+    env,
+    path,
+    { method: "POST", body },
+    {
+      id: job.user_id,
+      email: job.user_email || "",
+    },
+    correlationId,
+    null
+  );
+}
+
+function getProviderTaskResult(responseBody) {
+  return responseBody?.result && typeof responseBody.result === "object"
+    ? responseBody.result
+    : null;
+}
+
 export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 } = {}) {
+  assertVideoJobConfig(env);
   const startedAt = Date.now();
   let payload;
   try {
     payload = validateQueueMessage(body);
   } catch (error) {
+    await recordAiVideoPoisonMessage(env, body, error.code || "bad_queue_payload", null);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -446,18 +840,10 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     return { status: "failed", reason: "bad_stored_payload", error };
   }
 
-  const adminUser = {
-    id: job.user_id,
-    email: job.user_email || "",
-  };
-  const response = await proxyToAiLab(
-    env,
-    "/internal/ai/test-video",
-    { method: "POST", body: parsedInput },
-    adminUser,
-    payload.correlationId,
-    null
-  );
+  const providerPath = job.provider_task_id
+    ? "/internal/ai/video-task/poll"
+    : "/internal/ai/video-task/create";
+  const response = await callVideoProviderTask(env, providerPath, job, parsedInput, payload.correlationId);
 
   let responseBody = null;
   try {
@@ -467,8 +853,29 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
 
   const completedAt = nowIso();
-  if (response.ok && responseBody?.ok && responseBody?.result?.videoUrl) {
-    await updateJobSucceeded(env, job.id, responseBody.result, completedAt);
+  const providerResult = getProviderTaskResult(responseBody);
+  if (response.ok && responseBody?.ok && providerResult?.status === "succeeded" && providerResult?.videoUrl) {
+    await updateJobIngesting(env, job.id, providerResult.providerState || "success", completedAt);
+    let ingested;
+    try {
+      ingested = await ingestProviderVideoOutput(env, job, providerResult);
+    } catch (error) {
+      const code = error?.code || "video_output_ingest_failed";
+      if (!error?.permanent && job.attempt_count < job.max_attempts) {
+        const delaySeconds = getAiVideoJobRetryDelaySeconds(messageAttempts);
+        const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
+        await updateJobRetry(env, job.id, code, "Video output ingest failed.", completedAt, nextAttemptAt);
+        return { status: "retry", jobId: job.id, delaySeconds, reason: code };
+      }
+      await updateJobFailed(env, job.id, code, "Video output ingest failed.", completedAt);
+      return { status: "failed", jobId: job.id, reason: code };
+    }
+
+    await updateJobSucceeded(env, job.id, {
+      ...ingested,
+      providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
+      providerState: providerResult.providerState || "success",
+    }, nowIso());
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -483,6 +890,81 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
       duration_ms: getDurationMs(startedAt),
     });
     return { status: "succeeded", jobId: job.id };
+  }
+
+  if (response.ok && responseBody?.ok && providerResult?.status === "failed") {
+    await updateJobFailed(env, job.id, "provider_failed", "Video provider reported failure.", completedAt);
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_failed",
+      level: "error",
+      correlationId: payload.correlationId,
+      job_id: job.id,
+      provider: job.provider,
+      model: job.model,
+      status: "failed",
+      attempt_count: job.attempt_count,
+      error_code: "provider_failed",
+      duration_ms: getDurationMs(startedAt),
+    });
+    return { status: "failed", jobId: job.id, reason: "provider_failed" };
+  }
+
+  if (response.ok && responseBody?.ok && providerResult?.status === "provider_pending") {
+    const delaySeconds = parseRetryAfterSeconds(providerResult, getAiVideoJobRetryDelaySeconds(messageAttempts));
+    const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
+    if (job.attempt_count >= job.max_attempts) {
+      await updateJobFailed(
+        env,
+        job.id,
+        "max_attempts_exhausted",
+        "Video provider task did not complete before the retry limit.",
+        completedAt
+      );
+      await recordAiVideoPoisonMessage(env, body, "max_attempts_exhausted", payload.correlationId);
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-video-jobs-queue",
+        event: "ai_video_job_failed",
+        level: "error",
+        correlationId: payload.correlationId,
+        job_id: job.id,
+        provider: job.provider,
+        model: job.model,
+        status: "failed",
+        attempt_count: job.attempt_count,
+        error_code: "max_attempts_exhausted",
+        duration_ms: getDurationMs(startedAt),
+      });
+      return { status: "failed", jobId: job.id, reason: "max_attempts_exhausted" };
+    }
+    await updateJobProviderPending(env, job.id, providerResult, completedAt, nextAttemptAt);
+    try {
+      await enqueueAiVideoJobFollowup(env, {
+        ...job,
+        status: "provider_pending",
+        provider_task_id: providerResult.providerTaskId || job.provider_task_id || null,
+      }, payload.correlationId, "poll", delaySeconds);
+    } catch (error) {
+      await updateJobRetry(env, job.id, "queue_send_failed", "Video polling could not be queued.", completedAt, nextAttemptAt);
+      return { status: "retry", jobId: job.id, delaySeconds, reason: "queue_send_failed" };
+    }
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-video-jobs-queue",
+      event: "ai_video_job_poll_result",
+      level: "info",
+      correlationId: payload.correlationId,
+      job_id: job.id,
+      provider: job.provider,
+      model: job.model,
+      status: "provider_pending",
+      attempt_count: job.attempt_count,
+      retry_delay_seconds: delaySeconds,
+      duration_ms: getDurationMs(startedAt),
+    });
+    return { status: "scheduled", jobId: job.id, delaySeconds, reason: "provider_pending" };
   }
 
   const code = getResponseCode(responseBody, response);
@@ -510,6 +992,9 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
 
   await updateJobFailed(env, job.id, code, publicMessage, completedAt);
+  if (job.attempt_count >= job.max_attempts) {
+    await recordAiVideoPoisonMessage(env, body, "max_attempts_exhausted", payload.correlationId);
+  }
   logDiagnostic({
     service: "bitbi-auth",
     component: "ai-video-jobs-queue",

@@ -870,7 +870,10 @@ function validateAdminAiCompatibility(manifest, context) {
     .filter((route) => route.includes("/internal/ai/"))
     .map((route) => route.replace(/^[A-Z]+\s+/, ""));
   compareExactStringSets(
-    Object.values(adminAi.authToAiRoutes || {}),
+    [
+      ...Object.values(adminAi.authToAiRoutes || {}),
+      ...(adminAi.internalOnlyRoutes || []),
+    ],
     actualAiInternalRoutes,
     "Admin AI internal route ownership contract",
     issues

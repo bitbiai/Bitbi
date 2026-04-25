@@ -762,6 +762,82 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
+  const videoJobs = new Map();
+  let videoJobSeq = 0;
+  function buildMockVideoResult(body) {
+    const selectedModelId = body.model || (body.preset === 'video_vidu_q3_pro' ? 'vidu/q3-pro' : 'pixverse/v6');
+    const selectedModel = catalog.models.video.find((entry) => entry.id === selectedModelId) || catalog.models.video[0];
+    const isVidu = selectedModel.id === 'vidu/q3-pro';
+    return {
+      selectedModel,
+      preset: body.preset || (isVidu ? 'video_vidu_q3_pro' : 'video_studio'),
+      result: isVidu ? {
+        videoUrl: 'https://example.com/generated-video.mp4',
+        prompt: body.prompt || null,
+        duration: body.duration ?? 5,
+        aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
+        quality: null,
+        resolution: body.resolution || '720p',
+        seed: null,
+        generate_audio: body.audio !== false,
+        hasImageInput: !!body.start_image,
+        hasEndImageInput: !!body.end_image,
+        workflow: body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video',
+      } : {
+        videoUrl: 'https://example.com/generated-video.mp4',
+        prompt: body.prompt,
+        duration: body.duration ?? 5,
+        aspect_ratio: body.aspect_ratio || '16:9',
+        quality: body.quality || '720p',
+        resolution: null,
+        seed: body.seed ?? null,
+        generate_audio: body.generate_audio !== false,
+        hasImageInput: !!body.image_input,
+        hasEndImageInput: false,
+        workflow: body.image_input ? 'image_to_video' : 'text_to_video',
+      },
+    };
+  }
+
+  await page.route('**/api/admin/ai/video-jobs', async (route) => {
+    const body = route.request().postDataJSON();
+    const jobId = `mock-video-job-${++videoJobSeq}`;
+    const mock = buildMockVideoResult(body);
+    const job = {
+      jobId,
+      status: 'succeeded',
+      provider: mock.selectedModel.id === 'vidu/q3-pro' ? 'vidu' : 'workers-ai',
+      model: mock.selectedModel.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      statusUrl: `/api/admin/ai/video-jobs/${jobId}`,
+      outputUrl: mock.result.videoUrl,
+      posterUrl: null,
+      _mock: mock,
+    };
+    videoJobs.set(jobId, job);
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        existing: false,
+        job,
+      }),
+    });
+  });
+
+  await page.route('**/api/admin/ai/video-jobs/*', async (route) => {
+    const jobId = new URL(route.request().url()).pathname.split('/').pop();
+    const job = videoJobs.get(jobId);
+    await route.fulfill({
+      status: job ? 200 : 404,
+      contentType: 'application/json',
+      body: JSON.stringify(job ? { ok: true, job } : { ok: false, error: 'Not found', code: 'not_found' }),
+    });
+  });
+
   await page.route('**/api/admin/ai/test-video', async (route) => {
     const body = route.request().postDataJSON();
     const selectedModelId = body.model || (body.preset === 'video_vidu_q3_pro' ? 'vidu/q3-pro' : 'pixverse/v6');
@@ -4831,7 +4907,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoRun').click();
     await expect(page.locator('#aiVideoSave')).toBeHidden();
     await expect(page.locator('#aiVideoPreview')).toContainText(
-      'Server-side save is disabled for security',
+      'protected async job output',
     );
 
     expect(saveTextAssetRequests).toHaveLength(4);
@@ -4874,7 +4950,7 @@ test.describe('Admin AI Lab', () => {
     }));
     expect(saveTextAssetRequests[3].data.transcript.length).toBeGreaterThanOrEqual(2);
     await expect(page.locator('#aiVideoPreview')).toContainText(
-      'Server-side save is disabled for security',
+      'protected async job output',
     );
   });
 
@@ -5447,8 +5523,8 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     await clickAiLabMode(page, 'video');
-    await page.unroute('**/api/admin/ai/test-video');
-    await page.route('**/api/admin/ai/test-video', async (route) => {
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
       const body = route.request().postDataJSON();
       await wait(700);
       await route.fulfill({
@@ -5456,20 +5532,18 @@ test.describe('Admin AI Lab', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          task: 'video',
-          model: catalog.models.video[0],
-          preset: body.preset || 'video_studio',
-          result: {
-            videoUrl: 'https://example.com/slow-generated-video.mp4',
-            prompt: body.prompt,
-            duration: body.duration ?? 5,
-            aspect_ratio: body.aspect_ratio || '16:9',
-            quality: body.quality || '720p',
-            seed: body.seed ?? null,
-            generate_audio: body.generate_audio !== false,
-            hasImageInput: !!body.image_input,
+          existing: false,
+          job: {
+            jobId: 'slow-video-job',
+            status: 'succeeded',
+            provider: 'workers-ai',
+            model: catalog.models.video[0].id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusUrl: '/api/admin/ai/video-jobs/slow-video-job',
+            outputUrl: 'https://example.com/slow-generated-video.mp4',
           },
-          elapsedMs: 800,
         }),
       });
     });
@@ -5558,12 +5632,22 @@ test.describe('Admin AI Lab', () => {
     const catalog = createMockAiCatalog();
     const viduModel = catalog.models.video.find((entry) => entry.id === 'vidu/q3-pro');
     const requests = [];
+    let syncVideoCalls = 0;
 
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     await page.unroute('**/api/admin/ai/test-video');
     await page.route('**/api/admin/ai/test-video', async (route) => {
+      syncVideoCalls += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'sync video route should not be used' }),
+      });
+    });
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
       const body = route.request().postDataJSON();
       requests.push(body);
       const workflow = body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video';
@@ -5572,24 +5656,19 @@ test.describe('Admin AI Lab', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          task: 'video',
-          model: viduModel,
-          preset: body.preset || 'video_vidu_q3_pro',
-          result: {
-            videoUrl: 'https://example.com/generated-video.mp4',
-            prompt: body.prompt || null,
-            duration: body.duration ?? 5,
-            aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
-            quality: null,
-            resolution: body.resolution || '720p',
-            seed: null,
-            generate_audio: body.audio !== false,
-            hasImageInput: !!body.start_image,
-            hasEndImageInput: !!body.end_image,
-            workflow,
+          existing: false,
+          job: {
+            jobId: `vidu-job-${requests.length}`,
+            status: 'succeeded',
+            provider: 'vidu',
+            model: viduModel.id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusUrl: `/api/admin/ai/video-jobs/vidu-job-${requests.length}`,
+            outputUrl: 'https://example.com/generated-video.mp4',
+            _workflow: workflow,
           },
-          elapsedMs: 645,
-          warnings: ['Mock Vidu warning'],
         }),
       });
     });
@@ -5657,9 +5736,10 @@ test.describe('Admin AI Lab', () => {
     expect(requests[1].aspect_ratio).toBeUndefined();
     expect(requests[1].quality).toBeUndefined();
     expect(requests[1].seed).toBeUndefined();
+    expect(syncVideoCalls).toBe(0);
   });
 
-  test('Vidu minimal mode exposes the checkbox, logs the outgoing payload, and sends minimal_mode in the video request', async ({
+  test('Vidu minimal mode exposes the checkbox and sends minimal_mode without logging raw video payloads', async ({
     page,
   }) => {
     const catalog = createMockAiCatalog();
@@ -5674,8 +5754,8 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
-    await page.unroute('**/api/admin/ai/test-video');
-    await page.route('**/api/admin/ai/test-video', async (route) => {
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
       const body = route.request().postDataJSON();
       requests.push(body);
       await route.fulfill({
@@ -5683,24 +5763,18 @@ test.describe('Admin AI Lab', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          task: 'video',
-          model: viduModel,
-          preset: body.preset || 'video_vidu_q3_pro',
-          result: {
-            videoUrl: 'https://example.com/generated-video.mp4',
-            prompt: body.prompt || null,
-            duration: body.duration ?? 5,
-            aspect_ratio: body.aspect_ratio || '16:9',
-            quality: null,
-            resolution: body.resolution || '720p',
-            seed: null,
-            generate_audio: body.audio !== false,
-            hasImageInput: !!body.start_image,
-            hasEndImageInput: !!body.end_image,
-            workflow: 'text_to_video',
+          existing: false,
+          job: {
+            jobId: 'vidu-minimal-job',
+            status: 'succeeded',
+            provider: 'vidu',
+            model: viduModel.id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusUrl: '/api/admin/ai/video-jobs/vidu-minimal-job',
+            outputUrl: 'https://example.com/generated-video.mp4',
           },
-          elapsedMs: 645,
-          warnings: ['Mock Vidu warning'],
         }),
       });
     });
@@ -5733,8 +5807,11 @@ test.describe('Admin AI Lab', () => {
       minimal_mode: true,
     });
     expect(
-      consoleMessages.some((message) => message.includes('[AI Lab] test-video outgoing payload'))
-    ).toBe(true);
+      consoleMessages.some((message) => message.includes('[AI Lab] video-job outgoing payload'))
+    ).toBe(false);
+    expect(
+      consoleMessages.some((message) => message.includes('Minimal mode deploy verification'))
+    ).toBe(false);
   });
 
   test('Live Agent section appears after Compare and shows the chat UI', async ({

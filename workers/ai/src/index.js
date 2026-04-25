@@ -14,6 +14,7 @@ import { handleMusic } from "./routes/music.js";
 import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
 import { handleVideo } from "./routes/video.js";
+import { handleVideoTaskCreate, handleVideoTaskPoll } from "./routes/video-task.js";
 import { INTERNAL_AI_JSON_MAX_BYTES } from "./lib/validate.js";
 import {
   getCorrelationId,
@@ -106,6 +107,18 @@ export default {
     if (pathname === "/internal/ai/test-video") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleVideo(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/video-task/create") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleVideoTaskCreate(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/video-task/poll") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleVideoTaskPoll(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

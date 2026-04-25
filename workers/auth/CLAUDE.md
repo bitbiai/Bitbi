@@ -125,6 +125,8 @@ src/
 - `POST /api/admin/ai/test-video` — proxy a synchronous video-generation test into `workers/ai` (requires admin; compatibility path)
 - `POST /api/admin/ai/video-jobs` — create an async admin video-generation job (requires admin)
 - `GET /api/admin/ai/video-jobs/:id` — read owner-scoped async admin video job status (requires admin)
+- `GET /api/admin/ai/video-jobs/:id/output` — serve owner-scoped completed async video output from `USER_IMAGES` (requires admin)
+- `GET /api/admin/ai/video-jobs/:id/poster` — serve owner-scoped completed async video poster from `USER_IMAGES` when present (requires admin)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI
@@ -146,13 +148,13 @@ src/
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
-**R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`.
+**R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png` and async admin video job output under `users/{userId}/video-jobs/{jobId}/`.
 
 **R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
-**Queue** `bitbi-ai-video-jobs` bound as `AI_VIDEO_JOBS_QUEUE` — carries async admin video jobs from `/api/admin/ai/video-jobs`. The auth worker consumes the queue, leases `ai_video_jobs` rows, invokes the signed internal AI worker path, and records success/failure/retry state in D1. The existing synchronous `/api/admin/ai/test-video` compatibility route remains available during rollout.
+**Queue** `bitbi-ai-video-jobs` bound as `AI_VIDEO_JOBS_QUEUE` — carries async admin video jobs from `/api/admin/ai/video-jobs`. The auth worker consumes the queue, leases `ai_video_jobs` rows, invokes signed internal AI worker task create/poll routes, ingests completed output into `USER_IMAGES`, and records success/failure/retry/poison state in D1. The existing synchronous `/api/admin/ai/test-video` compatibility route remains available for controlled admin/debug rollback.
 
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 
@@ -160,7 +162,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0029_add_ai_video_jobs`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0030_harden_ai_video_jobs_phase1b`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -177,6 +179,7 @@ Key migration-dependent behavior:
 - `0027_add_admin_mfa` — required before auth deploy if production admin access must enforce TOTP MFA enrollment/verification and recovery-code state safely
 - `0028_add_admin_mfa_failed_attempts` — required before auth deploy if admin MFA verification lockout must fail closed with durable failed-attempt state and reset-on-success semantics
 - `0029_add_ai_video_jobs` — required before auth deploy if async admin video job creation/status/queue processing must work immediately
+- `0030_harden_ai_video_jobs_phase1b` — required before auth deploy if queue-safe video task polling, R2 output/poster metadata, and video poison-message persistence must work immediately
 
 ## Conventions
 

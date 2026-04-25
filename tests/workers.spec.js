@@ -266,7 +266,11 @@ function createAiVideoJobServiceBinding(handler = null) {
               body: {
                 ok: true,
                 result: {
+                  status: 'succeeded',
                   videoUrl: 'https://cdn.example.com/generated-video.mp4',
+                  posterUrl: 'https://cdn.example.com/generated-video-poster.webp',
+                  providerTaskId: 'provider-task-default',
+                  providerState: 'success',
                 },
               },
             };
@@ -277,6 +281,28 @@ function createAiVideoJobServiceBinding(handler = null) {
       },
     },
   };
+}
+
+function createVideoAssetFetchStub(overrides = {}) {
+  const calls = [];
+  const fetchStub = async (url) => {
+    calls.push(String(url));
+    if (overrides[String(url)]) {
+      return overrides[String(url)]();
+    }
+    if (String(url).endsWith('.webp')) {
+      return new Response(new Uint8Array([9, 8, 7]), {
+        status: 200,
+        headers: { 'content-type': 'image/webp', 'content-length': '3' },
+      });
+    }
+    return new Response(new Uint8Array([1, 2, 3, 4]), {
+      status: 200,
+      headers: { 'content-type': 'video/mp4', 'content-length': '4' },
+    });
+  };
+  fetchStub.calls = calls;
+  return fetchStub;
 }
 
 async function createAdminAiContractHarness(options = {}) {
@@ -2764,6 +2790,53 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(0);
     });
 
+    test('POST /api/admin/ai/video-jobs requires a valid Idempotency-Key', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-idem-required-admin');
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, admin.id);
+      const payload = {
+        model: 'pixverse/v6',
+        prompt: 'Missing idempotency key',
+        duration: 5,
+        aspect_ratio: '16:9',
+        quality: '720p',
+        generate_audio: true,
+      };
+
+      const missing = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      const malformed = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'bad key with spaces',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(missing.status).toBe(428);
+      await expect(missing.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'idempotency_key_required',
+      });
+      expect(malformed.status).toBe(400);
+      await expect(malformed.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_idempotency_key',
+      });
+      expect(env.DB.state.aiVideoJobs).toHaveLength(0);
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
+    });
+
     test('POST /api/admin/ai/video-jobs fails closed when queue state is unavailable', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-noqueue-admin');
@@ -2785,6 +2858,7 @@ test.describe('Worker routes', () => {
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-noqueue-1',
         }),
         env,
         createExecutionContext().execCtx
@@ -2806,6 +2880,7 @@ test.describe('Worker routes', () => {
       const baseHeaders = {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'video-job-guard-1',
       };
 
       const limiterRes = await authWorker.fetch(
@@ -2835,6 +2910,7 @@ test.describe('Worker routes', () => {
             Cookie: `bitbi_session=${allowedToken}`,
             'Content-Type': 'application/json',
             'Content-Length': String(600 * 1024),
+            'Idempotency-Key': 'video-job-oversized-1',
           },
           body: JSON.stringify({
             model: 'pixverse/v6',
@@ -2876,6 +2952,7 @@ test.describe('Worker routes', () => {
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-queue-fail-1',
         }),
         env,
         createExecutionContext().execCtx
@@ -2894,7 +2971,8 @@ test.describe('Worker routes', () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-consumer-admin');
       const service = createAiVideoJobServiceBinding();
-      const env = createAuthTestEnv({ users: [admin] });
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
       env.AI_LAB = service.binding;
       const token = await seedSession(env, admin.id);
       const headers = {
@@ -2924,7 +3002,7 @@ test.describe('Worker routes', () => {
       expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(service.calls).toHaveLength(1);
       expect(service.calls[0]).toMatchObject({
-        url: 'https://bitbi-ai.internal/internal/ai/test-video',
+        url: 'https://bitbi-ai.internal/internal/ai/video-task/create',
         method: 'POST',
         serviceTimestamp: expect.stringMatching(/^\d+$/),
         serviceNonce: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
@@ -2934,6 +3012,12 @@ test.describe('Worker routes', () => {
           prompt: 'Queue processed',
         }),
       });
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+      expect(env.USER_IMAGES.putCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/output.mp4`,
+        }),
+      ]));
 
       const statusRes = await authWorker.fetch(
         authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}`, 'GET', undefined, {
@@ -2951,9 +3035,232 @@ test.describe('Worker routes', () => {
           status: 'succeeded',
           provider: 'vidu',
           model: 'vidu/q3-pro',
-          outputUrl: 'https://cdn.example.com/generated-video.mp4',
+          outputUrl: `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`,
+          posterUrl: `/api/admin/ai/video-jobs/${createBody.job.jobId}/poster`,
         },
       });
+      const outputRes = await authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}/output`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(outputRes.status).toBe(200);
+      expect(outputRes.headers.get('content-type')).toBe('video/mp4');
+    });
+
+    test('AI video job consumer rejects unsafe provider output URLs before fetch or R2 writes', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-unsafe-output-admin');
+      const service = createAiVideoJobServiceBinding(() => ({
+        status: 200,
+        body: {
+          ok: true,
+          result: {
+            status: 'succeeded',
+            videoUrl: 'http://127.0.0.1/generated-video.mp4',
+            providerTaskId: 'provider-task-unsafe-output',
+            providerState: 'success',
+          },
+        },
+      }));
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Unsafe provider URL',
+          duration: 5,
+          resolution: '720p',
+          aspect_ratio: '16:9',
+          audio: true,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-unsafe-output-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      const createBody = await createRes.json();
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(assetFetch.calls).toHaveLength(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        id: createBody.job.jobId,
+        status: 'failed',
+        error_code: 'video_output_url_not_allowed',
+      });
+    });
+
+    test('AI video job consumer short-polls provider tasks and does not duplicate provider creation', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-poll-admin');
+      const service = createAiVideoJobServiceBinding(async ({ request }) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname === '/internal/ai/video-task/create') {
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              result: {
+                status: 'provider_pending',
+                providerTaskId: 'provider-task-123',
+                providerState: 'queued',
+                retryAfterSeconds: 30,
+              },
+            },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            result: {
+              status: 'succeeded',
+              providerTaskId: 'provider-task-123',
+              providerState: 'success',
+              videoUrl: 'https://cdn.example.com/generated-video.mp4',
+            },
+          },
+        };
+      });
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Short poll job',
+          duration: 5,
+          resolution: '720p',
+          aspect_ratio: '16:9',
+          audio: true,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-short-poll-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      const createBody = await createRes.json();
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+
+      const firstBatch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(firstBatch.batch, env, createExecutionContext().execCtx);
+
+      expect(firstBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+      expect(service.calls[0].url).toBe('https://bitbi-ai.internal/internal/ai/video-task/create');
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        id: createBody.job.jobId,
+        status: 'provider_pending',
+        provider_task_id: 'provider-task-123',
+      });
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(1);
+      expect(env.AI_VIDEO_JOBS_QUEUE.sendCalls.at(-1).options).toEqual({ delaySeconds: 30 });
+
+      const duplicateBatch = createQueueBatch([queued[0]], { attempts: 2, queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(duplicateBatch.batch, env, createExecutionContext().execCtx);
+      expect(duplicateBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+
+      env.DB.state.aiVideoJobs[0].locked_until = null;
+      env.DB.state.aiVideoJobs[0].next_attempt_at = '2000-01-01T00:00:00.000Z';
+      const pollMessage = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0)[0];
+      const pollBatch = createQueueBatch([pollMessage], { attempts: 2, queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(pollBatch.batch, env, createExecutionContext().execCtx);
+
+      expect(pollBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(2);
+      expect(service.calls[1]).toMatchObject({
+        url: 'https://bitbi-ai.internal/internal/ai/video-task/poll',
+        body: expect.objectContaining({ providerTaskId: 'provider-task-123' }),
+      });
+      expect(service.calls.some((call) => call.url.endsWith('/internal/ai/test-video'))).toBe(false);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        status: 'succeeded',
+        provider_task_id: 'provider-task-123',
+        output_url: `/api/admin/ai/video-jobs/${createBody.job.jobId}/output`,
+      });
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+    });
+
+    test('AI video job consumer fails pending provider tasks after max attempts', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-pending-exhausted-admin');
+      const service = createAiVideoJobServiceBinding(() => ({
+        status: 200,
+        body: {
+          ok: true,
+          result: {
+            status: 'provider_pending',
+            providerTaskId: 'provider-task-never-ready',
+            providerState: 'processing',
+            retryAfterSeconds: 30,
+          },
+        },
+      }));
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+
+      await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'vidu/q3-pro',
+          prompt: 'Never ready job',
+          duration: 5,
+          resolution: '720p',
+          aspect_ratio: '16:9',
+          audio: true,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-pending-exhausted-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const firstBatch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(firstBatch.batch, env, createExecutionContext().execCtx);
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        status: 'provider_pending',
+        attempt_count: 1,
+        provider_task_id: 'provider-task-never-ready',
+      });
+
+      env.DB.state.aiVideoJobs[0].attempt_count = 2;
+      env.DB.state.aiVideoJobs[0].locked_until = null;
+      env.DB.state.aiVideoJobs[0].next_attempt_at = '2000-01-01T00:00:00.000Z';
+      const pollMessage = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0)[0];
+      const exhaustedBatch = createQueueBatch([pollMessage], { attempts: 3, queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(exhaustedBatch.batch, env, createExecutionContext().execCtx);
+
+      expect(exhaustedBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
+        status: 'failed',
+        error_code: 'max_attempts_exhausted',
+        attempt_count: 3,
+      });
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
+      expect(env.DB.state.aiVideoJobPoisonMessages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ reason_code: 'max_attempts_exhausted' }),
+      ]));
     });
 
     test('AI video job status is owner-scoped', async () => {
@@ -2976,6 +3283,7 @@ test.describe('Worker routes', () => {
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${ownerToken}`,
+          'Idempotency-Key': 'video-job-owner-1',
         }),
         env,
         createExecutionContext().execCtx
@@ -3026,6 +3334,7 @@ test.describe('Worker routes', () => {
         }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-retry-1',
         }),
         env,
         createExecutionContext().execCtx
@@ -3066,6 +3375,34 @@ test.describe('Worker routes', () => {
         error_code: 'upstream_error',
         attempt_count: 3,
       });
+      expect(env.DB.state.aiVideoJobPoisonMessages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ reason_code: 'max_attempts_exhausted' }),
+      ]));
+    });
+
+    test('AI video job consumer records malformed queue messages without storing raw bodies', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-poison-admin');
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const batch = createQueueBatch([
+        {
+          schema_version: 999,
+          type: 'unknown.video.message',
+          secret: 'do-not-store-this',
+        },
+      ], { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(env.DB.state.aiVideoJobPoisonMessages).toHaveLength(1);
+      expect(env.DB.state.aiVideoJobPoisonMessages[0]).toMatchObject({
+        reason_code: 'bad_queue_payload',
+        message_type: 'unknown.video.message',
+        schema_version: '999',
+      });
+      expect(env.DB.state.aiVideoJobPoisonMessages[0].body_summary).not.toContain('do-not-store-this');
     });
 
     test('AI worker service auth accepts a valid signed internal request', async () => {

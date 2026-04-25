@@ -5,6 +5,8 @@ import {
     apiAdminAiCompare,
     apiAdminAiLiveAgent,
     apiAdminAiModels,
+    apiAdminAiCreateVideoJob,
+    apiAdminAiGetVideoJob,
     apiAdminAiSaveTextAsset,
     apiAdminAiTestEmbeddings,
     apiAdminAiTestImage,
@@ -2890,12 +2892,12 @@ export function createAdminAiLab({ showToast } = {}) {
             if (blobUrl) {
                 state._previewBlobUrl = blobUrl;
                 video.src = blobUrl;
-                note.textContent = 'Preview loaded. Download locally to keep it; server-side save is disabled for security.';
+                note.textContent = 'Preview loaded from the protected async job output.';
             } else {
                 video.crossOrigin = '';
                 video.dataset.corsDisabled = '1';
                 video.src = videoUrl;
-                note.textContent = 'Streaming from provider URL only. Server-side save is disabled for security; poster capture may be unavailable.';
+                note.textContent = 'Streaming the protected async job output directly.';
             }
         });
     }
@@ -3006,6 +3008,100 @@ export function createAdminAiLab({ showToast } = {}) {
             return 'Prompt is required before generating video.';
         }
         return '';
+    }
+
+    function createVideoJobIdempotencyKey() {
+        if (window.crypto?.randomUUID) {
+            return `admin-video:${window.crypto.randomUUID()}`;
+        }
+        const suffix = Math.random().toString(36).slice(2, 12);
+        return `admin-video:${Date.now()}:${suffix}`;
+    }
+
+    function isTerminalVideoJobStatus(status) {
+        return ['succeeded', 'failed', 'cancelled', 'expired'].includes(String(status || ''));
+    }
+
+    function describeVideoJobStatus(job) {
+        const status = String(job?.status || 'queued');
+        if (status === 'queued') return 'Video job queued.';
+        if (status === 'starting') return 'Video job starting.';
+        if (status === 'provider_pending') return 'Video provider task pending.';
+        if (status === 'polling') return 'Checking video provider status.';
+        if (status === 'ingesting') return 'Saving generated video.';
+        if (status === 'succeeded') return 'Video generation completed.';
+        if (status === 'failed') return job?.error?.message || 'Video generation failed.';
+        if (status === 'cancelled') return 'Video job was cancelled.';
+        if (status === 'expired') return 'Video job expired.';
+        return `Video job status: ${status}.`;
+    }
+
+    function waitForVideoJobPoll(ms, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new DOMException('Request cancelled.', 'AbortError'));
+                return;
+            }
+            const timeout = window.setTimeout(resolve, ms);
+            signal?.addEventListener('abort', () => {
+                window.clearTimeout(timeout);
+                reject(new DOMException('Request cancelled.', 'AbortError'));
+            }, { once: true });
+        });
+    }
+
+    function buildVideoJobSuccessResponse(job, payload, videoSpec) {
+        return {
+            ok: true,
+            task: 'video',
+            model: getVideoModelSummary(job?.model || videoSpec.id),
+            preset: payload.preset || videoSpec.defaultPreset || state.forms.video.preset || null,
+            result: {
+                videoUrl: job.outputUrl,
+                posterUrl: job.posterUrl || null,
+                prompt: payload.prompt || null,
+                duration: payload.duration,
+                aspect_ratio: payload.aspect_ratio || null,
+                quality: payload.quality || null,
+                resolution: payload.resolution || null,
+                seed: payload.seed ?? null,
+                generate_audio: payload.generate_audio ?? payload.audio ?? null,
+                hasImageInput: !!(payload.image_input || payload.start_image),
+                hasEndImageInput: !!payload.end_image,
+                workflow: payload.end_image
+                    ? 'start_end_to_video'
+                    : payload.start_image || payload.image_input
+                        ? 'image_to_video'
+                        : 'text_to_video',
+                jobId: job.jobId,
+                statusUrl: job.statusUrl,
+            },
+            elapsedMs: null,
+            job,
+        };
+    }
+
+    async function pollVideoJobUntilTerminal(job, controller, seq) {
+        let current = job;
+        let delayMs = 1_500;
+        while (current && !isTerminalVideoJobStatus(current.status)) {
+            setStatus(describeVideoJobStatus(current), 'loading');
+            await waitForVideoJobPoll(delayMs, controller.signal);
+            if (seq !== state.requestSeq.video) return null;
+            const statusRes = await apiAdminAiGetVideoJob(current.jobId, {
+                signal: controller.signal,
+            });
+            if (statusRes.aborted) return null;
+            if (!statusRes.ok) {
+                throw Object.assign(new Error(statusRes.error || 'Video job status check failed.'), {
+                    code: getApiCode(statusRes),
+                    data: statusRes.data,
+                });
+            }
+            current = statusRes.data?.job;
+            delayMs = Math.min(5_000, Math.round(delayMs * 1.3));
+        }
+        return current;
     }
 
     function resetVideoForm(showSuccess = true) {
@@ -3929,35 +4025,71 @@ export function createAdminAiLab({ showToast } = {}) {
             payload.minimal_mode = true;
         }
 
-        console.log('[AI Lab] test-video outgoing payload', {
-            model: payload.model,
-            minimal_mode: !!payload.minimal_mode,
-            payload_keys: Object.keys(payload).sort().join(','),
-            payload,
-        });
+        try {
+            const useSyncDebugPath = window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
+            if (useSyncDebugPath) {
+                const syncRes = await apiAdminAiTestVideo(payload, {
+                    signal: controller.signal,
+                });
+                if (seq !== state.requestSeq.video) return;
+                if (syncRes.aborted) return;
+                if (!syncRes.ok) {
+                    const errorCode = getApiCode(syncRes);
+                    setTaskErrorState('video', previous, syncRes.error, errorCode, syncRes.data || previous.raw);
+                    setStatus(describeAdminAiError('video', syncRes.error, errorCode), 'error');
+                    renderVideoResult();
+                    return;
+                }
+                setTaskSuccessState('video', syncRes.data, getApiCode(syncRes));
+                setStatus('Video generation completed.', 'success');
+                renderVideoResult();
+                return;
+            }
 
-        const res = await apiAdminAiTestVideo(payload, {
-            signal: controller.signal,
-        });
-        if (seq !== state.requestSeq.video) return;
-        if (state.controllers.video === controller) {
-            state.controllers.video = null;
-        }
-        clearTaskTimer('video', controller);
-        setTaskBusy('video', false, TASK_UI.video.busyText, TASK_UI.video.idleText);
+            const createRes = await apiAdminAiCreateVideoJob(payload, {
+                signal: controller.signal,
+                headers: {
+                    'Idempotency-Key': createVideoJobIdempotencyKey(),
+                },
+            });
+            if (seq !== state.requestSeq.video) return;
+            if (createRes.aborted) return;
+            if (!createRes.ok) {
+                const errorCode = getApiCode(createRes);
+                setTaskErrorState('video', previous, createRes.error, errorCode, createRes.data || previous.raw);
+                setStatus(describeAdminAiError('video', createRes.error, errorCode), 'error');
+                renderVideoResult();
+                return;
+            }
 
-        if (res.aborted) return;
-        if (!res.ok) {
-            const errorCode = getApiCode(res);
-            setTaskErrorState('video', previous, res.error, errorCode, res.data || previous.raw);
-            setStatus(describeAdminAiError('video', res.error, errorCode), 'error');
+            const terminalJob = await pollVideoJobUntilTerminal(createRes.data?.job, controller, seq);
+            if (seq !== state.requestSeq.video || !terminalJob) return;
+            if (terminalJob.status !== 'succeeded') {
+                const errorCode = terminalJob.error?.code || `video_job_${terminalJob.status || 'failed'}`;
+                const message = terminalJob.error?.message || describeVideoJobStatus(terminalJob);
+                setTaskErrorState('video', previous, message, errorCode, { job: terminalJob });
+                setStatus(describeAdminAiError('video', message, errorCode), 'error');
+                renderVideoResult();
+                return;
+            }
+
+            const successResponse = buildVideoJobSuccessResponse(terminalJob, payload, videoSpec);
+            setTaskSuccessState('video', successResponse, 'async_video_job_succeeded');
+            setStatus('Video generation completed.', 'success');
             renderVideoResult();
-            return;
+        } catch (error) {
+            if (error?.name === 'AbortError') return;
+            const errorCode = error?.code || 'video_job_failed';
+            setTaskErrorState('video', previous, error?.message || 'Video generation failed.', errorCode, error?.data || previous.raw);
+            setStatus(describeAdminAiError('video', error?.message || 'Video generation failed.', errorCode), 'error');
+            renderVideoResult();
+        } finally {
+            if (seq === state.requestSeq.video && state.controllers.video === controller) {
+                state.controllers.video = null;
+            }
+            clearTaskTimer('video', controller);
+            setTaskBusy('video', false, TASK_UI.video.busyText, TASK_UI.video.idleText);
         }
-
-        setTaskSuccessState('video', res.data, getApiCode(res));
-        setStatus('Video generation completed.', 'success');
-        renderVideoResult();
     }
 
     async function runCompare() {
