@@ -199,6 +199,7 @@ export async function handleAdminAI(ctx) {
     return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
   }
 
+  // route-policy: admin.ai.test-text
   if (pathname === "/api/admin/ai/test-text" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-text-ip", 30, 600_000, correlationId);
     if (limited) return limited;
@@ -236,6 +237,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.test-image
   if (pathname === "/api/admin/ai/test-image" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-image-ip", 10, 600_000, correlationId);
     if (limited) return limited;
@@ -263,6 +265,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.test-embeddings
   if (pathname === "/api/admin/ai/test-embeddings" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-embeddings-ip", 20, 600_000, correlationId);
     if (limited) return limited;
@@ -287,6 +290,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.test-music
   if (pathname === "/api/admin/ai/test-music" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-music-ip", 8, 600_000, correlationId);
     if (limited) return limited;
@@ -311,6 +315,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.test-video-debug
   if (pathname === "/api/admin/ai/test-video" && method === "POST") {
     if (!isSyncVideoDebugAllowed(env)) {
       logDiagnostic({
@@ -473,6 +478,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.video-jobs.create
   if (pathname === "/api/admin/ai/video-jobs" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-job-create-ip", 8, 600_000, correlationId);
     if (limited) return limited;
@@ -568,6 +574,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.compare
   if (pathname === "/api/admin/ai/compare" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-compare-ip", 15, 600_000, correlationId);
     if (limited) return limited;
@@ -592,6 +599,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.live-agent
   if (pathname === "/api/admin/ai/live-agent" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-liveagent-ip", 20, 600_000, correlationId);
     if (limited) return limited;
@@ -609,6 +617,7 @@ export async function handleAdminAI(ctx) {
     }
   }
 
+  // route-policy: admin.ai.derivatives.backfill
   if (pathname === "/api/admin/ai/image-derivatives/backfill" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-derivative-backfill-ip", 20, 600_000, correlationId);
     if (limited) return limited;
@@ -629,6 +638,7 @@ export async function handleAdminAI(ctx) {
     });
   }
 
+  // route-policy: admin.ai.save-text-asset
   if (pathname === "/api/admin/ai/save-text-asset" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-save-text-ip", 25, 600_000, correlationId);
     if (limited) return limited;
@@ -646,6 +656,7 @@ export async function handleAdminAI(ctx) {
     });
   }
 
+  // route-policy: admin.ai.proxy-video
   if (pathname === "/api/admin/ai/proxy-video" && method === "POST") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-proxy-ip", 16, 600_000, correlationId);
     if (limited) return limited;

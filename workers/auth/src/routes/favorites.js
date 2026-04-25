@@ -51,7 +51,9 @@ export async function handleFavorites(ctx) {
   const { pathname, method } = ctx;
 
   if (pathname === "/api/favorites" && method === "GET") return handleList(ctx);
+  // route-policy: favorites.add
   if (pathname === "/api/favorites" && method === "POST") return handleAdd(ctx);
+  // route-policy: favorites.remove
   if (pathname === "/api/favorites" && method === "DELETE") return handleRemove(ctx);
 
   return null;

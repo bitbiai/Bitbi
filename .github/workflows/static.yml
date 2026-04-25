@@ -54,6 +54,8 @@ jobs:
         run: npm run check:secrets
       - name: Check DOM sink baseline
         run: npm run check:dom-sinks
+      - name: Check auth route policy coverage
+        run: npm run check:route-policies
       - name: Check targeted JavaScript syntax
         run: npm run check:js
       - name: Run release compatibility tests

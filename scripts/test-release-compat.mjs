@@ -804,6 +804,7 @@ function createValidContext() {
       - run: npm run test:quality-gates
       - run: npm run check:secrets
       - run: npm run check:dom-sinks
+      - run: npm run check:route-policies
       - run: npm run check:js
       - run: npm run test:release-compat
       - run: npm run test:release-plan

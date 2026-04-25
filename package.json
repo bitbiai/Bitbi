@@ -21,6 +21,7 @@
     "check:worker-body-parsers": "node scripts/check-worker-body-parsers.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:dom-sinks": "node scripts/check-dom-sinks.mjs",
+    "check:route-policies": "node scripts/check-route-policies.mjs",
     "check:js": "node scripts/check-js.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
     "validate:cloudflare-prereqs": "node scripts/validate-cloudflare-deploy-prereqs.mjs",

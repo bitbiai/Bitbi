@@ -45,6 +45,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run test:quality-gates",
   "npm run check:secrets",
   "npm run check:dom-sinks",
+  "npm run check:route-policies",
   "npm run check:js",
   "npm run test:release-compat",
   "npm run validate:release",

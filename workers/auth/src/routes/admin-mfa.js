@@ -105,6 +105,7 @@ export async function handleAdminMfa(ctx) {
     }));
   }
 
+  // route-policy: admin.mfa.setup
   if (pathname === "/api/admin/mfa/setup" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "setup", {
       adminMax: 3,
@@ -160,6 +161,7 @@ export async function handleAdminMfa(ctx) {
     }
   }
 
+  // route-policy: admin.mfa.enable
   if (pathname === "/api/admin/mfa/enable" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "enable");
     if (limited) return limited;
@@ -205,6 +207,7 @@ export async function handleAdminMfa(ctx) {
     }
   }
 
+  // route-policy: admin.mfa.verify
   if (pathname === "/api/admin/mfa/verify" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "verify", {
       adminMax: 30,
@@ -259,6 +262,7 @@ export async function handleAdminMfa(ctx) {
     }
   }
 
+  // route-policy: admin.mfa.disable
   if (pathname === "/api/admin/mfa/disable" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "disable", {
       adminMax: 5,
@@ -305,6 +309,7 @@ export async function handleAdminMfa(ctx) {
     }
   }
 
+  // route-policy: admin.mfa.recovery.regenerate
   if (pathname === "/api/admin/mfa/recovery-codes/regenerate" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "recovery-regenerate", {
       adminMax: 5,

@@ -28,6 +28,7 @@ Repository tests are run from the repo root:
 npm run test:workers
 npm run test:release-compat
 npm run validate:release
+npm run check:route-policies
 ```
 
 Apply remote D1 migrations before deploying auth-worker code that depends on new tables. Public auth/contact abuse-sensitive rate limiting no longer depends on `0015_add_rate_limit_counters.sql`; that migration still matters for the remaining lower-risk D1-backed limiter callers inside the auth worker.
@@ -52,6 +53,8 @@ src/
 │   ├── activity-ingestion.js ← queue consumer batch persistence for audit/activity tables
 │   ├── admin-ai-response.js ← admin-only AI proxy response-code normalization
 │   └── constants.js      ← VALID_MONSTER_IDS
+├── app/
+│   └── route-policy.js   ← high-risk route security metadata + lookup helpers
 └── routes/
     ├── health.js         ← GET /api/health
     ├── auth.js           ← GET /api/me, POST /api/register, /login, /logout
@@ -69,6 +72,8 @@ src/
 **Handler signature**: All route handlers receive a context object `{ request, env, url, pathname, method, isSecure }` built once in index.js. Exceptions: `handleHealth()` takes no args; `handleAdmin(ctx)` and `handleMedia(ctx)` do internal sub-routing and return `null` for unmatched paths.
 
 **Route matching**: Manual `pathname + method` checks in index.js dispatch to route modules. Admin endpoints use `pathname.startsWith()`/`endsWith()` with path splitting to extract `:id` parameters inside `admin.js`.
+
+**Route policy registry**: High-risk auth-worker routes are registered in `src/app/route-policy.js`. Mutating dispatcher branches in `src/index.js` and selected `src/routes/*` files carry `// route-policy: <id>` markers. Keep those markers in sync with the registry and run `npm run check:route-policies` from the repo root after adding or changing sensitive routes. The registry is a review/preflight guard, not a replacement for the existing route-level auth, MFA, CSRF, body-limit, and fail-closed limiter checks.
 
 **Auth flow**: PBKDF2-SHA256 password hashing (100k iterations — Cloudflare Workers runtime cap). Transparent rehash-on-login if stored iterations are below the target. Sessions use a random 32-byte hex token stored in an HttpOnly cookie (`__Host-bitbi_session` on secure HTTPS responses, with legacy `bitbi_session` still accepted for compatibility and local non-HTTPS dev). New session rows store only the SHA-256 hash of `token:SESSION_HASH_SECRET`; legacy `token:SESSION_SECRET` hashes are accepted only while `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` is enabled and are opportunistically upgraded after successful validation. Origin validation blocks cross-origin state-changing requests.
 

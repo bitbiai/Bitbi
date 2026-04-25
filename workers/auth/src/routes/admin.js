@@ -185,6 +185,7 @@ export async function handleAdmin(ctx) {
   }
 
   // PATCH /api/admin/users/:id/role
+  // route-policy: admin.users.role.update
   if (
     pathname.startsWith("/api/admin/users/") &&
     pathname.endsWith("/role") &&
@@ -291,6 +292,7 @@ export async function handleAdmin(ctx) {
   }
 
   // PATCH /api/admin/users/:id/status
+  // route-policy: admin.users.status.update
   if (
     pathname.startsWith("/api/admin/users/") &&
     pathname.endsWith("/status") &&
@@ -397,6 +399,7 @@ export async function handleAdmin(ctx) {
   }
 
   // POST /api/admin/users/:id/revoke-sessions
+  // route-policy: admin.users.sessions.revoke
   if (
     pathname.startsWith("/api/admin/users/") &&
     pathname.endsWith("/revoke-sessions") &&
@@ -573,6 +576,7 @@ export async function handleAdmin(ctx) {
   }
 
   // DELETE /api/admin/users/:id
+  // route-policy: admin.users.delete
   if (
     pathname.startsWith("/api/admin/users/") &&
     method === "DELETE"

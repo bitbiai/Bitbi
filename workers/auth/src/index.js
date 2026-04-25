@@ -59,6 +59,7 @@ import {
   getAiVideoJobRetryDelaySeconds,
   processAiVideoJobMessage,
 } from "./lib/ai-video-jobs.js";
+import { getRoutePolicy } from "./app/route-policy.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
@@ -137,6 +138,7 @@ export default {
       isSecure,
       execCtx,
       correlationId: getCorrelationId(request),
+      routePolicy: getRoutePolicy(method, pathname),
     };
 
     try {
@@ -171,21 +173,30 @@ export default {
 
     if (pathname === "/api/health" && method === "GET") return handleHealth();
     if (pathname === "/api/me" && method === "GET") return handleMe(ctx);
+    // route-policy: auth.register
     if (pathname === "/api/register" && method === "POST") return handleRegister(ctx);
+    // route-policy: auth.login
     if (pathname === "/api/login" && method === "POST") return handleLogin(ctx);
+    // route-policy: auth.logout
     if (pathname === "/api/logout" && method === "POST") return handleLogout(ctx);
     if (pathname === "/api/wallet/status" && method === "GET") return handleWalletStatus(ctx);
+    // route-policy: wallet.siwe.nonce
     if (pathname === "/api/wallet/siwe/nonce" && method === "POST") return handleWalletSiweNonce(ctx);
+    // route-policy: wallet.siwe.verify
     if (pathname === "/api/wallet/siwe/verify" && method === "POST") return handleWalletSiweVerify(ctx);
+    // route-policy: wallet.unlink
     if (pathname === "/api/wallet/unlink" && method === "POST") return handleWalletUnlink(ctx);
 
     // Profile
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
+    // route-policy: profile.update
     if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
 
     // Avatar
     if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);
+    // route-policy: profile.avatar.upload
     if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar(ctx);
+    // route-policy: profile.avatar.delete
     if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar(ctx);
 
     // Favorites
@@ -201,13 +212,17 @@ export default {
     }
 
     // Password reset
+    // route-policy: password.forgot
     if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword(ctx);
     if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset(ctx);
+    // route-policy: password.reset
     if (pathname === "/api/reset-password" && method === "POST") return handleResetPassword(ctx);
 
     // Email verification
     if (pathname === "/api/verify-email" && method === "GET") return handleVerifyEmail(ctx);
+    // route-policy: verification.resend
     if (pathname === "/api/resend-verification" && method === "POST") return handleResendVerification(ctx);
+    // route-policy: verification.request-reverification
     if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification(ctx);
 
     // AI Image Studio

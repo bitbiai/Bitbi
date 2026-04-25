@@ -226,6 +226,7 @@ function createContext() {
       { command: "npm run test:quality-gates", cwd: null, execute: true },
       { command: "npm run check:secrets", cwd: null, execute: true },
       { command: "npm run check:dom-sinks", cwd: null, execute: true },
+      { command: "npm run check:route-policies", cwd: null, execute: true },
       { command: "npm run check:js", cwd: null, execute: true },
       { command: "npm run test:release-compat", cwd: null, execute: true },
       { command: "npm run validate:release", cwd: null, execute: true },

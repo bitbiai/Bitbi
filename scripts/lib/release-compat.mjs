@@ -953,6 +953,7 @@ function validateWorkflowCompatibility(context) {
     "npm run test:quality-gates",
     "npm run check:secrets",
     "npm run check:dom-sinks",
+    "npm run check:route-policies",
     "npm run check:js",
   ]) {
     if (!includesRouteLiteral(workflowSource, command)) {

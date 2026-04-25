@@ -18,6 +18,7 @@ Reference documents:
 - `PHASE1B_REMEDIATION_REPORT.md` contains the Phase 1-B async admin video production-usability hardening evidence, validation results, deploy requirements, and remaining risks.
 - `PHASE1C_REMEDIATION_REPORT.md` contains the Phase 1-C sync-route restriction, admin poison/failed-job inspection, quality-gate, validation, and deploy-readiness evidence.
 - `PHASE1D_SECRET_ROTATION_REPORT.md` contains the Phase 1-D purpose-specific security secret inventory, dual-read/single-write compatibility behavior, validation evidence, rollout plan, and rollback guidance.
+- `PHASE1E_ROUTE_POLICY_REPORT.md` contains the Phase 1-E auth-worker route policy registry, coverage guard, CI/preflight integration, validation evidence, and remaining route-policy migration risks.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -83,6 +84,14 @@ Phase 1-D completed summary:
 - Auth config validation, release compatibility, and Cloudflare prerequisite checks now require the new purpose-specific auth secret names.
 - `PHASE1D_SECRET_ROTATION_REPORT.md` documents the inventory, rollout plan, rollback plan, remaining risks, and validation evidence.
 
+Phase 1-E completed summary:
+
+- Added `workers/auth/src/app/route-policy.js` with explicit route metadata for high-risk auth-worker routes across auth/session, wallet SIWE, profile/avatar, favorites, admin users, admin MFA, admin AI, async video jobs, member AI writes, and protected media reads.
+- Added `scripts/check-route-policies.mjs` to prevent new mutating branches in selected auth-worker dispatcher files from existing without a registered policy marker.
+- Added `ctx.routePolicy` lookup in `workers/auth/src/index.js` for future low-risk instrumentation/enforcement without changing route behavior.
+- Integrated `npm run check:route-policies` into package scripts, release planning, release compatibility workflow checks, CI, targeted JS syntax checks, and Worker tests.
+- `PHASE1E_ROUTE_POLICY_REPORT.md` documents route inventory coverage, deferred routes, registry design, checks, validation, and remaining central-enforcement risks.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -108,11 +117,12 @@ Findings reduced but not fully resolved:
 | Async admin video job foundation | Reduced | Phase 1-B adds default admin UI async create/status polling, queue-safe provider task create/poll, R2 output ingest, and poison-message persistence. Phase 1-C adds sanitized poison/failed-job inspection APIs. Full operational maturity still needs staging verification and dashboards. |
 | Synchronous AI video provider polling | Reduced | The default admin UI and async queue path no longer call the old long synchronous provider route. Phase 1-C default-disables `/api/admin/ai/test-video` unless `ALLOW_SYNC_VIDEO_DEBUG=true`, but the route still exists for controlled admin/debug fallback. |
 | Purpose-specific security secrets | Reduced | Phase 1-D separates new session, pagination, admin MFA encryption/proof/recovery, and AI save-reference material from `SESSION_SECRET`; legacy fallback remains during the migration window. |
+| Route security policy scattered across handlers | Reduced | `workers/auth/src/app/route-policy.js`, `scripts/check-route-policies.mjs`, source route-policy markers, CI/preflight integration, and `tests/workers.spec.js` now provide explicit high-risk auth-worker route metadata and coverage checks. |
 
 Findings still open:
 
 - Synchronous AI video provider polling is reduced but not eliminated because the legacy compatibility route still exists behind `ALLOW_SYNC_VIDEO_DEBUG=true` and should be retired after async staging confidence.
-- Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates only.
+- Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates, and Phase 1-E added route policy guardrails for high-risk auth-worker route review.
 - Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
 - Scalable activity indexes, signed activity cursors, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, full observability/SLOs, and load/performance budgets remain open or deferred.
@@ -121,9 +131,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-D validation | Phase 1-D validation passed: `npm run test:workers` 298/298, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-D files listed in `PHASE1D_SECRET_ROTATION_REPORT.md`, including untracked files, must be committed together. |
+| Merge readiness | Conditional pass after Phase 1-E validation | Phase 1-E validation passed: `npm run test:workers` 301/301, `npm run test:static` 155/155, `npm run check:route-policies`, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-E files listed in `PHASE1E_ROUTE_POLICY_REPORT.md`, including untracked files, must be committed together. |
 | Production deploy readiness | Blocked | Do not deploy until all new `workers/auth` purpose-specific secrets are provisioned, legacy `SESSION_SECRET` remains present while fallback is enabled, matching `AI_SERVICE_AUTH_SECRET` exists in both Workers, `SERVICE_AUTH_REPLAY` is deployed, auth migrations `0028`-`0030` are applied, `bitbi-ai-video-jobs` and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, and staging verification passes. |
-| Current recommended next phase | Phase 1-E / Phase 2 planning | Provision and verify Phase 1-D secrets in staging, define the fallback-disable window, then continue IaC/drift/security gates and broader SaaS platform work. |
+| Current recommended next phase | Phase 1-F / Phase 2 planning | Provision and verify Phase 1-D secrets in staging, define the fallback-disable window, stabilize route-policy metadata, then continue IaC/drift/security gates and broader SaaS platform work. |
 
 ## Executive Summary
 

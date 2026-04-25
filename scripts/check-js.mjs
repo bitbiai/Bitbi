@@ -9,6 +9,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const CHECK_TARGETS = [
   "scripts/check-dom-sinks.mjs",
   "scripts/check-js.mjs",
+  "scripts/check-route-policies.mjs",
   "scripts/check-secrets.mjs",
   "scripts/check-toolchain.mjs",
   "scripts/lib/quality-gates.mjs",
@@ -16,6 +17,7 @@ const CHECK_TARGETS = [
   "scripts/test-quality-gates.mjs",
   "workers/auth/src/lib/ai-video-jobs.js",
   "workers/auth/src/lib/security-secrets.js",
+  "workers/auth/src/app/route-policy.js",
   "workers/auth/src/routes/admin-ai.js",
   "workers/ai/src/routes/video-task.js",
   "js/pages/admin/ai-lab.js",

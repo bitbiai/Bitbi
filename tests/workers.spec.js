@@ -83,6 +83,11 @@ async function loadPublicMediaContractModule() {
   return import(contractPath);
 }
 
+async function loadRoutePolicyModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/app/route-policy.js')).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -1023,6 +1028,43 @@ test.describe('Phase 1-D purpose-specific security secrets', () => {
     }, legacyReference, {
       userId: payload.userId,
     })).rejects.toThrow(/Invalid save reference/);
+  });
+});
+
+test.describe('Phase 1-E auth route policy registry', () => {
+  test('registered sensitive policies validate and resolve literal admin video operation routes before dynamic job ids', async () => {
+    const {
+      getRoutePolicy,
+      validateRoutePolicies,
+    } = await loadRoutePolicyModule();
+
+    expect(validateRoutePolicies()).toEqual([]);
+    expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.create',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/poison')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.poison.list',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/failed')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.failed.list',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/job-123')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.status',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/job-123/output')).toEqual(expect.objectContaining({
+      id: 'admin.ai.video-jobs.output',
+      auth: 'admin',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/test-video')).toEqual(expect.objectContaining({
+      id: 'admin.ai.test-video-debug',
+      auth: 'admin',
+      debugGate: 'ALLOW_SYNC_VIDEO_DEBUG=true',
+    }));
   });
 });
 
