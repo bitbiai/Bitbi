@@ -36,6 +36,10 @@ import {
   createAdminAiVideoJob,
   getAdminAiVideoJob,
   getAdminAiVideoJobOutput,
+  getAdminAiVideoFailedJob,
+  getAdminAiVideoPoisonMessage,
+  listAdminAiVideoFailedJobs,
+  listAdminAiVideoPoisonMessages,
   normalizeAiVideoIdempotencyKey,
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
@@ -106,6 +110,21 @@ function videoJobResponse(job, correlationId, { status = 200, existing = false }
   }, { status }), correlationId);
 }
 
+function isSyncVideoDebugAllowed(env) {
+  return String(env?.ALLOW_SYNC_VIDEO_DEBUG || "").trim().toLowerCase() === "true";
+}
+
+function syncVideoDebugDisabledResponse(correlationId) {
+  return withCorrelationId(json(
+    {
+      ok: false,
+      error: "Not found",
+      code: "not_found",
+    },
+    { status: 404 }
+  ), correlationId);
+}
+
 async function attachAdminImageSaveReference(response, env, adminUser, correlationId, requestInfo = null) {
   if (!(response instanceof Response)) return response;
 
@@ -161,7 +180,7 @@ async function attachAdminImageSaveReference(response, env, adminUser, correlati
 }
 
 export async function handleAdminAI(ctx) {
-  const { request, env, pathname, method, isSecure } = ctx;
+  const { request, env, url, pathname, method, isSecure } = ctx;
   const correlationId = ctx.correlationId || null;
   const requestInfo = { request, pathname, method };
 
@@ -293,6 +312,19 @@ export async function handleAdminAI(ctx) {
   }
 
   if (pathname === "/api/admin/ai/test-video" && method === "POST") {
+    if (!isSyncVideoDebugAllowed(env)) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-video",
+        event: "admin_ai_sync_video_debug_blocked",
+        level: "warn",
+        correlationId,
+        admin_user_id: result.user.id,
+        ...getRequestLogFields(requestInfo),
+      });
+      return syncVideoDebugDisabledResponse(correlationId);
+    }
+
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ip", 8, 600_000, correlationId);
     if (limited) return limited;
 
@@ -306,6 +338,17 @@ export async function handleAdminAI(ctx) {
       const { minimal_mode: _strip, ...validationBody } = body;
       const validated = validateVideoPayload(validationBody);
       if (minimalMode) validated.minimal_mode = true;
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-video",
+        event: "admin_ai_sync_video_debug_used",
+        level: "warn",
+        correlationId,
+        admin_user_id: result.user.id,
+        model: validated.model || null,
+        preset: validated.preset || null,
+        ...getRequestLogFields(requestInfo),
+      });
       return proxyToAiLab(
         env,
         "/internal/ai/test-video",
@@ -316,6 +359,116 @@ export async function handleAdminAI(ctx) {
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/video-jobs/poison" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ops-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      const resultPage = await listAdminAiVideoPoisonMessages(env, url.searchParams);
+      return withCorrelationId(json({
+        ok: true,
+        poisonMessages: resultPage.messages,
+        nextCursor: resultPage.nextCursor,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-ops",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
+  }
+
+  const videoJobPoisonMatch = pathname.match(/^\/api\/admin\/ai\/video-jobs\/poison\/([^/]+)$/);
+  if (videoJobPoisonMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ops-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+
+    const poisonId = decodePathSegment(videoJobPoisonMatch[1]);
+    if (!poisonId || poisonId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const poisonMessage = await getAdminAiVideoPoisonMessage(env, poisonId);
+      if (!poisonMessage) return notFoundResponse(correlationId);
+      return withCorrelationId(json({ ok: true, poisonMessage }), correlationId);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-ops",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
+  }
+
+  if (pathname === "/api/admin/ai/video-jobs/failed" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ops-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      const resultPage = await listAdminAiVideoFailedJobs(env, url.searchParams);
+      return withCorrelationId(json({
+        ok: true,
+        failedJobs: resultPage.jobs,
+        nextCursor: resultPage.nextCursor,
+      }), correlationId);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-ops",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
+  }
+
+  const videoJobFailedMatch = pathname.match(/^\/api\/admin\/ai\/video-jobs\/failed\/([^/]+)$/);
+  if (videoJobFailedMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ops-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+
+    const jobId = decodePathSegment(videoJobFailedMatch[1]);
+    if (!jobId || jobId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const failedJob = await getAdminAiVideoFailedJob(env, jobId);
+      if (!failedJob) return notFoundResponse(correlationId);
+      return withCorrelationId(json({ ok: true, failedJob }), correlationId);
+    } catch (error) {
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-ops",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
       throw error;
     }
   }

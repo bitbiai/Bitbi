@@ -181,6 +181,150 @@ export function serializeAiVideoJob(job) {
   return serialized;
 }
 
+function assertAiVideoInspectionConfig(env) {
+  if (!env?.DB) {
+    throw new WorkerConfigError("Required D1 binding is missing.", {
+      reason: "db_binding_missing",
+    });
+  }
+}
+
+function normalizeInspectionLimit(value, { defaultLimit = 20, maxLimit = 50 } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultLimit;
+  return Math.min(maxLimit, Math.max(1, Math.trunc(parsed)));
+}
+
+function parseInspectionCursor(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  const separator = raw.lastIndexOf("|");
+  if (separator <= 0 || separator === raw.length - 1) return null;
+  const createdAt = raw.slice(0, separator);
+  const id = raw.slice(separator + 1);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(createdAt) || !/^[A-Za-z0-9_-]{1,160}$/.test(id)) {
+    return null;
+  }
+  return { createdAt, id };
+}
+
+function encodeInspectionCursor(row) {
+  if (!row?.created_at || !row?.id) return null;
+  return `${row.created_at}|${row.id}`;
+}
+
+function parseSafeBodySummary(value) {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function serializePoisonMessage(row) {
+  return {
+    id: row.id,
+    queueName: row.queue_name,
+    messageType: row.message_type || null,
+    schemaVersion: row.schema_version || null,
+    jobId: row.job_id || null,
+    reasonCode: row.reason_code,
+    bodySummary: parseSafeBodySummary(row.body_summary),
+    correlationId: row.correlation_id || null,
+    createdAt: row.created_at,
+  };
+}
+
+function serializeFailedJobDiagnostic(row) {
+  return {
+    jobId: row.id,
+    status: row.status,
+    provider: row.provider,
+    model: row.model,
+    owner: {
+      userId: row.user_id,
+      email: row.user_email || null,
+    },
+    attemptCount: Number(row.attempt_count || 0),
+    maxAttempts: Number(row.max_attempts || DEFAULT_MAX_ATTEMPTS),
+    providerTaskPresent: !!row.provider_task_id,
+    outputPresent: !!row.output_url,
+    posterPresent: !!row.poster_url,
+    error: {
+      code: row.error_code || "video_job_failed",
+      message: sanitizePublicError(row.error_message),
+    },
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at || null,
+  };
+}
+
+export async function listAdminAiVideoPoisonMessages(env, searchParams = new URLSearchParams()) {
+  assertAiVideoInspectionConfig(env);
+  const limit = normalizeInspectionLimit(searchParams.get("limit"));
+  const cursor = parseInspectionCursor(searchParams.get("cursor"));
+  const bindings = [];
+  let whereClause = "";
+  if (cursor) {
+    whereClause = "WHERE created_at < ? OR (created_at = ? AND id < ?)";
+    bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
+  }
+  bindings.push(limit + 1);
+  const result = await env.DB.prepare(
+    `SELECT id, queue_name, message_type, schema_version, job_id, reason_code, body_summary, correlation_id, created_at FROM ai_video_job_poison_messages ${whereClause} ORDER BY created_at DESC, id DESC LIMIT ?`
+  ).bind(...bindings).all();
+  const rows = Array.isArray(result?.results) ? result.results : [];
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  return {
+    messages: page.map(serializePoisonMessage),
+    nextCursor: hasMore ? encodeInspectionCursor(page[page.length - 1]) : null,
+  };
+}
+
+export async function getAdminAiVideoPoisonMessage(env, poisonId) {
+  assertAiVideoInspectionConfig(env);
+  const row = await env.DB.prepare(
+    "SELECT id, queue_name, message_type, schema_version, job_id, reason_code, body_summary, correlation_id, created_at FROM ai_video_job_poison_messages WHERE id = ?"
+  ).bind(poisonId).first();
+  return row ? serializePoisonMessage(row) : null;
+}
+
+export async function listAdminAiVideoFailedJobs(env, searchParams = new URLSearchParams()) {
+  assertAiVideoInspectionConfig(env);
+  const limit = normalizeInspectionLimit(searchParams.get("limit"));
+  const cursor = parseInspectionCursor(searchParams.get("cursor"));
+  const bindings = [];
+  let cursorClause = "";
+  if (cursor) {
+    cursorClause = "AND (ai_video_jobs.created_at < ? OR (ai_video_jobs.created_at = ? AND ai_video_jobs.id < ?))";
+    bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
+  }
+  bindings.push(limit + 1);
+  const result = await env.DB.prepare(
+    `SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, users.email AS user_email, ai_video_jobs.status AS status, ai_video_jobs.provider AS provider, ai_video_jobs.model AS model, ai_video_jobs.provider_task_id AS provider_task_id, ai_video_jobs.attempt_count AS attempt_count, ai_video_jobs.max_attempts AS max_attempts, ai_video_jobs.output_url AS output_url, ai_video_jobs.poster_url AS poster_url, ai_video_jobs.error_code AS error_code, ai_video_jobs.error_message AS error_message, ai_video_jobs.created_at AS created_at, ai_video_jobs.updated_at AS updated_at, ai_video_jobs.completed_at AS completed_at FROM ai_video_jobs LEFT JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.scope = 'admin' AND ai_video_jobs.status = 'failed' ${cursorClause} ORDER BY ai_video_jobs.created_at DESC, ai_video_jobs.id DESC LIMIT ?`
+  ).bind(...bindings).all();
+  const rows = Array.isArray(result?.results) ? result.results : [];
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  return {
+    jobs: page.map(serializeFailedJobDiagnostic),
+    nextCursor: hasMore ? encodeInspectionCursor(page[page.length - 1]) : null,
+  };
+}
+
+export async function getAdminAiVideoFailedJob(env, jobId) {
+  assertAiVideoInspectionConfig(env);
+  const row = await env.DB.prepare(
+    "SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, users.email AS user_email, ai_video_jobs.status AS status, ai_video_jobs.provider AS provider, ai_video_jobs.model AS model, ai_video_jobs.provider_task_id AS provider_task_id, ai_video_jobs.attempt_count AS attempt_count, ai_video_jobs.max_attempts AS max_attempts, ai_video_jobs.output_url AS output_url, ai_video_jobs.poster_url AS poster_url, ai_video_jobs.error_code AS error_code, ai_video_jobs.error_message AS error_message, ai_video_jobs.created_at AS created_at, ai_video_jobs.updated_at AS updated_at, ai_video_jobs.completed_at AS completed_at FROM ai_video_jobs LEFT JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ? AND ai_video_jobs.scope = 'admin' AND ai_video_jobs.status = 'failed'"
+  ).bind(jobId).first();
+  return row ? serializeFailedJobDiagnostic(row) : null;
+}
+
 async function findIdempotentJob(env, userId, scope, idempotencyKey) {
   if (!idempotencyKey) return null;
   return normalizeJobRow(await env.DB.prepare(

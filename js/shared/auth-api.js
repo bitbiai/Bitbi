@@ -232,6 +232,30 @@ export function apiAdminAiGetVideoJob(jobId, options) {
     return request('GET', `/admin/ai/video-jobs/${encodeURIComponent(jobId)}`, undefined, options);
 }
 
+export function apiAdminAiListVideoJobPoisonMessages({ limit, cursor } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit != null) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request('GET', '/admin/ai/video-jobs/poison' + qs, undefined, options);
+}
+
+export function apiAdminAiGetVideoJobPoisonMessage(poisonId, options) {
+    return request('GET', `/admin/ai/video-jobs/poison/${encodeURIComponent(poisonId)}`, undefined, options);
+}
+
+export function apiAdminAiListFailedVideoJobs({ limit, cursor } = {}, options) {
+    const params = new URLSearchParams();
+    if (limit != null) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request('GET', '/admin/ai/video-jobs/failed' + qs, undefined, options);
+}
+
+export function apiAdminAiGetFailedVideoJob(jobId, options) {
+    return request('GET', `/admin/ai/video-jobs/failed/${encodeURIComponent(jobId)}`, undefined, options);
+}
+
 export function apiAdminAiCompare(payload, options) {
     return request('POST', '/admin/ai/compare', payload, options);
 }

@@ -513,6 +513,9 @@ class MockD1 {
     if (this.missingTables.has('ai_video_jobs') && query.includes('ai_video_jobs')) {
       throw new Error('no such table: ai_video_jobs');
     }
+    if (this.missingTables.has('ai_video_job_poison_messages') && query.includes('ai_video_job_poison_messages')) {
+      throw new Error('no such table: ai_video_job_poison_messages');
+    }
     if (this.missingTables.has('admin_audit_log') && query.includes('admin_audit_log')) {
       throw new Error('no such table: admin_audit_log');
     }
@@ -3405,6 +3408,74 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith('SELECT id, queue_name, message_type, schema_version, job_id, reason_code, body_summary, correlation_id, created_at FROM ai_video_job_poison_messages')) {
+      if (query.includes('WHERE id = ?')) {
+        const [poisonId] = bindings;
+        return deepClone(this.state.aiVideoJobPoisonMessages.find((row) => row.id === poisonId) || null);
+      }
+
+      const hasCursor = query.includes('WHERE created_at < ? OR (created_at = ? AND id < ?)');
+      const limit = Number(bindings.at(-1)) || 20;
+      let rows = [...this.state.aiVideoJobPoisonMessages];
+      if (hasCursor) {
+        const [cursorTime, , cursorId] = bindings;
+        rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
+      }
+      rows.sort((a, b) => {
+        if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+        return b.id.localeCompare(a.id);
+      });
+      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
+    }
+
+    if (
+      query.startsWith("SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, users.email AS user_email")
+      && query.includes("ai_video_jobs.scope = 'admin'")
+      && query.includes("ai_video_jobs.status = 'failed'")
+    ) {
+      const hasIdLookup = query.includes('WHERE ai_video_jobs.id = ?');
+      const hasCursor = query.includes('AND (ai_video_jobs.created_at < ? OR (ai_video_jobs.created_at = ? AND ai_video_jobs.id < ?))');
+      let rows = this.state.aiVideoJobs
+        .filter((row) => row.scope === 'admin' && row.status === 'failed')
+        .map((row) => {
+          const user = this.state.users.find((entry) => entry.id === row.user_id);
+          return {
+            id: row.id,
+            user_id: row.user_id,
+            user_email: user?.email || null,
+            status: row.status,
+            provider: row.provider,
+            model: row.model,
+            provider_task_id: row.provider_task_id,
+            attempt_count: row.attempt_count,
+            max_attempts: row.max_attempts,
+            output_url: row.output_url,
+            poster_url: row.poster_url,
+            error_code: row.error_code,
+            error_message: row.error_message,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            completed_at: row.completed_at,
+          };
+        });
+
+      if (hasIdLookup) {
+        const [jobId] = bindings;
+        return deepClone(rows.find((row) => row.id === jobId) || null);
+      }
+
+      if (hasCursor) {
+        const [cursorTime, , cursorId] = bindings;
+        rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
+      }
+      rows.sort((a, b) => {
+        if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+        return b.id.localeCompare(a.id);
+      });
+      const limit = Number(bindings.at(-1)) || 20;
+      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
+    }
+
     if (query === "UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?") {
       const [errorCode, errorMessage, nextAttemptAt, updatedAt, jobId] = bindings;
       let changes = 0;
@@ -3455,6 +3526,7 @@ function createAuthTestEnv(seed = {}) {
     AI_SERVICE_AUTH_SECRET: seed.AI_SERVICE_AUTH_SECRET === undefined
       ? 'test-ai-service-auth-secret'
       : seed.AI_SERVICE_AUTH_SECRET,
+    ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
     PBKDF2_ITERATIONS: '100000',
     DB,
     PRIVATE_MEDIA,

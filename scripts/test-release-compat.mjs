@@ -365,6 +365,8 @@ const baseManifest = {
       "/admin/ai/test-music",
       "/admin/ai/test-video",
       "/admin/ai/video-jobs",
+      "/admin/ai/video-jobs/poison",
+      "/admin/ai/video-jobs/failed",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
@@ -379,6 +381,9 @@ const baseManifest = {
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent",
     },
+    debugOnlyRoutes: [
+      "/api/admin/ai/test-video",
+    ],
     internalOnlyRoutes: [
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll",
@@ -387,10 +392,14 @@ const baseManifest = {
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/video-jobs",
+      "/api/admin/ai/video-jobs/poison",
+      "/api/admin/ai/video-jobs/failed",
       "/api/admin/ai/proxy-video",
     ],
     authOnlyPatternRoutes: [
       "GET /api/admin/ai/video-jobs/:id",
+      "GET /api/admin/ai/video-jobs/poison/:id",
+      "GET /api/admin/ai/video-jobs/failed/:id",
       "GET /api/admin/ai/video-jobs/:id/:param",
     ],
   },
@@ -605,6 +614,8 @@ function createValidContext() {
       export function apiAdminAiTestMusic() { return request('POST', '/admin/ai/test-music'); }
       export function apiAdminAiTestVideo() { return request('POST', '/admin/ai/test-video'); }
       export function apiAdminAiCreateVideoJob() { return request('POST', '/admin/ai/video-jobs'); }
+      export function apiAdminAiListVideoJobPoisonMessages() { return request('GET', '/admin/ai/video-jobs/poison'); }
+      export function apiAdminAiListFailedVideoJobs() { return request('GET', '/admin/ai/video-jobs/failed'); }
       export function apiAdminAiCompare() { return request('POST', '/admin/ai/compare'); }
       export function apiAdminAiLiveAgent() { return request('POST', '/admin/ai/live-agent'); }
       export function apiAdminAiSaveTextAsset() { return request('POST', '/admin/ai/save-text-asset'); }
@@ -699,6 +710,12 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/test-music" && method === "POST") return proxyToAiLab("/internal/ai/test-music");
       if (pathname === "/api/admin/ai/test-video" && method === "POST") return proxyToAiLab("/internal/ai/test-video");
       if (pathname === "/api/admin/ai/video-jobs" && method === "POST") return handleCreateVideoJob();
+      if (pathname === "/api/admin/ai/video-jobs/poison" && method === "GET") return handleVideoJobPoisonList();
+      if (pathname === "/api/admin/ai/video-jobs/failed" && method === "GET") return handleVideoJobFailedList();
+      const videoJobPoisonMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/poison\\/([^/]+)$/);
+      if (videoJobPoisonMatch && method === "GET") return handleVideoJobPoisonDetail();
+      const videoJobFailedMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/failed\\/([^/]+)$/);
+      if (videoJobFailedMatch && method === "GET") return handleVideoJobFailedDetail();
       const videoJobStatusMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)$/);
       if (videoJobStatusMatch && method === "GET") return handleVideoJobStatus();
       const videoJobOutputMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)\\/(output|poster)$/);
@@ -729,6 +746,11 @@ function createValidContext() {
     workflowSource: `
   release-compatibility:
     steps:
+      - run: npm run check:toolchain
+      - run: npm run test:quality-gates
+      - run: npm run check:secrets
+      - run: npm run check:dom-sinks
+      - run: npm run check:js
       - run: npm run test:release-compat
       - run: npm run test:release-plan
       - run: npm run test:asset-version
@@ -850,6 +872,17 @@ function createValidContext() {
     issues.some((issue) =>
       issue.includes("Admin AI static auth API path contract") &&
       issue.includes("/admin/ai/test-video")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAi.debugOnlyRoutes = [];
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes('must be declared in debugOnlyRoutes')
     )
   );
 }

@@ -1327,6 +1327,7 @@ test.describe('Homepage', () => {
     await expect(form.locator('textarea[name="message"]')).toBeVisible();
     await expect(brand).toBeVisible();
     await expect(socialLink).toBeVisible();
+    await expect(panel).toHaveCSS('opacity', '1');
 
     await trigger.click();
 

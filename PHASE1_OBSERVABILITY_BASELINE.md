@@ -25,6 +25,8 @@ The auth worker emits structured JSON logs through `logDiagnostic()` for the asy
 | `ai_video_job_poison_message_recorded` | `ai-video-jobs-queue` | Malformed or exhausted queue message was persisted with a redacted body summary. |
 | `ai_video_job_poison_message_record_failed` | `ai-video-jobs-queue` | Poison persistence failed; investigate because malformed messages may be acknowledged without durable evidence. |
 | `ai_video_job_missing` | `ai-video-jobs-queue` | Queue message referenced a missing job row. |
+| `admin_ai_sync_video_debug_blocked` | `admin-ai-video` | Legacy sync video debug route was requested while disabled. |
+| `admin_ai_sync_video_debug_used` | `admin-ai-video` | Legacy sync video debug route was explicitly enabled and used by an admin. Treat production occurrences as change-controlled events. |
 
 ## Safe Fields
 
@@ -72,6 +74,8 @@ Cloudflare dashboard or log analytics should track:
 - Queue backlog and oldest message age for `bitbi-ai-video-jobs`.
 - Oldest `provider_pending` or `polling` job age in D1.
 - Count and reason split for `ai_video_job_poison_message_recorded`.
+- Admin API queries to `/api/admin/ai/video-jobs/poison` and `/api/admin/ai/video-jobs/failed` during investigations.
+- Any `admin_ai_sync_video_debug_used` event in production; this should be rare and tied to a specific incident/debug change.
 - R2 ingest failures split by `video_output_*` and `video_poster_*` error codes.
 - Error-rate split by `error_code`, `provider`, and `model`.
 - P95/P99 queue consumer duration from `duration_ms`.
@@ -81,6 +85,6 @@ Cloudflare dashboard or log analytics should track:
 ## Current Limitations
 
 - Logs are present, but dashboards, alert rules, runbooks, and SLO burn-rate alerting are not repo-enforced.
-- Phase 1-B ingests completed admin video job output into R2, but there is no admin/support UI for browsing job timelines or poison-message records.
-- Queue processing uses short provider task create/poll routes for the async path, but the legacy synchronous compatibility route still exists and should be restricted or retired after staging verification.
+- Phase 1-C adds admin-only APIs for poison-message and failed-job inspection, but there is no full browser UI for browsing job timelines or poison-message records.
+- Queue processing uses short provider task create/poll routes for the async path, but the legacy synchronous compatibility route still exists behind `ALLOW_SYNC_VIDEO_DEBUG=true` and should be retired after staging verification.
 - Cloudflare dashboards and alerts must still be configured outside this document or added through future repo-controlled IaC/drift checks.

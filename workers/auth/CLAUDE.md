@@ -122,11 +122,15 @@ src/
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-embeddings` — proxy an embeddings test into `workers/ai` (requires admin)
-- `POST /api/admin/ai/test-video` — proxy a synchronous video-generation test into `workers/ai` (requires admin; compatibility path)
+- `POST /api/admin/ai/test-video` — proxy a synchronous video-generation test into `workers/ai` (requires admin; debug compatibility path; disabled unless `ALLOW_SYNC_VIDEO_DEBUG=true`)
 - `POST /api/admin/ai/video-jobs` — create an async admin video-generation job (requires admin)
 - `GET /api/admin/ai/video-jobs/:id` — read owner-scoped async admin video job status (requires admin)
 - `GET /api/admin/ai/video-jobs/:id/output` — serve owner-scoped completed async video output from `USER_IMAGES` (requires admin)
 - `GET /api/admin/ai/video-jobs/:id/poster` — serve owner-scoped completed async video poster from `USER_IMAGES` when present (requires admin)
+- `GET /api/admin/ai/video-jobs/poison` — list recent sanitized async-video poison messages for admin/support inspection (requires admin)
+- `GET /api/admin/ai/video-jobs/poison/:id` — view one sanitized poison message (requires admin)
+- `GET /api/admin/ai/video-jobs/failed` — list sanitized failed async-video job diagnostics (requires admin)
+- `GET /api/admin/ai/video-jobs/failed/:id` — view one sanitized failed async-video job diagnostic (requires admin)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI
@@ -154,7 +158,7 @@ src/
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
-**Queue** `bitbi-ai-video-jobs` bound as `AI_VIDEO_JOBS_QUEUE` — carries async admin video jobs from `/api/admin/ai/video-jobs`. The auth worker consumes the queue, leases `ai_video_jobs` rows, invokes signed internal AI worker task create/poll routes, ingests completed output into `USER_IMAGES`, and records success/failure/retry/poison state in D1. The existing synchronous `/api/admin/ai/test-video` compatibility route remains available for controlled admin/debug rollback.
+**Queue** `bitbi-ai-video-jobs` bound as `AI_VIDEO_JOBS_QUEUE` — carries async admin video jobs from `/api/admin/ai/video-jobs`. The auth worker consumes the queue, leases `ai_video_jobs` rows, invokes signed internal AI worker task create/poll routes, ingests completed output into `USER_IMAGES`, and records success/failure/retry/poison state in D1. The existing synchronous `/api/admin/ai/test-video` compatibility route is disabled by default and only available for controlled admin/debug rollback when `ALLOW_SYNC_VIDEO_DEBUG=true`.
 
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 

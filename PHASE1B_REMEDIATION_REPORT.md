@@ -14,9 +14,15 @@ Risk reduced:
 - Malformed or exhausted video queue messages are durably recorded in D1.
 - Missing or malformed async video idempotency keys are rejected before job creation.
 
+Phase 1-C follow-up status:
+
+- `/api/admin/ai/test-video` is now default-disabled unless `ALLOW_SYNC_VIDEO_DEBUG=true`.
+- Admin-only poison-message and failed-job inspection APIs now exist for async video operations.
+- Low-risk quality gates now run in CI/preflight.
+
 Still not solved:
 
-- The legacy synchronous compatibility route still exists and should be restricted or retired after staged async verification.
+- The legacy synchronous compatibility route still exists behind an explicit debug flag and should be retired after staged async verification.
 - Vidu async direct provider create/poll requires `VIDU_API_KEY`; Pixverse can run without that secret, but Vidu jobs fail safely if it is missing.
 - There is no full Cloudflare IaC; live Queue/R2/D1/secret verification remains a deployment prerequisite.
 - This is not org/tenant/billing/compliance or full observability maturity.
@@ -132,7 +138,7 @@ Default behavior in `js/pages/admin/ai-lab.js`:
 Compatibility path:
 
 - `apiAdminAiTestVideo()` remains available only behind `window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true` in the admin UI.
-- The server route remains for controlled debugging/rollback and existing Worker contract coverage.
+- Phase 1-C changed the server route to default-deny unless `ALLOW_SYNC_VIDEO_DEBUG=true`; when enabled it remains admin-only, same-origin protected, and fail-closed rate limited.
 
 ## Idempotency Behavior
 
@@ -280,7 +286,7 @@ Required before production:
 
 | Risk | Impact | Blocks merge | Blocks production deploy | Next action |
 |---|---|---:|---:|---|
-| Legacy sync route still exists | Admin/debug callers can still trigger long synchronous provider work if used directly. | No | No, if access remains admin-only and async UI is default | Restrict, hide, or retire after async staging proves stable. |
+| Legacy sync route still exists behind debug flag | Admin/debug callers can still trigger long synchronous provider work if `ALLOW_SYNC_VIDEO_DEBUG=true`. | No | No, if disabled by default and only enabled under controlled emergency debugging | Retire after async staging proves stable. |
 | Vidu requires live `VIDU_API_KEY` | Vidu async jobs fail safely without the secret. | No | Yes for Vidu rollout | Provision in AI worker and verify without logging value. |
 | No full Cloudflare IaC | Dashboard drift remains possible. | No | Yes until live verification passes | Add dashboard-aware/IaC validation in later Phase 1. |
 | No full provider DLQ product UI | Poison messages are persisted but not surfaced in admin support tooling. | No | No | Add admin/support inspection in Phase 1-C. |
@@ -292,7 +298,7 @@ Required before production:
 2. Apply migration `0030_harden_ai_video_jobs_phase1b.sql` in staging before auth worker deploy.
 3. Verify async admin video create, provider pending, provider success, R2 output route, and poison-message persistence in staging.
 4. Provision `VIDU_API_KEY` in the AI worker if Vidu Q3 Pro async jobs are enabled.
-5. Plan Phase 1-C to restrict or retire `/api/admin/ai/test-video`, add admin poison-message tooling, and add deeper dashboard/IaC verification.
+5. Plan the next phase to retire `/api/admin/ai/test-video`, add deeper dashboard/IaC verification, and expand quality/security gates beyond the Phase 1-C baseline.
 
 ## Final Status
 

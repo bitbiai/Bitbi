@@ -384,6 +384,8 @@
       "/admin/ai/test-music",
       "/admin/ai/test-video",
       "/admin/ai/video-jobs",
+      "/admin/ai/video-jobs/poison",
+      "/admin/ai/video-jobs/failed",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset"
@@ -398,6 +400,9 @@
       "/api/admin/ai/compare": "/internal/ai/compare",
       "/api/admin/ai/live-agent": "/internal/ai/live-agent"
     },
+    "debugOnlyRoutes": [
+      "/api/admin/ai/test-video"
+    ],
     "internalOnlyRoutes": [
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll"
@@ -406,10 +411,14 @@
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
       "/api/admin/ai/video-jobs",
+      "/api/admin/ai/video-jobs/poison",
+      "/api/admin/ai/video-jobs/failed",
       "/api/admin/ai/proxy-video"
     ],
     "authOnlyPatternRoutes": [
       "GET /api/admin/ai/video-jobs/:id",
+      "GET /api/admin/ai/video-jobs/poison/:id",
+      "GET /api/admin/ai/video-jobs/failed/:id",
       "GET /api/admin/ai/video-jobs/:id/:param"
     ]
   },

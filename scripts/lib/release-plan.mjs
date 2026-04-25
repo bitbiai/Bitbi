@@ -41,6 +41,11 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
 });
 
 const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
+  "npm run check:toolchain",
+  "npm run test:quality-gates",
+  "npm run check:secrets",
+  "npm run check:dom-sinks",
+  "npm run check:js",
   "npm run test:release-compat",
   "npm run validate:release",
   "npm run validate:cloudflare-prereqs",
@@ -115,6 +120,8 @@ function isValidationOnlyPath(relativePath) {
   return VALIDATION_ONLY_PREFIXES.some((prefix) => normalized.startsWith(prefix))
     || normalized === "package.json"
     || normalized === "package-lock.json"
+    || normalized === ".nvmrc"
+    || normalized === ".node-version"
     || normalized === "CLAUDE.md"
     || normalized === "README.md"
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)

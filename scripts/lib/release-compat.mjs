@@ -857,6 +857,18 @@ function validateAdminAiCompatibility(manifest, context) {
     "Admin AI external route ownership contract",
     issues
   );
+  const debugOnlyRoutes = Array.isArray(adminAi.debugOnlyRoutes) ? adminAi.debugOnlyRoutes : [];
+  for (const route of debugOnlyRoutes) {
+    if (!actualAdminAiExternalRoutes.includes(route)) {
+      issues.push(`Admin AI debug-only route contract references missing external route "${route}".`);
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(adminAi.authToAiRoutes || {}, "/api/admin/ai/test-video")
+    && !debugOnlyRoutes.includes("/api/admin/ai/test-video")
+  ) {
+    issues.push('Admin AI synchronous video route "/api/admin/ai/test-video" must be declared in debugOnlyRoutes.');
+  }
   const actualAdminAiExternalPatternRoutes = extractPatternMethodRoutes(context.authAdminAiSource)
     .filter((route) => route.includes("/api/admin/ai/"));
   compareExactStringSets(
@@ -935,6 +947,17 @@ function validateWorkflowCompatibility(context) {
   }
   if (!includesRouteLiteral(workflowSource, "npm run test:release-compat")) {
     issues.push('Static workflow does not run "npm run test:release-compat".');
+  }
+  for (const command of [
+    "npm run check:toolchain",
+    "npm run test:quality-gates",
+    "npm run check:secrets",
+    "npm run check:dom-sinks",
+    "npm run check:js",
+  ]) {
+    if (!includesRouteLiteral(workflowSource, command)) {
+      issues.push(`Static workflow does not run "${command}".`);
+    }
   }
   if (!includesRouteLiteral(workflowSource, "npm run test:release-plan")) {
     issues.push('Static workflow does not run "npm run test:release-plan".');

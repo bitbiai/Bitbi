@@ -46,6 +46,16 @@ jobs:
             npm --prefix "$worker" ls --depth=0
             npm --prefix "$worker" audit --audit-level=low
           done
+      - name: Check toolchain pinning
+        run: npm run check:toolchain
+      - name: Run quality gate tests
+        run: npm run test:quality-gates
+      - name: Check committed secrets
+        run: npm run check:secrets
+      - name: Check DOM sink baseline
+        run: npm run check:dom-sinks
+      - name: Check targeted JavaScript syntax
+        run: npm run check:js
       - name: Run release compatibility tests
         run: npm run test:release-compat
       - name: Run release planner tests

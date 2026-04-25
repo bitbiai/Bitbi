@@ -316,6 +316,9 @@ async function createAdminAiContractHarness(options = {}) {
   const env = createAuthTestEnv({
     users: [user],
     imagesBinding: options.imagesBinding,
+    ALLOW_SYNC_VIDEO_DEBUG: options.ALLOW_SYNC_VIDEO_DEBUG === undefined
+      ? 'true'
+      : options.ALLOW_SYNC_VIDEO_DEBUG,
   });
   const aiEnvOverrides = options.aiEnv && typeof options.aiEnv === 'object' ? options.aiEnv : {};
   const { AI: _ignoredAiEnvOverride, ...safeAiEnvOverrides } = aiEnvOverrides;
@@ -3312,6 +3315,110 @@ test.describe('Worker routes', () => {
       expect(malformedStatus.status).toBe(404);
     });
 
+    test('legacy sync video debug route is disabled by default and fails closed when explicitly enabled without limiter state', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('sync-video-default-admin');
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({ users: [admin] });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+      const payload = {
+        model: 'pixverse/v6',
+        prompt: 'Default sync path must be closed.',
+        duration: 5,
+        aspect_ratio: '16:9',
+        quality: '720p',
+      };
+
+      const disabled = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(disabled.status).toBe(404);
+      await expect(disabled.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'not_found',
+      });
+      expect(service.calls).toHaveLength(0);
+
+      const noLimiterEnv = createAuthTestEnv({
+        users: [admin],
+        ALLOW_SYNC_VIDEO_DEBUG: 'true',
+        disablePublicRateLimiterBinding: true,
+      });
+      noLimiterEnv.AI_LAB = service.binding;
+      const noLimiterToken = await seedSession(noLimiterEnv, admin.id);
+      const noLimiter = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${noLimiterToken}`,
+        }),
+        noLimiterEnv,
+        createExecutionContext().execCtx
+      );
+
+      expect(noLimiter.status).toBe(503);
+      expect(service.calls).toHaveLength(0);
+    });
+
+    test('legacy sync video debug route remains admin-only and same-origin when explicitly enabled', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('sync-video-enabled-admin');
+      const nonAdmin = createContractUser({ id: 'sync-video-enabled-user', role: 'user' });
+      const service = createAiVideoJobServiceBinding();
+      const env = createAuthTestEnv({
+        users: [admin, nonAdmin],
+        ALLOW_SYNC_VIDEO_DEBUG: 'true',
+      });
+      env.AI_LAB = service.binding;
+      const adminToken = await seedSession(env, admin.id);
+      const userToken = await seedSession(env, nonAdmin.id);
+      const payload = {
+        model: 'pixverse/v6',
+        prompt: 'Explicit debug path.',
+        duration: 5,
+        aspect_ratio: '16:9',
+        quality: '720p',
+      };
+
+      const foreignOrigin = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', payload, {
+          Origin: 'https://evil.example',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(foreignOrigin.status).toBe(403);
+
+      const nonAdminRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${userToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(nonAdminRes.status).toBe(403);
+      expect(service.calls).toHaveLength(0);
+
+      const adminRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', payload, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(adminRes.status).toBe(200);
+      expect(service.calls).toHaveLength(1);
+    });
+
     test('AI video job consumer retries transient failures and fails permanently after max attempts', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-retry-admin');
@@ -3403,6 +3510,204 @@ test.describe('Worker routes', () => {
         schema_version: '999',
       });
       expect(env.DB.state.aiVideoJobPoisonMessages[0].body_summary).not.toContain('do-not-store-this');
+    });
+
+    test('admin video operations expose sanitized poison messages and failed-job diagnostics', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-ops-admin');
+      const nonAdmin = createContractUser({ id: 'async-video-ops-user', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [admin, nonAdmin],
+        aiVideoJobs: [
+          {
+            id: 'vidjob_failed_secret',
+            user_id: admin.id,
+            scope: 'admin',
+            status: 'failed',
+            provider: 'vidu',
+            model: 'vidu/q3-pro',
+            prompt: 'raw prompt must not be returned',
+            input_json: JSON.stringify({ prompt: 'raw prompt must not be returned', secret: 'payload-secret' }),
+            request_hash: 'hash',
+            provider_task_id: 'provider-secret-task',
+            idempotency_key: 'idem-secret',
+            attempt_count: 3,
+            max_attempts: 3,
+            next_attempt_at: null,
+            locked_until: null,
+            output_r2_key: 'users/admin/video-jobs/vidjob_failed_secret/output.mp4',
+            output_url: null,
+            output_content_type: null,
+            output_size_bytes: null,
+            poster_r2_key: null,
+            poster_url: null,
+            poster_content_type: null,
+            poster_size_bytes: null,
+            provider_state: '{"raw":"provider payload"}',
+            error_code: 'max_attempts_exhausted',
+            error_message: 'Provider failed after retry limit with no sensitive details.',
+            created_at: '2026-04-25T10:00:00.000Z',
+            updated_at: '2026-04-25T10:10:00.000Z',
+            completed_at: '2026-04-25T10:10:00.000Z',
+            expires_at: '2026-05-25T10:00:00.000Z',
+          },
+        ],
+        aiVideoJobPoisonMessages: [
+          {
+            id: 'poison_002',
+            queue_name: AI_VIDEO_JOBS_QUEUE_NAME,
+            message_type: 'ai_video_job.process',
+            schema_version: '1',
+            job_id: 'vidjob_failed_secret',
+            reason_code: 'max_attempts_exhausted',
+            body_summary: JSON.stringify({
+              keys: ['job_id', 'schema_version', 'type'],
+              schema_version: 1,
+              type: 'ai_video_job.process',
+              job_id_present: true,
+              correlation_id_present: false,
+            }),
+            correlation_id: 'ops-corr-2',
+            created_at: '2026-04-25T10:10:00.000Z',
+          },
+          {
+            id: 'poison_001',
+            queue_name: AI_VIDEO_JOBS_QUEUE_NAME,
+            message_type: 'unknown.video.message',
+            schema_version: '999',
+            job_id: null,
+            reason_code: 'bad_queue_payload',
+            body_summary: JSON.stringify({
+              keys: ['schema_version', 'type'],
+              schema_version: 999,
+              type: 'unknown.video.message',
+              job_id_present: false,
+              correlation_id_present: false,
+            }),
+            correlation_id: null,
+            created_at: '2026-04-25T10:00:00.000Z',
+          },
+        ],
+      });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const adminToken = await seedSession(env, admin.id);
+      const userToken = await seedSession(env, nonAdmin.id);
+
+      const nonAdminPoison = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/poison', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${userToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(nonAdminPoison.status).toBe(403);
+
+      const poisonList = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/poison?limit=1', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(poisonList.status).toBe(200);
+      const poisonListBody = await poisonList.json();
+      expect(poisonListBody).toMatchObject({
+        ok: true,
+        poisonMessages: [
+          {
+            id: 'poison_002',
+            reasonCode: 'max_attempts_exhausted',
+            bodySummary: expect.objectContaining({
+              keys: ['job_id', 'schema_version', 'type'],
+            }),
+          },
+        ],
+        nextCursor: '2026-04-25T10:10:00.000Z|poison_002',
+      });
+
+      const poisonDetail = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/poison/poison_001', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(poisonDetail.status).toBe(200);
+      const poisonDetailBody = await poisonDetail.json();
+      expect(JSON.stringify(poisonDetailBody)).not.toContain('payload-secret');
+      expect(JSON.stringify(poisonDetailBody)).not.toContain('raw prompt must not be returned');
+
+      const failedList = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/failed?limit=5', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(failedList.status).toBe(200);
+      const failedListBody = await failedList.json();
+      expect(failedListBody.failedJobs).toEqual([
+        expect.objectContaining({
+          jobId: 'vidjob_failed_secret',
+          provider: 'vidu',
+          model: 'vidu/q3-pro',
+          attemptCount: 3,
+          maxAttempts: 3,
+          providerTaskPresent: true,
+          error: {
+            code: 'max_attempts_exhausted',
+            message: 'Provider failed after retry limit with no sensitive details.',
+          },
+        }),
+      ]);
+      const serializedFailed = JSON.stringify(failedListBody);
+      expect(serializedFailed).not.toContain('raw prompt must not be returned');
+      expect(serializedFailed).not.toContain('payload-secret');
+      expect(serializedFailed).not.toContain('users/admin/video-jobs/vidjob_failed_secret/output.mp4');
+      expect(serializedFailed).not.toContain('provider payload');
+
+      const failedDetail = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/failed/vidjob_failed_secret', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(failedDetail.status).toBe(200);
+      await expect(failedDetail.json()).resolves.toMatchObject({
+        ok: true,
+        failedJob: {
+          jobId: 'vidjob_failed_secret',
+          error: { code: 'max_attempts_exhausted' },
+        },
+      });
+    });
+
+    test('admin video operations fail closed when limiter backend is unavailable', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-ops-no-limiter-admin');
+      const env = createAuthTestEnv({
+        users: [admin],
+        disablePublicRateLimiterBinding: true,
+      });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs/poison', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
     });
 
     test('AI worker service auth accepts a valid signed internal request', async () => {

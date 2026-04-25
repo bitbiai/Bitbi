@@ -1,6 +1,10 @@
 {
   "name": "bitbi",
   "private": true,
+  "engines": {
+    "node": ">=20 <21",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "npx serve -l 3000",
     "test": "playwright test -c playwright.config.js && playwright test -c playwright.workers.config.js",
@@ -12,7 +16,12 @@
     "test:cloudflare-prereqs": "node scripts/test-cloudflare-deploy-prereqs.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
     "test:asset-version": "node scripts/test-asset-version.mjs",
+    "test:quality-gates": "node scripts/test-quality-gates.mjs",
+    "check:toolchain": "node scripts/check-toolchain.mjs",
     "check:worker-body-parsers": "node scripts/check-worker-body-parsers.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check:dom-sinks": "node scripts/check-dom-sinks.mjs",
+    "check:js": "node scripts/check-js.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
     "validate:cloudflare-prereqs": "node scripts/validate-cloudflare-deploy-prereqs.mjs",
     "validate:live": "node scripts/validate-live-runtime-canary.mjs",

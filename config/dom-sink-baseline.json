@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "Reviewed legacy DOM sink counts. Increase counts only after security review.",
+  "sinks": {
+    "js/pages/admin/ai-lab.js": {
+      "innerHTML": 27
+    },
+    "js/pages/admin/main.js": {
+      "innerHTML": 12
+    },
+    "js/pages/image-studio/main.js": {
+      "innerHTML": 6
+    },
+    "js/pages/index/gallery.js": {
+      "innerHTML": 2
+    },
+    "js/pages/index/locked-sections.js": {
+      "innerHTML": 7
+    },
+    "js/pages/index/soundlab.js": {
+      "innerHTML": 2
+    },
+    "js/pages/index/studio.js": {
+      "innerHTML": 8
+    },
+    "js/pages/index/video-gallery.js": {
+      "innerHTML": 9
+    },
+    "js/pages/profile/main.js": {
+      "innerHTML": 21
+    },
+    "js/shared/audio/audio-ui.js": {
+      "innerHTML": 3
+    },
+    "js/shared/auth-modal.js": {
+      "innerHTML": 4
+    },
+    "js/shared/auth-nav.js": {
+      "innerHTML": 1
+    },
+    "js/shared/cookie-consent.js": {
+      "innerHTML": 1
+    },
+    "js/shared/favorites.js": {
+      "innerHTML": 1
+    },
+    "js/shared/models-overlay.js": {
+      "innerHTML": 1
+    },
+    "js/shared/saved-assets-browser.js": {
+      "innerHTML": 7
+    },
+    "js/shared/site-header.js": {
+      "innerHTML": 1,
+      "insertAdjacentHTML": 2
+    },
+    "js/shared/soft-nav.js": {
+      "innerHTML": 1
+    },
+    "js/shared/studio-deck.js": {
+      "innerHTML": 2
+    },
+    "js/shared/wallet/wallet-ui.js": {
+      "innerHTML": 1
+    },
+    "js/shared/wallet/wallet-workspace.js": {
+      "innerHTML": 2
+    }
+  }
+}
