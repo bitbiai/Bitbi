@@ -14,6 +14,8 @@ Reference documents:
 
 - `PHASE0_REMEDIATION_REPORT.md` contains the detailed Phase 0-A/0-A+ implementation evidence, validation results, merge readiness, deploy blockers, and remaining risks.
 - `PHASE0B_REMEDIATION_REPORT.md` contains the Phase 0-B implementation evidence for deploy preflight, body-size limits, route throttling expansion, admin MFA failed-attempt state, CSRF coverage, and async video design.
+- `PHASE1A_REMEDIATION_REPORT.md` contains the Phase 1-A async admin video job foundation evidence, validation results, deploy requirements, and remaining risks.
+- `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
 Phase 0-A completed summary:
@@ -42,6 +44,15 @@ Phase 0-B completed summary:
 - Expanded CSRF regression coverage for profile update, favorites delete, wallet unlink, and AI folder create.
 - Created `AI_VIDEO_ASYNC_JOB_DESIGN.md` with a concrete D1/Queue/R2 migration plan for async video jobs.
 
+Phase 1-A completed summary:
+
+- Added auth D1 migration `0029_add_ai_video_jobs.sql` for durable admin async video job state.
+- Added auth Worker queue binding/consumer contract `AI_VIDEO_JOBS_QUEUE` / `bitbi-ai-video-jobs`.
+- Added `/api/admin/ai/video-jobs` create and `/api/admin/ai/video-jobs/:id` owner-scoped status APIs.
+- Added idempotency-key handling, fail-closed queue/config behavior, queue lease/retry/exhaustion handling, and focused Worker tests.
+- Added `scripts/check-worker-body-parsers.mjs` plus package/CI/release-preflight integration as a low-risk guardrail against new unsafe direct body parsing.
+- Added `PHASE1_OBSERVABILITY_BASELINE.md` for async video lifecycle logs, safe fields, alert candidates, and SLO candidates.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -61,11 +72,12 @@ Findings reduced but not fully resolved:
 | Missing fail-closed Worker config validation | Reduced | Phase 0 critical auth/AI service-auth config fails closed, and repo-side Cloudflare prereq validation exists, but live Cloudflare resources and dashboard controls are not fully verified. |
 | Cloudflare dashboard drift | Partially addressed | Release config and prereq validator now record service-auth/replay requirements, but live Cloudflare WAF/header/RUM/secrets/bindings are not fully repo-enforced or verified. |
 | CI security gates | Reduced | Root/Worker npm checks and Cloudflare prereq tests were added, but CodeQL/SAST, secret scanning, dependency review, SBOM, and license gates remain open. |
-| Synchronous AI video provider polling | Partially addressed | `AI_VIDEO_ASYNC_JOB_DESIGN.md` exists, but runtime implementation is still synchronous. |
+| Async admin video job foundation | Reduced | `workers/auth/migrations/0029_add_ai_video_jobs.sql`, `workers/auth/src/lib/ai-video-jobs.js`, `workers/auth/src/index.js`, and `workers/auth/src/routes/admin-ai.js` add D1/Queue-backed job creation, status, processing, retry, and tests. Full async parity is not complete. |
+| Synchronous AI video provider polling | Reduced | New async callers can use `/api/admin/ai/video-jobs` so browser requests no longer need to hold provider execution. The queue consumer still calls the existing synchronous AI worker video path, and the admin UI still defaults to the compatibility route. |
 
 Findings still open:
 
-- Synchronous AI video provider polling remains in request path; the async design exists but implementation is still needed.
+- Synchronous AI video provider polling is reduced but not eliminated: the async API exists, but admin UI cutover, short provider polling units, R2 ingest, and synchronous route retirement remain open.
 - Lint/typecheck/checkJs and safe DOM rules are still missing.
 - Large admin/frontend/test modules remain monolithic.
 - Scalable activity indexes, signed activity cursors, queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, observability/SLOs, load/performance budgets, and toolchain pinning remain open or deferred.
@@ -74,9 +86,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass | Phase 0-B Worker, static, release, asset, build, package/audit, Cloudflare prereq, and full `npm run release:preflight` validation passed. All untracked Phase 0-B files listed in `PHASE0B_REMEDIATION_REPORT.md` and `AUDIT_ACTION_PLAN.md` must still be committed with the tracked changes. |
-| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, auth migration `0028_add_admin_mfa_failed_attempts.sql` is applied, and staging verification passes. |
-| Current recommended next phase | Pre-deploy verification, then Phase 1 | Track/commit all files, keep validation green after any further code/config/test edits, verify Cloudflare secrets/bindings/migrations in staging, then implement async AI video jobs and broader SaaS platform gaps. |
+| Merge readiness | Pass after final Phase 1-A validation | `npm run release:preflight`, `npm run test:workers`, `npm run test:static`, release/cloudflare/asset checks, package audits, and `git diff --check` passed for the current Phase 1-A diff. All changed/new Phase 1-A files listed in `PHASE1A_REMEDIATION_REPORT.md` must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, auth migrations `0028_add_admin_mfa_failed_attempts.sql` and `0029_add_ai_video_jobs.sql` are applied, `bitbi-ai-video-jobs` exists and is bound as `AI_VIDEO_JOBS_QUEUE`, and staging verification passes. |
+| Current recommended next phase | Phase 1-B | Track/commit all files, verify Cloudflare secrets/bindings/migrations/queues in staging, then implement async video short polling units, R2 ingest, admin UI polling, DLQ/poison-message handling, and broader SaaS platform gaps. |
 
 ## Executive Summary
 

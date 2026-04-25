@@ -32,9 +32,20 @@ import {
   proxyToAiLab,
   rateLimitAdminAi,
 } from "../lib/admin-ai-proxy.js";
+import {
+  createAdminAiVideoJob,
+  getAdminAiVideoJob,
+  normalizeAiVideoIdempotencyKey,
+  serializeAiVideoJob,
+} from "../lib/ai-video-jobs.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import {
+  logWorkerConfigFailure,
+  workerConfigUnavailableResponse,
+  WorkerConfigError,
+} from "../lib/config.js";
 import { createAiGeneratedSaveReferenceFromBase64 } from "./ai/generated-image-save-reference.js";
 
 function inputErrorResponse(error, correlationId = null) {
@@ -76,6 +87,22 @@ function notFoundResponse(correlationId) {
     },
     { status: 404 }
   ), correlationId);
+}
+
+function decodePathSegment(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function videoJobResponse(job, correlationId, { status = 200, existing = false } = {}) {
+  return withCorrelationId(json({
+    ok: true,
+    existing,
+    job: serializeAiVideoJob(job),
+  }, { status }), correlationId);
 }
 
 async function attachAdminImageSaveReference(response, env, adminUser, correlationId, requestInfo = null) {
@@ -290,6 +317,64 @@ export async function handleAdminAI(ctx) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       throw error;
     }
+  }
+
+  if (pathname === "/api/admin/ai/video-jobs" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-job-create-ip", 8, 600_000, correlationId);
+    if (limited) return limited;
+
+    const parsed = await readAdminAiJsonBody(request, correlationId, {
+      maxBytes: BODY_LIMITS.adminVideoJobJson,
+    });
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
+    if (!body) return badJsonResponse(correlationId);
+
+    try {
+      const minimalMode = body.minimal_mode === true;
+      const { minimal_mode: _strip, ...validationBody } = body;
+      const validated = validateVideoPayload(validationBody);
+      if (minimalMode) validated.minimal_mode = true;
+      const idempotencyKey = normalizeAiVideoIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const { job, existing } = await createAdminAiVideoJob({
+        env,
+        adminUser: result.user,
+        payload: validated,
+        idempotencyKey,
+        correlationId,
+      });
+      return videoJobResponse(job, correlationId, { status: existing ? 200 : 202, existing });
+    } catch (error) {
+      if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof WorkerConfigError) {
+        logWorkerConfigFailure({
+          env,
+          error,
+          correlationId,
+          requestInfo,
+          component: "admin-ai-video-jobs",
+        });
+        return workerConfigUnavailableResponse(correlationId);
+      }
+      throw error;
+    }
+  }
+
+  const videoJobStatusMatch = pathname.match(/^\/api\/admin\/ai\/video-jobs\/([^/]+)$/);
+  if (videoJobStatusMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-video-job-status-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    const jobId = decodePathSegment(videoJobStatusMatch[1]);
+    if (!jobId || jobId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    const job = await getAdminAiVideoJob(env, result.user, jobId);
+    if (!job) {
+      return notFoundResponse(correlationId);
+    }
+    return videoJobResponse(job, correlationId);
   }
 
   if (pathname === "/api/admin/ai/compare" && method === "POST") {

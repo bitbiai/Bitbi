@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0028_add_admin_mfa_failed_attempts.sql",
+        latest: "0029_add_ai_video_jobs.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -78,6 +78,7 @@ const baseManifest = {
             producers: {
               ACTIVITY_INGEST_QUEUE: { queue: "bitbi-auth-activity-ingest" },
               AI_IMAGE_DERIVATIVES_QUEUE: { queue: "bitbi-ai-image-derivatives" },
+              AI_VIDEO_JOBS_QUEUE: { queue: "bitbi-ai-video-jobs" },
             },
             consumers: [
               {
@@ -91,6 +92,12 @@ const baseManifest = {
                 max_batch_size: 5,
                 max_batch_timeout: 5,
                 max_retries: 8,
+              },
+              {
+                queue: "bitbi-ai-video-jobs",
+                max_batch_size: 3,
+                max_batch_timeout: 5,
+                max_retries: 4,
               },
             ],
           },
@@ -207,6 +214,16 @@ const baseManifest = {
         summary: "The derivatives queue must exist before auth deploy.",
       },
       {
+        id: "auth-ai-video-jobs-queue-created",
+        kind: "cloudflare_queue",
+        worker: "auth",
+        binding: "AI_VIDEO_JOBS_QUEUE",
+        queue: "bitbi-ai-video-jobs",
+        requiredForRelease: true,
+        documentation: "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        summary: "The async AI video jobs queue must exist before auth deploy.",
+      },
+      {
         id: "auth-audit-archive-bucket-created",
         kind: "cloudflare_r2_bucket",
         worker: "auth",
@@ -320,6 +337,7 @@ const baseManifest = {
       "/admin/ai/test-embeddings",
       "/admin/ai/test-music",
       "/admin/ai/test-video",
+      "/admin/ai/video-jobs",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
@@ -337,7 +355,11 @@ const baseManifest = {
     authOnlyRoutes: [
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
+      "/api/admin/ai/video-jobs",
       "/api/admin/ai/proxy-video",
+    ],
+    authOnlyPatternRoutes: [
+      "GET /api/admin/ai/video-jobs/:id",
     ],
   },
   adminAuthRoutes: {
@@ -374,6 +396,7 @@ function createValidContext() {
     "workers/auth/CLAUDE.md",
     "workers/contact/src/index.js",
     "docs/ai-image-derivatives-runbook.md",
+    "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);
@@ -390,6 +413,7 @@ function createValidContext() {
           "0026_add_cursor_pagination_support.sql",
           "0027_add_admin_mfa.sql",
           "0028_add_admin_mfa_failed_attempts.sql",
+          "0029_add_ai_video_jobs.sql",
         ],
       },
     },
@@ -470,6 +494,10 @@ function createValidContext() {
                 binding: "AI_IMAGE_DERIVATIVES_QUEUE",
                 queue: "bitbi-ai-image-derivatives",
               },
+              {
+                binding: "AI_VIDEO_JOBS_QUEUE",
+                queue: "bitbi-ai-video-jobs",
+              },
             ],
             consumers: [
               {
@@ -483,6 +511,12 @@ function createValidContext() {
                 max_batch_size: 5,
                 max_batch_timeout: 5,
                 max_retries: 8,
+              },
+              {
+                queue: "bitbi-ai-video-jobs",
+                max_batch_size: 3,
+                max_batch_timeout: 5,
+                max_retries: 4,
               },
             ],
           },
@@ -536,6 +570,7 @@ function createValidContext() {
       export function apiAdminAiTestEmbeddings() { return request('POST', '/admin/ai/test-embeddings'); }
       export function apiAdminAiTestMusic() { return request('POST', '/admin/ai/test-music'); }
       export function apiAdminAiTestVideo() { return request('POST', '/admin/ai/test-video'); }
+      export function apiAdminAiCreateVideoJob() { return request('POST', '/admin/ai/video-jobs'); }
       export function apiAdminAiCompare() { return request('POST', '/admin/ai/compare'); }
       export function apiAdminAiLiveAgent() { return request('POST', '/admin/ai/live-agent'); }
       export function apiAdminAiSaveTextAsset() { return request('POST', '/admin/ai/save-text-asset'); }
@@ -629,6 +664,9 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/test-embeddings" && method === "POST") return proxyToAiLab("/internal/ai/test-embeddings");
       if (pathname === "/api/admin/ai/test-music" && method === "POST") return proxyToAiLab("/internal/ai/test-music");
       if (pathname === "/api/admin/ai/test-video" && method === "POST") return proxyToAiLab("/internal/ai/test-video");
+      if (pathname === "/api/admin/ai/video-jobs" && method === "POST") return handleCreateVideoJob();
+      const videoJobStatusMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)$/);
+      if (videoJobStatusMatch && method === "GET") return handleVideoJobStatus();
       if (pathname === "/api/admin/ai/compare" && method === "POST") return proxyToAiLab("/internal/ai/compare");
       if (pathname === "/api/admin/ai/live-agent" && method === "POST") return proxyLiveAgentToAiLab();
       if (pathname === "/api/admin/ai/image-derivatives/backfill" && method === "POST") return handleBackfill();
@@ -774,6 +812,18 @@ function createValidContext() {
     issues.some((issue) =>
       issue.includes("Admin AI static auth API path contract") &&
       issue.includes("/admin/ai/test-video")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAi.authOnlyPatternRoutes = [];
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("Admin AI external pattern route ownership contract") &&
+      issue.includes("GET /api/admin/ai/video-jobs/:id")
     )
   );
 }

@@ -857,6 +857,14 @@ function validateAdminAiCompatibility(manifest, context) {
     "Admin AI external route ownership contract",
     issues
   );
+  const actualAdminAiExternalPatternRoutes = extractPatternMethodRoutes(context.authAdminAiSource)
+    .filter((route) => route.includes("/api/admin/ai/"));
+  compareExactStringSets(
+    adminAi.authOnlyPatternRoutes || [],
+    actualAdminAiExternalPatternRoutes,
+    "Admin AI external pattern route ownership contract",
+    issues
+  );
 
   const actualAiInternalRoutes = extractLiteralMethodRoutes(context.aiIndexSource)
     .filter((route) => route.includes("/internal/ai/"))

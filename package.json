@@ -12,6 +12,7 @@
     "test:cloudflare-prereqs": "node scripts/test-cloudflare-deploy-prereqs.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
     "test:asset-version": "node scripts/test-asset-version.mjs",
+    "check:worker-body-parsers": "node scripts/check-worker-body-parsers.mjs",
     "validate:release": "node scripts/validate-release-compat.mjs",
     "validate:cloudflare-prereqs": "node scripts/validate-cloudflare-deploy-prereqs.mjs",
     "validate:live": "node scripts/validate-live-runtime-canary.mjs",

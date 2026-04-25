@@ -52,6 +52,8 @@ jobs:
         run: npm run test:release-plan
       - name: Run Cloudflare deploy prerequisite tests
         run: npm run test:cloudflare-prereqs
+      - name: Check Worker body parser guardrails
+        run: npm run check:worker-body-parsers
       - name: Run asset version tests
         run: npm run test:asset-version
       - name: Validate release compatibility

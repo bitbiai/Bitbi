@@ -446,6 +446,7 @@ class MockD1 {
       aiFolders: [],
       aiImages: [],
       aiTextAssets: [],
+      aiVideoJobs: [],
       aiGenerationLog: [],
       aiDailyQuotaUsage: [],
       userActivityLog: [],
@@ -505,6 +506,9 @@ class MockD1 {
     }
     if (this.missingTables.has('admin_mfa_failed_attempts') && query.includes('admin_mfa_failed_attempts')) {
       throw new Error('no such table: admin_mfa_failed_attempts');
+    }
+    if (this.missingTables.has('ai_video_jobs') && query.includes('ai_video_jobs')) {
+      throw new Error('no such table: ai_video_jobs');
     }
     if (this.missingTables.has('admin_audit_log') && query.includes('admin_audit_log')) {
       throw new Error('no such table: admin_audit_log');
@@ -3180,6 +3184,169 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
+    if (query.startsWith('INSERT INTO ai_video_jobs (')) {
+      const [
+        id,
+        user_id,
+        scope,
+        status,
+        provider,
+        model,
+        prompt,
+        input_json,
+        request_hash,
+        provider_task_id,
+        idempotency_key,
+        attempt_count,
+        max_attempts,
+        next_attempt_at,
+        locked_until,
+        output_r2_key,
+        output_url,
+        error_code,
+        error_message,
+        created_at,
+        updated_at,
+        completed_at,
+        expires_at,
+      ] = bindings;
+      if (
+        idempotency_key
+        && this.state.aiVideoJobs.some((row) => row.user_id === user_id && row.scope === scope && row.idempotency_key === idempotency_key)
+      ) {
+        throw new Error('UNIQUE constraint failed: ai_video_jobs.user_id, ai_video_jobs.scope, ai_video_jobs.idempotency_key');
+      }
+      this.state.aiVideoJobs.push({
+        id,
+        user_id,
+        scope,
+        status,
+        provider,
+        model,
+        prompt,
+        input_json,
+        request_hash,
+        provider_task_id,
+        idempotency_key,
+        attempt_count,
+        max_attempts,
+        next_attempt_at,
+        locked_until,
+        output_r2_key,
+        output_url,
+        error_code,
+        error_message,
+        created_at,
+        updated_at,
+        completed_at,
+        expires_at,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, user_id, scope, status, provider, model, prompt, input_json, request_hash, provider_task_id, idempotency_key, attempt_count, max_attempts, next_attempt_at, locked_until, output_r2_key, output_url, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_video_jobs WHERE user_id = ? AND scope = ? AND idempotency_key = ?') {
+      const [userId, scope, idempotencyKey] = bindings;
+      return deepClone(this.state.aiVideoJobs.find((row) => row.user_id === userId && row.scope === scope && row.idempotency_key === idempotencyKey) || null);
+    }
+
+    if (query === "SELECT id, user_id, scope, status, provider, model, prompt, input_json, request_hash, provider_task_id, idempotency_key, attempt_count, max_attempts, next_attempt_at, locked_until, output_r2_key, output_url, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_video_jobs WHERE id = ? AND user_id = ? AND scope = 'admin'") {
+      const [jobId, userId] = bindings;
+      return deepClone(this.state.aiVideoJobs.find((row) => row.id === jobId && row.user_id === userId && row.scope === 'admin') || null);
+    }
+
+    if (query === 'SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, ai_video_jobs.scope AS scope, ai_video_jobs.status AS status, ai_video_jobs.provider AS provider, ai_video_jobs.model AS model, ai_video_jobs.prompt AS prompt, ai_video_jobs.input_json AS input_json, ai_video_jobs.request_hash AS request_hash, ai_video_jobs.provider_task_id AS provider_task_id, ai_video_jobs.idempotency_key AS idempotency_key, ai_video_jobs.attempt_count AS attempt_count, ai_video_jobs.max_attempts AS max_attempts, ai_video_jobs.next_attempt_at AS next_attempt_at, ai_video_jobs.locked_until AS locked_until, ai_video_jobs.output_r2_key AS output_r2_key, ai_video_jobs.output_url AS output_url, ai_video_jobs.error_code AS error_code, ai_video_jobs.error_message AS error_message, ai_video_jobs.created_at AS created_at, ai_video_jobs.updated_at AS updated_at, ai_video_jobs.completed_at AS completed_at, ai_video_jobs.expires_at AS expires_at, users.email AS user_email FROM ai_video_jobs INNER JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ?') {
+      const [jobId] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === jobId);
+      if (!row) return null;
+      const user = this.state.users.find((item) => item.id === row.user_id);
+      if (!user) return null;
+      return deepClone({ ...row, user_email: user.email });
+    }
+
+    if (query === "UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, completedAt, jobId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (row.id !== jobId) continue;
+        row.status = 'failed';
+        row.error_code = errorCode;
+        row.error_message = errorMessage;
+        row.updated_at = updatedAt;
+        row.completed_at = completedAt;
+        changes += 1;
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, completedAt, jobId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (row.id !== jobId) continue;
+        row.status = 'failed';
+        row.error_code = errorCode;
+        row.error_message = errorMessage;
+        row.locked_until = null;
+        row.updated_at = updatedAt;
+        row.completed_at = completedAt;
+        changes += 1;
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'processing') AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)") {
+      const [lockedUntil, updatedAt, jobId, now, nextAttemptNow] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (
+          row.id === jobId
+          && ['queued', 'starting', 'provider_pending', 'processing'].includes(row.status)
+          && (!row.locked_until || row.locked_until < now)
+          && (!row.next_attempt_at || row.next_attempt_at <= nextAttemptNow)
+        ) {
+          row.status = 'starting';
+          row.attempt_count = Number(row.attempt_count || 0) + 1;
+          row.locked_until = lockedUntil;
+          row.updated_at = updatedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_video_jobs SET status = 'succeeded', output_url = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
+      const [outputUrl, updatedAt, completedAt, jobId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (row.id !== jobId) continue;
+        row.status = 'succeeded';
+        row.output_url = outputUrl;
+        row.error_code = null;
+        row.error_message = null;
+        row.locked_until = null;
+        row.updated_at = updatedAt;
+        row.completed_at = completedAt;
+        changes += 1;
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, nextAttemptAt, updatedAt, jobId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiVideoJobs) {
+        if (row.id !== jobId) continue;
+        row.status = 'queued';
+        row.error_code = errorCode;
+        row.error_message = errorMessage;
+        row.next_attempt_at = nextAttemptAt;
+        row.locked_until = null;
+        row.updated_at = updatedAt;
+        changes += 1;
+      }
+      return { success: true, meta: { changes } };
+    }
+
     throw new Error(`Unsupported query in test harness: ${query}`);
   }
 }
@@ -3194,6 +3361,9 @@ function createAuthTestEnv(seed = {}) {
     ? undefined
     : (seed.activityIngestQueue || new MockQueueProducer());
   const AI_IMAGE_DERIVATIVES_QUEUE = seed.aiImageDerivativesQueue || new MockQueueProducer();
+  const AI_VIDEO_JOBS_QUEUE = seed.disableAiVideoJobsQueueBinding
+    ? undefined
+    : (seed.aiVideoJobsQueue || new MockQueueProducer());
   const IMAGES = seed.IMAGES || new MockImagesBinding(seed.imagesBinding);
   const PUBLIC_RATE_LIMITER = Object.prototype.hasOwnProperty.call(seed, 'PUBLIC_RATE_LIMITER')
     ? seed.PUBLIC_RATE_LIMITER
@@ -3218,6 +3388,7 @@ function createAuthTestEnv(seed = {}) {
     AUDIT_ARCHIVE,
     ACTIVITY_INGEST_QUEUE,
     AI_IMAGE_DERIVATIVES_QUEUE,
+    AI_VIDEO_JOBS_QUEUE,
     IMAGES,
     PUBLIC_RATE_LIMITER,
     AI: {

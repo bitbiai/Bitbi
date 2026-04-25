@@ -52,6 +52,7 @@ const REQUIRED_AUTH_BINDINGS = Object.freeze([
   "PUBLIC_RATE_LIMITER",
   "ACTIVITY_INGEST_QUEUE",
   "AI_IMAGE_DERIVATIVES_QUEUE",
+  "AI_VIDEO_JOBS_QUEUE",
 ]);
 
 function getReleaseSection(context) {

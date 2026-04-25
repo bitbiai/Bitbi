@@ -122,6 +122,9 @@ src/
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-embeddings` — proxy an embeddings test into `workers/ai` (requires admin)
+- `POST /api/admin/ai/test-video` — proxy a synchronous video-generation test into `workers/ai` (requires admin; compatibility path)
+- `POST /api/admin/ai/video-jobs` — create an async admin video-generation job (requires admin)
+- `GET /api/admin/ai/video-jobs/:id` — read owner-scoped async admin video job status (requires admin)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI
@@ -139,7 +142,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -149,13 +152,15 @@ src/
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
+**Queue** `bitbi-ai-video-jobs` bound as `AI_VIDEO_JOBS_QUEUE` — carries async admin video jobs from `/api/admin/ai/video-jobs`. The auth worker consumes the queue, leases `ai_video_jobs` rows, invokes the signed internal AI worker path, and records success/failure/retry state in D1. The existing synchronous `/api/admin/ai/test-video` compatibility route remains available during rollout.
+
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 
 **Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0028_add_admin_mfa_failed_attempts`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0029_add_ai_video_jobs`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -171,6 +176,7 @@ Key migration-dependent behavior:
 - `0026_add_cursor_pagination_support` — required before auth deploy if admin activity/user-activity and cursor-based asset listing must work immediately
 - `0027_add_admin_mfa` — required before auth deploy if production admin access must enforce TOTP MFA enrollment/verification and recovery-code state safely
 - `0028_add_admin_mfa_failed_attempts` — required before auth deploy if admin MFA verification lockout must fail closed with durable failed-attempt state and reset-on-success semantics
+- `0029_add_ai_video_jobs` — required before auth deploy if async admin video job creation/status/queue processing must work immediately
 
 ## Conventions
 
@@ -187,6 +193,6 @@ Key migration-dependent behavior:
 - Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
-- Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, and `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables
+- Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables, and `bitbi-ai-video-jobs` processes async admin video jobs outside browser request lifecycles
 - Environment secrets: `SESSION_SECRET`, `RESEND_API_KEY`
 - Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

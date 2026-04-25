@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0028_add_admin_mfa_failed_attempts.sql",
+        "latest": "0029_add_ai_video_jobs.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -84,6 +84,9 @@
               },
               "AI_IMAGE_DERIVATIVES_QUEUE": {
                 "queue": "bitbi-ai-image-derivatives"
+              },
+              "AI_VIDEO_JOBS_QUEUE": {
+                "queue": "bitbi-ai-video-jobs"
               }
             },
             "consumers": [
@@ -98,6 +101,12 @@
                 "max_batch_size": 5,
                 "max_batch_timeout": 5,
                 "max_retries": 8
+              },
+              {
+                "queue": "bitbi-ai-video-jobs",
+                "max_batch_size": 3,
+                "max_batch_timeout": 5,
+                "max_retries": 4
               }
             ]
           }
@@ -242,6 +251,16 @@
         "summary": "The derivative queue must exist before the auth worker config that references it is deployed."
       },
       {
+        "id": "auth-ai-video-jobs-queue-created",
+        "kind": "cloudflare_queue",
+        "worker": "auth",
+        "binding": "AI_VIDEO_JOBS_QUEUE",
+        "queue": "bitbi-ai-video-jobs",
+        "requiredForRelease": true,
+        "documentation": "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+        "summary": "The async AI video jobs queue must exist before the auth worker deploy that enqueues admin video jobs."
+      },
+      {
         "id": "auth-audit-archive-bucket-created",
         "kind": "cloudflare_r2_bucket",
         "worker": "auth",
@@ -355,6 +374,7 @@
       "/admin/ai/test-embeddings",
       "/admin/ai/test-music",
       "/admin/ai/test-video",
+      "/admin/ai/video-jobs",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset"
@@ -372,7 +392,11 @@
     "authOnlyRoutes": [
       "/api/admin/ai/image-derivatives/backfill",
       "/api/admin/ai/save-text-asset",
+      "/api/admin/ai/video-jobs",
       "/api/admin/ai/proxy-video"
+    ],
+    "authOnlyPatternRoutes": [
+      "GET /api/admin/ai/video-jobs/:id"
     ]
   },
   "adminAuthRoutes": {

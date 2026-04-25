@@ -29,6 +29,10 @@
 			{
 				"queue": "bitbi-auth-activity-ingest",
 				"binding": "ACTIVITY_INGEST_QUEUE"
+			},
+			{
+				"queue": "bitbi-ai-video-jobs",
+				"binding": "AI_VIDEO_JOBS_QUEUE"
 			}
 		],
 		"consumers": [
@@ -43,6 +47,12 @@
 				"max_batch_size": 50,
 				"max_batch_timeout": 5,
 				"max_retries": 6
+			},
+			{
+				"queue": "bitbi-ai-video-jobs",
+				"max_batch_size": 3,
+				"max_batch_timeout": 5,
+				"max_retries": 4
 			}
 		]
 	},

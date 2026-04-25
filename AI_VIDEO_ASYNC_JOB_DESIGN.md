@@ -2,7 +2,15 @@
 
 ## Status
 
-This is a Phase 0-B design document. It does not implement the async video pipeline. The current runtime remains synchronous for admin video generation, with Phase 0-B hardening limited to request-size limits, fail-closed throttling, HMAC service authentication, nonce replay protection, and deploy preflight checks.
+This began as a Phase 0-B design document. Phase 1-A has now implemented the first async admin video job foundation:
+
+- Auth D1 migration `0029_add_ai_video_jobs.sql`
+- Auth queue binding `AI_VIDEO_JOBS_QUEUE` for `bitbi-ai-video-jobs`
+- Admin job create/status APIs at `/api/admin/ai/video-jobs`
+- Queue consumer leasing/retry/failure state in D1
+- Job lifecycle observability events
+
+The design is not fully complete at runtime. The existing synchronous `/api/admin/ai/test-video` compatibility route remains, the admin UI still defaults to that route, queue processing still calls the existing `/internal/ai/test-video` provider path, and R2 video ingest is not yet implemented.
 
 ## Current Problem
 

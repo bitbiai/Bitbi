@@ -54,6 +54,11 @@ import {
   workerConfigUnavailableResponse,
   WorkerConfigError,
 } from "./lib/config.js";
+import {
+  AI_VIDEO_JOBS_QUEUE_NAME,
+  getAiVideoJobRetryDelaySeconds,
+  processAiVideoJobMessage,
+} from "./lib/ai-video-jobs.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
@@ -455,6 +460,42 @@ export default {
     const isAiDerivativeBatch =
       queueName === AI_IMAGE_DERIVATIVES_QUEUE_NAME ||
       messages.every((message) => message?.body?.type === "ai_image_derivative.generate");
+    const isAiVideoBatch =
+      queueName === AI_VIDEO_JOBS_QUEUE_NAME ||
+      messages.every((message) => message?.body?.type === "ai_video_job.process");
+    if (isAiVideoBatch) {
+      for (const message of batch.messages) {
+        const startedAt = Date.now();
+        const rawBody = message?.body && typeof message.body === "object" ? message.body : {};
+        const jobId = rawBody.job_id || "unknown";
+        const attempts = message.attempts ?? 0;
+        const correlationId = rawBody.correlation_id || null;
+
+        try {
+          const result = await processAiVideoJobMessage(env, message.body, { messageAttempts: attempts });
+          if (result.status === "retry") {
+            message.retry({ delaySeconds: result.delaySeconds || getAiVideoJobRetryDelaySeconds(attempts) });
+          } else {
+            message.ack();
+          }
+        } catch (error) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "ai-video-jobs-queue",
+            event: "ai_video_job_consumer_retry",
+            level: "error",
+            correlationId,
+            job_id: jobId,
+            attempts,
+            retry_delay_seconds: getAiVideoJobRetryDelaySeconds(attempts),
+            duration_ms: getDurationMs(startedAt),
+            ...getErrorFields(error),
+          });
+          message.retry({ delaySeconds: getAiVideoJobRetryDelaySeconds(attempts) });
+        }
+      }
+      return;
+    }
     if (!isAiDerivativeBatch) {
       logDiagnostic({
         service: "bitbi-auth",

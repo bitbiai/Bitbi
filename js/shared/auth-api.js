@@ -14,6 +14,13 @@ async function request(method, path, body, options = {}) {
         if (options.signal) {
             opts.signal = options.signal;
         }
+        if (options.headers && typeof options.headers === 'object') {
+            for (const [key, value] of Object.entries(options.headers)) {
+                if (value !== undefined && value !== null) {
+                    opts.headers[key] = String(value);
+                }
+            }
+        }
         if (body !== undefined) {
             opts.headers['Content-Type'] = 'application/json';
             opts.body = JSON.stringify(body);
@@ -215,6 +222,14 @@ export function apiAdminAiTestMusic(payload, options) {
 
 export function apiAdminAiTestVideo(payload, options) {
     return request('POST', '/admin/ai/test-video', payload, options);
+}
+
+export function apiAdminAiCreateVideoJob(payload, options) {
+    return request('POST', '/admin/ai/video-jobs', payload, options);
+}
+
+export function apiAdminAiGetVideoJob(jobId, options) {
+    return request('GET', `/admin/ai/video-jobs/${encodeURIComponent(jobId)}`, undefined, options);
 }
 
 export function apiAdminAiCompare(payload, options) {

@@ -38,6 +38,14 @@ function getCheck(result, id) {
 
 {
   const context = createContext();
+  delete context.manifest.release.workers.auth.bindings.queues.producers.AI_VIDEO_JOBS_QUEUE;
+  const result = validateCloudflareDeployPrereqs(context);
+  assert.equal(result.ok, false);
+  assert.equal(getCheck(result, "auth-binding:AI_VIDEO_JOBS_QUEUE:manifest")?.status, "fail");
+}
+
+{
+  const context = createContext();
   context.workerConfigs.ai.wrangler.migrations = [];
   const result = validateCloudflareDeployPrereqs(context);
   assert.equal(result.ok, false);

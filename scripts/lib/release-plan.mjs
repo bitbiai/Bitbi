@@ -44,6 +44,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run test:release-compat",
   "npm run validate:release",
   "npm run validate:cloudflare-prereqs",
+  "npm run check:worker-body-parsers",
 ]);
 
 const WORKER_RECOMMENDED_CHECKS = Object.freeze([
@@ -118,6 +119,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "README.md"
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
     || /^PHASE0[A-Z0-9_]*\.md$/.test(normalized)
+    || /^PHASE1[A-Z0-9_]*\.md$/.test(normalized)
     || normalized === "AI_VIDEO_ASYNC_JOB_DESIGN.md";
 }
 
