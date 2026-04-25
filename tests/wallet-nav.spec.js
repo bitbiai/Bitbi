@@ -281,6 +281,15 @@ async function dismissCookieBanner(page) {
   }
 }
 
+async function activateProfileWalletAction(page, action) {
+  await expect(action).toBeVisible();
+  await action.evaluate((element) => {
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await action.evaluate((element) => element.click());
+}
+
 test.describe('Wallet navigation', () => {
   test('desktop wallet panel renders an injected-wallet-only disconnected state', async ({ page }) => {
     await page.goto('/');
@@ -1121,7 +1130,7 @@ test.describe('Wallet identity profile flow', () => {
     await expect(page.locator('#walletSectionCard')).toBeVisible();
     await expect(page.locator('#walletSectionCard')).toContainText('No wallet linked');
 
-    await page.locator('#walletSectionActions .profile__wallet-btn').first().click();
+    await activateProfileWalletAction(page, page.locator('#walletSectionActions .profile__wallet-btn').first());
     await expect(page.locator('#walletModal')).toBeVisible();
     await page.locator('[data-wallet-provider-id="com.bitbi.mock.persistent"]').click();
     await expect(page.locator('#walletModal')).toContainText('Persistent Mock Wallet');
@@ -1132,7 +1141,7 @@ test.describe('Wallet identity profile flow', () => {
     await expect(page.locator('#walletSectionCard')).toContainText('0x1234567890abcdef1234567890abcdef12345678');
     await page.locator('[data-wallet-close="panel"]').click();
 
-    await page.locator('#walletSectionActions [class*="--danger"]').click();
+    await activateProfileWalletAction(page, page.locator('#walletSectionActions [class*="--danger"]'));
     await expect(page.locator('#walletSectionCard')).toContainText('Connected, not linked');
   });
 });

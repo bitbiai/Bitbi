@@ -56,7 +56,7 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
-    files: ["workers/auth/migrations/0027_add_admin_mfa.sql"],
+    files: ["workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql"],
   });
   assert.deepEqual(Object.keys(plan.impacts.schemaCheckpoints), ["auth"]);
   assert.deepEqual(Object.keys(plan.impacts.workers), ["auth"]);
@@ -106,11 +106,15 @@ function createContext() {
       "tests/workers.spec.js",
       "AUDIT_NEXT_LEVEL.md",
       "PHASE0_REMEDIATION_REPORT.md",
+      "PHASE0B_REMEDIATION_REPORT.md",
+      "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     ],
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "AUDIT_NEXT_LEVEL.md",
+    "PHASE0B_REMEDIATION_REPORT.md",
     "PHASE0_REMEDIATION_REPORT.md",
     "tests/workers.spec.js",
   ]);
@@ -135,6 +139,15 @@ function createContext() {
   });
   assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth"]);
   assert.equal(plan.impacts.static.required, true);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["js/shared/request-body.mjs"],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth", "contact"]);
+  assert.equal(plan.impacts.static.required, true);
+  assert(plan.recommendedChecks.includes("npm run test:workers"));
 }
 
 {
@@ -174,7 +187,7 @@ function createContext() {
     {
       execute: true,
       files: [
-        "workers/auth/migrations/0027_add_admin_mfa.sql",
+        "workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql",
         "workers/ai/src/index.js",
         "workers/auth/src/index.js",
       ],
@@ -204,6 +217,7 @@ function createContext() {
     [
       { command: "npm run test:release-compat", cwd: null, execute: true },
       { command: "npm run validate:release", cwd: null, execute: true },
+      { command: "npm run validate:cloudflare-prereqs", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {
         command: "npx wrangler d1 migrations apply bitbi-auth-db --remote",

@@ -1,5 +1,10 @@
 import { json } from "../lib/response.js";
-import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  normalizeEmail,
+  isValidEmail,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
 import {
   evaluateSharedRateLimit,
@@ -114,7 +119,9 @@ export async function handleResendVerification(ctx) {
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
 
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.authJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
 
   // Always return generic success to prevent user enumeration
   const genericOk = json({

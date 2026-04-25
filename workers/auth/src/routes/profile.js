@@ -3,10 +3,21 @@
    ============================================================ */
 
 import { json } from "../lib/response.js";
-import { readJsonBody, isValidUrl } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  isValidUrl,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import { nowIso } from "../lib/tokens.js";
 import { logUserActivity } from "../lib/activity.js";
+import {
+  evaluateSharedRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  rateLimitUnavailableResponse,
+  sensitiveRateLimitOptions,
+} from "../lib/rate-limit.js";
 
 function normalizePlainText(value) {
   return String(value ?? "")
@@ -66,7 +77,25 @@ export async function handleUpdateProfile(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const ip = getClientIp(request);
+  const limit = await evaluateSharedRateLimit(
+    env,
+    "profile-update-user",
+    session.user.id,
+    20,
+    10 * 60_000,
+    sensitiveRateLimitOptions({
+      component: "profile-update",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (limit.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (limit.limited) return rateLimitResponse();
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body) {
     return json(
       { ok: false, error: "Invalid request body." },
@@ -149,7 +178,7 @@ export async function handleUpdateProfile(ctx) {
   // Log profile update (durable background write)
   const changedFields = Object.keys(fields);
   ctx.execCtx.waitUntil(
-    logUserActivity(env, userId, "update_profile", { fields: changedFields }, null, {
+    logUserActivity(env, userId, "update_profile", { fields: changedFields }, ip, {
       correlationId: ctx.correlationId || null,
       requestInfo: ctx,
     })

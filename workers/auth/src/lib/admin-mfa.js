@@ -23,6 +23,9 @@ export const ADMIN_MFA_RECOVERY_CODE_COUNT = 10;
 export const ADMIN_MFA_REQUIRED_CODE = "admin_mfa_required";
 export const ADMIN_MFA_ENROLLMENT_REQUIRED_CODE = "admin_mfa_enrollment_required";
 export const ADMIN_MFA_INVALID_OR_EXPIRED_CODE = "admin_mfa_invalid_or_expired";
+export const ADMIN_MFA_FAILED_ATTEMPT_THRESHOLD = 5;
+export const ADMIN_MFA_FAILED_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+export const ADMIN_MFA_LOCKOUT_MS = 15 * 60 * 1000;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -405,6 +408,7 @@ export async function assertAdminMfaInfraReady(env) {
     readinessPromise = (async () => {
       await env.DB.prepare("SELECT 1 FROM admin_mfa_credentials LIMIT 1").first();
       await env.DB.prepare("SELECT 1 FROM admin_mfa_recovery_codes LIMIT 1").first();
+      await env.DB.prepare("SELECT 1 FROM admin_mfa_failed_attempts LIMIT 1").first();
       return true;
     })();
     infraReadinessCache.set(env, readinessPromise);
@@ -711,6 +715,82 @@ async function consumeRecoveryCode(env, adminUserId, recoveryCode) {
   return match.id;
 }
 
+async function loadAdminMfaFailedAttemptState(env, adminUserId) {
+  await assertAdminMfaInfraReady(env);
+  return env.DB.prepare(
+    `SELECT admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at
+       FROM admin_mfa_failed_attempts
+      WHERE admin_user_id = ?
+      LIMIT 1`
+  )
+    .bind(adminUserId)
+    .first();
+}
+
+function isAdminMfaLocked(state, nowMs = Date.now()) {
+  return !!(state?.locked_until && Date.parse(state.locked_until) > nowMs);
+}
+
+function adminMfaLockedError() {
+  return new AdminMfaError("Too many MFA attempts. Please try again later.", {
+    status: 429,
+    code: "ADMIN_MFA_LOCKED",
+    reason: "failed_attempt_lockout",
+  });
+}
+
+async function assertAdminMfaNotFailedAttemptLocked(env, adminUserId) {
+  const state = await loadAdminMfaFailedAttemptState(env, adminUserId);
+  if (isAdminMfaLocked(state)) {
+    throw adminMfaLockedError();
+  }
+}
+
+function shouldCountAdminMfaFailure(error) {
+  return error instanceof AdminMfaError && new Set([
+    "ADMIN_MFA_INVALID_CODE",
+    "ADMIN_MFA_CODE_REPLAYED",
+    "ADMIN_MFA_INVALID_RECOVERY_CODE",
+  ]).has(error.code);
+}
+
+async function recordAdminMfaFailedAttempt(env, adminUserId) {
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const existing = await loadAdminMfaFailedAttemptState(env, adminUserId);
+  const existingFirstMs = Date.parse(existing?.first_failed_at || "");
+  const withinWindow = Number.isFinite(existingFirstMs)
+    && nowMs - existingFirstMs <= ADMIN_MFA_FAILED_ATTEMPT_WINDOW_MS;
+  const failedCount = withinWindow ? Number(existing?.failed_count || 0) + 1 : 1;
+  const firstFailedAt = withinWindow && existing?.first_failed_at ? existing.first_failed_at : now;
+  const lockedUntil = failedCount >= ADMIN_MFA_FAILED_ATTEMPT_THRESHOLD
+    ? new Date(nowMs + ADMIN_MFA_LOCKOUT_MS).toISOString()
+    : null;
+
+  await env.DB.prepare(
+    `INSERT INTO admin_mfa_failed_attempts (
+       admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(admin_user_id) DO UPDATE SET
+       failed_count = excluded.failed_count,
+       first_failed_at = excluded.first_failed_at,
+       last_failed_at = excluded.last_failed_at,
+       locked_until = excluded.locked_until,
+       updated_at = excluded.updated_at`
+  )
+    .bind(adminUserId, failedCount, firstFailedAt, now, lockedUntil, now)
+    .run();
+}
+
+async function resetAdminMfaFailedAttemptState(env, adminUserId) {
+  await assertAdminMfaInfraReady(env);
+  await env.DB.prepare(
+    "DELETE FROM admin_mfa_failed_attempts WHERE admin_user_id = ?"
+  )
+    .bind(adminUserId)
+    .run();
+}
+
 function validateProofRequestBody(body) {
   const code = normalizeTotpCode(body?.code);
   const recoveryCode = normalizeRecoveryCodeInput(body?.recovery_code);
@@ -729,6 +809,32 @@ function validateProofRequestBody(body) {
     });
   }
   return { code, recoveryCode };
+}
+
+async function verifyAdminMfaProof(env, session, credential, body) {
+  await assertAdminMfaNotFailedAttemptLocked(env, session.user.id);
+  let verificationMethod = "totp";
+  try {
+    const { code, recoveryCode } = validateProofRequestBody(body);
+    if (recoveryCode) {
+      await consumeRecoveryCode(env, session.user.id, recoveryCode);
+      verificationMethod = "recovery_code";
+    } else {
+      const { step } = await validateTotpAgainstCredential(env, credential, code, { requirePending: false });
+      await env.DB.prepare(
+        "UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?"
+      )
+        .bind(step, nowIso(), session.user.id)
+        .run();
+    }
+  } catch (error) {
+    if (shouldCountAdminMfaFailure(error)) {
+      await recordAdminMfaFailedAttempt(env, session.user.id);
+    }
+    throw error;
+  }
+  await resetAdminMfaFailedAttemptState(env, session.user.id);
+  return { verificationMethod };
 }
 
 export async function enableAdminMfa(env, session, body, { isSecure = false } = {}) {
@@ -757,6 +863,7 @@ export async function enableAdminMfa(env, session, body, { isSecure = false } = 
   )
     .bind(now, step, now, session.user.id)
     .run();
+  await resetAdminMfaFailedAttemptState(env, session.user.id);
   const proof = await buildProofCookieHeaders(env, session, isSecure);
   return {
     proof,
@@ -780,19 +887,7 @@ export async function verifyAdminMfa(env, session, body, { isSecure = false } = 
       reason: "enrollment_required",
     });
   }
-  const { code, recoveryCode } = validateProofRequestBody(body);
-  let verificationMethod = "totp";
-  if (recoveryCode) {
-    await consumeRecoveryCode(env, session.user.id, recoveryCode);
-    verificationMethod = "recovery_code";
-  } else {
-    const { step } = await validateTotpAgainstCredential(env, credential, code, { requirePending: false });
-    await env.DB.prepare(
-      "UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?"
-    )
-      .bind(step, nowIso(), session.user.id)
-      .run();
-  }
+  const { verificationMethod } = await verifyAdminMfaProof(env, session, credential, body);
   const proof = await buildProofCookieHeaders(env, session, isSecure);
   return {
     proof,
@@ -817,17 +912,7 @@ export async function disableAdminMfa(env, session, body, { isSecure = false } =
       reason: "not_enabled",
     });
   }
-  const { code, recoveryCode } = validateProofRequestBody(body);
-  if (recoveryCode) {
-    await consumeRecoveryCode(env, session.user.id, recoveryCode);
-  } else {
-    const { step } = await validateTotpAgainstCredential(env, credential, code, { requirePending: false });
-    await env.DB.prepare(
-      "UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?"
-    )
-      .bind(step, nowIso(), session.user.id)
-      .run();
-  }
+  await verifyAdminMfaProof(env, session, credential, body);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM admin_mfa_recovery_codes WHERE admin_user_id = ?").bind(session.user.id),
     env.DB.prepare("DELETE FROM admin_mfa_credentials WHERE admin_user_id = ?").bind(session.user.id),
@@ -846,19 +931,7 @@ export async function regenerateAdminMfaRecoveryCodes(env, session, body, { isSe
       reason: "enrollment_required",
     });
   }
-  const { code, recoveryCode } = validateProofRequestBody(body);
-  let verificationMethod = "totp";
-  if (recoveryCode) {
-    await consumeRecoveryCode(env, session.user.id, recoveryCode);
-    verificationMethod = "recovery_code";
-  } else {
-    const { step } = await validateTotpAgainstCredential(env, credential, code, { requirePending: false });
-    await env.DB.prepare(
-      "UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?"
-    )
-      .bind(step, nowIso(), session.user.id)
-      .run();
-  }
+  const { verificationMethod } = await verifyAdminMfaProof(env, session, credential, body);
   const recoveryCodes = createRecoveryCodes();
   await replaceRecoveryCodes(env, session.user.id, recoveryCodes, nowIso());
   const proof = await buildProofCookieHeaders(env, session, isSecure);

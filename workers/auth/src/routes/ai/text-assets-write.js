@@ -1,7 +1,11 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
-import { readJsonBody } from "../../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../../lib/request.js";
 import { saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
+import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
@@ -20,7 +24,18 @@ export async function handleRenameTextAsset(ctx, assetId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-text-asset-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-text-asset-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   const name = String(body?.name || "").trim();
   if (name.length === 0 || name.length > MAX_SAVED_FILE_TITLE_LENGTH) {
     return json({ ok: false, error: `Asset name must be 1–${MAX_SAVED_FILE_TITLE_LENGTH} characters.` }, { status: 400 });
@@ -80,7 +95,18 @@ export async function handleSaveAudio(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-audio-save-user",
+    userId: session.user.id,
+    maxRequests: 30,
+    windowMs: 60 * 60_000,
+    component: "ai-audio-save",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiSaveAudioJson });
+  if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+  const body = parsed.body;
   if (body?.audioUrl !== undefined && body?.audioUrl !== null && body?.audioUrl !== "") {
     const error = attachRemoteMediaPolicyContext(
       new Error(
@@ -203,6 +229,15 @@ export async function handleDeleteTextAsset(ctx, assetId) {
   const { request, env } = ctx;
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-text-asset-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-text-asset-write",
+  });
+  if (limited) return limited;
 
   try {
     await deleteUserAiTextAsset({

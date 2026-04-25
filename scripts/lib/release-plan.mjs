@@ -36,12 +36,14 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/durable-rate-limit-do.mjs": ["auth", "contact"],
   "js/shared/public-media-contract.mjs": ["auth"],
   "js/shared/remote-media-policy.mjs": ["auth"],
+  "js/shared/request-body.mjs": ["auth", "ai", "contact"],
   "js/shared/worker-observability.mjs": ["auth", "ai", "contact"],
 });
 
 const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run test:release-compat",
   "npm run validate:release",
+  "npm run validate:cloudflare-prereqs",
 ]);
 
 const WORKER_RECOMMENDED_CHECKS = Object.freeze([
@@ -115,7 +117,8 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "CLAUDE.md"
     || normalized === "README.md"
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
-    || /^PHASE0_[A-Z0-9_]+\.md$/.test(normalized);
+    || /^PHASE0[A-Z0-9_]*\.md$/.test(normalized)
+    || normalized === "AI_VIDEO_ASYNC_JOB_DESIGN.md";
 }
 
 function isWorkerPackagePath(relativePath, worker) {

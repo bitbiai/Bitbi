@@ -1,7 +1,11 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
-import { readJsonBody } from "../../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../../lib/request.js";
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
+import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import {
   hasControlCharacters,
   slugify,
@@ -15,7 +19,18 @@ export async function handleCreateFolder(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-folder-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-folder-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body || !body.name) {
     return json({ ok: false, error: "Folder name is required." }, { status: 400 });
   }
@@ -51,7 +66,18 @@ export async function handleRenameFolder(ctx, folderId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-folder-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-folder-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   const name = String(body?.name || "").trim();
   if (name.length === 0 || name.length > MAX_FOLDER_NAME_LENGTH) {
     return json({ ok: false, error: `Folder name must be 1–${MAX_FOLDER_NAME_LENGTH} characters.` }, { status: 400 });
@@ -107,6 +133,15 @@ export async function handleDeleteFolder(ctx, folderId) {
   const { request, env } = ctx;
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-folder-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-folder-write",
+  });
+  if (limited) return limited;
 
   try {
     await deleteUserAiFolder({

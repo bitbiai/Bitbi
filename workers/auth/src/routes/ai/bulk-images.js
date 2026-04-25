@@ -1,6 +1,10 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
-import { readJsonBody } from "../../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../../lib/request.js";
+import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import {
   AiAssetLifecycleError,
   deleteUserAiImages,
@@ -12,7 +16,18 @@ export async function handleBulkMove(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-image-bulk-write-user",
+    userId: session.user.id,
+    maxRequests: 30,
+    windowMs: 10 * 60_000,
+    component: "ai-image-bulk-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.adminJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body || !Array.isArray(body.image_ids) || body.image_ids.length === 0) {
     return json({ ok: false, error: "image_ids array is required." }, { status: 400 });
   }
@@ -72,7 +87,18 @@ export async function handleBulkDelete(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-image-bulk-write-user",
+    userId: session.user.id,
+    maxRequests: 30,
+    windowMs: 10 * 60_000,
+    component: "ai-image-bulk-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.adminJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body || !Array.isArray(body.image_ids) || body.image_ids.length === 0) {
     return json({ ok: false, error: "image_ids array is required." }, { status: 400 });
   }

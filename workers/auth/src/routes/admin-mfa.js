@@ -1,4 +1,7 @@
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { json } from "../lib/response.js";
 import {
   evaluateSharedRateLimit,
@@ -160,7 +163,9 @@ export async function handleAdminMfa(ctx) {
   if (pathname === "/api/admin/mfa/enable" && method === "POST") {
     const limited = await enforceAdminMfaThrottle(ctx, admin, "enable");
     if (limited) return limited;
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
     try {
       const enabled = await enableAdminMfa(env, admin, body, { isSecure });
@@ -201,9 +206,15 @@ export async function handleAdminMfa(ctx) {
   }
 
   if (pathname === "/api/admin/mfa/verify" && method === "POST") {
-    const limited = await enforceAdminMfaThrottle(ctx, admin, "verify");
+    const limited = await enforceAdminMfaThrottle(ctx, admin, "verify", {
+      adminMax: 30,
+      ipMax: 30,
+      windowMs: 15 * 60_000,
+    });
     if (limited) return limited;
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
     try {
       const verified = await verifyAdminMfa(env, admin, body, { isSecure });
@@ -255,7 +266,9 @@ export async function handleAdminMfa(ctx) {
       windowMs: 60 * 60_000,
     });
     if (limited) return limited;
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
     try {
       const disabled = await disableAdminMfa(env, admin, body, { isSecure });
@@ -299,7 +312,9 @@ export async function handleAdminMfa(ctx) {
       windowMs: 60 * 60_000,
     });
     if (limited) return limited;
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
     try {
       const regenerated = await regenerateAdminMfaRecoveryCodes(env, admin, body, { isSecure });

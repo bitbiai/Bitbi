@@ -136,6 +136,16 @@ async function openHomepageSoundLab(page) {
   await expect(stage).toHaveAttribute('data-active-category', 'sound');
 }
 
+async function clickSoundLabPlayButton(page, button) {
+  await expect(button).toBeVisible();
+  await button.evaluate((element) => {
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(button).toBeVisible();
+  await button.evaluate((element) => element.click());
+}
+
 test.describe('Global audio player', () => {
   test('desktop player stays hidden on homepage load until playback starts', async ({ page }) => {
     await installAudioMock(page);
@@ -146,8 +156,7 @@ test.describe('Global audio player', () => {
 
     await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
-    await firstPlay.scrollIntoViewIfNeeded();
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
 
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await expect(page.locator('#globalAudioHandle')).toBeVisible();
@@ -159,8 +168,7 @@ test.describe('Global audio player', () => {
     await page.goto('/');
     await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
-    await firstPlay.scrollIntoViewIfNeeded();
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
 
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await expect(page.locator('#globalAudioHandle')).toBeVisible();
@@ -190,8 +198,7 @@ test.describe('Global audio player', () => {
     await page.goto('/');
     await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
-    await firstPlay.scrollIntoViewIfNeeded();
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
 
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
     await openGlobalAudioDrawer(page);
@@ -200,7 +207,7 @@ test.describe('Global audio player', () => {
     await expect(page.locator('.snd-card').first().locator('.pi')).toBeVisible();
     await expect(page.locator('#globalAudioShell')).toBeHidden();
 
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await openGlobalAudioDrawer(page);
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
@@ -213,8 +220,7 @@ test.describe('Global audio player', () => {
     await page.goto('/');
     await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
-    await firstPlay.scrollIntoViewIfNeeded();
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
 
     await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.sources.at(-1))).toMatchObject({
       src: 'https://pub.bitbi.ai/audio/sound-lab/cosmic-sea.mp3',
@@ -228,8 +234,7 @@ test.describe('Global audio player', () => {
     await page.goto('/');
     await openHomepageSoundLab(page);
     const lastPlay = page.locator('.snd-play').last();
-    await lastPlay.scrollIntoViewIfNeeded();
-    await lastPlay.click();
+    await clickSoundLabPlayButton(page, lastPlay);
 
     await expect(page.locator('#globalAudioShell')).toBeVisible();
 
@@ -254,8 +259,7 @@ test.describe('Global audio player', () => {
     await page.goto('/');
     await openHomepageSoundLab(page);
     const firstPlay = page.locator('.snd-play').first();
-    await firstPlay.scrollIntoViewIfNeeded();
-    await firstPlay.click();
+    await clickSoundLabPlayButton(page, firstPlay);
 
     const panel = page.locator('#globalAudioPanel');
     await expect(panel).not.toBeVisible();

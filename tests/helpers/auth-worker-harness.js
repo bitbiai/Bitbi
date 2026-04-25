@@ -436,6 +436,7 @@ class MockD1 {
       passwordResetTokens: [],
       adminMfaCredentials: [],
       adminMfaRecoveryCodes: [],
+      adminMfaFailedAttempts: [],
       linkedWallets: [],
       siweChallenges: [],
       profiles: [],
@@ -501,6 +502,9 @@ class MockD1 {
     }
     if (this.missingTables.has('admin_mfa_recovery_codes') && query.includes('admin_mfa_recovery_codes')) {
       throw new Error('no such table: admin_mfa_recovery_codes');
+    }
+    if (this.missingTables.has('admin_mfa_failed_attempts') && query.includes('admin_mfa_failed_attempts')) {
+      throw new Error('no such table: admin_mfa_failed_attempts');
     }
     if (this.missingTables.has('admin_audit_log') && query.includes('admin_audit_log')) {
       throw new Error('no such table: admin_audit_log');
@@ -691,6 +695,10 @@ class MockD1 {
       return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
     }
 
+    if (query === 'SELECT 1 FROM admin_mfa_failed_attempts LIMIT 1') {
+      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    }
+
     if (query === 'SELECT admin_user_id, secret_ciphertext, secret_iv, pending_secret_ciphertext, pending_secret_iv, enabled_at, last_accepted_timestep, created_at, updated_at FROM admin_mfa_credentials WHERE admin_user_id = ? LIMIT 1') {
       const [adminUserId] = bindings;
       return this.state.adminMfaCredentials.find((row) => row.admin_user_id === adminUserId) || null;
@@ -803,6 +811,43 @@ class MockD1 {
         (row) => row.admin_user_id !== adminUserId
       );
       return { success: true, meta: { changes: before - this.state.adminMfaCredentials.length } };
+    }
+
+    if (query === 'SELECT admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at FROM admin_mfa_failed_attempts WHERE admin_user_id = ? LIMIT 1') {
+      const [adminUserId] = bindings;
+      return this.state.adminMfaFailedAttempts.find((row) => row.admin_user_id === adminUserId) || null;
+    }
+
+    if (query.startsWith('INSERT INTO admin_mfa_failed_attempts ( admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at ) VALUES')) {
+      const [adminUserId, failedCount, firstFailedAt, lastFailedAt, lockedUntil, updatedAt] = bindings;
+      let row = this.state.adminMfaFailedAttempts.find((item) => item.admin_user_id === adminUserId);
+      if (!row) {
+        row = {
+          admin_user_id: adminUserId,
+          failed_count: failedCount,
+          first_failed_at: firstFailedAt,
+          last_failed_at: lastFailedAt,
+          locked_until: lockedUntil,
+          updated_at: updatedAt,
+        };
+        this.state.adminMfaFailedAttempts.push(row);
+      } else {
+        row.failed_count = failedCount;
+        row.first_failed_at = firstFailedAt;
+        row.last_failed_at = lastFailedAt;
+        row.locked_until = lockedUntil;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM admin_mfa_failed_attempts WHERE admin_user_id = ?') {
+      const [adminUserId] = bindings;
+      const before = this.state.adminMfaFailedAttempts.length;
+      this.state.adminMfaFailedAttempts = this.state.adminMfaFailedAttempts.filter(
+        (row) => row.admin_user_id !== adminUserId
+      );
+      return { success: true, meta: { changes: before - this.state.adminMfaFailedAttempts.length } };
     }
 
     if (query === 'DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?') {

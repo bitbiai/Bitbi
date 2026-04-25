@@ -41,7 +41,8 @@ export function initContact() {
         if (!section || !footer) return;
         const nav = document.getElementById('navbar');
         const navBottom = nav?.getBoundingClientRect().bottom || 0;
-        const delta = Math.max(0, section.getBoundingClientRect().top - navBottom);
+        const scrollAnchor = getScrollAnchor();
+        const delta = Math.max(0, (scrollAnchor || section).getBoundingClientRect().top - navBottom);
         const spacer = Math.max(getDefaultFooterSpacer(), delta + buffer);
         document.documentElement.style.setProperty('--contact-drawer-footer-spacer', `${Math.ceil(spacer)}px`);
     }
@@ -91,6 +92,29 @@ export function initContact() {
         });
     }
 
+    function getAnchorAlignmentDelta() {
+        const scrollAnchor = getScrollAnchor();
+        const nav = document.getElementById('navbar');
+        if (!scrollAnchor || !nav) return 0;
+        return scrollAnchor.getBoundingClientRect().top - nav.getBoundingClientRect().bottom;
+    }
+
+    function stabilizeContactAlignment() {
+        const started = performance.now();
+        const step = () => {
+            if (!isOpen) return;
+            const delta = getAnchorAlignmentDelta();
+            if (Math.abs(delta) > 2) {
+                syncFooterSpacer(48);
+                scrollSectionIntoView('auto');
+            }
+            if (performance.now() - started < 1200) {
+                requestAnimationFrame(step);
+            }
+        };
+        requestAnimationFrame(step);
+    }
+
     function getPreferredScrollBehavior() {
         return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     }
@@ -101,15 +125,7 @@ export function initContact() {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 scrollSectionIntoView(behavior);
-                requestAnimationFrame(() => {
-                    const nav = document.getElementById('navbar');
-                    const navBottom = nav?.getBoundingClientRect().bottom || 0;
-                    const delta = Math.abs((section?.getBoundingClientRect().top || 0) - navBottom);
-                    if (delta > 2) {
-                        syncFooterSpacer(48);
-                        scrollSectionIntoView('auto');
-                    }
-                });
+                stabilizeContactAlignment();
             });
         });
     }

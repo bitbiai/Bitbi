@@ -1,6 +1,9 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
-import { readJsonBody } from "../../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../../lib/request.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../../lib/tokens.js";
 import {
   evaluateSharedRateLimit,
@@ -38,6 +41,30 @@ const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
 const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
 const MAX_SAVED_AI_IMAGE_PIXELS = 1024 * 1024;
 const MAX_SAVE_REFERENCE_LENGTH = 500;
+
+async function enforceAiImageWriteRateLimit(ctx, userId, {
+  scope = "ai-image-write-user",
+  maxRequests = 60,
+  windowMs = 10 * 60_000,
+  component = "ai-image-write",
+} = {}) {
+  const { request, env, correlationId } = ctx;
+  const limit = await evaluateSharedRateLimit(
+    env,
+    scope,
+    userId,
+    maxRequests,
+    windowMs,
+    sensitiveRateLimitOptions({
+      component,
+      correlationId: correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (limit.unavailable) return rateLimitUnavailableResponse(correlationId || null);
+  if (limit.limited) return rateLimitResponse();
+  return null;
+}
 
 function getQuotaDayStart(ts = nowIso()) {
   return ts.slice(0, 10) + "T00:00:00.000Z";
@@ -234,7 +261,9 @@ export async function handleGenerateImage(ctx) {
     return rateLimitResponse();
   }
 
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateJson });
+  if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+  const body = parsed.body;
   if (!body || !body.prompt) {
     return respond({ ok: false, error: "Prompt is required." }, { status: 400 });
   }
@@ -453,7 +482,17 @@ export async function handleRenameImage(ctx, imageId) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceAiImageWriteRateLimit(ctx, session.user.id, {
+    scope: "ai-image-rename-user",
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-image-rename",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.adminJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   const name = String(body?.name || "").trim();
   if (name.length === 0 || name.length > MAX_PROMPT_LENGTH) {
     return json({ ok: false, error: `Image name must be 1–${MAX_PROMPT_LENGTH} characters.` }, { status: 400 });
@@ -504,7 +543,17 @@ export async function handleSaveImage(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceAiImageWriteRateLimit(ctx, session.user.id, {
+    scope: "ai-save-image-user",
+    maxRequests: 30,
+    windowMs: 60 * 60_000,
+    component: "ai-save-image",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiSaveImageJson });
+  if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+  const body = parsed.body;
   if (!body || !body.prompt || (!body.imageData && !body.save_reference)) {
     return respond({ ok: false, error: "Image data and prompt are required." }, { status: 400 });
   }
@@ -754,6 +803,14 @@ export async function handleDeleteImage(ctx, imageId) {
   const { request, env } = ctx;
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  const limited = await enforceAiImageWriteRateLimit(ctx, session.user.id, {
+    scope: "ai-delete-image-user",
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-delete-image",
+  });
+  if (limited) return limited;
 
   try {
     await deleteUserAiImage({

@@ -1,5 +1,10 @@
 import { json } from "../lib/response.js";
-import { normalizeEmail, isValidEmail, readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  normalizeEmail,
+  isValidEmail,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import {
   parseCookies,
   buildExpiredAdminMfaCookies,
@@ -97,7 +102,9 @@ export async function handleRegister(ctx) {
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
 
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.authJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
 
   if (!body) {
     return json(
@@ -239,7 +246,9 @@ export async function handleLogin(ctx) {
   if (ipLimit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (ipLimit.limited) return rateLimitResponse();
 
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.authJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
 
   if (!body) {
     return json(

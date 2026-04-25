@@ -2643,6 +2643,53 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('AI worker service auth rejects oversized signed bodies before route dispatch', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const { buildServiceAuthHeaders } = await loadServiceAuthModule();
+      const secret = 'test-ai-service-auth-secret';
+      const oversizedBody = JSON.stringify({
+        preset: 'balanced',
+        prompt: 'oversized-internal-ai-body'.repeat(24_000),
+      });
+      let aiRunCalled = false;
+      const headers = await buildServiceAuthHeaders({
+        secret,
+        method: 'POST',
+        path: '/internal/ai/test-text',
+        body: oversizedBody,
+      });
+
+      const res = await aiWorker.fetch(
+        new Request('https://bitbi-ai.internal/internal/ai/test-text', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...headers,
+          },
+          body: oversizedBody,
+        }),
+        {
+          AI_SERVICE_AUTH_SECRET: secret,
+          SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+          AI: {
+            async run() {
+              aiRunCalled = true;
+              return createAiLabRunStub()();
+            },
+          },
+        },
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(413);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Payload too large.',
+        code: 'payload_too_large',
+      });
+      expect(aiRunCalled).toBe(false);
+    });
+
     test('AI worker service auth rejects missing, invalid, expired, and tampered requests', async () => {
       const aiWorker = await loadWorker('workers/ai/src/index.js');
       const { buildServiceAuthHeaders } = await loadServiceAuthModule();
@@ -7098,6 +7145,292 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-fail-closed-user')).toHaveLength(0);
   });
 
+  test('shared limiter: profile update fails closed before profile writes when limiter state is unavailable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+      users: [createContractUser({ id: 'profile-fail-closed-user', role: 'user' })],
+      profiles: [{
+        user_id: 'profile-fail-closed-user',
+        display_name: 'Before',
+        bio: '',
+        website: '',
+        youtube_url: '',
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, 'profile-fail-closed-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/profile', 'PATCH', {
+        display_name: 'After',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(env.DB.state.profiles.find((row) => row.user_id === 'profile-fail-closed-user')?.display_name).toBe('Before');
+  });
+
+  test('shared limiter: favorites delete is blocked before deletion when the durable IP limit is exhausted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-delete-rate-user', role: 'user' })],
+      favorites: [{
+        id: 1,
+        user_id: 'fav-delete-rate-user',
+        item_type: 'gallery',
+        item_id: 'keep-favorite',
+        title: 'Keep Favorite',
+        thumb_url: '/assets/images/1.jpg',
+        created_at: nowIso(),
+      }],
+      publicRateLimitCounters: [
+        makeActiveRateLimitCounter('favorites-remove-ip', '203.0.113.72', 60, 60_000),
+      ],
+    });
+
+    const token = await seedSession(env, 'fav-delete-rate-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'DELETE', {
+        item_type: 'gallery',
+        item_id: 'keep-favorite',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.72',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+    expect(env.DB.state.favorites.filter((row) => row.user_id === 'fav-delete-rate-user')).toHaveLength(1);
+  });
+
+  test('shared limiter: AI folder create fails closed before folder writes when limiter state is unavailable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      disablePublicRateLimiterBinding: true,
+      users: [createContractUser({ id: 'ai-folder-fail-closed-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'ai-folder-fail-closed-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'POST', {
+        name: 'Blocked Folder',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.73',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Service temporarily unavailable. Please try again later.',
+    });
+    expect(env.DB.state.aiFolders).toHaveLength(0);
+  });
+
+  test('request body limits: oversized Content-Length is rejected before login parsing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv();
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'oversized@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'Content-Length': String(64 * 1024 + 1),
+        'CF-Connecting-IP': '203.0.113.74',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Payload too large.',
+      code: 'payload_too_large',
+    });
+  });
+
+  test('request body limits: streamed oversized profile JSON is rejected without writing body content', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const secretBodyFragment = 'secret-profile-body-fragment';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'profile-stream-limit-user', role: 'user' })],
+    });
+    const token = await seedSession(env, 'profile-stream-limit-user');
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"display_name":"'));
+        controller.enqueue(new TextEncoder().encode(secretBodyFragment.repeat(2000)));
+        controller.enqueue(new TextEncoder().encode('"}'));
+        controller.close();
+      },
+    });
+
+    const res = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile', {
+        method: 'PATCH',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.75',
+        },
+        body: stream,
+        duplex: 'half',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(413);
+    const bodyText = await res.text();
+    expect(bodyText).toContain('Payload too large.');
+    expect(bodyText).not.toContain(secretBodyFragment);
+    expect(env.DB.state.profiles.filter((row) => row.user_id === 'profile-stream-limit-user')).toHaveLength(0);
+  });
+
+  test('request body limits: malformed JSON and wrong content type fail safely before profile writes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'profile-bad-body-user', role: 'user' })],
+    });
+    const token = await seedSession(env, 'profile-bad-body-user');
+
+    const malformedRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile', {
+        method: 'PATCH',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.76',
+        },
+        body: '{"display_name":',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(malformedRes.status).toBe(400);
+    await expect(malformedRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Invalid JSON body.',
+      code: 'bad_request',
+    });
+
+    const wrongTypeRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile', {
+        method: 'PATCH',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Content-Type': 'text/plain',
+          'CF-Connecting-IP': '203.0.113.77',
+        },
+        body: 'display_name=wrong-type',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(wrongTypeRes.status).toBe(415);
+    await expect(wrongTypeRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Unsupported media type.',
+      code: 'unsupported_media_type',
+    });
+    expect(env.DB.state.profiles.filter((row) => row.user_id === 'profile-bad-body-user')).toHaveLength(0);
+  });
+
+  test('request body limits: oversized avatar multipart is rejected before media processing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'avatar-body-limit-user', role: 'user' })],
+    });
+    const token = await seedSession(env, 'avatar-body-limit-user');
+    const form = new FormData();
+    form.append('avatar', new Blob([ONE_PIXEL_PNG_BYTES], { type: 'image/png' }), 'avatar.png');
+
+    const res = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/profile/avatar', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Content-Length': String(3 * 1024 * 1024 + 1),
+          'CF-Connecting-IP': '203.0.113.78',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Payload too large.',
+      code: 'payload_too_large',
+    });
+    expect(env.PRIVATE_MEDIA.putCalls).toHaveLength(0);
+    expect(env.DB.state.profiles.filter((row) => row.user_id === 'avatar-body-limit-user')).toHaveLength(0);
+  });
+
+  test('request body limits: oversized AI image save is rejected before R2 writes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'ai-save-body-limit-user', role: 'user' })],
+    });
+    const token = await seedSession(env, 'ai-save-body-limit-user');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'oversized by header',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Content-Length': String(15 * 1024 * 1024 + 1),
+        'CF-Connecting-IP': '203.0.113.79',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Payload too large.',
+      code: 'payload_too_large',
+    });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.DB.state.aiImages.filter((row) => row.user_id === 'ai-save-body-limit-user')).toHaveLength(0);
+  });
+
   test('scheduled cleanup: production fails explicitly when the durable limiter table is missing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -7597,6 +7930,13 @@ test.describe('Worker routes', () => {
         code: 'ADMIN_MFA_INVALID_CODE',
       });
     }
+    const failedState = env.DB.state.adminMfaFailedAttempts.find(
+      (row) => row.admin_user_id === 'mfa-lockout-admin'
+    );
+    expect(failedState).toMatchObject({
+      failed_count: 5,
+      locked_until: expect.any(String),
+    });
 
     const validCode = await generateTotpCode(setupBody.setup.secret);
     const lockedTotpRes = await authWorker.fetch(
@@ -7613,7 +7953,7 @@ test.describe('Worker routes', () => {
     expect(lockedTotpRes.status).toBe(429);
     await expect(lockedTotpRes.json()).resolves.toMatchObject({
       ok: false,
-      error: 'Too many requests. Please try again later.',
+      code: 'ADMIN_MFA_LOCKED',
     });
 
     const lockedRecoveryRes = await authWorker.fetch(
@@ -7628,6 +7968,46 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
     expect(lockedRecoveryRes.status).toBe(429);
+    await expect(lockedRecoveryRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_LOCKED',
+    });
+
+    const lockedDisableRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/disable', 'POST', {
+        code: validCode,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(lockedDisableRes.status).toBe(429);
+    await expect(lockedDisableRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_LOCKED',
+    });
+
+    const lockedRegenerateRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/recovery-codes/regenerate', 'POST', {
+        recovery_code: recoveryCodes[0],
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(lockedRegenerateRes.status).toBe(429);
+    await expect(lockedRegenerateRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_LOCKED',
+    });
+    expect(env.DB.state.adminMfaCredentials).toHaveLength(1);
+    expect(env.DB.state.adminMfaRecoveryCodes.filter((row) => row.used_at == null)).toHaveLength(10);
 
     const adminRouteRes = await authWorker.fetch(
       authJsonRequest('/api/admin/users', 'GET', undefined, {
@@ -7642,6 +8022,92 @@ test.describe('Worker routes', () => {
     await expect(adminRouteRes.json()).resolves.toMatchObject({
       ok: false,
       code: 'admin_mfa_required',
+    });
+  });
+
+  test('admin MFA: successful verification resets durable failed-attempt state', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { generateTotpCode } = await loadAdminMfaModule();
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-reset-attempts-admin')],
+    });
+    const token = await seedSession(env, 'mfa-reset-attempts-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    const { setupBody } = await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'mfa-reset-attempts-admin',
+    });
+
+    const invalidRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        code: '000000',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidRes.status).toBe(400);
+    expect(env.DB.state.adminMfaFailedAttempts).toEqual([
+      expect.objectContaining({
+        admin_user_id: 'mfa-reset-attempts-admin',
+        failed_count: 1,
+      }),
+    ]);
+
+    const credentialRow = env.DB.state.adminMfaCredentials.find(
+      (row) => row.admin_user_id === 'mfa-reset-attempts-admin'
+    );
+    credentialRow.last_accepted_timestep = 0;
+    const validCode = await generateTotpCode(setupBody.setup.secret);
+    const validRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        code: validCode,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(validRes.status).toBe(200);
+    expect(env.DB.state.adminMfaFailedAttempts).toHaveLength(0);
+  });
+
+  test('admin MFA: missing failed-attempt state fails closed for verification', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [createAdminUser('mfa-attempt-state-missing-admin')],
+    });
+    const token = await seedSession(env, 'mfa-attempt-state-missing-admin');
+    const secureSessionCookie = `__Host-bitbi_session=${token}`;
+    await enrollAdminMfa({
+      authWorker,
+      env,
+      sessionCookie: secureSessionCookie,
+      userId: 'mfa-attempt-state-missing-admin',
+    });
+    env.DB.missingTables.add('admin_mfa_failed_attempts');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/mfa/verify', 'POST', {
+        code: '000000',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: secureSessionCookie,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ADMIN_MFA_UNAVAILABLE',
     });
   });
 
@@ -7929,6 +8395,36 @@ test.describe('Worker routes', () => {
         createContractUser({ id: 'csrf-member-user', role: 'user', email: 'csrf-member@example.com' }),
         createContractUser({ id: 'csrf-target-user', role: 'user', email: 'csrf-target@example.com' }),
       ],
+      profiles: [{
+        user_id: 'csrf-member-user',
+        display_name: 'CSRF Safe Name',
+        bio: '',
+        website: '',
+        youtube_url: '',
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+      favorites: [{
+        id: 1,
+        user_id: 'csrf-member-user',
+        item_type: 'gallery',
+        item_id: 'csrf-favorite',
+        title: 'CSRF Favorite',
+        thumb_url: '/assets/images/1.jpg',
+        created_at: nowIso(),
+      }],
+      linkedWallets: [{
+        id: 'csrf-wallet-link',
+        user_id: 'csrf-member-user',
+        address_normalized: '0x0000000000000000000000000000000000000abc',
+        address_display: '0x0000000000000000000000000000000000000AbC',
+        chain_id: 1,
+        is_primary: 1,
+        linked_at: nowIso(),
+        last_login_at: null,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
       aiRun: async () => {
         aiRunCalled = true;
         return { image: ONE_PIXEL_PNG_DATA_URI };
@@ -8001,10 +8497,65 @@ test.describe('Worker routes', () => {
     );
     expect(avatarRes.status).toBe(403);
 
+    const profileRes = await authWorker.fetch(
+      authJsonRequest('/api/profile', 'PATCH', {
+        display_name: 'CSRF Changed Name',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.70',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(profileRes.status).toBe(403);
+
+    const favoriteDeleteRes = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'DELETE', {
+        item_type: 'gallery',
+        item_id: 'csrf-favorite',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.71',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(favoriteDeleteRes.status).toBe(403);
+
+    const walletUnlinkRes = await authWorker.fetch(
+      authJsonRequest('/api/wallet/unlink', 'POST', {}, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.72',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(walletUnlinkRes.status).toBe(403);
+
+    const aiFolderCreateRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'POST', {
+        name: 'CSRF Folder',
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${memberToken}`,
+        'CF-Connecting-IP': '203.0.113.73',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(aiFolderCreateRes.status).toBe(403);
+
     expect(env.DB.state.sessions.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(1);
     expect(env.DB.state.users.find((row) => row.id === 'csrf-target-user')?.role).toBe('user');
     expect(env.DB.state.adminMfaCredentials).toHaveLength(0);
     expect(aiRunCalled).toBe(false);
+    expect(env.DB.state.profiles.find((row) => row.user_id === 'csrf-member-user')?.display_name).toBe('CSRF Safe Name');
+    expect(env.DB.state.favorites.some((row) => row.user_id === 'csrf-member-user' && row.item_id === 'csrf-favorite')).toBe(true);
+    expect(env.DB.state.linkedWallets.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(1);
+    expect(env.DB.state.aiFolders.filter((row) => row.user_id === 'csrf-member-user')).toHaveLength(0);
   });
 
   test('security regression: protected member/admin routes reject tampered session cookies', async () => {
@@ -12750,6 +13301,53 @@ test.describe('Worker routes', () => {
       expect(forbiddenRes.status).toBe(403);
       expect(await forbiddenRes.text()).toBe('Forbidden');
       expect(resendCalls).toHaveLength(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('contact worker: oversized JSON is rejected before mail send and without echoing body content', async () => {
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const env = createAuthTestEnv();
+    env.RESEND_API_KEY = 'test-key';
+    const originalFetch = global.fetch;
+    const secretBodyFragment = 'secret-contact-body-fragment';
+    let resendCallCount = 0;
+
+    global.fetch = async () => {
+      resendCallCount += 1;
+      return new Response(JSON.stringify({ id: 'email-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const res = await contactWorker.fetch(
+        new Request('https://contact.bitbi.ai/', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://bitbi.ai',
+            'Content-Type': 'application/json',
+            'Content-Length': String(16 * 1024 + 1),
+            'CF-Connecting-IP': '203.0.113.76',
+          },
+          body: JSON.stringify({
+            name: 'Visitor',
+            email: 'visitor@example.com',
+            subject: 'Oversized',
+            message: secretBodyFragment,
+            website: '',
+          }),
+        }),
+        env
+      );
+
+      expect(res.status).toBe(413);
+      const text = await res.text();
+      expect(text).toContain('Payload too large.');
+      expect(text).not.toContain(secretBodyFragment);
+      expect(resendCallCount).toBe(0);
     } finally {
       global.fetch = originalFetch;
     }

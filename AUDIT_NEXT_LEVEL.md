@@ -13,6 +13,7 @@ This section records remediation progress after the original 2026-04-24 audit. T
 Reference documents:
 
 - `PHASE0_REMEDIATION_REPORT.md` contains the detailed Phase 0-A/0-A+ implementation evidence, validation results, merge readiness, deploy blockers, and remaining risks.
+- `PHASE0B_REMEDIATION_REPORT.md` contains the Phase 0-B implementation evidence for deploy preflight, body-size limits, route throttling expansion, admin MFA failed-attempt state, CSRF coverage, and async video design.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
 Phase 0-A completed summary:
@@ -32,6 +33,15 @@ Phase 0-A+ completed summary:
 - Added regression coverage for service-auth replay rejection, missing/malformed/expired/invalid signatures, body tampering, unavailable nonce backend, fail-closed limiter behavior, admin MFA throttling, and selected CSRF-sensitive mutations.
 - Updated release compatibility/config evidence for `AI_SERVICE_AUTH_SECRET` prerequisites and the `SERVICE_AUTH_REPLAY` Durable Object binding/migration.
 
+Phase 0-B completed summary:
+
+- Added `scripts/validate-cloudflare-deploy-prereqs.mjs` plus tests for repo-side Cloudflare secret/binding/migration prerequisites and explicit live-validation skipped/blocked status.
+- Added limited request body readers in `js/shared/request-body.mjs` and routed auth, admin, MFA, profile, favorites, avatar, wallet, AI, contact, and internal AI JSON/multipart parsing through byte-limited helpers.
+- Converted additional authenticated/write routes to fail-closed Durable Object backed limits, including profile update, favorites delete, avatar delete, wallet unlink, AI folder/bulk/publication/text/audio/image writes, and contact submit.
+- Added D1 migration `0028_add_admin_mfa_failed_attempts.sql` and durable admin MFA failed-attempt lockout/reset-on-success behavior.
+- Expanded CSRF regression coverage for profile update, favorites delete, wallet unlink, and AI folder create.
+- Created `AI_VIDEO_ASYNC_JOB_DESIGN.md` with a concrete D1/Queue/R2 migration plan for async video jobs.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -40,21 +50,22 @@ Findings resolved:
 | Missing `workers/ai/package-lock.json` and unreproducible AI worker package checks | Resolved | `workers/ai/package-lock.json` exists; `.github/workflows/static.yml` runs worker `npm ci`, `npm ls --depth=0`, and `npm audit --audit-level=low`. |
 | Unsigned internal Auth-to-AI Worker requests | Resolved in code | `js/shared/service-auth.mjs`, `workers/auth/src/lib/admin-ai-proxy.js`, and `workers/ai/src/index.js` implement and enforce HMAC service auth. |
 | Timestamp-only service-auth replay window | Resolved in code | `workers/ai/src/lib/service-auth-replay.js`, `workers/ai/src/lib/service-auth-replay-do.js`, and `workers/ai/wrangler.jsonc` implement nonce-backed replay protection via `SERVICE_AUTH_REPLAY`. |
+| Request body-size limited parsers for prioritized Worker routes | Resolved for Phase 0-B scope | `js/shared/request-body.mjs`, `workers/auth/src/lib/request.js`, `workers/contact/src/index.js`, and `workers/ai/src/lib/validate.js` enforce route-specific limits before parsing. |
+| Admin MFA fixed-window-only lockout | Resolved for Phase 0 hardening | `workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql` and `workers/auth/src/lib/admin-mfa.js` add durable failed-attempt state and reset-on-success behavior. |
 
 Findings reduced but not fully resolved:
 
 | Original finding | Current status | Remaining risk |
 | --- | --- | --- |
-| Admin MFA brute-force exposure | Reduced | MFA operations now use fail-closed fixed-window throttling, but there is no dedicated failed-attempt state machine with explicit reset-on-success semantics. |
-| Sensitive route rate limits fail open or degrade to isolate-local memory | Reduced | Priority routes now fail closed, but lower-priority authenticated write routes still need Phase 0-B route-by-route throttling review. |
-| Missing fail-closed Worker config validation | Reduced | Phase 0 critical auth/AI service-auth config fails closed, but route-specific R2/Queue/Images/contact/dashboard validation is not exhaustive. |
-| Cloudflare dashboard drift | Partially addressed | Release config now records new service-auth and replay prerequisites, but live Cloudflare WAF/header/RUM/secrets/bindings are not fully repo-enforced or verified. |
-| CI security gates | Reduced | Root and Worker npm audit/install checks were added, but CodeQL/SAST, secret scanning, dependency review, SBOM, and license gates remain open. |
+| Sensitive route rate limits fail open or degrade to isolate-local memory | Reduced | Priority and several lower-priority write routes now fail closed, but this remains route-specific rather than a full SaaS abuse/entitlement platform. |
+| Missing fail-closed Worker config validation | Reduced | Phase 0 critical auth/AI service-auth config fails closed, and repo-side Cloudflare prereq validation exists, but live Cloudflare resources and dashboard controls are not fully verified. |
+| Cloudflare dashboard drift | Partially addressed | Release config and prereq validator now record service-auth/replay requirements, but live Cloudflare WAF/header/RUM/secrets/bindings are not fully repo-enforced or verified. |
+| CI security gates | Reduced | Root/Worker npm checks and Cloudflare prereq tests were added, but CodeQL/SAST, secret scanning, dependency review, SBOM, and license gates remain open. |
+| Synchronous AI video provider polling | Partially addressed | `AI_VIDEO_ASYNC_JOB_DESIGN.md` exists, but runtime implementation is still synchronous. |
 
 Findings still open:
 
-- Synchronous AI video provider polling remains in request path; async job design is still needed.
-- Request body-size limited parsers are still missing for several JSON and multipart paths.
+- Synchronous AI video provider polling remains in request path; the async design exists but implementation is still needed.
 - Lint/typecheck/checkJs and safe DOM rules are still missing.
 - Large admin/frontend/test modules remain monolithic.
 - Scalable activity indexes, signed activity cursors, queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, observability/SLOs, load/performance budgets, and toolchain pinning remain open or deferred.
@@ -63,9 +74,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional | Tests and release checks pass, but all untracked security/audit files listed in `PHASE0_REMEDIATION_REPORT.md` and `AUDIT_ACTION_PLAN.md` must be committed with the tracked Phase 0-A/0-A+ changes. |
-| Production deploy readiness | Blocked | Do not deploy until `AI_SERVICE_AUTH_SECRET` exists with the same value in both `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, and staging verification passes. |
-| Current recommended next phase | Phase 0-B | Track/commit all security files, provision/verify Cloudflare secrets and bindings, add dashboard-aware preflight, add body-size limits, continue route throttling, decide MFA failed-attempt state, and design async AI video jobs. |
+| Merge readiness | Conditional pass | Phase 0-B Worker, static, release, asset, build, package/audit, Cloudflare prereq, and full `npm run release:preflight` validation passed. All untracked Phase 0-B files listed in `PHASE0B_REMEDIATION_REPORT.md` and `AUDIT_ACTION_PLAN.md` must still be committed with the tracked changes. |
+| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in `workers/auth` and `workers/ai`, `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` are deployed for `workers/ai`, auth migration `0028_add_admin_mfa_failed_attempts.sql` is applied, and staging verification passes. |
+| Current recommended next phase | Pre-deploy verification, then Phase 1 | Track/commit all files, keep validation green after any further code/config/test edits, verify Cloudflare secrets/bindings/migrations in staging, then implement async AI video jobs and broader SaaS platform gaps. |
 
 ## Executive Summary
 

@@ -1,4 +1,7 @@
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { json } from "../lib/response.js";
 import { requireAdmin } from "../lib/session.js";
 import {
@@ -50,6 +53,18 @@ function badJsonResponse(correlationId) {
     json({ ok: false, error: "Invalid JSON body.", code: "bad_request" }, { status: 400 }),
     correlationId
   );
+}
+
+async function readAdminAiJsonBody(
+  request,
+  correlationId,
+  { maxBytes = BODY_LIMITS.adminJson, requiredContentType = true } = {}
+) {
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes, requiredContentType });
+  if (parsed.response) {
+    return { response: withCorrelationId(parsed.response, correlationId), body: null };
+  }
+  return { response: null, body: parsed.body };
 }
 
 function notFoundResponse(correlationId) {
@@ -141,7 +156,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-text-ip", 30, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -176,7 +193,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-image-ip", 10, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -201,7 +220,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-embeddings-ip", 20, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -223,7 +244,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-music-ip", 8, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -245,7 +268,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-ip", 8, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -271,7 +296,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-compare-ip", 15, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -293,7 +320,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-liveagent-ip", 20, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     try {
@@ -309,7 +338,11 @@ export async function handleAdminAI(ctx) {
     if (limited) return limited;
 
     const contentType = request.headers.get("content-type") || "";
-    const body = contentType.includes("application/json") ? await readJsonBody(request) : {};
+    const parsed = contentType.includes("application/json")
+      ? await readAdminAiJsonBody(request, correlationId)
+      : { response: null, body: {} };
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (contentType.includes("application/json") && !body) return badJsonResponse(correlationId);
 
     return handleAdminAiDerivativeBackfillRequest({
@@ -324,7 +357,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-save-text-ip", 25, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     return handleAdminAiSaveTextAssetRequest({
@@ -339,7 +374,9 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-video-proxy-ip", 16, 600_000, correlationId);
     if (limited) return limited;
 
-    const body = await readJsonBody(request);
+    const parsed = await readAdminAiJsonBody(request, correlationId);
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
     if (!body) return badJsonResponse(correlationId);
 
     const rawUrl = typeof body.url === "string" ? body.url.trim() : "";

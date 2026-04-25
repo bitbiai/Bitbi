@@ -3,7 +3,13 @@
    ============================================================ */
 
 import { json } from "../lib/response.js";
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  isRequestBodyError,
+  readFormDataLimited,
+  readJsonBodyOrResponse,
+  requestBodyErrorResponse,
+} from "../lib/request.js";
 import { requireUser } from "../lib/session.js";
 import {
   evaluateSharedRateLimit,
@@ -295,7 +301,9 @@ export async function handleUploadAvatar(ctx) {
 
   const contentType = request.headers.get("Content-Type") || "";
   if (contentType.includes("application/json")) {
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.avatarJson });
+    if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+    const body = parsed.body;
     if (!body || typeof body !== "object") {
       return respond({ ok: false, error: "Invalid JSON body." }, { status: 400 });
     }
@@ -311,8 +319,11 @@ export async function handleUploadAvatar(ctx) {
 
   let formData;
   try {
-    formData = await request.formData();
-  } catch {
+    formData = await readFormDataLimited(request, { maxBytes: BODY_LIMITS.avatarMultipart });
+  } catch (error) {
+    if (isRequestBodyError(error)) {
+      return withCorrelationId(requestBodyErrorResponse(error), correlationId);
+    }
     return respond({ ok: false, error: "Invalid form data." }, { status: 400 });
   }
 
@@ -382,6 +393,19 @@ export async function handleDeleteAvatar(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
+  const ip = getClientIp(request);
+  const limit = await evaluateSharedRateLimit(env, "avatar-delete-ip", ip, 20, 3_600_000, sensitiveRateLimitOptions({
+    component: "avatar-delete",
+    correlationId,
+    requestInfo: { request, pathname: "/api/profile/avatar", method: request.method },
+  }));
+  if (limit.unavailable) {
+    return rateLimitUnavailableResponse(correlationId);
+  }
+  if (limit.limited) {
+    return rateLimitResponse();
+  }
+
   await env.PRIVATE_MEDIA.delete(avatarKey(session.user.id));
   await persistAvatarPresence(env, session.user.id, false, {
     updatedAt: nowIso(),
@@ -396,7 +420,6 @@ export async function handleDeleteAvatar(ctx) {
   });
 
   // Log avatar deletion (durable background write)
-  const ip = getClientIp(request);
   ctx.execCtx.waitUntil(
     logUserActivity(env, session.user.id, "delete_avatar", null, ip, {
       correlationId,

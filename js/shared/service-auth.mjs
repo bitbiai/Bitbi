@@ -1,3 +1,5 @@
+import { readTextBodyLimited } from './request-body.mjs';
+
 const textEncoder = new TextEncoder();
 
 export const SERVICE_AUTH_TIMESTAMP_HEADER = 'x-bitbi-service-timestamp';
@@ -120,6 +122,7 @@ export async function assertValidServiceRequest(
         now = Date.now(),
         replayWindowMs = SERVICE_AUTH_REPLAY_WINDOW_MS,
         recordNonce = null,
+        maxBodyBytes = null,
     } = {},
 ) {
     const timestampHeader = String(request.headers.get(SERVICE_AUTH_TIMESTAMP_HEADER) || '').trim();
@@ -155,7 +158,9 @@ export async function assertValidServiceRequest(
     }
 
     const url = new URL(request.url);
-    const body = await request.clone().text();
+    const body = Number.isSafeInteger(maxBodyBytes) && maxBodyBytes > 0
+        ? await readTextBodyLimited(request.clone(), { maxBytes: maxBodyBytes })
+        : await request.clone().text();
     const bodyHash = await sha256Hex(body);
     const expectedSignature = await hmacSha256Hex(secret, canonicalServicePayload({
         method: request.method,

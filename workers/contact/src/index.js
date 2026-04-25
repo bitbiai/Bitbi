@@ -6,6 +6,10 @@ import {
     getRequestLogFields,
     logDiagnostic,
 } from '../../../js/shared/worker-observability.mjs';
+import {
+    isRequestBodyError,
+    readJsonBodyLimited,
+} from '../../../js/shared/request-body.mjs';
 export { ContactPublicRateLimiterDurableObject } from './lib/public-rate-limiter-do.js';
 
 /**
@@ -22,6 +26,7 @@ const CONTACT_BURST_LIMIT = 3;
 const CONTACT_BURST_WINDOW_MS = 10 * 60 * 1000;
 const CONTACT_HOURLY_LIMIT = 5;
 const CONTACT_HOURLY_WINDOW_MS = 60 * 60 * 1000;
+const CONTACT_JSON_MAX_BYTES = 16 * 1024;
 
 /* Strip control characters (CR, LF, NUL, etc.) from values used in email headers */
 function sanitizeHeaderValue(str) {
@@ -77,7 +82,7 @@ export default {
             });
         }
 
-        /* Shared durable abuse gates fail closed in production when protection infra is unavailable */
+        /* Shared durable abuse gates fail closed when protection infra is unavailable. */
         const startedAt = Date.now();
         const ip = getClientIp(request);
         const burstLimit = await evaluateSharedRateLimit(
@@ -88,7 +93,7 @@ export default {
             CONTACT_BURST_WINDOW_MS,
             {
                 backend: 'durable_object',
-                failClosedInProduction: true,
+                failClosed: true,
                 logBlockedEvent: true,
                 component: 'contact-submit',
                 correlationId,
@@ -113,7 +118,7 @@ export default {
             CONTACT_HOURLY_WINDOW_MS,
             {
                 backend: 'durable_object',
-                failClosedInProduction: true,
+                failClosed: true,
                 logBlockedEvent: true,
                 component: 'contact-submit',
                 correlationId,
@@ -131,7 +136,11 @@ export default {
         }
 
         try {
-            const { name, email, subject, message, website } = await request.json();
+            const body = await readJsonBodyLimited(request, {
+                maxBytes: CONTACT_JSON_MAX_BYTES,
+                requiredContentType: true,
+            });
+            const { name, email, subject, message, website } = body || {};
 
             /* Honeypot — bots fill this hidden field; silently discard */
             if (website) {
@@ -231,8 +240,10 @@ export default {
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
             });
         } catch (e) {
-            return new Response(JSON.stringify({ error: 'Invalid request' }), {
-                status: 400,
+            const status = isRequestBodyError(e) ? e.status : 400;
+            const error = isRequestBodyError(e) ? e.publicMessage : 'Invalid request';
+            return new Response(JSON.stringify({ error }), {
+                status,
                 headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
             });
         }

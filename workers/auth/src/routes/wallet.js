@@ -9,10 +9,14 @@ import {
   rateLimitResponse,
   rateLimitUnavailableResponse,
 } from "../lib/rate-limit.js";
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { json } from "../lib/response.js";
 import { createSession, getSessionUser, requireUser } from "../lib/session.js";
 import { addMinutesIso, nowIso, randomTokenHex } from "../lib/tokens.js";
+import { enforceSensitiveUserRateLimit } from "../lib/sensitive-write-limit.js";
 
 const MAINNET_CHAIN_ID = 1;
 const SIWE_VERSION = "1";
@@ -289,7 +293,9 @@ export async function handleWalletStatus(ctx) {
 
 export async function handleWalletSiweNonce(ctx) {
   const { request, env, correlationId } = ctx;
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.authJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body) {
     return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -361,7 +367,9 @@ export async function handleWalletSiweNonce(ctx) {
 
 export async function handleWalletSiweVerify(ctx) {
   const { request, env, isSecure, correlationId } = ctx;
-  const body = await readJsonBody(request);
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.authJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body) {
     return json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -505,6 +513,15 @@ export async function handleWalletUnlink(ctx) {
   const { request, env } = ctx;
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "wallet-unlink-user",
+    userId: session.user.id,
+    maxRequests: 10,
+    windowMs: 60 * 60_000,
+    component: "wallet-unlink",
+  });
+  if (limited) return limited;
 
   const linkedWallet = await getLinkedWalletByUserId(env, session.user.id);
   if (!linkedWallet) {

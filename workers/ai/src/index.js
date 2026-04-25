@@ -14,11 +14,13 @@ import { handleMusic } from "./routes/music.js";
 import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
 import { handleVideo } from "./routes/video.js";
+import { INTERNAL_AI_JSON_MAX_BYTES } from "./lib/validate.js";
 import {
   getCorrelationId,
   withCorrelationId,
 } from "../../../js/shared/worker-observability.mjs";
 import { recordServiceAuthNonce } from "./lib/service-auth-replay.js";
+import { isRequestBodyError } from "../../../js/shared/request-body.mjs";
 export { AiServiceAuthReplayDurableObject } from "./lib/service-auth-replay-do.js";
 
 export default {
@@ -34,6 +36,7 @@ export default {
         assertAiWorkerConfig(env);
         await assertValidServiceRequest(request, {
           secret: env.AI_SERVICE_AUTH_SECRET,
+          maxBodyBytes: INTERNAL_AI_JSON_MAX_BYTES,
           recordNonce: ({ nonce, replayWindowMs }) => recordServiceAuthNonce(env, {
             nonce,
             replayWindowMs,
@@ -52,6 +55,12 @@ export default {
           return withCorrelationId(errorResponse(
             "Unauthorized.",
             { status: error.status || 401, code: error.code || "service_auth_invalid" }
+          ), ctx.correlationId);
+        }
+        if (isRequestBodyError(error)) {
+          return withCorrelationId(errorResponse(
+            error.publicMessage || "Invalid request body.",
+            { status: error.status || 400, code: error.code || "bad_request" }
           ), ctx.correlationId);
         }
         throw error;

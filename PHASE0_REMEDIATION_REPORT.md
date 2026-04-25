@@ -16,6 +16,12 @@ Merge readiness and deploy readiness are intentionally separate:
 
 Production must not deploy Phase 0-A/0-A+ until the deployment checklist below is complete in staging and then production.
 
+Phase 0-B update:
+
+- Phase 0-B follow-up work is recorded in `PHASE0B_REMEDIATION_REPORT.md`.
+- Phase 0-B added repo-side Cloudflare deploy prerequisite validation, request body-size limited parsers, additional fail-closed route throttles, durable admin MFA failed-attempt state, expanded CSRF regression coverage, and `AI_VIDEO_ASYNC_JOB_DESIGN.md`.
+- This Phase 0-A/0-A+ report remains historically accurate for the earlier hardening pass; use `PHASE0B_REMEDIATION_REPORT.md` and the updated `AUDIT_ACTION_PLAN.md` for current merge/deploy status.
+
 ## Scope And Source Documents
 
 Documents reviewed:
@@ -25,7 +31,7 @@ Documents reviewed:
 | `AUDIT_NEXT_LEVEL.md` | Present; audit source of truth for Phase 0 priorities. |
 | `AUDIT_ACTION_PLAN.md` | Present; top 20 remediation priorities. |
 | `PHASE0_REMEDIATION_REPORT.md` | This file; updated to reflect current code/config/tests. |
-| `AI_VIDEO_ASYNC_JOB_DESIGN.md` | Not present in this working tree. Async AI video jobs remain a later roadmap item, not Phase 0-A/0-A+. |
+| `AI_VIDEO_ASYNC_JOB_DESIGN.md` | Present after Phase 0-B. Async AI video jobs remain a later implementation item, not Phase 0-A/0-A+ runtime behavior. |
 
 Current git state reviewed:
 
@@ -535,9 +541,9 @@ Checks not run:
 | `AI_SERVICE_AUTH_SECRET` not live-verified in both workers | Internal AI access fails closed or signatures never validate. | No | Yes | Provision matching secrets in `workers/auth` and `workers/ai`; verify without printing values. |
 | `SERVICE_AUTH_REPLAY` not live-verified | AI worker rejects internal routes with safe `503` when nonce state is unavailable. | No | Yes | Deploy/verify Durable Object binding and migration in staging. |
 | HMAC rollout order can break old auth to new AI | Internal AI outage during partial deploy. | No | Yes | Coordinate rollout; ensure auth signer is deployed before or with AI verifier. |
-| MFA lockout is fixed-window throttle, not a failed-attempt state machine | Lockout works for brute-force throttling, but success reset semantics are not explicit. | No | No | Add dedicated failed-attempt state in Phase 0-B if policy requires it. |
-| Lower-priority write routes need review | Some mutation routes may lack route-specific abuse throttles. | No | No for Phase 0-A+ | Continue Phase 0-B throttling and body-size hardening. |
-| Dashboard-managed controls are not repo-enforced | WAF, static security headers, RUM, and some Cloudflare resources can drift. | No | Partially | Add dashboard-aware preflight or IaC. |
+| MFA lockout was fixed-window only in Phase 0-A+ | Phase 0-B added durable failed-attempt state and reset-on-success behavior. | No | Requires migration 0028 before deploy | See `PHASE0B_REMEDIATION_REPORT.md`. |
+| Lower-priority write routes needed review after Phase 0-A+ | Phase 0-B converted additional write routes and added body-size limits. | No | No for merge; staging still required | See `PHASE0B_REMEDIATION_REPORT.md`. |
+| Dashboard-managed controls are not repo-enforced | WAF, static security headers, RUM, and some Cloudflare resources can drift. | No | Partially | Phase 0-B added repo-side prereq validation; full IaC/live drift checks remain. |
 | No live deployment verification happened | Runtime could differ from local tests/config. | No | Yes | Complete staging checks before production. |
 | Static favorites test had one earlier flake | Possible CI instability. | No | No | Monitor and add repeat-on-failure diagnostics if it recurs. |
 
@@ -546,11 +552,11 @@ Checks not run:
 1. Track and commit all untracked security, lockfile, and audit files listed in Merge Readiness.
 2. Provision matching `AI_SERVICE_AUTH_SECRET` in both `workers/auth` and `workers/ai`; do not expose the value in logs, CI, docs, shell history, or error messages.
 3. Deploy and verify `SERVICE_AUTH_REPLAY` plus `v1-service-auth-replay` in staging before production.
-4. Run `npm run release:preflight` after the final commit set is ready.
-5. Add dashboard-aware secret/binding/resource preflight for Cloudflare environments.
-6. Continue Phase 0-B route-specific throttling and request body-size hardening.
-7. Add dedicated MFA failed-attempt state with reset-on-success semantics if security policy requires stronger lockout accounting.
-8. Expand CSRF/security regression coverage for remaining authenticated mutation routes.
+4. Keep `npm run release:preflight` green after any further application/config/test changes; Phase 0-B final preflight passed and is recorded in `PHASE0B_REMEDIATION_REPORT.md`.
+5. Apply auth migration `0028_add_admin_mfa_failed_attempts.sql` before auth Worker deploy.
+6. Use `PHASE0B_REMEDIATION_REPORT.md` for current body-size, throttling, and MFA state evidence.
+7. Verify dashboard-managed WAF/static security headers/RUM controls in staging or move them to IaC.
+8. Implement async AI video jobs from `AI_VIDEO_ASYNC_JOB_DESIGN.md` in Phase 1.
 
 ## Final Status
 
@@ -559,9 +565,9 @@ Checks not run:
 | Documentation status | PASS | Report now separates merge/deploy readiness and lists operational prerequisites. |
 | Phase 0-A+ security review | PASS | HMAC, nonce replay, fail-closed priority limits, MFA throttling, config validation, and CSRF tests are covered for reviewed scope. |
 | Merge readiness | CONDITIONAL PASS | Safe to merge only if all tracked and untracked files listed in this report are committed together. |
-| Production deploy readiness | FAIL | Blocked until live Cloudflare secrets, secret parity, AI replay Durable Object binding, and staging verification are complete. |
+| Production deploy readiness | FAIL | Blocked until live Cloudflare secrets, secret parity, AI replay Durable Object binding/migration, auth migration 0028, and staging verification are complete. |
 | Required secrets | FAIL | `AI_SERVICE_AUTH_SECRET` must exist with matching value in `workers/auth` and `workers/ai`; live verification was not performed. |
 | Required bindings | FAIL | `SERVICE_AUTH_REPLAY` and migration `v1-service-auth-replay` must be deployed and verified for `workers/ai`. |
 | Test validation | PASS | `test:workers`, `test:static`, release checks, asset checks, package installs, package audits, build, and preflight passed. |
-| Remaining blockers | MERGE AND DEPLOY | Untracked files block merge; Cloudflare provisioning and staging verification block production deploy. |
-| Next recommended phase | Phase 0-B | Dashboard-aware preflight, broader route throttling, body-size hardening, and dedicated MFA failed-attempt state if required. |
+| Remaining blockers | MERGE AND DEPLOY | Untracked Phase 0-B files block merge; Cloudflare provisioning, migration 0028, and staging verification block production deploy. |
+| Next recommended phase | Pre-deploy verification, then Phase 1 | Keep validation green, complete Cloudflare staging verification, then implement async video and broader SaaS platform work. |

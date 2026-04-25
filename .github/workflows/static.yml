@@ -50,10 +50,14 @@ jobs:
         run: npm run test:release-compat
       - name: Run release planner tests
         run: npm run test:release-plan
+      - name: Run Cloudflare deploy prerequisite tests
+        run: npm run test:cloudflare-prereqs
       - name: Run asset version tests
         run: npm run test:asset-version
       - name: Validate release compatibility
         run: npm run validate:release
+      - name: Validate Cloudflare deploy prerequisites
+        run: npm run validate:cloudflare-prereqs
       - name: Validate asset version sources
         run: npm run validate:asset-version
 

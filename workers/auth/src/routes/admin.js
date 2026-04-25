@@ -1,5 +1,8 @@
 import { json } from "../lib/response.js";
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
@@ -207,7 +210,9 @@ export async function handleAdmin(ctx) {
       );
     }
 
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
 
     if (!body) {
       return json(
@@ -311,7 +316,9 @@ export async function handleAdmin(ctx) {
       );
     }
 
-    const body = await readJsonBody(request);
+    const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
+    if (parsed.response) return parsed.response;
+    const body = parsed.body;
 
     if (!body) {
       return json(

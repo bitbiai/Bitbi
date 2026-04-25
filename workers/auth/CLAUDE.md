@@ -155,7 +155,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0027_add_admin_mfa`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0028_add_admin_mfa_failed_attempts`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -170,6 +170,7 @@ Key migration-dependent behavior:
 - `0025_add_media_favorite_types` — required before auth deploy if favorites must support media item types beyond the original gallery-only contract
 - `0026_add_cursor_pagination_support` — required before auth deploy if admin activity/user-activity and cursor-based asset listing must work immediately
 - `0027_add_admin_mfa` — required before auth deploy if production admin access must enforce TOTP MFA enrollment/verification and recovery-code state safely
+- `0028_add_admin_mfa_failed_attempts` — required before auth deploy if admin MFA verification lockout must fail closed with durable failed-attempt state and reset-on-success semantics
 
 ## Conventions
 

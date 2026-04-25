@@ -1,6 +1,9 @@
 import { json } from "../lib/response.js";
 import { requireUser } from "../lib/session.js";
-import { readJsonBody } from "../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../lib/request.js";
 import {
   evaluateSharedRateLimit,
   getClientIp,
@@ -87,7 +90,9 @@ async function handleAdd(ctx) {
   if (limit.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
   if (limit.limited) return rateLimitResponse();
 
-  const body = await readJsonBody(ctx.request);
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body) return json({ ok: false, error: "Invalid request body." }, { status: 400 });
 
   const { item_type, item_id, title, thumb_url } = body;
@@ -140,7 +145,25 @@ async function handleRemove(ctx) {
   const session = await requireUser(ctx.request, ctx.env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(ctx.request);
+  const ip = getClientIp(ctx.request);
+  const limit = await evaluateSharedRateLimit(
+    ctx.env,
+    "favorites-remove-ip",
+    ip,
+    60,
+    60_000,
+    sensitiveRateLimitOptions({
+      component: "favorites",
+      correlationId: ctx.correlationId || null,
+      requestInfo: ctx,
+    })
+  );
+  if (limit.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
+  if (limit.limited) return rateLimitResponse();
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.smallJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   if (!body) return json({ ok: false, error: "Invalid request body." }, { status: 400 });
 
   const { item_type, item_id } = body;

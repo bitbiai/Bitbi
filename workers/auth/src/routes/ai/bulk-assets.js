@@ -1,6 +1,10 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
-import { readJsonBody } from "../../lib/request.js";
+import {
+  BODY_LIMITS,
+  readJsonBodyOrResponse,
+} from "../../lib/request.js";
+import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import {
   isHexAssetId,
   normalizeRequestedIds,
@@ -24,7 +28,18 @@ export async function handleBulkMoveAssets(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-asset-bulk-write-user",
+    userId: session.user.id,
+    maxRequests: 30,
+    windowMs: 10 * 60_000,
+    component: "ai-asset-bulk-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.adminJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   const normalized = normalizeRequestedIds(body, "asset_ids", "move");
   if (normalized.error) {
     return json({ ok: false, error: normalized.error }, { status: 400 });
@@ -74,7 +89,18 @@ export async function handleBulkDeleteAssets(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  const body = await readJsonBody(request);
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-asset-bulk-write-user",
+    userId: session.user.id,
+    maxRequests: 30,
+    windowMs: 10 * 60_000,
+    component: "ai-asset-bulk-write",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.adminJson });
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
   const normalized = normalizeRequestedIds(body, "asset_ids", "delete");
   if (normalized.error) {
     return json({ ok: false, error: normalized.error }, { status: 400 });

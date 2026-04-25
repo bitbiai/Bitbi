@@ -2,7 +2,7 @@
 
 Date: 2026-04-24
 
-Last updated: 2026-04-25 after Phase 0-A and Phase 0-A+ hardening.
+Last updated: 2026-04-25 after Phase 0-A, Phase 0-A+, and Phase 0-B hardening.
 
 Scope: top 20 highest-impact fixes for `/Users/btc2020/Bitbi/Bitbi`, preserved in exact original priority order. This file is now a status-tracked action plan. Historical audit findings are not deleted; each item records current status, evidence, remaining risk, and the next action.
 
@@ -10,28 +10,29 @@ Source documents:
 
 - `AUDIT_NEXT_LEVEL.md`
 - `PHASE0_REMEDIATION_REPORT.md`
+- `PHASE0B_REMEDIATION_REPORT.md`
+- `AI_VIDEO_ASYNC_JOB_DESIGN.md`
 - Current git status and diff as of this update
-- Phase 0-A/0-A+ changed application, config, CI, and test files
+- Phase 0-A/0-A+/0-B changed application, config, CI, and test files
 
 ## Current Readiness Summary
 
 | Area | Status | Evidence | Remaining risk | Next action |
 | --- | --- | --- | --- | --- |
-| Merge readiness | Conditional | `PHASE0_REMEDIATION_REPORT.md` records passing `test:workers`, `test:static`, release checks, asset checks, package installs/audits, build, and preflight. | Required security/audit files are still untracked in the working tree. A partial commit would break service auth, config validation, or documentation traceability. | Track and commit every untracked file listed below with the related tracked modifications. |
-| Production deploy readiness | Blocked | Repo config declares `AI_SERVICE_AUTH_SECRET` manual prerequisites and `SERVICE_AUTH_REPLAY` Durable Object binding/migration. | Live Cloudflare secrets/bindings were not verified. Missing or mismatched secrets will fail closed and block internal AI access. | Provision matching `AI_SERVICE_AUTH_SECRET` in `workers/auth` and `workers/ai`; deploy and verify `SERVICE_AUTH_REPLAY` in staging before production. |
-| Phase 0-A/0-A+ security posture | Reduced immediate risk | HMAC service auth, nonce replay protection, priority fail-closed limiters, MFA throttling, config validation, and regression tests are present. | This is not full SaaS maturity. MFA lockout remains fixed-window throttling, remaining write routes need review, body-size hardening is incomplete, and async AI video jobs are not designed. | Execute Phase 0-B before broader Phase 1 SaaS platform work. |
+| Merge readiness | Conditional pass | `PHASE0B_REMEDIATION_REPORT.md` records passing Worker, static, release, asset, build, package/audit, Cloudflare prereq, and full `npm run release:preflight` validation. | New Phase 0-B files are currently untracked. A partial commit would break body parsing, Cloudflare preflight, MFA state, or documentation traceability. | Track and commit every untracked file listed below with the related tracked modifications. Re-run the relevant checks after any further application/config/test changes. |
+| Production deploy readiness | Blocked | Repo config declares `AI_SERVICE_AUTH_SECRET` manual prerequisites and `SERVICE_AUTH_REPLAY` Durable Object binding/migration; new preflight reports production blocked when live validation is skipped. | Live Cloudflare secrets/bindings were not verified. Missing/mismatched secrets, missing replay DO, or missing auth migration 0028 will fail closed. | Provision matching `AI_SERVICE_AUTH_SECRET`, deploy `SERVICE_AUTH_REPLAY`, apply auth migration 0028, and verify in staging before production. |
+| Phase 0-A/0-A+/0-B security posture | Reduced immediate risk | HMAC service auth, nonce replay protection, fail-closed limiters, body-size limits, durable MFA failed-attempt state, config validation, and regression tests are present. | This is not full SaaS maturity. AI video remains synchronous, dashboard controls are not fully repo-enforced, and tenant/billing/compliance/SLO work remains open. | Complete pre-deploy Cloudflare verification, then move async video and SaaS platform gaps into Phase 1. |
 
 Untracked files that must be included before merge:
 
-- `AUDIT_ACTION_PLAN.md`
-- `AUDIT_NEXT_LEVEL.md`
-- `PHASE0_REMEDIATION_REPORT.md`
-- `js/shared/service-auth.mjs`
-- `workers/ai/package-lock.json`
-- `workers/ai/src/lib/config.js`
-- `workers/ai/src/lib/service-auth-replay-do.js`
-- `workers/ai/src/lib/service-auth-replay.js`
-- `workers/auth/src/lib/config.js`
+- `AI_VIDEO_ASYNC_JOB_DESIGN.md`
+- `PHASE0B_REMEDIATION_REPORT.md`
+- `js/shared/request-body.mjs`
+- `scripts/lib/cloudflare-deploy-prereqs.mjs`
+- `scripts/test-cloudflare-deploy-prereqs.mjs`
+- `scripts/validate-cloudflare-deploy-prereqs.mjs`
+- `workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql`
+- `workers/auth/src/lib/sensitive-write-limit.js`
 
 ## Status Legend
 
@@ -49,15 +50,15 @@ Untracked files that must be included before merge:
 | Priority | Fix | Status | Evidence from current files/tests | Remaining risk | Next action |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Fix failing static smoke tests | Resolved | `index.html`, `js/shared/wallet/wallet-controller.js`, and `js/shared/wallet/wallet-ui.js` are modified. `PHASE0_REMEDIATION_REPORT.md` records final `npm run test:static` as PASS, 155/155, after the three original smoke failures were fixed. | One earlier favorites-related static full-suite flake was noted but did not reproduce in final static/preflight runs. | Keep `npm run test:static` and `npm run release:preflight` blocking before merge/deploy; monitor for flake recurrence. |
-| 2 | Add admin MFA rate limiting and lockout | Reduced | `workers/auth/src/routes/admin-mfa.js` applies `sensitiveRateLimitOptions()` to setup, enable, verify, disable, and recovery-code regeneration operations. `tests/workers.spec.js` includes Phase 0-A+ security regression coverage; `npm run test:workers` passed, 260/260. | The current control is fail-closed fixed-window throttling, not a dedicated failed-attempt state machine with explicit reset-on-success semantics. | Phase 0-B: add a dedicated durable failed-attempt counter/state model if product/security policy requires stronger lockout accounting. |
-| 3 | Make sensitive route rate limits fail closed | Reduced | `workers/auth/src/lib/rate-limit.js` exposes `sensitiveRateLimitOptions()` and fail-closed behavior. Priority call sites were converted in `workers/auth/src/routes/admin.js`, `admin-mfa.js`, `auth.js`, `password.js`, `verification.js`, `wallet.js`, `avatar.js`, `favorites.js`, `workers/auth/src/routes/ai/images-write.js`, and `workers/auth/src/lib/admin-ai-proxy.js`. Worker tests passed. | Lower-priority authenticated write routes still need route-by-route abuse review, and request body-size limits remain incomplete. | Phase 0-B: review remaining authenticated mutation routes, add missing route-specific throttles, and ensure expensive work happens after authorization and limits. |
+| 2 | Add admin MFA rate limiting and lockout | Resolved for Phase 0 hardening | `workers/auth/src/routes/admin-mfa.js` applies fail-closed operation throttles. `workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql` and `workers/auth/src/lib/admin-mfa.js` add durable failed-attempt count, lockout expiration, and reset-on-success behavior. `tests/workers.spec.js` covers repeated invalid attempts, lockout, valid/recovery rejection during lockout, success reset, and missing backend fail-closed behavior. | This is still TOTP/recovery-code MFA, not WebAuthn/passkey step-up. Thresholds may need tuning after real abuse data. | Apply migration 0028 before auth deploy; consider WebAuthn/passkeys and admin step-up policy in Phase 1. |
+| 3 | Make sensitive route rate limits fail closed | Reduced | Phase 0-A+ converted priority routes. Phase 0-B added `workers/auth/src/lib/sensitive-write-limit.js` and converted profile update, favorites delete, avatar delete, wallet unlink, AI folder/bulk/publication/text/audio/image writes, and contact submit fail-closed behavior. `tests/workers.spec.js` covers allowed, exhausted, and unavailable limiter behavior for representative routes. | Abuse controls remain route-specific, not plan/tenant/quota aware. Some expensive reads and dashboard/WAF controls remain outside app-layer throttling. | Continue Phase 1 abuse platform work: quotas, plan limits, expensive-read review, WAF/IaC, and observability. |
 | 4 | Add signed service authentication between auth and AI workers | Resolved in code; production provisioning still open | `js/shared/service-auth.mjs` implements HMAC-SHA256 signing/verification over method, path, timestamp, nonce, and body hash. `workers/auth/src/lib/admin-ai-proxy.js` signs Auth-to-AI calls. `workers/ai/src/index.js` verifies every `/internal/ai/*` request before dispatch. `tests/workers.spec.js` covers valid, missing, invalid, expired, replayed, and tampered requests. | `AI_SERVICE_AUTH_SECRET` was not live-verified in Cloudflare. The value must exist and match exactly in both `workers/auth` and `workers/ai`; otherwise internal AI access fails closed. | Before production: provision matching `AI_SERVICE_AUTH_SECRET` in both Worker environments and verify in staging without printing the value. |
 | 5 | Add `workers/ai/package-lock.json` and worker package CI install/audit | Resolved | `workers/ai/package-lock.json` exists. `.github/workflows/static.yml` now runs `npm ci`, `npm ls --depth=0`, and `npm audit --audit-level=low` for `workers/auth`, `workers/contact`, and `workers/ai`. `PHASE0_REMEDIATION_REPORT.md` records root and worker installs/audits as PASS. | CI still depends on npm registry availability and does not yet include dependency review/SBOM/license gates. | Keep worker package checks blocking; add broader CI security gates under item 10. |
-| 6 | Add fail-closed Worker config validation | Reduced | `workers/auth/src/lib/config.js` validates auth critical config including `SESSION_SECRET`, `DB`, and `AI_SERVICE_AUTH_SECRET` where needed. `workers/ai/src/lib/config.js` validates `AI_SERVICE_AUTH_SECRET` and `SERVICE_AUTH_REPLAY`. `workers/ai/src/index.js` fails closed before internal AI route dispatch when config is missing. Worker tests passed. | Config validation is not yet exhaustive for every R2, Queue, Images, D1, contact, dashboard, and environment-specific binding. Live Cloudflare config was not verified. | Phase 0-B: add dashboard-aware preflight and expand route-specific binding validation without leaking secret values. |
-| 7 | Replace synchronous AI video polling with async jobs | Deferred to Phase 0-B | `workers/ai/src/lib/invoke-ai-video.js` still defines `VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 450_000` and polls provider status in-request. `AI_VIDEO_ASYNC_JOB_DESIGN.md` is not present in this working tree. | Long-running video requests can still create high tail latency, duplicated provider work, and Worker runtime risk. | Phase 0-B: create the async AI video job design document and migration plan; implementation can follow once the job schema, queue flow, callback/polling model, and UI contract are agreed. |
-| 8 | Add request body size limited parsers | Deferred to Phase 0-B | `workers/auth/src/lib/request.js` and `workers/ai/src/lib/validate.js` still use `request.json()` wrappers without byte limits. `workers/contact/src/index.js` uses `request.json()`. `workers/auth/src/routes/avatar.js` still reaches `request.formData()` for avatar upload, although it now has fail-closed rate limiting. Some image save paths have payload-specific size checks, but there is no uniform parser limit. | Oversized JSON/multipart bodies can still consume memory/CPU before validation on several routes. | Phase 0-B: add `readJsonBodyLimited`, content-length/stream guards, multipart limits, endpoint-specific caps, and oversized-body tests. |
-| 9 | Move Cloudflare dashboard controls into IaC or drift checks | Partially addressed | `config/release-compat.json` now records `AI_SERVICE_AUTH_SECRET` manual prerequisites and `SERVICE_AUTH_REPLAY` requirements, and release compatibility tests validate repo-side config. | Dashboard-managed WAF/static headers/RUM/resources/secrets are still not live-verified or fully repo-enforced. | Phase 0-B/Phase 1: add dashboard-aware preflight or IaC for required Worker secrets, DO bindings, routes, queues, buckets, D1, WAF, headers, and RUM. |
-| 10 | Add CI security gates | Reduced | `.github/workflows/static.yml` now includes root `npm audit --audit-level=low` and worker `npm ci`, `npm ls --depth=0`, and `npm audit --audit-level=low`. Local Phase 0-A+ package installs/audits passed for root and all workers. | CodeQL/SAST, secret scanning, dependency review, SBOM, and license checks are still missing as repo-defined blocking gates. | Phase 1: add a dedicated security workflow or extend CI with CodeQL/Semgrep, dependency review, secret scanning, SBOM, and license policy. |
+| 6 | Add fail-closed Worker config validation | Reduced | `workers/auth/src/lib/config.js` validates auth critical config including `SESSION_SECRET`, `DB`, and `AI_SERVICE_AUTH_SECRET` where needed. `workers/ai/src/lib/config.js` validates `AI_SERVICE_AUTH_SECRET` and `SERVICE_AUTH_REPLAY`. `scripts/validate-cloudflare-deploy-prereqs.mjs` validates repo config for critical secrets/bindings and marks production blocked when live validation is skipped. | Live Cloudflare config was not verified. Static headers, WAF, RUM, and some dashboard-managed resources are still not fully repo-enforced. | Run `npm run validate:cloudflare-prereqs -- --live` in staging where credentials are available, then add IaC/live drift checks in Phase 1. |
+| 7 | Replace synchronous AI video polling with async jobs | Partially addressed | `AI_VIDEO_ASYNC_JOB_DESIGN.md` now documents current paths, target D1/Queue/R2 architecture, schema proposal, lifecycle, idempotency, retry, timeout, cancellation, observability, migration, and test plan. Runtime code in `workers/ai/src/lib/invoke-ai-video.js` still polls synchronously. | Long-running video requests can still create high tail latency, duplicated provider work, and Worker runtime risk until the design is implemented. | Phase 1: implement the design in PR-sized steps behind a feature flag, then retire synchronous admin video generation after parity. |
+| 8 | Add request body size limited parsers | Resolved for Phase 0-B scope | `js/shared/request-body.mjs` adds content-length and streaming limits. `workers/auth/src/lib/request.js`, `workers/contact/src/index.js`, and `workers/ai/src/lib/validate.js` use limited parsers. Prioritized auth/admin/MFA/profile/favorites/avatar/wallet/AI/contact/internal AI routes now enforce route-specific caps. `tests/workers.spec.js` covers oversized header, oversized stream, malformed JSON, wrong content type, avatar multipart, AI save, and contact body failures. | This is byte-limit hardening, not full schema validation or a complete SaaS abuse/cost platform. Large save routes intentionally still allow MB-scale payloads. | Keep body limits under test; add schema validation and cost-aware payload policies in Phase 1. |
+| 9 | Move Cloudflare dashboard controls into IaC or drift checks | Reduced | `scripts/validate-cloudflare-deploy-prereqs.mjs` validates repo declarations for required secrets, `SERVICE_AUTH_REPLAY`, migration `v1-service-auth-replay`, and critical auth bindings. `.github/workflows/static.yml` runs the prereq tests/validation. | Live resource verification is optional and was not run locally. WAF/static headers/RUM remain dashboard-managed and not repo-enforced. | Before deploy, run live/staging verification. Phase 1: move dashboard controls to IaC or add Cloudflare API drift checks. |
+| 10 | Add CI security gates | Reduced | `.github/workflows/static.yml` includes root/worker installs/audits plus Cloudflare prereq tests/validation. Local Phase 0-B Worker and prereq tests passed. | CodeQL/SAST, secret scanning, dependency review, SBOM, and license checks are still missing as repo-defined blocking gates. | Phase 1: add a dedicated security workflow or extend CI with CodeQL/Semgrep, dependency review, secret scanning, SBOM, and license policy. |
 | 11 | Add lint/typecheck/checkJs and safe DOM rules | Still open | No lint/typecheck/checkJs script is defined in `package.json`, and this update did not add static DOM safety rules. | XSS-prone patterns and JavaScript contract drift remain harder to catch automatically. | Phase 1: add ESLint/Biome or equivalent, start warning-only, then enforce on security-sensitive directories and changed files. |
 | 12 | Split the largest admin/frontend modules | Deferred to Phase 1 | Phase 0-A/0-A+ intentionally avoided broad frontend refactors. The large admin and wallet/frontend modules remain outside the hardening scope. | Large modules remain difficult to review and regression-test surgically. | Phase 1: extract pure helpers first, add tests, then split admin AI, wallet, and asset browser modules by domain. |
 | 13 | Add signed cursors and scalable indexes to activity endpoints | Deferred to Phase 1 | Phase 0-A/0-A+ did not change admin/user activity pagination or metadata search design. | Activity endpoints can degrade as logs grow; raw cursor/search patterns remain future scaling risk. | Phase 1: add signed cursors, normalized indexed search fields, aggregate tables, and high-row-count tests. |
@@ -69,22 +70,22 @@ Untracked files that must be included before merge:
 | 19 | Add load/performance and frontend budget tests | Deferred to Phase 1 | No k6/Artillery/Lighthouse/WebPageTest budgets were added. Phase 0 validation focused on static, Worker, release, dependency, and build checks. | Capacity limits and frontend performance regressions remain unmeasured. | Phase 1: add API load tests for auth/admin/activity/AI/media and frontend budgets for homepage/account/admin. |
 | 20 | Pin runtime/toolchain versions consistently | Still open | `.github/workflows/static.yml` uses Node 20, but no `.nvmrc`, `.node-version`, `.tool-versions`, Volta config, or `package.json` `engines` entry exists in the repo. | Local/CI drift remains possible, especially because the audit/remediation work observed different local Node versions. | Choose Node 20 or another target intentionally, add the repo-local version pin, document npm expectations, and rerun full validation. |
 
-## Immediate Phase 0-B Operational Backlog
+## Immediate Pre-Deploy / Phase 1 Backlog
 
-These are the highest-priority follow-ups after Phase 0-A/0-A+ and before broader Phase 1 SaaS work:
+These are the highest-priority follow-ups after Phase 0-B and before broader Phase 1 SaaS work:
 
-1. Track and commit all untracked security, lockfile, config, and audit files.
-2. Provision matching `AI_SERVICE_AUTH_SECRET` in both `workers/auth` and `workers/ai`.
-3. Deploy and verify the `SERVICE_AUTH_REPLAY` Durable Object binding and `v1-service-auth-replay` migration in staging.
-4. Add dashboard-aware secret/binding/resource preflight that fails production deploy when critical Cloudflare state is missing.
-5. Add limited JSON/multipart body parsers and oversized-body tests for contact, avatar, AI, and remaining write routes.
-6. Continue fail-closed route throttling review for lower-priority authenticated mutation routes.
-7. Decide whether admin MFA needs a dedicated durable failed-attempt state with reset-on-success semantics.
-8. Write `AI_VIDEO_ASYNC_JOB_DESIGN.md` covering job schema, queue flow, provider polling/callbacks, status API, admin UI migration, idempotency, retries, and cleanup.
+1. Track and commit all untracked Phase 0-B files with the related tracked modifications.
+2. Keep the final validation green; re-run `npm run release:preflight` after any further application/config/test changes.
+3. Provision matching `AI_SERVICE_AUTH_SECRET` in both `workers/auth` and `workers/ai`.
+4. Deploy and verify the `SERVICE_AUTH_REPLAY` Durable Object binding and `v1-service-auth-replay` migration in staging.
+5. Apply auth migration `0028_add_admin_mfa_failed_attempts.sql` before deploying auth Worker code.
+6. Run `npm run validate:cloudflare-prereqs -- --live` or equivalent staging verification without printing secret values.
+7. Verify dashboard-managed WAF/static security headers/RUM controls manually or move them to IaC.
+8. Begin Phase 1 async AI video implementation using `AI_VIDEO_ASYNC_JOB_DESIGN.md`.
 
 ## Production Deploy Blockers
 
-Do not deploy Phase 0-A/0-A+ to production until all of these are complete:
+Do not deploy Phase 0-A/0-A+/0-B to production until all of these are complete:
 
 - `AI_SERVICE_AUTH_SECRET` exists in `workers/auth`.
 - `AI_SERVICE_AUTH_SECRET` exists in `workers/ai`.
@@ -92,24 +93,28 @@ Do not deploy Phase 0-A/0-A+ to production until all of these are complete:
 - Secret values are never printed in logs, CI, docs, terminal output, diagnostics, or error messages.
 - `SERVICE_AUTH_REPLAY` exists as a `workers/ai` Durable Object binding.
 - The `v1-service-auth-replay` Durable Object migration is deployed.
+- Auth D1 migration `0028_add_admin_mfa_failed_attempts.sql` is applied before the auth Worker deploy.
 - Staging verifies valid Auth-to-AI calls, replay rejection, missing secret failure, missing replay backend failure, and no unsigned internal AI access.
-- `npm run release:preflight` passes after the final commit set.
+- Staging verifies admin MFA failed-attempt lockout and reset-on-success behavior.
+- `npm run release:preflight` passes for the final commit set.
 
 ## Validation Evidence Snapshot
 
-The latest full validation evidence is recorded in `PHASE0_REMEDIATION_REPORT.md`. Relevant results:
+The latest Phase 0-B validation evidence is recorded in `PHASE0B_REMEDIATION_REPORT.md`. Relevant results from this update:
 
 | Command/check | Result | What it proves |
 | --- | --- | --- |
-| `npm run test:workers` | PASS, 260/260 | Worker route/security regressions pass, including HMAC, nonce replay, fail-closed limiter, config validation, MFA, and CSRF coverage. |
+| `npm run test:workers` | PASS, 271/271 | Worker route/security regressions pass, including HMAC, nonce replay, fail-closed limiter, config validation, MFA failed-attempt state, body limits, and CSRF coverage. |
 | `npm run test:static` | PASS, 155/155 | Static smoke suite is green after the original three failures were fixed. |
 | `npm run test:release-compat` | PASS | Release compatibility contract includes the new Worker config and Durable Object requirements. |
-| `npm run test:release-plan` | PASS | Release planner accepts the current file classifications. |
+| `npm run test:release-plan` | PASS | Release planner accepts Phase 0-B docs and shared body helper classifications. |
+| `npm run test:cloudflare-prereqs` | PASS | Cloudflare prereq validator covers present/missing config and live validation states. |
+| `npm run validate:cloudflare-prereqs` | PASS for repo config; production blocked | Repo config is valid, live Cloudflare validation was skipped, and production deploy is correctly not marked ready. |
 | `npm run test:asset-version` | PASS | Asset-version contract remains valid. |
 | `npm run validate:release` | PASS | Release compatibility configuration validates. |
 | `npm run validate:asset-version` | PASS | Asset version references validate. |
 | `npm run build:static` | PASS | Static build succeeds. |
-| `npm run release:preflight` | PASS | Aggregated preflight passed after Phase 0-A/0-A+ changes. |
+| `npm run release:preflight` | PASS | Aggregated preflight passed after Phase 0-B changes. |
 | Root and worker `npm ci` | PASS | Dependency installs are reproducible from lockfiles. |
 | Root and worker `npm audit --audit-level=low` | PASS, 0 vulnerabilities | Current lockfiles have no low-or-higher npm audit findings. |
 

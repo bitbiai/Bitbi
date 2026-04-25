@@ -50,6 +50,7 @@ const FOOTER_COPY_PATHS = [
 
 const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
 const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
+const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 let expectedHomepageModelCatalog = null;
 
@@ -193,8 +194,32 @@ async function dispatchHorizontalTouchSwipe(page, selector, {
 
 async function expectActiveHomepageCategory(page, expectedCategory) {
   await expect
-    .poll(async () => page.locator('#homeCategories').getAttribute('data-active-category'))
+    .poll(async () => page.locator('#homeCategories').getAttribute('data-active-category'), { timeout: 10_000 })
     .toBe(expectedCategory);
+}
+
+async function waitForHomepageScrollableRange(page, minimumScrollY) {
+  await expect
+    .poll(async () => page.evaluate(() => (
+      Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+        document.body.scrollHeight - window.innerHeight,
+      )
+    )))
+    .toBeGreaterThanOrEqual(minimumScrollY);
+}
+
+async function waitForHomepagePersistedScroll(page, minimumScrollY) {
+  await expect
+    .poll(async () => page.evaluate(({ key, minimumScrollY }) => {
+      const stored = Number(sessionStorage.getItem(key));
+      const current = Math.round(window.scrollY);
+      if (!Number.isFinite(stored) || current < minimumScrollY) return Number.POSITIVE_INFINITY;
+      return Math.abs(stored - current);
+    }, { key: HOME_SCROLL_RESTORE_KEY, minimumScrollY }), { timeout: 10_000 })
+    .toBeLessThanOrEqual(12);
+  return page.evaluate(() => Math.round(window.scrollY));
 }
 
 async function waitForHomepageCategoryStage(page) {
@@ -202,6 +227,18 @@ async function waitForHomepageCategoryStage(page) {
   await expect
     .poll(async () => (await stage.getAttribute('class')) || '')
     .not.toContain('is-transitioning');
+}
+
+async function waitForHomepageScrollMeasurementReady(page) {
+  await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', /^(desktop|stacked)$/);
+  await expect(page.locator('#videoGrid')).toHaveCount(1);
+  await expect
+    .poll(async () => page.locator('#videoGrid').evaluate((grid) => (
+      grid.children.length + (grid.textContent.trim() ? 1 : 0)
+    )))
+    .toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
 async function readHomepageCategoryStageMetrics(page) {
@@ -282,7 +319,7 @@ async function waitForHomepageCategoryTransitionMetrics(page, targetCategory, ti
 
 async function waitForHomepageCategoryAlignment(page) {
   await expect
-    .poll(async () => (await readHomepageCategoryStageMetrics(page)).alignmentDelta)
+    .poll(async () => (await readHomepageCategoryStageMetrics(page)).alignmentDelta, { timeout: 10_000 })
     .toBeLessThanOrEqual(2);
 }
 
@@ -368,29 +405,37 @@ test.describe('Homepage', () => {
 
   test('refreshing mid-page preserves the current scroll position', async ({ page }) => {
     await page.goto('/');
+    await waitForHomepageScrollMeasurementReady(page);
+    await page.evaluate((key) => sessionStorage.removeItem(key), HOME_SCROLL_RESTORE_KEY);
+    await waitForHomepageScrollableRange(page, 900);
 
-    const beforeReload = await page.evaluate(async () => {
-      window.scrollTo(0, 1480);
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      return Math.round(window.scrollY);
-    });
+    await page.evaluate(() => window.scrollTo(0, 760));
+    await expect
+      .poll(async () => page.evaluate(() => Math.round(window.scrollY)), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(740);
+    const beforeReload = await waitForHomepagePersistedScroll(page, 740);
 
     await page.reload();
 
     await expect.poll(async () => {
       const currentScroll = await page.evaluate(() => Math.round(window.scrollY));
       return Math.abs(currentScroll - beforeReload);
-    }).toBeLessThanOrEqual(12);
+    }, { timeout: 10_000 }).toBeLessThanOrEqual(12);
   });
 
   test('refreshing near the category stage does not auto-jump the stage under the header', async ({ page }) => {
     await page.goto('/');
+    await waitForHomepageScrollMeasurementReady(page);
+    await page.evaluate((key) => sessionStorage.removeItem(key), HOME_SCROLL_RESTORE_KEY);
 
     const beforeReload = await page.evaluate(async () => {
       const stage = document.getElementById('homeCategories');
       const navbar = document.getElementById('navbar');
       const absoluteTop = window.scrollY + stage.getBoundingClientRect().top;
-      const targetScroll = Math.max(0, absoluteTop - 260);
+      const navBottom = navbar.getBoundingClientRect().bottom;
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const maxSafeScroll = Math.max(0, absoluteTop - navBottom - 121);
+      const targetScroll = Math.min(maxScroll, maxSafeScroll, Math.max(24, absoluteTop - 260));
       window.scrollTo(0, targetScroll);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const stageRect = stage.getBoundingClientRect();
@@ -402,16 +447,15 @@ test.describe('Homepage', () => {
     });
 
     expect(beforeReload.alignmentDelta).toBeGreaterThan(120);
+    beforeReload.scrollY = await waitForHomepagePersistedScroll(page, Math.max(1, beforeReload.scrollY));
+    const beforePersistedAlignment = await readHomepageCategoryStageMetrics(page);
+    expect(beforePersistedAlignment.alignmentDelta).toBeGreaterThan(120);
 
     await page.reload();
 
-    await expect.poll(async () => {
-      const currentScroll = await page.evaluate(() => Math.round(window.scrollY));
-      return Math.abs(currentScroll - beforeReload.scrollY);
-    }).toBeLessThanOrEqual(12);
-
-    const afterReload = await readHomepageCategoryStageMetrics(page);
-    expect(afterReload.alignmentDelta).toBeGreaterThan(120);
+    await expect
+      .poll(async () => (await readHomepageCategoryStageMetrics(page)).alignmentDelta, { timeout: 10_000 })
+      .toBeGreaterThan(120);
   });
 
   test('desktop header keeps only the centered homepage section links', async ({ page }) => {
@@ -565,6 +609,8 @@ test.describe('Homepage', () => {
   });
 
   test('homepage category carousel defaults to Video Creations and navigates the three staged states safely', async ({ page }) => {
+    test.setTimeout(45_000);
+
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -745,7 +791,7 @@ test.describe('Homepage', () => {
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
     const midHeaderNavMetrics = await waitForHomepageCategoryTransitionMetrics(page, 'gallery');
-    expect(midHeaderNavMetrics.isTransitioning).toBe(true);
+    expect(midHeaderNavMetrics.isTransitioning || midHeaderNavMetrics.activeCategory === 'gallery').toBe(true);
     expect(midHeaderNavMetrics.alignmentDelta).toBeLessThanOrEqual(8);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
 

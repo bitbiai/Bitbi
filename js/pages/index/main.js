@@ -19,7 +19,7 @@ import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
-import { initContact } from './contact.js';
+import { initContact } from './contact.js?v=__ASSET_VERSION__';
 import { initModelsOverlay } from '../../shared/models-overlay.js?v=__ASSET_VERSION__';
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';

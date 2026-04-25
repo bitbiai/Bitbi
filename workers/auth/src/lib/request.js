@@ -1,3 +1,68 @@
+import {
+  RequestBodyError,
+  getContentLength,
+  isRequestBodyError,
+  readFormDataLimited,
+  readJsonBodyLimited,
+  readTextBodyLimited,
+  rejectIfBodyTooLarge,
+} from "../../../../js/shared/request-body.mjs";
+import { json } from "./response.js";
+
+export {
+  RequestBodyError,
+  getContentLength,
+  isRequestBodyError,
+  readFormDataLimited,
+  readJsonBodyLimited,
+  readTextBodyLimited,
+  rejectIfBodyTooLarge,
+};
+
+export const BODY_LIMITS = Object.freeze({
+  smallJson: 32 * 1024,
+  authJson: 64 * 1024,
+  adminJson: 512 * 1024,
+  aiGenerateJson: 32 * 1024,
+  aiSaveImageJson: 15 * 1024 * 1024,
+  aiSaveAudioJson: 18 * 1024 * 1024,
+  avatarJson: 32 * 1024,
+  avatarMultipart: 3 * 1024 * 1024,
+});
+
+export function requestBodyErrorResponse(error) {
+  const status = Number(error?.status || 400);
+  const code = error?.code === "invalid_json" ? "bad_request" : (error?.code || "bad_request");
+  return json(
+    {
+      ok: false,
+      error: error?.publicMessage || "Invalid request body.",
+      code,
+    },
+    { status }
+  );
+}
+
+export async function readJsonBodyOrResponse(request, {
+  maxBytes = BODY_LIMITS.authJson,
+  requiredContentType = true,
+} = {}) {
+  try {
+    return {
+      body: await readJsonBodyLimited(request, { maxBytes, requiredContentType }),
+      response: null,
+    };
+  } catch (error) {
+    if (isRequestBodyError(error)) {
+      return {
+        body: null,
+        response: requestBodyErrorResponse(error),
+      };
+    }
+    throw error;
+  }
+}
+
 export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
@@ -29,9 +94,10 @@ export function isValidEmail(email) {
 
 export async function readJsonBody(request) {
   try {
-    const ct = request.headers.get("Content-Type") || "";
-    if (!ct.includes("application/json")) return null;
-    return await request.json();
+    return await readJsonBodyLimited(request, {
+      maxBytes: BODY_LIMITS.authJson,
+      requiredContentType: false,
+    });
   } catch {
     return null;
   }
