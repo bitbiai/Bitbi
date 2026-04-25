@@ -104,7 +104,7 @@ Some paths degrade gracefully if a table is missing, but the intended production
 
 | Worker | Required bindings / secrets | Operational note |
 |--------|-----------------------------|------------------|
-| `workers/auth/` | D1 `DB`; AI `AI`; Cloudflare Images `IMAGES`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`, `AUDIT_ARCHIVE`; Durable Object `PUBLIC_RATE_LIMITER`; Queues `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`; secrets `SESSION_SECRET`, `RESEND_API_KEY` | Daily cron cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, pending R2 cleanup jobs, and archives cold audit logs; `/api/admin/ai/*` proxies admin-only lab traffic into `workers/ai/`; admin access MFA-gated via TOTP |
+| `workers/auth/` | D1 `DB`; AI `AI`; Cloudflare Images `IMAGES`; service binding `AI_LAB`; R2 `PRIVATE_MEDIA`, `USER_IMAGES`, `AUDIT_ARCHIVE`; Durable Object `PUBLIC_RATE_LIMITER`; Queues `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`; secrets `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `RESEND_API_KEY` | Daily cron cleans expired sessions/tokens, AI quota reservations, shared rate-limit counters, pending R2 cleanup jobs, and archives cold audit logs; `/api/admin/ai/*` proxies admin-only lab traffic into `workers/ai/`; admin access MFA-gated via TOTP |
 | `workers/ai/` | AI `AI` | Internal service-only worker for admin AI experiments; deploy this before auth when changing the lab proxy flow |
 | `workers/contact/` | Durable Object `PUBLIC_RATE_LIMITER`; secret `RESEND_API_KEY` | Uses worker-local Durable Object counters for public abuse-sensitive rate limiting (no longer depends on D1) |
 
@@ -245,7 +245,7 @@ Three workers, deployed separately from the static site:
 | `workers/ai/src/index.js` | internal service binding only | Admin-only AI lab worker — model routing, text/image/embedding/music/video experiments, and compare flows via `workers/auth` |
 | `workers/contact/src/index.js` | `contact.bitbi.ai` | Contact form email via Resend API |
 
-All workers are CORS-locked to `https://bitbi.ai`. Auth worker secrets: `SESSION_SECRET`, `RESEND_API_KEY`.
+All workers are CORS-locked to `https://bitbi.ai`. Auth Worker security material is purpose-separated: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, and `AI_SAVE_REFERENCE_SIGNING_SECRET`; keep legacy `SESSION_SECRET` only while `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` remains enabled.
 
 ## Key Conventions
 

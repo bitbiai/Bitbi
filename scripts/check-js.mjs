@@ -15,6 +15,7 @@ const CHECK_TARGETS = [
   "scripts/release-preflight.mjs",
   "scripts/test-quality-gates.mjs",
   "workers/auth/src/lib/ai-video-jobs.js",
+  "workers/auth/src/lib/security-secrets.js",
   "workers/auth/src/routes/admin-ai.js",
   "workers/ai/src/routes/video-task.js",
   "js/pages/admin/ai-lab.js",

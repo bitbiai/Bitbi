@@ -17,6 +17,18 @@ function getCheck(result, id) {
   return result.checks.find((check) => check.id === id) || null;
 }
 
+const authSecretNames = [
+  "SESSION_SECRET",
+  "SESSION_HASH_SECRET",
+  "PAGINATION_SIGNING_SECRET",
+  "ADMIN_MFA_ENCRYPTION_KEY",
+  "ADMIN_MFA_PROOF_SECRET",
+  "ADMIN_MFA_RECOVERY_HASH_SECRET",
+  "AI_SAVE_REFERENCE_SIGNING_SECRET",
+  "AI_SERVICE_AUTH_SECRET",
+  "RESEND_API_KEY",
+];
+
 {
   const result = validateCloudflareDeployPrereqs(createContext());
   assert.equal(result.ok, true);
@@ -63,6 +75,16 @@ function getCheck(result, id) {
 }
 
 {
+  const context = createContext();
+  context.manifest.release.manualPrerequisites = context.manifest.release.manualPrerequisites.filter(
+    (entry) => entry.id !== "auth-session-hash-secret"
+  );
+  const result = validateCloudflareDeployPrereqs(context);
+  assert.equal(result.ok, false);
+  assert.equal(getCheck(result, "manual-prerequisite:auth-session-hash-secret")?.status, "fail");
+}
+
+{
   const result = validateCloudflareDeployPrereqs(createContext(), { requireLive: true });
   assert.equal(result.ok, false);
   assert.equal(result.liveValidation, "failed");
@@ -75,11 +97,7 @@ function getCheck(result, id) {
     calls.push([cmd, ...args].join(" "));
     return {
       status: 0,
-      stdout: JSON.stringify([
-        { name: "SESSION_SECRET" },
-        { name: "AI_SERVICE_AUTH_SECRET" },
-        { name: "RESEND_API_KEY" },
-      ]),
+      stdout: JSON.stringify(authSecretNames.map((name) => ({ name }))),
       stderr: "",
     };
   };
@@ -102,7 +120,7 @@ function getCheck(result, id) {
     const configPath = configIndex >= 0 ? args[configIndex + 1] : "";
     const names = configPath.includes("workers/ai/")
       ? []
-      : [{ name: "SESSION_SECRET" }, { name: "AI_SERVICE_AUTH_SECRET" }, { name: "RESEND_API_KEY" }];
+      : authSecretNames.map((name) => ({ name }));
     return {
       status: 0,
       stdout: JSON.stringify(names),
@@ -118,11 +136,7 @@ function getCheck(result, id) {
 {
   const runner = () => ({
     status: 0,
-    stdout: JSON.stringify([
-      { name: "SESSION_SECRET" },
-      { name: "AI_SERVICE_AUTH_SECRET" },
-      { name: "RESEND_API_KEY" },
-    ]),
+    stdout: JSON.stringify(authSecretNames.map((name) => ({ name }))),
     stderr: "",
   });
   const result = validateCloudflareDeployPrereqs(createContext(), {

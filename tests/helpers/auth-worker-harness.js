@@ -557,6 +557,14 @@ class MockD1 {
       return { success: true, meta: { changes: 0 } };
     }
 
+    if (query === 'UPDATE sessions SET token_hash = ? WHERE id = ? AND token_hash = ?') {
+      const [nextTokenHash, sessionId, previousTokenHash] = bindings;
+      const row = this.state.sessions.find((item) => item.id === sessionId && item.token_hash === previousTokenHash);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.token_hash = nextTokenHash;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('SELECT id, email, password_hash, created_at, status, role, email_verified_at FROM users WHERE email = ?')) {
       const [email] = bindings;
       return this.state.users.find((row) => row.email === email) || null;
@@ -3523,6 +3531,13 @@ function createAuthTestEnv(seed = {}) {
     BITBI_ENV: seed.BITBI_ENV || 'test',
     RESEND_FROM_EMAIL: 'BITBI <noreply@contact.bitbi.ai>',
     SESSION_SECRET: seed.SESSION_SECRET === undefined ? 'test-session-secret' : seed.SESSION_SECRET,
+    SESSION_HASH_SECRET: seed.SESSION_HASH_SECRET === undefined ? 'test-session-hash-secret-v1-32chars' : seed.SESSION_HASH_SECRET,
+    PAGINATION_SIGNING_SECRET: seed.PAGINATION_SIGNING_SECRET === undefined ? 'test-pagination-signing-secret-v1-32chars' : seed.PAGINATION_SIGNING_SECRET,
+    ADMIN_MFA_ENCRYPTION_KEY: seed.ADMIN_MFA_ENCRYPTION_KEY === undefined ? 'test-admin-mfa-encryption-key-v1-32chars' : seed.ADMIN_MFA_ENCRYPTION_KEY,
+    ADMIN_MFA_PROOF_SECRET: seed.ADMIN_MFA_PROOF_SECRET === undefined ? 'test-admin-mfa-proof-secret-v1-32chars' : seed.ADMIN_MFA_PROOF_SECRET,
+    ADMIN_MFA_RECOVERY_HASH_SECRET: seed.ADMIN_MFA_RECOVERY_HASH_SECRET === undefined ? 'test-admin-mfa-recovery-hash-secret' : seed.ADMIN_MFA_RECOVERY_HASH_SECRET,
+    AI_SAVE_REFERENCE_SIGNING_SECRET: seed.AI_SAVE_REFERENCE_SIGNING_SECRET === undefined ? 'test-ai-save-reference-signing-secret' : seed.AI_SAVE_REFERENCE_SIGNING_SECRET,
+    ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: seed.ALLOW_LEGACY_SECURITY_SECRET_FALLBACK,
     AI_SERVICE_AUTH_SECRET: seed.AI_SERVICE_AUTH_SECRET === undefined
       ? 'test-ai-service-auth-secret'
       : seed.AI_SERVICE_AUTH_SECRET,
@@ -3562,7 +3577,7 @@ function createExecutionContext() {
 
 async function seedSession(env, userId) {
   const token = `session-${userId}`;
-  const tokenHash = await sha256Hex(`${token}:${env.SESSION_SECRET}`);
+  const tokenHash = await sha256Hex(`${token}:${env.SESSION_HASH_SECRET}`);
   env.DB.state.sessions.push({
     id: `sess-${userId}`,
     user_id: userId,

@@ -17,6 +17,7 @@ Reference documents:
 - `PHASE1A_REMEDIATION_REPORT.md` contains the Phase 1-A async admin video job foundation evidence, validation results, deploy requirements, and remaining risks.
 - `PHASE1B_REMEDIATION_REPORT.md` contains the Phase 1-B async admin video production-usability hardening evidence, validation results, deploy requirements, and remaining risks.
 - `PHASE1C_REMEDIATION_REPORT.md` contains the Phase 1-C sync-route restriction, admin poison/failed-job inspection, quality-gate, validation, and deploy-readiness evidence.
+- `PHASE1D_SECRET_ROTATION_REPORT.md` contains the Phase 1-D purpose-specific security secret inventory, dual-read/single-write compatibility behavior, validation evidence, rollout plan, and rollback guidance.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -73,6 +74,15 @@ Phase 1-C completed summary:
 - Updated release compatibility contracts to mark the sync route as debug-only and include the new operational routes.
 - Final Phase 1-C validation passed: `npm run test:workers` 289/289, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`.
 
+Phase 1-D completed summary:
+
+- Added `workers/auth/src/lib/security-secrets.js` to centralize purpose-specific auth secret lookup and explicit legacy `SESSION_SECRET` fallback.
+- New session hashes use `SESSION_HASH_SECRET`; legacy `SESSION_SECRET` hashes are accepted during fallback and opportunistically upgraded after successful validation.
+- New admin MFA TOTP encryption, proof cookies, and recovery-code hashes use `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, and `ADMIN_MFA_RECOVERY_HASH_SECRET`; legacy decrypt/proof/hash fallback remains explicit and tested.
+- New pagination cursors use `PAGINATION_SIGNING_SECRET`, and generated-image save references use `AI_SAVE_REFERENCE_SIGNING_SECRET`.
+- Auth config validation, release compatibility, and Cloudflare prerequisite checks now require the new purpose-specific auth secret names.
+- `PHASE1D_SECRET_ROTATION_REPORT.md` documents the inventory, rollout plan, rollback plan, remaining risks, and validation evidence.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -85,6 +95,7 @@ Findings resolved:
 | Admin MFA fixed-window-only lockout | Resolved for Phase 0 hardening | `workers/auth/migrations/0028_add_admin_mfa_failed_attempts.sql` and `workers/auth/src/lib/admin-mfa.js` add durable failed-attempt state and reset-on-success behavior. |
 | Async video poison-message persistence for malformed/exhausted messages | Resolved for video jobs | `workers/auth/migrations/0030_harden_ai_video_jobs_phase1b.sql` adds `ai_video_job_poison_messages`; `workers/auth/src/lib/ai-video-jobs.js` records redacted poison entries. |
 | Runtime/toolchain pinning baseline | Resolved for Node/npm baseline | `.nvmrc`, `package.json` engines, and `scripts/check-toolchain.mjs` pin and validate Node 20/npm 10+ expectations. |
+| `SESSION_SECRET` overused across independent security boundaries | Reduced | `workers/auth/src/lib/security-secrets.js`, `session.js`, `admin-mfa.js`, `pagination.js`, and `generated-image-save-reference.js` now use purpose-specific secrets for new writes with explicit legacy fallback. |
 
 Findings reduced but not fully resolved:
 
@@ -96,11 +107,13 @@ Findings reduced but not fully resolved:
 | CI security gates | Reduced | Root/Worker npm checks, Cloudflare prereq tests, body-parser guard, toolchain check, scanner tests, secret scan, DOM sink baseline, and targeted JS syntax check are now in CI/preflight. CodeQL/SAST, dependency review, SBOM, and license gates remain open. |
 | Async admin video job foundation | Reduced | Phase 1-B adds default admin UI async create/status polling, queue-safe provider task create/poll, R2 output ingest, and poison-message persistence. Phase 1-C adds sanitized poison/failed-job inspection APIs. Full operational maturity still needs staging verification and dashboards. |
 | Synchronous AI video provider polling | Reduced | The default admin UI and async queue path no longer call the old long synchronous provider route. Phase 1-C default-disables `/api/admin/ai/test-video` unless `ALLOW_SYNC_VIDEO_DEBUG=true`, but the route still exists for controlled admin/debug fallback. |
+| Purpose-specific security secrets | Reduced | Phase 1-D separates new session, pagination, admin MFA encryption/proof/recovery, and AI save-reference material from `SESSION_SECRET`; legacy fallback remains during the migration window. |
 
 Findings still open:
 
 - Synchronous AI video provider polling is reduced but not eliminated because the legacy compatibility route still exists behind `ALLOW_SYNC_VIDEO_DEBUG=true` and should be retired after async staging confidence.
 - Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates only.
+- Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
 - Scalable activity indexes, signed activity cursors, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, full observability/SLOs, and load/performance budgets remain open or deferred.
 
@@ -108,9 +121,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-C validation | `npm run test:workers` 289/289, `npm run test:static` 155/155, `npm run test:release-compat`, `npm run test:release-plan`, `npm run test:cloudflare-prereqs`, `npm run test:asset-version`, `npm run build:static`, `npm run release:preflight`, root `npm ci`, root `npm ls --depth=0`, root `npm audit --audit-level=low`, and `git diff --check` passed for the Phase 1-C diff. All changed/new Phase 1-C files listed in `PHASE1C_REMEDIATION_REPORT.md` must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until matching `AI_SERVICE_AUTH_SECRET` exists in both Workers, `SERVICE_AUTH_REPLAY` is deployed, auth migrations `0028`-`0030` are applied, `bitbi-ai-video-jobs` and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, and staging verification passes. |
-| Current recommended next phase | Phase 1-D | Verify staging, keep sync video debug disabled by default, then retire the compatibility route and expand IaC/drift/security gates. |
+| Merge readiness | Conditional pass after Phase 1-D validation | Phase 1-D validation passed: `npm run test:workers` 298/298, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-D files listed in `PHASE1D_SECRET_ROTATION_REPORT.md`, including untracked files, must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all new `workers/auth` purpose-specific secrets are provisioned, legacy `SESSION_SECRET` remains present while fallback is enabled, matching `AI_SERVICE_AUTH_SECRET` exists in both Workers, `SERVICE_AUTH_REPLAY` is deployed, auth migrations `0028`-`0030` are applied, `bitbi-ai-video-jobs` and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, and staging verification passes. |
+| Current recommended next phase | Phase 1-E / Phase 2 planning | Provision and verify Phase 1-D secrets in staging, define the fallback-disable window, then continue IaC/drift/security gates and broader SaaS platform work. |
 
 ## Executive Summary
 
@@ -144,7 +157,7 @@ Main execution flows:
 
 | Flow | Path evidence | Notes |
 | --- | --- | --- |
-| Register/login/session | `workers/auth/src/routes/auth.js`, `workers/auth/src/lib/session.js`, `workers/auth/src/lib/cookies.js` | D1 user/session model, session tokens hashed with `SESSION_SECRET`, cookies are `HttpOnly`, production admin secure-session policy exists. |
+| Register/login/session | `workers/auth/src/routes/auth.js`, `workers/auth/src/lib/session.js`, `workers/auth/src/lib/cookies.js` | D1 user/session model, new session tokens hashed with `SESSION_HASH_SECRET`, legacy `SESSION_SECRET` fallback during Phase 1-D compatibility, cookies are `HttpOnly`, production admin secure-session policy exists. |
 | Password reset/email verification | `workers/auth/src/routes/password.js`, `workers/auth/src/routes/verification.js`, `workers/auth/src/lib/email.js` | Token-hash model, Resend email, some best-effort behavior if email send fails. |
 | Admin protection | `workers/auth/src/lib/session.js:187-257`, `workers/auth/src/routes/admin-mfa.js` | Role check plus production MFA enforcement. MFA endpoints lack route-level rate limiting. |
 | Admin AI | `workers/auth/src/routes/admin-ai.js`, `workers/auth/src/lib/admin-ai-proxy.js`, `workers/ai/src/index.js` | Auth worker proxies admin requests to AI worker via service binding. AI worker itself does not verify a signed service credential. |
@@ -164,7 +177,7 @@ Missing production context that matters:
 | --- | --- | --- |
 | Cloudflare dashboard WAF/rate-limit rules | Repo explicitly says some security behavior is dashboard-managed. | Export Cloudflare rules or codify with Terraform/OpenTofu/Cloudflare API validation. |
 | Static security headers transform rules | Static Pages headers depend on dashboard state. | Verify live response headers and encode rules in IaC or deployment checks. |
-| Secret inventory and rotation policy | `SESSION_SECRET`, Resend, Vidu, AI Gateway and future billing secrets need lifecycle control. | Document secret owners, rotation cadence, break-glass, and validation tests. |
+| Secret inventory and rotation policy | Phase 1-D separates auth purpose secrets, but Resend, Vidu, AI Gateway and future billing secrets still need lifecycle control. | Document secret owners, rotation cadence, break-glass, and validation tests. |
 | Backup/restore evidence for D1/R2 | SaaS data durability cannot be inferred from code alone. | Run restore drills and add runbooks with RPO/RTO. |
 | Production observability dashboards/alerts | Logs are enabled but traces, alerts, SLOs are not repo-defined. | Link dashboards, alert rules, on-call policy, and SLO burn alerts. |
 | Load/performance baselines | No load tests or capacity targets were found. | Add k6/Artillery/Workers load tests and set budgets. |

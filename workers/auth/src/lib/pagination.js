@@ -1,4 +1,8 @@
 import { json } from "./response.js";
+import {
+  getPaginationSigningSecret,
+  getPaginationSigningSecretCandidates,
+} from "./security-secrets.js";
 
 const CURSOR_VERSION = 1;
 const textEncoder = new TextEncoder();
@@ -66,7 +70,7 @@ function stableCursorStringify(value) {
 async function getCursorSigningKey(secret) {
   const cacheKey = String(secret || "");
   if (!cacheKey) {
-    throw new Error("Missing SESSION_SECRET for cursor signing.");
+    throw new Error("Missing pagination signing secret.");
   }
   if (!cursorKeyCache.has(cacheKey)) {
     cursorKeyCache.set(
@@ -115,7 +119,7 @@ export async function encodePaginationCursor(env, type, payload = {}) {
   };
   const body = {
     ...unsignedBody,
-    sig: await signCursorBody(env?.SESSION_SECRET, unsignedBody),
+    sig: await signCursorBody(getPaginationSigningSecret(env), unsignedBody),
   };
   return toBase64Url(bytesToBase64(textEncoder.encode(JSON.stringify(body))));
 }
@@ -139,8 +143,15 @@ export async function decodePaginationCursor(env, cursor, expectedType) {
     if (unsignedBody.v !== CURSOR_VERSION || unsignedBody.t !== expectedType) {
       throw new PaginationValidationError("Invalid cursor.");
     }
-    const expectedSignature = await signCursorBody(env?.SESSION_SECRET, unsignedBody);
-    if (signature !== expectedSignature) {
+    let signatureMatched = false;
+    for (const candidate of getPaginationSigningSecretCandidates(env)) {
+      const expectedSignature = await signCursorBody(candidate.secret, unsignedBody);
+      if (signature === expectedSignature) {
+        signatureMatched = true;
+        break;
+      }
+    }
+    if (!signatureMatched) {
       throw new PaginationValidationError("Invalid cursor.");
     }
     return unsignedBody;

@@ -12,6 +12,14 @@ import {
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  getAdminMfaEncryptionSecret,
+  getAdminMfaEncryptionSecretCandidates,
+  getAdminMfaProofSecret,
+  getAdminMfaProofSecretCandidates,
+  getAdminMfaRecoveryHashSecret,
+  getAdminMfaRecoveryHashSecretCandidates,
+} from "./security-secrets.js";
 
 export const ADMIN_MFA_ISSUER = "BITBI";
 export const ADMIN_MFA_PERIOD_SECONDS = 30;
@@ -19,6 +27,7 @@ export const ADMIN_MFA_DIGITS = 6;
 export const ADMIN_MFA_TOTP_WINDOW_STEPS = 1;
 export const ADMIN_MFA_PROOF_TTL_MINUTES = 12 * 60;
 export const ADMIN_MFA_PROOF_TTL_SECONDS = ADMIN_MFA_PROOF_TTL_MINUTES * 60;
+export const ADMIN_MFA_PROOF_MAX_CLOCK_SKEW_MS = 60_000;
 export const ADMIN_MFA_RECOVERY_CODE_COUNT = 10;
 export const ADMIN_MFA_REQUIRED_CODE = "admin_mfa_required";
 export const ADMIN_MFA_ENROLLMENT_REQUIRED_CODE = "admin_mfa_enrollment_required";
@@ -118,7 +127,7 @@ function stableStringify(value) {
 function deriveCacheKey(secret, label) {
   const normalizedSecret = String(secret || "");
   if (!normalizedSecret) {
-    throw new Error("Missing SESSION_SECRET for admin MFA.");
+    throw new Error("Missing admin MFA security secret.");
   }
   return `${label}:${normalizedSecret}`;
 }
@@ -159,7 +168,7 @@ async function signProofBody(secret, body) {
 }
 
 async function encryptSecret(env, plaintext) {
-  const key = await getEncryptionKey(env?.SESSION_SECRET);
+  const key = await getEncryptionKey(getAdminMfaEncryptionSecret(env));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -180,21 +189,26 @@ async function decryptSecret(env, ciphertext, iv) {
       reason: "missing_secret_material",
     });
   }
-  const key = await getEncryptionKey(env?.SESSION_SECRET);
-  try {
-    const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: base64ToBytes(fromBase64Url(iv)) },
-      key,
-      base64ToBytes(fromBase64Url(ciphertext))
-    );
-    return textDecoder.decode(plaintext);
-  } catch (error) {
-    throw new AdminMfaError("Admin MFA secret is unavailable.", {
-      status: 503,
-      code: "ADMIN_MFA_UNAVAILABLE",
-      reason: "decrypt_failed",
-    });
+  const ivBytes = base64ToBytes(fromBase64Url(iv));
+  const ciphertextBytes = base64ToBytes(fromBase64Url(ciphertext));
+  for (const candidate of getAdminMfaEncryptionSecretCandidates(env)) {
+    const key = await getEncryptionKey(candidate.secret);
+    try {
+      const plaintext = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: ivBytes },
+        key,
+        ciphertextBytes
+      );
+      return textDecoder.decode(plaintext);
+    } catch {
+      // Try the explicit legacy SESSION_SECRET fallback during the compatibility window.
+    }
   }
+  throw new AdminMfaError("Admin MFA secret is unavailable.", {
+    status: 503,
+    code: "ADMIN_MFA_UNAVAILABLE",
+    reason: "decrypt_failed",
+  });
 }
 
 function base32AlphabetIndex(char) {
@@ -305,7 +319,19 @@ function createRecoveryCodes() {
 }
 
 async function hashRecoveryCode(env, code) {
-  return sha256Hex(`admin-mfa-recovery:${env?.SESSION_SECRET}:${normalizeRecoveryCodeInput(code)}`);
+  return sha256Hex(`admin-mfa-recovery:${getAdminMfaRecoveryHashSecret(env)}:${normalizeRecoveryCodeInput(code)}`);
+}
+
+async function hashRecoveryCodeCandidates(env, code) {
+  const normalized = normalizeRecoveryCodeInput(code);
+  const candidates = [];
+  for (const candidate of getAdminMfaRecoveryHashSecretCandidates(env)) {
+    candidates.push({
+      ...candidate,
+      codeHash: await sha256Hex(`admin-mfa-recovery:${candidate.secret}:${normalized}`),
+    });
+  }
+  return candidates;
 }
 
 function getProofExpiryIso() {
@@ -333,7 +359,7 @@ export async function encodeAdminMfaProofToken(env, { userId, sessionId, expires
   }
   const signed = {
     ...payload,
-    sig: await signProofBody(env?.SESSION_SECRET, payload),
+    sig: await signProofBody(getAdminMfaProofSecret(env), payload),
   };
   return toBase64Url(bytesToBase64(textEncoder.encode(JSON.stringify(signed))));
 }
@@ -355,14 +381,25 @@ async function decodeAdminMfaProofToken(env, token, { sessionId, userId, now = D
   if (typeof sig !== "string" || !sig) {
     return { valid: false, reason: "malformed" };
   }
-  const expected = await signProofBody(env?.SESSION_SECRET, unsignedBody);
-  if (sig !== expected) {
+  let signatureMatched = false;
+  for (const candidate of getAdminMfaProofSecretCandidates(env)) {
+    const expected = await signProofBody(candidate.secret, unsignedBody);
+    if (sig === expected) {
+      signatureMatched = true;
+      break;
+    }
+  }
+  if (!signatureMatched) {
     return { valid: false, reason: "malformed" };
   }
   if (unsignedBody.uid !== String(userId || "") || unsignedBody.sid !== String(sessionId || "")) {
     return { valid: false, reason: "session_mismatch" };
   }
   if (!Number.isFinite(unsignedBody.exp) || unsignedBody.exp <= Number(now)) {
+    return { valid: false, reason: "expired" };
+  }
+  const maxAllowedExpiry = Number(now) + (ADMIN_MFA_PROOF_TTL_SECONDS * 1000) + ADMIN_MFA_PROOF_MAX_CLOCK_SKEW_MS;
+  if (unsignedBody.exp > maxAllowedExpiry) {
     return { valid: false, reason: "expired" };
   }
   return {
@@ -689,7 +726,9 @@ async function consumeRecoveryCode(env, adminUserId, recoveryCode) {
       reason: "invalid_recovery_code_format",
     });
   }
-  const expectedHash = await hashRecoveryCode(env, normalized);
+  const expectedHashes = new Set(
+    (await hashRecoveryCodeCandidates(env, normalized)).map((candidate) => candidate.codeHash)
+  );
   const rows = await env.DB.prepare(
     `SELECT id, code_hash, used_at
        FROM admin_mfa_recovery_codes
@@ -698,7 +737,7 @@ async function consumeRecoveryCode(env, adminUserId, recoveryCode) {
     .bind(adminUserId)
     .all();
   const match = (rows?.results || []).find(
-    (row) => row.code_hash === expectedHash && row.used_at == null
+    (row) => expectedHashes.has(row.code_hash) && row.used_at == null
   );
   if (!match) {
     throw new AdminMfaError("Invalid recovery code.", {

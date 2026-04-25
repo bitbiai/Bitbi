@@ -183,7 +183,61 @@
         "name": "SESSION_SECRET",
         "requiredForRelease": true,
         "documentation": "workers/auth/CLAUDE.md",
-        "summary": "Required for auth sessions, signed pagination cursors, and admin MFA proof/signing material."
+        "summary": "Legacy compatibility fallback for pre-Phase 1-D sessions, admin MFA material, cursors, and generated image save references. Keep until the legacy security-secret fallback is intentionally disabled after the migration window."
+      },
+      {
+        "id": "auth-session-hash-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "SESSION_HASH_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for hashing new auth session tokens. New sessions must not use SESSION_SECRET."
+      },
+      {
+        "id": "auth-pagination-signing-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "PAGINATION_SIGNING_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for signing new keyset pagination cursors."
+      },
+      {
+        "id": "auth-admin-mfa-encryption-key",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "ADMIN_MFA_ENCRYPTION_KEY",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for encrypting new admin MFA TOTP secrets."
+      },
+      {
+        "id": "auth-admin-mfa-proof-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "ADMIN_MFA_PROOF_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for signing new short-lived admin MFA proof cookies."
+      },
+      {
+        "id": "auth-admin-mfa-recovery-hash-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "ADMIN_MFA_RECOVERY_HASH_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for hashing new admin MFA recovery codes."
+      },
+      {
+        "id": "auth-ai-save-reference-signing-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "AI_SAVE_REFERENCE_SIGNING_SECRET",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "Required for signing new generated-image save references."
       },
       {
         "id": "auth-resend-secret",

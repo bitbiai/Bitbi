@@ -18,6 +18,10 @@ import {
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  getSessionHashSecret,
+  getSessionHashSecretCandidates,
+} from "./security-secrets.js";
 
 const SESSION_TOUCH_WINDOW_MS = 10 * 60_000;
 
@@ -41,18 +45,27 @@ async function touchSessionIfStale(env, sessionRow, currentTime) {
     .run();
 }
 
-export async function getSessionUser(request, env) {
-  const cookies = parseCookies(request.headers.get("Cookie"));
-  const sessionToken = getSessionTokenFromCookies(cookies);
+async function hashSessionTokenWithSecret(sessionToken, secret) {
+  return sha256Hex(`${sessionToken}:${secret}`);
+}
 
-  if (!sessionToken) {
-    return null;
+export async function hashSessionToken(env, sessionToken) {
+  return hashSessionTokenWithSecret(sessionToken, getSessionHashSecret(env));
+}
+
+export async function hashSessionTokenCandidates(env, sessionToken) {
+  const candidates = [];
+  for (const candidate of getSessionHashSecretCandidates(env)) {
+    candidates.push({
+      ...candidate,
+      tokenHash: await hashSessionTokenWithSecret(sessionToken, candidate.secret),
+    });
   }
+  return candidates;
+}
 
-  const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
-  const currentTime = nowIso();
-
-  const sessionRow = await env.DB.prepare(
+async function findSessionRow(env, tokenHash, currentTime) {
+  return env.DB.prepare(
     `
     SELECT
       sessions.id AS session_id,
@@ -74,9 +87,53 @@ export async function getSessionUser(request, env) {
   )
     .bind(tokenHash, currentTime)
     .first();
+}
+
+async function upgradeLegacySessionHash(env, sessionRow, legacyTokenHash, currentTokenHash) {
+  if (!sessionRow?.session_id || legacyTokenHash === currentTokenHash) {
+    return;
+  }
+  try {
+    await env.DB.prepare(
+      `UPDATE sessions
+       SET token_hash = ?
+       WHERE id = ?
+         AND token_hash = ?`
+    )
+      .bind(currentTokenHash, sessionRow.session_id, legacyTokenHash)
+      .run();
+  } catch {
+    // Keep the legacy session valid for its natural expiry if opportunistic migration fails.
+  }
+}
+
+export async function getSessionUser(request, env) {
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  const sessionToken = getSessionTokenFromCookies(cookies);
+
+  if (!sessionToken) {
+    return null;
+  }
+
+  const currentTime = nowIso();
+  const candidates = await hashSessionTokenCandidates(env, sessionToken);
+  const currentHash = candidates[0]?.tokenHash || null;
+  let sessionRow = null;
+  let matchedCandidate = null;
+  for (const candidate of candidates) {
+    sessionRow = await findSessionRow(env, candidate.tokenHash, currentTime);
+    if (sessionRow) {
+      matchedCandidate = candidate;
+      break;
+    }
+  }
 
   if (!sessionRow) {
     return null;
+  }
+
+  if (matchedCandidate?.legacy && currentHash) {
+    await upgradeLegacySessionHash(env, sessionRow, matchedCandidate.tokenHash, currentHash);
   }
 
   await touchSessionIfStale(env, sessionRow, currentTime);
@@ -96,7 +153,7 @@ export async function getSessionUser(request, env) {
 
 export async function createSession(env, userId) {
   const sessionToken = randomTokenHex(32);
-  const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
+  const tokenHash = await hashSessionToken(env, sessionToken);
   const sessionId = crypto.randomUUID();
   const createdAt = nowIso();
   const expiresAt = addDaysIso(30);

@@ -9,6 +9,42 @@ const REQUIRED_MANUAL_PREREQUISITES = Object.freeze([
     name: "SESSION_SECRET",
   },
   {
+    id: "auth-session-hash-secret",
+    worker: "auth",
+    kind: "secret",
+    name: "SESSION_HASH_SECRET",
+  },
+  {
+    id: "auth-pagination-signing-secret",
+    worker: "auth",
+    kind: "secret",
+    name: "PAGINATION_SIGNING_SECRET",
+  },
+  {
+    id: "auth-admin-mfa-encryption-key",
+    worker: "auth",
+    kind: "secret",
+    name: "ADMIN_MFA_ENCRYPTION_KEY",
+  },
+  {
+    id: "auth-admin-mfa-proof-secret",
+    worker: "auth",
+    kind: "secret",
+    name: "ADMIN_MFA_PROOF_SECRET",
+  },
+  {
+    id: "auth-admin-mfa-recovery-hash-secret",
+    worker: "auth",
+    kind: "secret",
+    name: "ADMIN_MFA_RECOVERY_HASH_SECRET",
+  },
+  {
+    id: "auth-ai-save-reference-signing-secret",
+    worker: "auth",
+    kind: "secret",
+    name: "AI_SAVE_REFERENCE_SIGNING_SECRET",
+  },
+  {
     id: "auth-resend-secret",
     worker: "auth",
     kind: "secret",

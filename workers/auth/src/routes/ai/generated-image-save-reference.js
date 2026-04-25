@@ -1,4 +1,8 @@
 import { sha256Hex } from "../../lib/tokens.js";
+import {
+  getAiSaveReferenceSigningSecret,
+  getAiSaveReferenceSigningSecretCandidates,
+} from "../../lib/security-secrets.js";
 
 export const AI_GENERATED_SAVE_REFERENCE_VERSION = 1;
 export const AI_GENERATED_SAVE_REFERENCE_TYPE = "ai_generated_image_save";
@@ -77,7 +81,7 @@ function stableStringify(value) {
 async function getSigningKey(secret) {
   const cacheKey = String(secret || "");
   if (!cacheKey) {
-    throw new Error("Missing SESSION_SECRET for generated image save reference signing.");
+    throw new Error("Missing generated image save reference signing secret.");
   }
   if (!signingKeyCache.has(cacheKey)) {
     signingKeyCache.set(
@@ -107,12 +111,13 @@ async function signBody(secret, body) {
   return toBase64Url(bytesToBase64(new Uint8Array(signature)));
 }
 
-async function buildUserBinding(env, userId) {
-  if (!env?.SESSION_SECRET) {
-    throw new Error("Missing SESSION_SECRET for generated image save references.");
-  }
-  return (await sha256Hex(`ai-generated-save-reference:${env.SESSION_SECRET}:${String(userId || "")}`))
+async function buildUserBindingWithSecret(secret, userId) {
+  return (await sha256Hex(`ai-generated-save-reference:${secret}:${String(userId || "")}`))
     .slice(0, 32);
+}
+
+async function buildUserBinding(env, userId) {
+  return buildUserBindingWithSecret(getAiSaveReferenceSigningSecret(env), userId);
 }
 
 export function buildAiGeneratedTempOriginalKey(userId, tempId) {
@@ -163,7 +168,7 @@ export async function encodeAiGeneratedSaveReference(env, { userId, tempId, expi
   };
   const body = {
     ...unsignedBody,
-    sig: await signBody(env?.SESSION_SECRET, unsignedBody),
+    sig: await signBody(getAiSaveReferenceSigningSecret(env), unsignedBody),
   };
   return toBase64Url(bytesToBase64(textEncoder.encode(JSON.stringify(body))));
 }
@@ -232,14 +237,21 @@ export async function decodeAiGeneratedSaveReference(env, reference, { userId, n
   }
 
   const { sig: _ignoredSignature, ...unsignedBody } = parsed;
-  const expectedSignature = await signBody(env?.SESSION_SECRET, unsignedBody);
-  if (signature !== expectedSignature) {
+  let matchedCandidate = null;
+  for (const candidate of getAiSaveReferenceSigningSecretCandidates(env)) {
+    const expectedSignature = await signBody(candidate.secret, unsignedBody);
+    if (signature === expectedSignature) {
+      matchedCandidate = candidate;
+      break;
+    }
+  }
+  if (!matchedCandidate) {
     throw new AiGeneratedSaveReferenceError("Invalid save reference.", {
       reason: "malformed",
     });
   }
 
-  const expectedSubject = await buildUserBinding(env, userId);
+  const expectedSubject = await buildUserBindingWithSecret(matchedCandidate.secret, userId);
   if (parsed.sub !== expectedSubject) {
     throw new AiGeneratedSaveReferenceError(
       "Generated image is no longer available. Please generate it again.",

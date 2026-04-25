@@ -5,6 +5,13 @@ import {
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  AUTH_PURPOSE_SECRET_MIN_LENGTH,
+  AUTH_PURPOSE_SECRET_NAMES,
+  LEGACY_SECURITY_SECRET_MIN_LENGTH,
+  LEGACY_SESSION_SECRET_NAME,
+  legacySecuritySecretFallbackEnabled,
+} from "./security-secrets.js";
 
 export class WorkerConfigError extends Error {
   constructor(message = "Worker configuration is unavailable.", { reason = "invalid_config" } = {}) {
@@ -26,7 +33,12 @@ function assertSecret(env, name, { minLength = 16 } = {}) {
 }
 
 export function assertAuthCoreConfig(env) {
-  assertSecret(env, "SESSION_SECRET");
+  for (const secretName of Object.values(AUTH_PURPOSE_SECRET_NAMES)) {
+    assertSecret(env, secretName, { minLength: AUTH_PURPOSE_SECRET_MIN_LENGTH });
+  }
+  if (legacySecuritySecretFallbackEnabled(env)) {
+    assertSecret(env, LEGACY_SESSION_SECRET_NAME, { minLength: LEGACY_SECURITY_SECRET_MIN_LENGTH });
+  }
   if (!env?.DB) {
     throw new WorkerConfigError("Required D1 binding is missing.", {
       reason: "db_binding_missing",

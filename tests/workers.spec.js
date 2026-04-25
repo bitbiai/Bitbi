@@ -21,6 +21,16 @@ async function loadRequestModule() {
   return import(requestPath);
 }
 
+async function loadSessionModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/session.js')).href;
+  return import(modulePath);
+}
+
+async function loadPaginationModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/pagination.js')).href;
+  return import(modulePath);
+}
+
 async function loadObservabilityModule() {
   const observabilityPath = pathToFileURL(path.join(process.cwd(), 'js/shared/worker-observability.mjs')).href;
   return import(observabilityPath);
@@ -692,6 +702,329 @@ function makeActiveRateLimitCounter(scope, limiterKey, count, windowMs) {
     updated_at: new Date(nowMs).toISOString(),
   };
 }
+
+async function sha256HexForTest(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+test.describe('Phase 1-D purpose-specific security secrets', () => {
+  test('new sessions are hashed with SESSION_HASH_SECRET and not legacy SESSION_SECRET', async () => {
+    const user = createContractUser({ id: 'session-current-secret-user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const token = await seedSession(env, user.id);
+
+    const storedHash = env.DB.state.sessions[0].token_hash;
+    expect(storedHash).toBe(await sha256HexForTest(`${token}:${env.SESSION_HASH_SECRET}`));
+    expect(storedHash).not.toBe(await sha256HexForTest(`${token}:${env.SESSION_SECRET}`));
+  });
+
+  test('legacy session hashes remain valid during compatibility and upgrade to SESSION_HASH_SECRET', async () => {
+    const { getSessionUser } = await loadSessionModule();
+    const user = createContractUser({ id: 'session-legacy-secret-user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const token = 'legacy-session-token-value';
+    const legacyHash = await sha256HexForTest(`${token}:${env.SESSION_SECRET}`);
+    const currentHash = await sha256HexForTest(`${token}:${env.SESSION_HASH_SECRET}`);
+    env.DB.state.sessions.push({
+      id: 'legacy-session-row',
+      user_id: user.id,
+      token_hash: legacyHash,
+      created_at: nowIso(),
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      last_seen_at: null,
+    });
+
+    const result = await getSessionUser(new Request('https://bitbi.ai/api/me', {
+      headers: { Cookie: `bitbi_session=${token}` },
+    }), env);
+
+    expect(result.user.id).toBe(user.id);
+    expect(env.DB.state.sessions[0].token_hash).toBe(currentHash);
+    expect(env.DB.runCalls.some((entry) => entry.query === 'UPDATE sessions SET token_hash = ? WHERE id = ? AND token_hash = ?')).toBe(true);
+  });
+
+  test('legacy session hashes fail when compatibility fallback is disabled', async () => {
+    const { getSessionUser } = await loadSessionModule();
+    const user = createContractUser({ id: 'session-legacy-disabled-user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    });
+    const token = 'legacy-session-disabled-token';
+    env.DB.state.sessions.push({
+      id: 'legacy-session-disabled-row',
+      user_id: user.id,
+      token_hash: await sha256HexForTest(`${token}:${env.SESSION_SECRET}`),
+      created_at: nowIso(),
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      last_seen_at: null,
+    });
+
+    const result = await getSessionUser(new Request('https://bitbi.ai/api/me', {
+      headers: { Cookie: `bitbi_session=${token}` },
+    }), env);
+
+    expect(result).toBeNull();
+  });
+
+  test('missing SESSION_HASH_SECRET fails closed before protected auth handling', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({ SESSION_HASH_SECRET: '' });
+
+    const response = await worker.fetch(
+      new Request('https://bitbi.ai/api/me', { headers: { Cookie: 'bitbi_session=test' } }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(JSON.stringify(body)).not.toContain('SESSION_HASH_SECRET');
+    expect(JSON.stringify(body)).not.toContain(env.SESSION_SECRET);
+  });
+
+  test('short purpose-specific secrets fail closed before route handling', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({ PAGINATION_SIGNING_SECRET: 'too-short-purpose-secret' });
+
+    const response = await worker.fetch(
+      new Request('https://bitbi.ai/api/health'),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(JSON.stringify(body)).not.toContain('PAGINATION_SIGNING_SECRET');
+    expect(JSON.stringify(body)).not.toContain('too-short-purpose-secret');
+  });
+
+  test('SESSION_SECRET is not required after legacy fallback is explicitly disabled', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+      SESSION_SECRET: '',
+    });
+
+    const response = await worker.fetch(
+      new Request('https://bitbi.ai/api/health'),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+  });
+
+  test('pagination cursors use PAGINATION_SIGNING_SECRET with legacy cursor fallback', async () => {
+    const {
+      encodePaginationCursor,
+      decodePaginationCursor,
+    } = await loadPaginationModule();
+    const env = createAuthTestEnv({ SESSION_SECRET: 'test-pagination-legacy-session-secret-v1' });
+    const cursorPayload = {
+      created_at: '2026-01-01T00:00:00.000Z',
+      id: 'cursor-row-1',
+    };
+
+    const currentCursor = await encodePaginationCursor(env, 'admin_users', cursorPayload);
+    await expect(decodePaginationCursor({
+      ...env,
+      PAGINATION_SIGNING_SECRET: 'different-pagination-secret-v1-32chars',
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    }, currentCursor, 'admin_users')).rejects.toThrow(/Invalid cursor/);
+
+    const legacyCursor = await encodePaginationCursor({
+      ...env,
+      PAGINATION_SIGNING_SECRET: env.SESSION_SECRET,
+    }, 'admin_users', cursorPayload);
+    await expect(decodePaginationCursor(env, legacyCursor, 'admin_users')).resolves.toEqual(expect.objectContaining(cursorPayload));
+    await expect(decodePaginationCursor({
+      ...env,
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    }, legacyCursor, 'admin_users')).rejects.toThrow(/Invalid cursor/);
+  });
+
+  test('admin MFA decrypts legacy-encrypted material and consumes legacy recovery hashes during compatibility', async () => {
+    const {
+      createAdminMfaSetup,
+      enableAdminMfa,
+      generateTotpCode,
+      verifyAdminMfa,
+    } = await loadAdminMfaModule();
+    const admin = createAdminUser('admin-mfa-legacy-secret-user');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ADMIN_MFA_ENCRYPTION_KEY: 'legacy-admin-mfa-session-secret-v1',
+      ADMIN_MFA_RECOVERY_HASH_SECRET: 'legacy-admin-mfa-session-secret-v1',
+      SESSION_SECRET: 'legacy-admin-mfa-session-secret-v1',
+    });
+    const session = { sessionId: 'admin-mfa-legacy-session', user: admin };
+
+    const setup = await createAdminMfaSetup(env, admin);
+    env.ADMIN_MFA_ENCRYPTION_KEY = 'current-admin-mfa-encryption-key';
+    env.ADMIN_MFA_RECOVERY_HASH_SECRET = 'current-admin-mfa-recovery-hash-secret';
+
+    const code = await generateTotpCode(setup.secret);
+    const enableResult = await enableAdminMfa(env, session, { code }, { isSecure: true });
+    expect(enableResult.status.verified).toBe(true);
+
+    const recoveryResult = await verifyAdminMfa(
+      env,
+      session,
+      { recovery_code: setup.recoveryCodes[0] },
+      { isSecure: true }
+    );
+    expect(recoveryResult.verificationMethod).toBe('recovery_code');
+    expect(env.DB.state.adminMfaRecoveryCodes[0].used_at).toBeTruthy();
+  });
+
+  test('admin MFA legacy proof tokens are accepted only while compatibility fallback is enabled', async () => {
+    const {
+      ADMIN_MFA_PROOF_TTL_SECONDS,
+      createAdminMfaSetup,
+      enableAdminMfa,
+      encodeAdminMfaProofToken,
+      generateTotpCode,
+      getAdminMfaStatus,
+    } = await loadAdminMfaModule();
+    const admin = createAdminUser('admin-mfa-legacy-proof-user');
+    const env = createAuthTestEnv({
+      users: [admin],
+      SESSION_SECRET: 'test-admin-mfa-legacy-proof-secret-v1',
+    });
+    const session = { sessionId: 'admin-mfa-legacy-proof-session', user: admin };
+    const setup = await createAdminMfaSetup(env, admin);
+    const code = await generateTotpCode(setup.secret);
+    await enableAdminMfa(env, session, { code }, { isSecure: true });
+
+    const legacyProof = await encodeAdminMfaProofToken({
+      ...env,
+      ADMIN_MFA_PROOF_SECRET: env.SESSION_SECRET,
+    }, {
+      userId: admin.id,
+      sessionId: session.sessionId,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const request = new Request('https://bitbi.ai/api/admin/me', {
+      headers: { Cookie: `bitbi_admin_mfa=${legacyProof}` },
+    });
+
+    await expect(getAdminMfaStatus(env, session, request)).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: true,
+    }));
+    await expect(getAdminMfaStatus({
+      ...env,
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    }, session, request)).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: false,
+    }));
+
+    const expiredProof = await encodeAdminMfaProofToken(env, {
+      userId: admin.id,
+      sessionId: session.sessionId,
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await expect(getAdminMfaStatus(env, session, new Request('https://bitbi.ai/api/admin/me', {
+      headers: { Cookie: `bitbi_admin_mfa=${expiredProof}` },
+    }))).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: false,
+    }));
+
+    const farFutureProof = await encodeAdminMfaProofToken({
+      ...env,
+      ADMIN_MFA_PROOF_SECRET: env.SESSION_SECRET,
+    }, {
+      userId: admin.id,
+      sessionId: session.sessionId,
+      expiresAt: new Date(Date.now() + ((ADMIN_MFA_PROOF_TTL_SECONDS + 120) * 1000)).toISOString(),
+    });
+    await expect(getAdminMfaStatus(env, session, new Request('https://bitbi.ai/api/admin/me', {
+      headers: { Cookie: `bitbi_admin_mfa=${farFutureProof}` },
+    }))).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: false,
+    }));
+  });
+
+  test('new admin MFA proofs are signed by ADMIN_MFA_PROOF_SECRET, not SESSION_SECRET', async () => {
+    const {
+      createAdminMfaSetup,
+      enableAdminMfa,
+      generateTotpCode,
+      getAdminMfaStatus,
+    } = await loadAdminMfaModule();
+    const admin = createAdminUser('admin-mfa-current-proof-user');
+    const env = createAuthTestEnv({ users: [admin] });
+    const session = { sessionId: 'admin-mfa-current-proof-session', user: admin };
+    const setup = await createAdminMfaSetup(env, admin);
+    const enableResult = await enableAdminMfa(env, session, {
+      code: await generateTotpCode(setup.secret),
+    }, { isSecure: true });
+    const proofCookie = enableResult.proof.cookies[0].split(';')[0];
+    const request = new Request('https://bitbi.ai/api/admin/me', {
+      headers: { Cookie: proofCookie },
+    });
+
+    await expect(getAdminMfaStatus(env, session, request)).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: true,
+    }));
+    await expect(getAdminMfaStatus({
+      ...env,
+      ADMIN_MFA_PROOF_SECRET: 'different-current-admin-mfa-proof-secret',
+    }, session, request)).resolves.toEqual(expect.objectContaining({
+      enrolled: true,
+      verified: false,
+    }));
+  });
+
+  test('AI generated image save references use AI_SAVE_REFERENCE_SIGNING_SECRET with legacy fallback', async () => {
+    const {
+      encodeAiGeneratedSaveReference,
+      decodeAiGeneratedSaveReference,
+    } = await loadAiGeneratedSaveReferenceModule();
+    const env = createAuthTestEnv({ SESSION_SECRET: 'test-save-reference-legacy-session-secret-v1' });
+    const payload = {
+      userId: 'save-reference-secret-user',
+      tempId: 'temp-secret-reference',
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const currentReference = await encodeAiGeneratedSaveReference(env, payload);
+    await expect(decodeAiGeneratedSaveReference({
+      ...env,
+      AI_SAVE_REFERENCE_SIGNING_SECRET: 'different-save-reference-secret-v1-32chars',
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    }, currentReference, {
+      userId: payload.userId,
+    })).rejects.toThrow(/Invalid save reference/);
+
+    const legacyReference = await encodeAiGeneratedSaveReference({
+      ...env,
+      AI_SAVE_REFERENCE_SIGNING_SECRET: env.SESSION_SECRET,
+    }, payload);
+    await expect(decodeAiGeneratedSaveReference(env, legacyReference, {
+      userId: payload.userId,
+    })).resolves.toEqual(expect.objectContaining({
+      tempId: payload.tempId,
+    }));
+    await expect(decodeAiGeneratedSaveReference({
+      ...env,
+      ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false',
+    }, legacyReference, {
+      userId: payload.userId,
+    })).rejects.toThrow(/Invalid save reference/);
+  });
+});
 
 test.describe('Wallet SIWE routes', () => {
   const walletPrivateKey = '0x59c6995e998f97a5a0044966f094538e2d7d7b6c8f4f7f22e9f11d8932ff9d14';

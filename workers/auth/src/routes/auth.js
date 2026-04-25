@@ -13,8 +13,8 @@ import {
   getSessionTokenFromCookies,
 } from "../lib/cookies.js";
 import { hashPassword, verifyPassword } from "../lib/passwords.js";
-import { nowIso, sha256Hex } from "../lib/tokens.js";
-import { createSession, getSessionUser } from "../lib/session.js";
+import { nowIso } from "../lib/tokens.js";
+import { createSession, getSessionUser, hashSessionTokenCandidates } from "../lib/session.js";
 import {
   evaluateSharedRateLimit,
   getClientIp,
@@ -414,15 +414,16 @@ export async function handleLogout(ctx) {
 
   let loggedOutUserId = null;
   if (sessionToken) {
-    const tokenHash = await sha256Hex(`${sessionToken}:${env.SESSION_SECRET}`);
-    // Fetch the session's user_id before deleting
-    const sess = await env.DB.prepare(
-      "SELECT user_id FROM sessions WHERE token_hash = ? LIMIT 1"
-    ).bind(tokenHash).first();
-    if (sess) loggedOutUserId = sess.user_id;
-    await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?")
-      .bind(tokenHash)
-      .run();
+    for (const candidate of await hashSessionTokenCandidates(env, sessionToken)) {
+      // Fetch the session's user_id before deleting.
+      const sess = await env.DB.prepare(
+        "SELECT user_id FROM sessions WHERE token_hash = ? LIMIT 1"
+      ).bind(candidate.tokenHash).first();
+      if (sess && !loggedOutUserId) loggedOutUserId = sess.user_id;
+      await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?")
+        .bind(candidate.tokenHash)
+        .run();
+    }
   }
 
   if (loggedOutUserId) {
