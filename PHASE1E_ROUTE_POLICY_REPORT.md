@@ -47,7 +47,7 @@ That design worked for the current repository size but created review risk as th
 
 ## Route Inventory Summary
 
-The registry currently contains 88 auth-worker policies.
+The registry currently contains 96 auth-worker policies after later Phase 1-F through Phase 1-I route additions.
 
 | Route family | Representative paths | Security posture recorded |
 | --- | --- | --- |
@@ -62,6 +62,7 @@ The registry currently contains 88 auth-worker policies.
 | Async admin video jobs | `/api/admin/ai/video-jobs`, `/poison`, `/failed`, `/:id`, `/:id/output`, `/:id/poster` | Admin auth, production MFA policy, fail-closed create/status/output/ops limits, queue/R2/AI service config requirements. Literal `poison` and `failed` routes are registered before dynamic `:id` matches. |
 | Member AI studio writes | `/api/ai/generate-image`, folders, image/audio save, bulk operations, publication/rename/delete | User auth, same-origin writes, explicit body limit names, fail-closed route-specific write limits. |
 | Protected media reads | `/api/thumbnails/:id`, `/api/images/:id`, `/api/music/:id`, `/api/soundlab-thumbs/:slug` | User auth/private-media config recorded for read-only protected media. |
+| Admin data lifecycle | `/api/admin/data-lifecycle/requests`, `/:id/plan`, `/:id/approve`, `/:id/generate-export`, `/:id/export`, `/exports/:id` | Admin auth, production MFA policy, same-origin mutations, fail-closed admin lifecycle limits, lifecycle/archive config requirements, and audit events for privileged lifecycle operations. |
 
 ## Registry Design
 
@@ -151,7 +152,7 @@ The registry covers high-risk route families first. Deferred or intentionally lo
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `npm run check:route-policies` | PASS | 88 registered auth-worker policies validated. |
+| `npm run check:route-policies` | PASS | 96 registered auth-worker policies validated after Phase 1-I route additions. |
 | `npm run check:js` | PASS | Targeted syntax guard includes the new script and registry module. |
 | `npm run test:release-compat` | PASS | Release compatibility tests accept the new CI check requirement. |
 | `npm run test:release-plan` | PASS | Release plan includes route-policy guard in always-recommended checks. |

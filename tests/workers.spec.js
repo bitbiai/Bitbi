@@ -15189,6 +15189,331 @@ test.describe('Worker routes', () => {
     expect((await listRes.json()).requests.map((row) => row.id)).toContain(createBody.request.id);
   });
 
+  test('admin data lifecycle export archives are bounded, private, idempotent, and redacted', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-archive-admin');
+    const subject = createContractUser({ id: 'lifecycle-archive-subject', role: 'user', email: 'archive@example.com' });
+    const other = createContractUser({ id: 'lifecycle-archive-other', role: 'user', email: 'other-archive@example.com' });
+    const env = createAuthTestEnv({
+      users: [admin, subject, other],
+      profiles: [{
+        user_id: subject.id,
+        display_name: 'Archive Subject',
+        bio: 'Archive bio',
+        website: 'https://example.com',
+        youtube_url: '',
+        has_avatar: 1,
+        avatar_updated_at: '2026-04-20T10:00:00.000Z',
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+      }],
+      aiImages: [
+        {
+          id: 'archive-img-subject',
+          user_id: subject.id,
+          folder_id: null,
+          r2_key: 'users/lifecycle-archive-subject/folders/unsorted/archive-img.png',
+          prompt: 'archive subject prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          visibility: 'private',
+          created_at: '2026-04-20T12:20:00.000Z',
+        },
+        {
+          id: 'archive-img-other',
+          user_id: other.id,
+          folder_id: null,
+          r2_key: 'users/lifecycle-archive-other/folders/unsorted/other-img.png',
+          prompt: 'other prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 2,
+          visibility: 'private',
+          created_at: '2026-04-20T12:21:00.000Z',
+        },
+      ],
+      passwordResetTokens: [{
+        id: 'archive-reset-secret',
+        user_id: subject.id,
+        token_hash: 'archive-reset-token-hash-must-not-export',
+        expires_at: '2026-04-20T14:00:00.000Z',
+        used_at: null,
+        created_at: '2026-04-20T13:10:00.000Z',
+      }],
+    });
+    const token = await seedSession(env, admin.id);
+
+    const createRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+        reason: 'Generate archive',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-create-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+
+    const planRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(planRes.status).toBe(200);
+
+    const approveRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/approve`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-approve-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(approveRes.status).toBe(200);
+
+    const missingIdemRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingIdemRes.status).toBe(428);
+
+    const foreignOriginRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-generate-foreign',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreignOriginRes.status).toBe(403);
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(0);
+
+    const generateRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-generate-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(generateRes.status).toBe(201);
+    const generateBody = await generateRes.json();
+    expect(generateBody.archive).toMatchObject({
+      requestId: createBody.request.id,
+      subjectUserId: subject.id,
+      status: 'ready',
+      storage: {
+        private: true,
+        bucketBinding: 'AUDIT_ARCHIVE',
+      },
+    });
+    expect(JSON.stringify(generateBody)).not.toContain('data-exports/');
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(1);
+    expect(env.AUDIT_ARCHIVE.putCalls[0].key).toMatch(
+      new RegExp(`^data-exports/${subject.id}/${createBody.request.id}/dla_[a-f0-9]+\\.json$`)
+    );
+
+    const metadataRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/export`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(metadataRes.status).toBe(200);
+    const metadataBody = await metadataRes.json();
+    expect(metadataBody.archive.id).toBe(generateBody.archive.id);
+    expect(JSON.stringify(metadataBody)).not.toContain('data-exports/');
+
+    const repeatGenerateRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/generate-export`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-generate-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatGenerateRes.status).toBe(200);
+    const repeatGenerateBody = await repeatGenerateRes.json();
+    expect(repeatGenerateBody.archive.id).toBe(generateBody.archive.id);
+    expect(repeatGenerateBody.reused).toBe(true);
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(1);
+
+    const nonAdminToken = await seedSession(env, other.id);
+    const nonAdminDownloadRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/exports/${generateBody.archive.id}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminDownloadRes.status).toBe(403);
+
+    const downloadRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/exports/${generateBody.archive.id}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get('content-type')).toContain('application/json');
+    const archiveBody = await downloadRes.json();
+    const serializedArchive = JSON.stringify(archiveBody);
+    expect(archiveBody.manifest.binaryPolicy).toBe('media_manifest_references_only');
+    expect(serializedArchive).toContain('archive-img-subject');
+    expect(serializedArchive).not.toContain('users/lifecycle-archive-subject/folders/unsorted/archive-img.png');
+    expect(serializedArchive).not.toContain('archive-img-other');
+    expect(serializedArchive).not.toContain('users/lifecycle-archive-other');
+    expect(serializedArchive).not.toContain('archive-reset-token-hash-must-not-export');
+    expect(serializedArchive).not.toContain('token_hash');
+    expect(serializedArchive).not.toContain('password_hash');
+    expect(archiveBody.media.every((entry) => entry.action === 'export_reference')).toBe(true);
+    expect(archiveBody.media.every((entry) => !('key' in entry))).toBe(true);
+    expect(archiveBody.media.every((entry) => entry.internalKeyIncluded === false)).toBe(true);
+    expect(archiveBody.media.every((entry) => /^[a-f0-9]{64}$/.test(entry.keySha256))).toBe(true);
+    expect(archiveBody.records.some((entry) => entry.storageReference?.keyClass === 'user_media')).toBe(true);
+
+    env.DB.state.dataExportArchives[0].expires_at = '2000-01-01T00:00:00.000Z';
+    const expiredRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/exports/${generateBody.archive.id}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(expiredRes.status).toBe(410);
+  });
+
+  test('admin data lifecycle export archive generation fails closed on bounds and R2 write failures', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-archive-fail-admin');
+    const subject = createContractUser({ id: 'lifecycle-archive-fail-subject', role: 'user', email: 'archive-fail@example.com' });
+    const oversizedItems = Array.from({ length: 1001 }, (_, index) => ({
+      id: `dli_dlr_oversized_${String(index + 1).padStart(4, '0')}`,
+      request_id: 'dlr_oversized',
+      resource_type: 'favorite',
+      resource_id: `favorite-${index}`,
+      table_name: 'favorites',
+      r2_bucket: null,
+      r2_key: null,
+      action: 'export',
+      status: 'planned',
+      summary_json: JSON.stringify({ index }),
+      created_at: '2026-04-20T10:00:00.000Z',
+      updated_at: '2026-04-20T10:00:00.000Z',
+    }));
+    const env = createAuthTestEnv({
+      users: [admin, subject],
+      dataLifecycleRequests: [
+        {
+          id: 'dlr_oversized',
+          type: 'export',
+          subject_user_id: subject.id,
+          requested_by_user_id: null,
+          requested_by_admin_id: admin.id,
+          status: 'approved',
+          reason: 'Oversized export',
+          approval_required: 1,
+          approved_by_admin_id: admin.id,
+          approved_at: '2026-04-20T10:00:00.000Z',
+          idempotency_key: 'seed-oversized',
+          request_hash: 'hash',
+          dry_run: 1,
+          created_at: '2026-04-20T10:00:00.000Z',
+          updated_at: '2026-04-20T10:00:00.000Z',
+          completed_at: null,
+          expires_at: '2026-05-04T10:00:00.000Z',
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'dlr_storage_fail',
+          type: 'export',
+          subject_user_id: subject.id,
+          requested_by_user_id: null,
+          requested_by_admin_id: admin.id,
+          status: 'approved',
+          reason: 'Storage failure',
+          approval_required: 1,
+          approved_by_admin_id: admin.id,
+          approved_at: '2026-04-20T10:00:00.000Z',
+          idempotency_key: 'seed-storage-fail',
+          request_hash: 'hash',
+          dry_run: 1,
+          created_at: '2026-04-20T10:00:00.000Z',
+          updated_at: '2026-04-20T10:00:00.000Z',
+          completed_at: null,
+          expires_at: '2026-05-04T10:00:00.000Z',
+          error_code: null,
+          error_message: null,
+        },
+      ],
+      dataLifecycleRequestItems: [
+        ...oversizedItems,
+        {
+          id: 'dli_dlr_storage_fail_0001',
+          request_id: 'dlr_storage_fail',
+          resource_type: 'user',
+          resource_id: subject.id,
+          table_name: 'users',
+          r2_bucket: null,
+          r2_key: null,
+          action: 'export',
+          status: 'planned',
+          summary_json: JSON.stringify({ email: subject.email }),
+          created_at: '2026-04-20T10:00:00.000Z',
+          updated_at: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    });
+    const token = await seedSession(env, admin.id);
+
+    const oversizedRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_oversized/generate-export', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-oversized-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(oversizedRes.status).toBe(413);
+    expect(env.AUDIT_ARCHIVE.putCalls).toHaveLength(0);
+    expect(env.DB.state.dataLifecycleRequests.find((row) => row.id === 'dlr_oversized').status).toBe('export_failed');
+
+    env.AUDIT_ARCHIVE.failPutWith = new Error('R2 unavailable');
+    const storageFailRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests/dlr_storage_fail/generate-export', 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-archive-storage-fail-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(storageFailRes.status).toBe(503);
+    expect(env.DB.state.dataExportArchives.find((row) => row.request_id === 'dlr_storage_fail').status).toBe('failed');
+    expect(env.DB.state.dataLifecycleRequests.find((row) => row.id === 'dlr_storage_fail').status).toBe('export_failed');
+  });
+
   test('admin data lifecycle deletion planning is dry-run only and blocks the only active admin', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('lifecycle-delete-admin');

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0032_add_data_lifecycle_requests.sql",
+        "latest": "0033_harden_data_export_archives.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -496,7 +496,10 @@
     "patternRoutes": [
       "GET /api/admin/data-lifecycle/requests/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
-      "POST /api/admin/data-lifecycle/requests/:id/approve"
+      "POST /api/admin/data-lifecycle/requests/:id/approve",
+      "POST /api/admin/data-lifecycle/requests/:id/generate-export",
+      "GET /api/admin/data-lifecycle/requests/:id/export",
+      "GET /api/admin/data-lifecycle/exports/:id"
     ],
     "staticAuthApiPaths": [
       "/admin/mfa/status",

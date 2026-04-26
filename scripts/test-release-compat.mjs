@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0032_add_data_lifecycle_requests.sql",
+        latest: "0033_harden_data_export_archives.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -478,6 +478,9 @@ const baseManifest = {
       "GET /api/admin/data-lifecycle/requests/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
+      "POST /api/admin/data-lifecycle/requests/:id/generate-export",
+      "GET /api/admin/data-lifecycle/requests/:id/export",
+      "GET /api/admin/data-lifecycle/exports/:id",
     ],
     staticAuthApiPaths: [
       "/admin/mfa/status",
@@ -519,7 +522,7 @@ function createValidContext() {
           "0029_add_ai_video_jobs.sql",
           "0030_harden_ai_video_jobs_phase1b.sql",
           "0031_add_activity_search_index.sql",
-          "0032_add_data_lifecycle_requests.sql",
+          "0033_harden_data_export_archives.sql",
         ],
       },
     },
@@ -764,6 +767,12 @@ function createValidContext() {
       if (dataLifecyclePlanMatch && method === "POST") return handleDataLifecyclePlan();
       const dataLifecycleApproveMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/approve$/);
       if (dataLifecycleApproveMatch && method === "POST") return handleDataLifecycleApprove();
+      const dataLifecycleGenerateExportMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/generate-export$/);
+      if (dataLifecycleGenerateExportMatch && method === "POST") return handleDataLifecycleGenerateExport();
+      const dataLifecycleRequestExportMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/export$/);
+      if (dataLifecycleRequestExportMatch && method === "GET") return handleDataLifecycleRequestExport();
+      const dataLifecycleArchiveMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/exports\\/([^/]+)$/);
+      if (dataLifecycleArchiveMatch && method === "GET") return handleDataLifecycleArchive();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();

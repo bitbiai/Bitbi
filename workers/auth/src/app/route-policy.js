@@ -268,6 +268,18 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "data_lifecycle_request_approved" },
   }),
+  adminJsonWrite("admin.data-lifecycle.requests.generate-export", "POST", "/api/admin/data-lifecycle/requests/:id/generate-export", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    audit: { event: "data_lifecycle_export_archive_generated" },
+  }),
+  adminRead("admin.data-lifecycle.requests.export.read", "/api/admin/data-lifecycle/requests/:id/export", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
+  adminRead("admin.data-lifecycle.exports.read", "/api/admin/data-lifecycle/exports/:archiveId", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

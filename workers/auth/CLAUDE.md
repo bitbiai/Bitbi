@@ -124,10 +124,13 @@ src/
 - `GET /api/admin/activity?limit=&cursor=&search=` — signed-cursor-paginated audit log with hot-window action counts and indexed prefix search over normalized action/email/entity fields
 - `GET /api/admin/user-activity?limit=&cursor=&search=` — signed-cursor-paginated user activity log with indexed prefix search over normalized action/email/entity fields
 - `GET /api/admin/data-lifecycle/requests` — list admin-created data export/deletion/anonymization requests (requires admin)
-- `POST /api/admin/data-lifecycle/requests` — create a data lifecycle request with `Idempotency-Key` (requires admin; Phase 1-H planning only)
+- `POST /api/admin/data-lifecycle/requests` — create a data lifecycle request with `Idempotency-Key` (requires admin; planning/archive lifecycle flow)
 - `GET /api/admin/data-lifecycle/requests/:id` — inspect sanitized request details and plan items (requires admin)
 - `POST /api/admin/data-lifecycle/requests/:id/plan` — build an idempotent export/deletion/anonymization plan without destructive execution (requires admin)
 - `POST /api/admin/data-lifecycle/requests/:id/approve` — approve a planned request; execution remains deferred (requires admin)
+- `POST /api/admin/data-lifecycle/requests/:id/generate-export` — generate a bounded private JSON export archive for an approved export request (requires admin and `Idempotency-Key`)
+- `GET /api/admin/data-lifecycle/requests/:id/export` — inspect sanitized export archive metadata for a request (requires admin)
+- `GET /api/admin/data-lifecycle/exports/:id` — authorized admin download of private export archive JSON (requires admin)
 - `GET /api/admin/ai/models` — list AI lab presets and allowlisted models (requires admin)
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
@@ -164,7 +167,7 @@ src/
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png` and async admin video job output under `users/{userId}/video-jobs/{jobId}/`.
 
-**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
+**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores Phase 1-I data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
@@ -176,7 +179,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0032_add_data_lifecycle_requests`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0033_harden_data_export_archives`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -196,6 +199,7 @@ Key migration-dependent behavior:
 - `0030_harden_ai_video_jobs_phase1b` — required before auth deploy if queue-safe video task polling, R2 output/poster metadata, and video poison-message persistence must work immediately
 - `0031_add_activity_search_index` — required before auth deploy if activity ingest writes and admin audit/user-activity indexed search must work immediately
 - `0032_add_data_lifecycle_requests` — required before auth deploy if admin data lifecycle export/deletion/anonymization request planning APIs must work immediately
+- `0033_harden_data_export_archives` — required before auth deploy if bounded private export archive generation/download APIs must work immediately
 
 ## Conventions
 

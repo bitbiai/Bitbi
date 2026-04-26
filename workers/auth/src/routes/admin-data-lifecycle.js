@@ -22,6 +22,12 @@ import {
   normalizeDataLifecycleIdempotencyKey,
   planDataLifecycleRequest,
 } from "../lib/data-lifecycle.js";
+import {
+  DATA_EXPORT_ARCHIVE_CONTENT_TYPE,
+  generateDataExportArchive,
+  getDataExportArchiveForRequest,
+  readDataExportArchive,
+} from "../lib/data-export-archive.js";
 
 async function enforceDataLifecycleRateLimit(ctx) {
   const { request, env, pathname, method, correlationId } = ctx;
@@ -159,6 +165,71 @@ export async function handleAdminDataLifecycle(ctx) {
     try {
       const result = await getDataLifecycleRequest(ctx.env, decodePathId(detailMatch[1]));
       return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const generateExportMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/generate-export$/);
+  // POST /api/admin/data-lifecycle/requests/:id/generate-export
+  // route-policy: admin.data-lifecycle.requests.generate-export
+  if (generateExportMatch && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const result = await generateDataExportArchive({
+        env: ctx.env,
+        requestId: decodePathId(generateExportMatch[1]),
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_export_archive_generated",
+        result.archive.subjectUserId,
+        {
+          request_id: result.archive.requestId,
+          archive_id: result.archive.id,
+          size_bytes: result.archive.sizeBytes,
+          reused: result.reused,
+        }
+      );
+      return lifecycleJson({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const requestExportMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/export$/);
+  // GET /api/admin/data-lifecycle/requests/:id/export
+  if (requestExportMatch && method === "GET") {
+    try {
+      const result = await getDataExportArchiveForRequest(ctx.env, decodePathId(requestExportMatch[1]));
+      return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const archiveMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/exports\/([^/]+)$/);
+  // GET /api/admin/data-lifecycle/exports/:archiveId
+  if (archiveMatch && method === "GET") {
+    try {
+      const result = await readDataExportArchive({
+        env: ctx.env,
+        archiveId: decodePathId(archiveMatch[1]),
+      });
+      return new Response(result.object.body, {
+        status: 200,
+        headers: {
+          "content-type": DATA_EXPORT_ARCHIVE_CONTENT_TYPE,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+        },
+      });
     } catch (error) {
       return lifecycleError(error);
     }

@@ -1137,6 +1137,140 @@ class MockD1 {
       return row ? { id: row.id } : null;
     }
 
+    if (query.startsWith('INSERT INTO data_export_archives ( id, request_id, subject_user_id, r2_bucket, r2_key,')) {
+      const [
+        id,
+        requestId,
+        subjectUserId,
+        r2Bucket,
+        r2Key,
+        sha256,
+        sizeBytes,
+        expiresAt,
+        createdAt,
+        manifestVersion,
+        status,
+        updatedAt,
+        downloadedAt,
+        deletedAt,
+        errorCode,
+        errorMessage,
+      ] = bindings;
+      this.state.dataExportArchives.push({
+        id,
+        request_id: requestId,
+        subject_user_id: subjectUserId,
+        r2_bucket: r2Bucket,
+        r2_key: r2Key,
+        sha256,
+        size_bytes: sizeBytes,
+        expires_at: expiresAt,
+        created_at: createdAt,
+        manifest_version: manifestVersion,
+        status,
+        updated_at: updatedAt,
+        downloaded_at: downloadedAt,
+        deleted_at: deletedAt,
+        error_code: errorCode,
+        error_message: errorMessage,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.includes('FROM data_export_archives') &&
+      query.includes("WHERE request_id = ? AND status = 'ready' AND expires_at > ?") &&
+      query.includes('ORDER BY created_at DESC LIMIT 1')
+    ) {
+      const [requestId, now] = bindings;
+      const row = this.state.dataExportArchives
+        .filter((entry) => entry.request_id === requestId && entry.status === 'ready' && entry.expires_at > now)
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+      return deepClone(row || null);
+    }
+
+    if (
+      query.includes('FROM data_export_archives') &&
+      query.includes('WHERE request_id = ?') &&
+      query.includes('ORDER BY created_at DESC LIMIT 1')
+    ) {
+      const [requestId] = bindings;
+      const row = this.state.dataExportArchives
+        .filter((entry) => entry.request_id === requestId)
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+      return deepClone(row || null);
+    }
+
+    if (
+      query.includes('FROM data_export_archives') &&
+      query.includes('WHERE id = ?') &&
+      query.includes('LIMIT 1')
+    ) {
+      const [archiveId] = bindings;
+      return deepClone(this.state.dataExportArchives.find((row) => row.id === archiveId) || null);
+    }
+
+    if (query === "UPDATE data_export_archives SET status = 'failed', error_code = ?, error_message = ?, updated_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'failed';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_lifecycle_requests SET status = 'export_failed', error_code = ?, error_message = ?, updated_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'export_failed';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_export_archives SET status = 'ready', updated_at = ? WHERE id = ?") {
+      const [updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'ready';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_lifecycle_requests SET status = 'export_ready', completed_at = ?, updated_at = ?, error_code = NULL, error_message = NULL WHERE id = ?") {
+      const [completedAt, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'export_ready';
+      row.completed_at = completedAt;
+      row.updated_at = updatedAt;
+      row.error_code = null;
+      row.error_message = null;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_export_archives SET status = 'expired', updated_at = ? WHERE id = ? AND status = 'ready'") {
+      const [updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId && entry.status === 'ready');
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'expired';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE data_export_archives SET downloaded_at = ?, updated_at = ? WHERE id = ?') {
+      const [downloadedAt, updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.downloaded_at = downloadedAt;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (
       query.startsWith('SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users')
       && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')

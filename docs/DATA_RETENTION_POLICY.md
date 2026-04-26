@@ -10,7 +10,7 @@ This file is an engineering baseline for retention and deletion behavior. It is 
 - Preserve security/audit evidence unless a reviewed retention policy explicitly allows deletion or anonymization.
 - Prefer dry-run deletion plans and admin approval before any irreversible operation.
 - Treat generated AI prompts, previews, media, wallet addresses, contact messages, and profile fields as potentially personal data.
-- Do not inline large R2 binaries into export archives; use authorized manifest references or a separate archive workflow.
+- Do not inline large R2 binaries into export archives; Phase 1-I export archives use authorized JSON manifests with media references only and do not expose raw internal media R2 keys.
 
 ## Retention Candidates
 
@@ -32,13 +32,13 @@ This file is an engineering baseline for retention and deletion behavior. It is 
 | Admin audit logs | Admin/security audit table and archive. | Security/legal retention window, likely longer than user content. | Retain or anonymize target identifiers after approved policy. | Phase 1-H plans retain/anonymize; no hard-delete. |
 | Activity search projection | Derived indexed fields. | Same as source event. | Delete/anonymize with source event. | Projection cleanup exists for archive/prune; lifecycle executor deferred. |
 | Contact form submissions | Sent through Resend; no repo-owned D1 table identified. | External processor retention policy required. | Manual processor workflow until repo-owned storage exists. | Not enforced by repo. |
-| Export archives | Schema added in `data_export_archives`. | Proposed 14 days. | Expire/delete archive object. | Schema only in Phase 1-H; archive generation deferred. |
+| Export archives | Phase 1-I can generate bounded JSON archives into private `AUDIT_ARCHIVE` and records metadata in `data_export_archives`. | 14 days for generated archives. | Expire archive access by metadata; delete private archive object in a later bounded cleanup worker. | Generation, metadata, and access-expiration enforcement exist; physical R2 cleanup is deferred. |
 | Data lifecycle requests/items | D1 request evidence. | Legal/support retention to be defined. | Retain as compliance/support evidence. | Schema and admin APIs added. |
 | Temporary R2 objects/cleanup queue | Cleanup/retry queue exists for some objects. | Short operational retry window. | Retry/delete stale objects. | Existing cleanup plus future lifecycle executor. |
 
 ## Current Enforcement
 
-Phase 1-H enforces request creation, planning, approval state, idempotency, route policy registration, admin-only access, fail-closed rate limiting, same-origin checks, and byte-limited bodies. It does not execute irreversible deletion and does not generate export archives.
+Phase 1-H enforces request creation, planning, approval state, idempotency, route policy registration, admin-only access, fail-closed rate limiting, same-origin checks, and byte-limited bodies. Phase 1-I adds bounded export archive generation and authorized admin archive download for approved export plans. The system still does not execute irreversible deletion or hard-delete R2 objects by default.
 
 ## Required Before Destructive Deletion
 

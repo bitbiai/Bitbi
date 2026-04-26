@@ -2,13 +2,13 @@
 
 Date: 2026-04-26
 
-Scope: Phase 1-H engineering inventory for user/account/media/admin/activity/contact/AI data in this repository. This is not a legal compliance certification. Policy decisions that need legal or product review are marked as open decisions.
+Scope: Phase 1-H / Phase 1-I engineering inventory for user/account/media/admin/activity/contact/AI data in this repository. This is not a legal compliance certification. Policy decisions that need legal or product review are marked as open decisions.
 
 ## Summary
 
 The product stores user account data, authentication state, wallet addresses, profile/avatar data, favorites, generated AI assets, admin/user activity, async video job metadata, poison-message diagnostics, and operational cleanup state in Cloudflare D1 and R2. The contact Worker sends contact form content through Resend; this repository does not currently define durable contact-message storage.
 
-Phase 1-H adds request tracking tables for export/deletion/anonymization planning. It does not execute irreversible deletion by default and does not inline binary R2 media into exports.
+Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
 
 ## D1 Data Inventory
 
@@ -39,15 +39,15 @@ Phase 1-H adds request tracking tables for export/deletion/anonymization plannin
 | `ai_video_job_poison_messages` | `job_id` when parseable | Operational/security | No by default | Retain/redact | Operational retention window | Admin inspection returns sanitized diagnostics only. |
 | `data_lifecycle_requests` | `subject_user_id` | Medium/high | Request metadata yes | Retain as compliance/support evidence | Define legal retention | Added in migration `0032`. |
 | `data_lifecycle_request_items` | `request_id` | Medium/high | Yes to authorized admin/support | Retain with request | Define legal retention | Summaries must remain redacted and planning-only unless approved executor exists. |
-| `data_export_archives` | `subject_user_id` | High | Authorized download/reference only | Expire/delete by archive TTL | Default 14 days proposed | Schema exists; archive generation is deferred in Phase 1-H. |
+| `data_export_archives` | `subject_user_id` | High | Authorized admin download/reference only | Expire metadata and later delete archive object by TTL | 14 days for generated archives | Phase 1-I records private R2 archive metadata, SHA-256, size, manifest version, expiration, and status. |
 
 ## R2 Inventory
 
 | Binding | Bucket | Owner key pattern | PII class | Export behavior | Deletion behavior | Notes/open questions |
 | --- | --- | --- | ---: | --- | --- | --- |
-| `PRIVATE_MEDIA` | `bitbi-private-media` | `avatars/{user_id}` and private media keys | Medium/high | Export reference/manifest only in Phase 1-H | Delete planned after approval | Do not inline binary objects during planning. |
-| `USER_IMAGES` | `bitbi-user-images` | AI image/text/audio/video object keys | Medium/high | Export reference/manifest only in Phase 1-H | Delete planned after approval | Includes generated images, text assets, video outputs/posters. |
-| `AUDIT_ARCHIVE` | `bitbi-audit-archive` | Archived audit/activity objects | Medium/high/security | Not user-exportable by default | Retain/anonymize per audit policy | Must preserve security evidence unless legal policy says otherwise. |
+| `PRIVATE_MEDIA` | `bitbi-private-media` | `avatars/{user_id}` and private media keys | Medium/high | Export reference/manifest only; no inline binaries | Delete planned after approval | Do not inline binary objects during planning or archive generation. |
+| `USER_IMAGES` | `bitbi-user-images` | AI image/text/audio/video object keys | Medium/high | Export reference/manifest only; no inline binaries | Delete planned after approval | Includes generated images, text assets, video outputs/posters. |
+| `AUDIT_ARCHIVE` | `bitbi-audit-archive` | Archived audit/activity objects; generated export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json` | Medium/high/security | Audit archives are not user-exportable by default; generated export archives are admin-authorized JSON manifests | Retain/anonymize audit archives per audit policy; expire export archives by TTL | Must preserve security evidence unless legal policy says otherwise. Generated export archives use ids only in archive keys, do not inline binary media, and expose media key digests/classes instead of raw internal media R2 keys. |
 
 ## Contact Worker Data
 
@@ -56,13 +56,14 @@ Phase 1-H adds request tracking tables for export/deletion/anonymization plannin
 | Contact form payload sent through Resend | Email address/message content | High | Not currently represented in D1 export plan | External retention policy required | `workers/contact/src/index.js` sends email via Resend; no repo-owned contact-message table was identified. |
 | Contact rate-limit state | IP/rate key | Security | No | Expire | Durable Object state is operational, not export content. |
 
-## Current Phase 1-H Coverage
+## Current Phase 1-H / Phase 1-I Coverage
 
 - Export planning covers account/profile/wallet/favorite/folder/AI asset/video/quota/activity summaries plus R2 object references.
+- Approved export plans can generate bounded JSON archives in `AUDIT_ARCHIVE`; archive metadata is tracked in D1 and admin download is authorized through the auth Worker.
 - Deletion/anonymization planning covers the same owned records plus session/token revocation, admin MFA revocation, and audit-log retain/anonymize actions.
 - Planning is idempotent by request id and safe by default; no irreversible deletion executor is present.
-- Export archive schema exists, but archive generation/download is deferred to Phase 1-I.
-- User self-service export/delete endpoints are deferred; Phase 1-H provides admin/support APIs only.
+- Export archives are metadata-expired after 14 days; physical R2 cleanup for expired archive objects remains future work.
+- User self-service export/delete endpoints are deferred; Phase 1-H/1-I provides admin/support APIs only.
 
 ## Open Decisions
 

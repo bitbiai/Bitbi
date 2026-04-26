@@ -8,6 +8,10 @@ Phase 1-H adds the repository foundation for user data lifecycle operations: a d
 
 This phase is deliberately safe by default. It does not delete users, does not hard-delete R2 objects, does not execute production data mutations, and does not claim legal compliance. Export archives and irreversible deletion execution are deferred until policy, staging verification, and rollback expectations are settled.
 
+## Handoff Update After Phase 1-I
+
+Phase 1-I implements the export archive generation path that this report intentionally deferred: approved export plans can now generate bounded sanitized JSON archives into the private `AUDIT_ARCHIVE` R2 bucket. Irreversible deletion/anonymization execution, user self-service privacy flows, and physical expired-archive R2 cleanup remain deferred. See `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` for current behavior and validation.
+
 ## Scope
 
 Included:
