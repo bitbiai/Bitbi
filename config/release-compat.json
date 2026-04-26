@@ -403,6 +403,7 @@
       "literalRoutes": [
         "GET /api/ai/quota",
         "POST /api/ai/generate-image",
+        "POST /api/ai/generate-text",
         "GET /api/ai/folders",
         "POST /api/ai/folders",
         "GET /api/ai/images",

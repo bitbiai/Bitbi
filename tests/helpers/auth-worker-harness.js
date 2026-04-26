@@ -1334,6 +1334,16 @@ class MockD1 {
       return deepClone(this.state.aiUsageAttempts.find((row) => row.id === attemptId) || null);
     }
 
+    if (query.startsWith("SELECT metadata_json FROM ai_usage_attempts WHERE id = ? AND status = 'succeeded' AND billing_status = 'finalized' LIMIT 1")) {
+      const [attemptId] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === attemptId &&
+        entry.status === 'succeeded' &&
+        entry.billing_status === 'finalized'
+      );
+      return row ? { metadata_json: row.metadata_json || '{}' } : null;
+    }
+
     if (query === "SELECT id FROM ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1") {
       const [tempKey] = bindings;
       return deepClone(this.state.aiUsageAttempts.find((row) =>
@@ -1559,6 +1569,7 @@ class MockD1 {
         steps,
         seed,
         balanceAfter,
+        metadataJson,
         updatedAt,
         completedAt,
         id,
@@ -1580,6 +1591,7 @@ class MockD1 {
         result_steps: steps,
         result_seed: seed,
         balance_after: balanceAfter,
+        metadata_json: metadataJson,
         error_code: null,
         error_message: null,
         updated_at: updatedAt,
@@ -1635,9 +1647,16 @@ class MockD1 {
     }
 
     if (query.startsWith("UPDATE ai_usage_attempts SET result_status = 'expired', result_temp_key = NULL, result_save_reference = NULL")) {
-      const [updatedAt, id, tempKeyOrExpiresAt, maybeExpiresAt] = bindings;
-      const expectedTempKey = bindings.length >= 4 ? tempKeyOrExpiresAt : null;
-      const expiresAt = bindings.length >= 4 ? maybeExpiresAt : tempKeyOrExpiresAt;
+      const [updatedAt, id] = bindings;
+      let expectedTempKey = null;
+      let expiresAt = bindings[2];
+      if (bindings.length >= 5) {
+        expectedTempKey = bindings[2];
+        expiresAt = bindings[4];
+      } else if (bindings.length >= 4) {
+        expectedTempKey = bindings[2];
+        expiresAt = bindings[3];
+      }
       const row = this.state.aiUsageAttempts.find((entry) =>
         entry.id === id &&
         entry.status === 'succeeded' &&
@@ -1650,6 +1669,7 @@ class MockD1 {
       row.result_status = 'expired';
       row.result_temp_key = null;
       row.result_save_reference = null;
+      row.metadata_json = '{}';
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }

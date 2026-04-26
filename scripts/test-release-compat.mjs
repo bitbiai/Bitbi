@@ -384,6 +384,7 @@ const baseManifest = {
       literalRoutes: [
         "GET /api/ai/quota",
         "POST /api/ai/generate-image",
+        "POST /api/ai/generate-text",
         "GET /api/ai/folders",
         "POST /api/ai/folders",
         "GET /api/ai/images",
@@ -733,6 +734,7 @@ function createValidContext() {
     authAiSource: `
       if (pathname === "/api/ai/quota" && method === "GET") return handleQuota();
       if (pathname === "/api/ai/generate-image" && method === "POST") return handleGenerateImage();
+      if (pathname === "/api/ai/generate-text" && method === "POST") return handleGenerateText();
       if (pathname === "/api/ai/folders" && method === "GET") return handleGetFolders();
       if (pathname === "/api/ai/folders" && method === "POST") return handleCreateFolder();
       if (pathname === "/api/ai/images" && method === "GET") return handleGetImages();

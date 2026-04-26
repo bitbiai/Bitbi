@@ -6,19 +6,19 @@ Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
 
 Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
 
-## Current Remediation Status After Phase 2-F
+## Current Remediation Status After Phase 2-H
 
-This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-F.
+This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-H.
 
 Current repository state at checkpoint:
 
 - Branch: `main`
-- Latest commit observed before Phase 2-F edits: `378aeb1 Phase 2-E Add AI usage attempt cleanup and inspec`
-- Working tree: Phase 2-F implementation modifies replay object cleanup, route-policy notes, tests, and documentation until committed.
+- Latest commit observed before Phase 2-H edits: `40ddac7 Phase 2-F Add AI replay object retention cleanup`
+- Working tree: Phase 2-H implementation adds backend-only org-scoped member text generation, route-policy/release updates, tests, and documentation until committed.
 - Latest auth D1 migration: `0036_add_ai_usage_attempts.sql`
 - Latest AI Worker Durable Object migration: `v1-service-auth-replay`
-- Current aggregate validation during Phase 2-F: `npm run test:workers` PASS 336/336, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, and `git diff --check` PASS.
-- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0036`, staging Worker verification, staging data lifecycle cleanup/executor verification, staging organization-flow verification, staging billing/entitlement/credit verification, staging org-scoped AI image usage retry/reservation verification, staging AI usage attempt cleanup/admin inspection verification, and staging replay object cleanup verification are complete.
+- Current aggregate validation during Phase 2-H: `npm run test:workers` passed 339/339, `npm run test:static` passed 155/155, `npm run release:preflight` passed, and `git diff --check` passed. Live Cloudflare validation and production deploy were not run.
+- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0036`, staging Worker verification, staging data lifecycle cleanup/executor verification, staging organization-flow verification, staging billing/entitlement/credit verification, staging org-scoped AI image usage retry/reservation verification, staging AI usage attempt cleanup/admin inspection verification, staging replay object cleanup verification, and staging org-scoped member text generation verification are complete.
 
 Completed remediation phases:
 
@@ -43,13 +43,14 @@ Completed remediation phases:
 | Phase 2-D | Completed for current scope | Org-scoped image usage attempts/reservations, duplicate provider-call suppression, temporary result replay, provider-failure reservation release, billing-failure terminal state, migration `0036`, release/doc/test updates. | Worker 331/331, static 155/155, release preflight passed. | Migration `0036` and staging retry/replay/no-duplicate-provider/no-duplicate-charge verification; expired-attempt cleanup is handled by Phase 2-E. | `PHASE2D_AI_USAGE_RESERVATION_REPORT.md` |
 | Phase 2-E | Completed for current scope | Bounded AI usage attempt cleanup, stale reservation release without debits, replay metadata expiry, scheduled cleanup integration, admin usage-attempt list/detail/cleanup APIs, route-policy/release/doc/test updates. | Worker 334/334, static 155/155, release preflight passed. | Migration `0036`, staging cleanup/admin inspection/dry-run/execution/scheduled cleanup verification, and later temporary replay object deletion policy. | `PHASE2E_AI_USAGE_ATTEMPT_CLEANUP_REPORT.md` |
 | Phase 2-F | Completed for current scope | Prefix-scoped deletion of expired temporary replay objects, generic temp cleanup skip for attempt-linked objects, sanitized cleanup counts/logs, route-policy note updates, docs/tests. | Worker 336/336, static 155/155, release preflight passed. | Migration `0036`, staging replay cleanup dry-run/execution, scheduled cleanup, R2 delete failure handling, no unrelated object deletion, no debit/ledger/usage mutation. | `PHASE2F_AI_REPLAY_OBJECT_RETENTION_REPORT.md` |
+| Phase 2-H | Completed for current scope | Backend-only org-scoped `POST /api/ai/generate-text`, HMAC Auth-to-AI text proxying, `ai.text.generate` entitlement/credit enforcement, attempt reservation/finalization, bounded text replay metadata, route-policy/release/doc/test updates. | Worker 339/339, static 155/155, release preflight passed, `git diff --check` passed. | Migration `0036`, staging org-scoped text success/replay/denial/provider-failure/billing-failure verification, and live Auth-to-AI secret/binding verification. | `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md` |
 
 Current status estimate:
 
-- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J, Phase 2-A organization/RBAC foundation, Phase 2-B billing/entitlement foundation, targeted Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped image usage retry/reservation hardening, Phase 2-E usage-attempt cleanup/admin inspection, and Phase 2-F temporary replay object cleanup for the documented scope.
+- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J, Phase 2-A organization/RBAC foundation, Phase 2-B billing/entitlement foundation, targeted Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped image usage retry/reservation hardening, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F temporary replay object cleanup, and Phase 2-H backend-only org-scoped member text generation for the documented scope.
 - It is substantially safer and more operable than the original audit baseline, but it is not full enterprise SaaS maturity.
 - Existing assets remain user-owned; full tenant isolation, live payment-provider integration, broad AI route credit enforcement, permanent provider-result cache, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
-- The next implementation phase should be chosen between additional AI route entitlement wiring, payment-provider integration design, and domain-by-domain tenant ownership migration. Do not redo Phase 0/1/2-A/2-B/2-C/2-D/2-E/2-F foundations.
+- The next implementation phase should be chosen between video AI entitlement wiring, payment-provider integration design, and domain-by-domain tenant ownership migration. Do not redo Phase 0/1/2-A/2-B/2-C/2-D/2-E/2-F/2-H foundations.
 
 ## Remediation Progress
 
@@ -75,6 +76,7 @@ Reference documents:
 - `PHASE2D_AI_USAGE_RESERVATION_REPORT.md` contains the Phase 2-D AI usage attempt/reservation schema, provider-result idempotency behavior, credit reservation/finalization behavior, validation evidence, deploy requirements, and remaining monetization risks.
 - `PHASE2E_AI_USAGE_ATTEMPT_CLEANUP_REPORT.md` contains the Phase 2-E AI usage attempt cleanup/admin inspection behavior, scheduled cleanup behavior, validation evidence, deploy requirements, and remaining monetization/retention risks.
 - `PHASE2F_AI_REPLAY_OBJECT_RETENTION_REPORT.md` contains the Phase 2-F temporary replay object cleanup behavior, prefix/attempt-linkage safety rules, scheduled/admin cleanup behavior, validation evidence, deploy requirements, and remaining monetization/retention risks.
+- `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md` contains the Phase 2-H backend-only org-scoped member text generation API behavior, entitlement/credit enforcement, text replay behavior, validation evidence, deploy requirements, and remaining monetization/tenant risks.
 - `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I/1-J data inventory and engineering retention-policy baseline.
 - `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I/1-J deletion/anonymization executor state model, approval gates, safe reversible-action pilot, disabled irreversible-action policy, rollback limitations, and future test plan.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
@@ -245,6 +247,15 @@ Phase 2-F completed summary:
 - No new migration or route was required; Phase 2-F uses the existing `0036_add_ai_usage_attempts.sql` schema and the existing admin cleanup route.
 - Preserved legacy no-org image generation, admin AI routes, text routes, video routes, payment-provider flows, and full tenant migration as out of scope.
 
+Phase 2-H completed summary:
+
+- Added backend-only `POST /api/ai/generate-text` for member-facing text generation with explicit organization context required.
+- Reused the existing HMAC-authenticated `AI_LAB` service binding to call `/internal/ai/test-text`; no admin route handler is bypassed or charged.
+- Enforced active org membership, `owner`/`admin`/`member` role, `ai.text.generate` entitlement, sufficient credits, and `Idempotency-Key`.
+- Reused `ai_usage_attempts` for credit reservation, provider-call suppression, billing finalization, same-key conflict detection, and bounded text replay metadata.
+- No new migration was required; Phase 2-H uses existing `0036_add_ai_usage_attempts.sql` metadata/status/expiry fields.
+- Preserved legacy no-org image generation, org-scoped image behavior, admin AI Lab text generation, text asset storage routes, video routes, payment-provider flows, frontend UI, and full tenant migration as out of scope.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -274,7 +285,7 @@ Findings reduced but not fully resolved:
 | Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
 | Scan-prone admin audit/activity search and raw activity cursors | Reduced | `0031_add_activity_search_index.sql`, `workers/auth/src/lib/activity-search.js`, updated `workers/auth/src/routes/admin.js`, and `scripts/check-admin-activity-query-shape.mjs` replace raw metadata search and raw cursors with indexed projection search and signed cursors for the admin audit/activity endpoints. |
 | Compliance-grade data lifecycle | Reduced | `0032_add_data_lifecycle_requests.sql`, `0033_harden_data_export_archives.sql`, `workers/auth/src/lib/data-lifecycle.js`, `workers/auth/src/lib/data-export-archive.js`, `workers/auth/src/lib/data-export-cleanup.js`, `workers/auth/src/routes/admin-data-lifecycle.js`, `DATA_INVENTORY.md`, `docs/DATA_RETENTION_POLICY.md`, and `docs/DATA_DELETION_EXECUTOR_DESIGN.md` add admin/support planning foundations, bounded export archive generation, private archive metadata, bounded expired archive cleanup, safe reversible-action execution, deletion executor design, and retention documentation. User self-service, contact processor workflow, legal policy approval, irreversible deletion execution, and historical R2 owner backfill remain open. |
-| Billing/plans/entitlements foundation | Reduced | `0035_add_billing_entitlements.sql`, `0036_add_ai_usage_attempts.sql`, `workers/auth/src/lib/billing.js`, `workers/auth/src/lib/ai-usage-policy.js`, `workers/auth/src/lib/ai-usage-attempts.js`, `workers/auth/src/routes/orgs.js`, `workers/auth/src/routes/admin-billing.js`, route-policy/release updates, and Worker tests add default free plan resolution, org billing/entitlement reads, admin plan/org billing inspection, idempotent credit grants, idempotent credit consumption helpers, opt-in org-scoped image generation credit enforcement, credit reservations, duplicate provider-call suppression, temporary result replay, bounded stale reservation cleanup, temporary replay object cleanup, and sanitized admin usage-attempt inspection for org-scoped image generation. Live payment provider integration and broad route-level credit enforcement remain open. |
+| Billing/plans/entitlements foundation | Reduced | `0035_add_billing_entitlements.sql`, `0036_add_ai_usage_attempts.sql`, `workers/auth/src/lib/billing.js`, `workers/auth/src/lib/ai-usage-policy.js`, `workers/auth/src/lib/ai-usage-attempts.js`, `workers/auth/src/routes/orgs.js`, `workers/auth/src/routes/admin-billing.js`, `workers/auth/src/routes/ai/text-generate.js`, route-policy/release updates, and Worker tests add default free plan resolution, org billing/entitlement reads, admin plan/org billing inspection, idempotent credit grants, idempotent credit consumption helpers, org-scoped image and text generation credit enforcement, credit reservations, duplicate provider-call suppression, temporary result replay, bounded stale reservation cleanup, temporary replay object cleanup, and sanitized admin usage-attempt inspection. Live payment provider integration and broad route-level credit enforcement remain open. |
 
 Findings still open:
 
@@ -288,8 +299,8 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Pass for review/merge after commit | `npm run test:workers` passed 336/336, `npm run test:static` passed 155/155, `npm run release:preflight` passed, and `git diff --check` passed. All changed/new Phase 2-F files must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0036` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging, Phase 2-A organization flows are verified in staging after migration `0034`, Phase 2-B billing/entitlement/credit flows are verified in staging after migration `0035`, Phase 2-D org-scoped image usage retry/replay/reservation behavior is verified in staging after migration `0036`, Phase 2-E usage-attempt cleanup/admin inspection/scheduled cleanup behavior is verified in staging, and Phase 2-F replay object cleanup dry-run/execution/scheduled behavior is verified in staging. |
+| Merge readiness | Pass for review/merge after commit | `npm run test:workers` passed 339/339, `npm run test:static` passed 155/155, `npm run release:preflight` passed, and `git diff --check` passed. All changed/new Phase 2-H files must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0036` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, `AUDIT_ARCHIVE`, and `AI_LAB` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging, Phase 2-A organization flows are verified in staging after migration `0034`, Phase 2-B billing/entitlement/credit flows are verified in staging after migration `0035`, Phase 2-D org-scoped image usage retry/replay/reservation behavior is verified in staging after migration `0036`, Phase 2-E usage-attempt cleanup/admin inspection/scheduled cleanup behavior is verified in staging, Phase 2-F replay object cleanup dry-run/execution/scheduled behavior is verified in staging, and Phase 2-H org-scoped text generation success/replay/denial/failure compatibility is verified in staging. |
 | Current recommended next phase | Tenant/payment or additional AI route track | Choose one narrow track: wire another AI route family to entitlements/credits, design payment-provider integration, or continue domain-by-domain tenant ownership migration. Do not combine all tracks into one broad rewrite. |
 
 ## Executive Summary

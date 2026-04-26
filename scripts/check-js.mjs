@@ -37,6 +37,7 @@ const CHECK_TARGETS = [
   "workers/auth/src/routes/admin-billing.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
   "workers/auth/src/routes/admin-orgs.js",
+  "workers/auth/src/routes/ai/text-generate.js",
   "workers/auth/src/routes/orgs.js",
   "workers/ai/src/routes/video-task.js",
   "js/pages/admin/ai-lab.js",

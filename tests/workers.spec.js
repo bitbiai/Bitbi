@@ -1871,6 +1871,74 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     );
   }
 
+  async function createMemberTextHarness({
+    user = createContractUser({ id: 'phase2h-text-user', role: 'user' }),
+    role = 'member',
+    orgId = 'org_h2h2h2h2h2h2h2h2h2h2h2h2h2h2h2h2',
+    creditBalance = 2,
+    extraUsers = [],
+    entitlements,
+    failUsageEventInsert = false,
+    aiRun,
+    envSeed = {},
+  } = {}) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const aiWorker = await loadWorker('workers/ai/src/index.js');
+    let providerCalls = 0;
+    const aiLabRequests = [];
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role, orgId, creditBalance, extraUsers, entitlements, failUsageEventInsert }),
+      ...envSeed,
+    });
+    env.AI_LAB = createAiLabServiceBinding(aiWorker, {
+      AI_SERVICE_AUTH_SECRET: env.AI_SERVICE_AUTH_SECRET,
+      SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+      AI: {
+        async run(...args) {
+          providerCalls += 1;
+          if (aiRun) return aiRun(...args);
+          return { response: `Generated text ${providerCalls}`, usage: { total_tokens: 12 } };
+        },
+      },
+    }, aiLabRequests);
+    const token = await seedSession(env, user.id);
+    return {
+      authWorker,
+      env,
+      token,
+      user,
+      orgId,
+      aiLabRequests,
+      providerCallCount: () => providerCalls,
+    };
+  }
+
+  async function postGenerateText({
+    worker,
+    env,
+    token,
+    orgId,
+    prompt = 'org text',
+    idempotencyKey = 'phase2h-text-key',
+    body = {},
+    headers = {},
+  }) {
+    return worker.fetch(
+      authJsonRequest('/api/ai/generate-text', 'POST', {
+        organization_id: orgId,
+        prompt,
+        ...body,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+        ...headers,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+  }
+
   function seedAiUsageAttempt(overrides = {}) {
     return {
       id: overrides.id || 'aua_seeded0000000000000000000000000000',
@@ -2446,6 +2514,325 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.usageEvents).toHaveLength(1);
     expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
     expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(0);
+  });
+
+  test('Phase 2-H org-scoped text generation charges once and replays without another provider call', async () => {
+    const harness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-text-success-user', role: 'user' }),
+      orgId: 'org_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1',
+      creditBalance: 2,
+      aiRun: async () => ({ response: 'first generated member text', usage: { total_tokens: 14 } }),
+    });
+
+    const first = await postGenerateText({
+      worker: harness.authWorker,
+      env: harness.env,
+      token: harness.token,
+      orgId: harness.orgId,
+      prompt: 'Write a short member text.',
+      idempotencyKey: 'phase2h-text-success',
+    });
+    const firstBody = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstBody).toMatchObject({
+      ok: true,
+      text: 'first generated member text',
+      billing: {
+        organization_id: harness.orgId,
+        feature: 'ai.text.generate',
+        credits_charged: 1,
+        balance_after: 1,
+        idempotent_replay: false,
+      },
+    });
+    expect(harness.providerCallCount()).toBe(1);
+    expect(harness.env.DB.state.usageEvents).toHaveLength(1);
+    expect(harness.env.DB.state.usageEvents[0].feature_key).toBe('ai.text.generate');
+    expect(harness.env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(harness.env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      feature_key: 'ai.text.generate',
+      operation_key: 'member.text.generate',
+      route: '/api/ai/generate-text',
+      status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'stored',
+    });
+    expect(JSON.stringify(firstBody)).not.toContain('idempotency_key');
+    expect(JSON.stringify(firstBody)).not.toContain('request_fingerprint');
+
+    const repeated = await postGenerateText({
+      worker: harness.authWorker,
+      env: harness.env,
+      token: harness.token,
+      orgId: harness.orgId,
+      prompt: 'Write a short member text.',
+      idempotencyKey: 'phase2h-text-success',
+    });
+    const repeatedBody = await repeated.json();
+    expect(repeated.status).toBe(200);
+    expect(repeatedBody).toMatchObject({
+      ok: true,
+      text: 'first generated member text',
+      billing: {
+        organization_id: harness.orgId,
+        feature: 'ai.text.generate',
+        credits_charged: 0,
+        balance_after: 1,
+        idempotent_replay: true,
+      },
+    });
+    expect(harness.providerCallCount()).toBe(1);
+    expect(harness.env.DB.state.usageEvents).toHaveLength(1);
+    expect(harness.env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+
+    const conflict = await postGenerateText({
+      worker: harness.authWorker,
+      env: harness.env,
+      token: harness.token,
+      orgId: harness.orgId,
+      prompt: 'Different prompt with the same key.',
+      idempotencyKey: 'phase2h-text-success',
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
+    expect(harness.providerCallCount()).toBe(1);
+  });
+
+  test('Phase 2-H text generation rejects missing org, viewer, non-member, disabled entitlement, and insufficient credits before provider calls', async () => {
+    const memberHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-missing-org-user', role: 'user' }),
+      orgId: 'org_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0',
+    });
+    const missingOrg = await memberHarness.authWorker.fetch(
+      authJsonRequest('/api/ai/generate-text', 'POST', {
+        prompt: 'Missing org should fail',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberHarness.token}`,
+        'Idempotency-Key': 'phase2h-missing-org',
+      }),
+      memberHarness.env,
+      createExecutionContext().execCtx
+    );
+    expect(missingOrg.status).toBe(400);
+    expect(memberHarness.providerCallCount()).toBe(0);
+
+    const viewerHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-viewer-user', role: 'user' }),
+      role: 'viewer',
+      orgId: 'org_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0',
+    });
+    const viewer = await postGenerateText({
+      worker: viewerHarness.authWorker,
+      env: viewerHarness.env,
+      token: viewerHarness.token,
+      orgId: viewerHarness.orgId,
+      idempotencyKey: 'phase2h-viewer-denied',
+    });
+    expect(viewer.status).toBe(403);
+    expect(viewerHarness.providerCallCount()).toBe(0);
+
+    const orgOwner = createContractUser({ id: 'phase2h-owner-user', role: 'user' });
+    const outsider = createContractUser({ id: 'phase2h-outsider-user', role: 'user' });
+    const outsiderHarness = await createMemberTextHarness({
+      user: orgOwner,
+      role: 'member',
+      extraUsers: [outsider],
+      orgId: 'org_c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0',
+    });
+    const outsiderToken = await seedSession(outsiderHarness.env, outsider.id);
+    const outsiderRes = await postGenerateText({
+      worker: outsiderHarness.authWorker,
+      env: outsiderHarness.env,
+      token: outsiderToken,
+      orgId: outsiderHarness.orgId,
+      idempotencyKey: 'phase2h-outsider-denied',
+    });
+    expect(outsiderRes.status).toBe(404);
+    expect(outsiderHarness.providerCallCount()).toBe(0);
+
+    const entitlementHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-disabled-entitlement-user', role: 'user' }),
+      orgId: 'org_d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0',
+      entitlements: [{
+        id: 'ent_phase2h_text_disabled',
+        plan_id: 'plan_free',
+        feature_key: 'ai.text.generate',
+        enabled: 0,
+        value_kind: 'boolean',
+        value_numeric: null,
+        value_text: null,
+        created_at: '2026-04-26T00:00:00.000Z',
+        updated_at: '2026-04-26T00:00:00.000Z',
+      }],
+    });
+    const disabledEntitlement = await postGenerateText({
+      worker: entitlementHarness.authWorker,
+      env: entitlementHarness.env,
+      token: entitlementHarness.token,
+      orgId: entitlementHarness.orgId,
+      idempotencyKey: 'phase2h-disabled-entitlement',
+    });
+    expect(disabledEntitlement.status).toBe(403);
+    expect(entitlementHarness.providerCallCount()).toBe(0);
+
+    const brokeHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-broke-user', role: 'user' }),
+      orgId: 'org_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0',
+      creditBalance: 0,
+    });
+    const insufficient = await postGenerateText({
+      worker: brokeHarness.authWorker,
+      env: brokeHarness.env,
+      token: brokeHarness.token,
+      orgId: brokeHarness.orgId,
+      idempotencyKey: 'phase2h-insufficient',
+    });
+    expect(insufficient.status).toBe(402);
+    expect(brokeHarness.providerCallCount()).toBe(0);
+    expect(brokeHarness.env.DB.state.usageEvents).toHaveLength(0);
+  });
+
+  test('Phase 2-H text generation handles pending duplicates, provider failures, billing failures, and validation safely', async () => {
+    const pendingHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-pending-user', role: 'user' }),
+      orgId: 'org_f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0',
+      aiRun: async () => ({ response: 'pending-safe text' }),
+    });
+    let duplicateStatus = null;
+    pendingHarness.env.AI_LAB = createAiLabServiceBinding(await loadWorker('workers/ai/src/index.js'), {
+      AI_SERVICE_AUTH_SECRET: pendingHarness.env.AI_SERVICE_AUTH_SECRET,
+      SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+      AI: {
+        async run() {
+          const duplicate = await postGenerateText({
+            worker: pendingHarness.authWorker,
+            env: pendingHarness.env,
+            token: pendingHarness.token,
+            orgId: pendingHarness.orgId,
+            prompt: 'pending text request',
+            idempotencyKey: 'phase2h-pending',
+          });
+          duplicateStatus = duplicate.status;
+          return { response: 'pending-safe text' };
+        },
+      },
+    }, pendingHarness.aiLabRequests);
+    const pending = await postGenerateText({
+      worker: pendingHarness.authWorker,
+      env: pendingHarness.env,
+      token: pendingHarness.token,
+      orgId: pendingHarness.orgId,
+      prompt: 'pending text request',
+      idempotencyKey: 'phase2h-pending',
+    });
+    expect(pending.status).toBe(200);
+    expect(duplicateStatus).toBe(409);
+    expect(pendingHarness.env.DB.state.usageEvents).toHaveLength(1);
+
+    const failingHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-provider-fail-user', role: 'user' }),
+      orgId: 'org_abababababababababababababababab',
+      aiRun: async () => { throw new Error('text provider down'); },
+    });
+    const providerFailure = await postGenerateText({
+      worker: failingHarness.authWorker,
+      env: failingHarness.env,
+      token: failingHarness.token,
+      orgId: failingHarness.orgId,
+      idempotencyKey: 'phase2h-provider-failure',
+    });
+    expect(providerFailure.status).toBe(502);
+    expect(failingHarness.env.DB.state.usageEvents).toHaveLength(0);
+    expect(failingHarness.env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'provider_failed',
+      billing_status: 'released',
+    });
+
+    const billingFailHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-billing-fail-user', role: 'user' }),
+      orgId: 'org_bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc',
+      failUsageEventInsert: true,
+    });
+    const billingFailure = await postGenerateText({
+      worker: billingFailHarness.authWorker,
+      env: billingFailHarness.env,
+      token: billingFailHarness.token,
+      orgId: billingFailHarness.orgId,
+      idempotencyKey: 'phase2h-billing-failure',
+    });
+    expect(billingFailure.status).toBe(503);
+    expect(billingFailHarness.env.DB.state.usageEvents).toHaveLength(0);
+    expect(billingFailHarness.env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'billing_failed',
+      billing_status: 'failed',
+    });
+
+    const validationHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-validation-user', role: 'user' }),
+      orgId: 'org_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd',
+    });
+    const unsupported = await postGenerateText({
+      worker: validationHarness.authWorker,
+      env: validationHarness.env,
+      token: validationHarness.token,
+      orgId: validationHarness.orgId,
+      idempotencyKey: 'phase2h-unsupported-model',
+      body: { model: '@cf/unsafe/model' },
+    });
+    expect(unsupported.status).toBe(400);
+    expect(validationHarness.providerCallCount()).toBe(0);
+
+    const noKey = await postGenerateText({
+      worker: validationHarness.authWorker,
+      env: validationHarness.env,
+      token: validationHarness.token,
+      orgId: validationHarness.orgId,
+      idempotencyKey: null,
+    });
+    expect(noKey.status).toBe(428);
+
+    const oversized = await validationHarness.authWorker.fetch(
+      authJsonRequest('/api/ai/generate-text', 'POST', {
+        organization_id: validationHarness.orgId,
+        prompt: 'x'.repeat(40 * 1024),
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${validationHarness.token}`,
+        'Idempotency-Key': 'phase2h-oversized',
+      }),
+      validationHarness.env,
+      createExecutionContext().execCtx
+    );
+    expect(oversized.status).toBe(413);
+
+    const foreign = await postGenerateText({
+      worker: validationHarness.authWorker,
+      env: validationHarness.env,
+      token: validationHarness.token,
+      orgId: validationHarness.orgId,
+      idempotencyKey: 'phase2h-foreign-origin',
+      headers: { Origin: 'https://evil.example' },
+    });
+    expect(foreign.status).toBe(403);
+
+    const noLimiterHarness = await createMemberTextHarness({
+      user: createContractUser({ id: 'phase2h-no-limiter-user', role: 'user' }),
+      orgId: 'org_dededededededededededededededede',
+      envSeed: { disablePublicRateLimiterBinding: true },
+    });
+    const noLimiter = await postGenerateText({
+      worker: noLimiterHarness.authWorker,
+      env: noLimiterHarness.env,
+      token: noLimiterHarness.token,
+      orgId: noLimiterHarness.orgId,
+      idempotencyKey: 'phase2h-no-limiter',
+    });
+    expect(noLimiter.status).toBe(503);
+    expect(noLimiterHarness.providerCallCount()).toBe(0);
   });
 
   test('Phase 2-E admin usage attempt inspection and cleanup are sanitized, bounded, and safe', async () => {

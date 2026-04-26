@@ -18,6 +18,7 @@ import {
   handleRenameImage,
   handleSaveImage,
 } from "./ai/images-write.js";
+import { handleGenerateText } from "./ai/text-generate.js";
 import { handleUpdateImagePublication, handleUpdateTextAssetPublication } from "./ai/publication.js";
 import {
   handleDeleteTextAsset,
@@ -36,6 +37,10 @@ export async function handleAI(ctx) {
   // route-policy: ai.generate-image
   if (pathname === "/api/ai/generate-image" && method === "POST") {
     return handleGenerateImage(ctx);
+  }
+  // route-policy: ai.generate-text
+  if (pathname === "/api/ai/generate-text" && method === "POST") {
+    return handleGenerateText(ctx);
   }
   if (pathname === "/api/ai/folders" && method === "GET") {
     return handleGetFolders(ctx);

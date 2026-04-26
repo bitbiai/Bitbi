@@ -12,6 +12,7 @@ const DEFAULT_ADMIN_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_ATTEMPT_LIMIT = 100;
 const ADMIN_ATTEMPT_LIST_TTL_MS = 60 * 60 * 1000;
 const MAX_REPLAY_OBJECT_KEY_LENGTH = 512;
+const MAX_METADATA_JSON_LENGTH = 16 * 1024;
 const DISALLOWED_REPLAY_OBJECT_PREFIXES = [
   "users/",
   "data-exports/",
@@ -120,6 +121,22 @@ function normalizeShortText(value, fallback = null) {
   const text = String(value || "").trim();
   if (!text) return fallback;
   return text.slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+function normalizeMetadataJson(value = null) {
+  let text = "{}";
+  if (value && typeof value === "object") {
+    text = JSON.stringify(value);
+  } else if (typeof value === "string" && value.trim()) {
+    text = value.trim();
+  }
+  if (text.length > MAX_METADATA_JSON_LENGTH) {
+    throw new BillingError("AI usage replay metadata is too large.", {
+      status: 413,
+      code: "ai_usage_metadata_too_large",
+    });
+  }
+  return text;
 }
 
 function hasUnsafeObjectKeyCharacters(key) {
@@ -300,6 +317,28 @@ async function fetchAttemptById(env, attemptIdValue) {
        LIMIT 1`
     ).bind(attemptIdValue).first();
     return row || null;
+  } catch (error) {
+    throw unavailableAttemptsError(error);
+  }
+}
+
+export async function getAiUsageAttemptReplayMetadata(env, attemptIdValue) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT metadata_json
+       FROM ai_usage_attempts
+       WHERE id = ?
+         AND status = 'succeeded'
+         AND billing_status = 'finalized'
+       LIMIT 1`
+    ).bind(attemptIdValue).first();
+    if (!row?.metadata_json) return {};
+    try {
+      const parsed = JSON.parse(row.metadata_json);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
   } catch (error) {
     throw unavailableAttemptsError(error);
   }
@@ -610,9 +649,12 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
   steps = null,
   seed = null,
   balanceAfter = null,
+  metadata = null,
+  resultStatus = null,
 } = {}) {
   const now = nowIso();
-  const resultStatus = tempKey && saveReference ? "stored" : "unavailable";
+  const resolvedResultStatus = resultStatus || (tempKey && saveReference ? "stored" : "unavailable");
+  const metadataJson = normalizeMetadataJson(metadata);
   try {
     await env.DB.prepare(
       `UPDATE ai_usage_attempts
@@ -628,6 +670,7 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
            result_steps = ?,
            result_seed = ?,
            balance_after = ?,
+           metadata_json = ?,
            error_code = NULL,
            error_message = NULL,
            updated_at = ?,
@@ -635,7 +678,7 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
        WHERE id = ?
          AND status IN ('finalizing', 'succeeded')`
     ).bind(
-      resultStatus,
+      resolvedResultStatus,
       tempKey,
       saveReference,
       mimeType,
@@ -644,6 +687,7 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
       steps == null ? null : Number(steps),
       seed == null ? null : Number(seed),
       balanceAfter == null ? null : Number(balanceAfter),
+      metadataJson,
       now,
       now,
       attemptIdValue
@@ -779,7 +823,7 @@ async function listCleanupCandidates(env, { now, limit }) {
 
 function cleanupActionForAttempt(row) {
   if (row.status === "succeeded" && row.billing_status === "finalized" && row.result_status === "stored") {
-    return "cleanup_replay_object";
+    return row.result_temp_key ? "cleanup_replay_object" : "expire_replay_metadata";
   }
   if (row.status === "finalizing" && row.billing_status === "reserved") {
     return "mark_billing_failed";
@@ -850,14 +894,15 @@ async function expireReplayMetadata(env, row, now) {
      SET result_status = 'expired',
          result_temp_key = NULL,
          result_save_reference = NULL,
+         metadata_json = '{}',
          updated_at = ?
      WHERE id = ?
        AND status = 'succeeded'
        AND billing_status = 'finalized'
        AND result_status = 'stored'
-       AND result_temp_key = ?
+       AND (? IS NULL OR result_temp_key = ?)
        AND expires_at <= ?`
-  ).bind(now, row.id, row.result_temp_key, now).run();
+  ).bind(now, row.id, row.result_temp_key || null, row.result_temp_key || null, now).run();
   return Number(result?.meta?.changes || 0);
 }
 
@@ -1011,6 +1056,7 @@ export async function cleanupExpiredAiUsageAttempts({
       } else {
         expiredCount += 1;
         if (action === "release_reservation") reservationsReleasedCount += 1;
+        if (action === "expire_replay_metadata") replayMetadataExpiredCount += 1;
       }
       results.push(result);
       continue;
@@ -1052,6 +1098,9 @@ export async function cleanupExpiredAiUsageAttempts({
         }
         result.errorCode = replayCleanup.errorCode || null;
         changes = replayCleanup.changed ? 1 : 0;
+      } else if (action === "expire_replay_metadata") {
+        changes = await expireReplayMetadata(env, row, now);
+        if (changes > 0) replayMetadataExpiredCount += 1;
       }
       if (changes > 0) {
         result.changed = true;

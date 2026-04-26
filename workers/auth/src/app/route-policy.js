@@ -450,6 +450,16 @@ export const ROUTE_POLICIES = Object.freeze([
       idempotency: "required when organization_id is supplied; provider execution is guarded by ai_usage_attempts",
     },
   }),
+  userJsonWrite("ai.generate-text", "POST", "/api/ai/generate-text", "ai-studio", "aiGenerateJson", "ai-generate-text-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET"],
+    audit: { event: "ai_generate_text" },
+    sensitivity: "high",
+    billing: {
+      mode: "required-organization-context",
+      feature: "ai.text.generate",
+      idempotency: "required; provider execution and text replay are guarded by ai_usage_attempts",
+    },
+  }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),
   userJsonWrite("ai.folders.rename", "PATCH", "/api/ai/folders/:id", "ai-studio", "smallJson", "ai-folder-write-user"),

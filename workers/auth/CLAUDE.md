@@ -83,7 +83,7 @@ src/
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
-**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits, expired replay metadata is cleared, and expired attempt-linked temporary replay objects under `tmp/ai-generated/{userId}/{tempId}` are deleted only after strict prefix/user/attempt validation. Cleanup does not delete ledger rows, usage events, attempt rows, saved media, private media, derivatives, video outputs, audit archives, export archives, or unrelated R2 objects.
+**AI Image Studio**: `/api/ai/*` uses the `AI` binding for legacy/member image generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. `/api/ai/generate-text` is backend-only and org-scoped only: it requires auth, explicit organization context, `Idempotency-Key`, `member` or higher role, the `ai.text.generate` entitlement, and credits. It calls the HMAC-protected `AI_LAB` internal text route and stores bounded generated-text replay metadata in `ai_usage_attempts.metadata_json`; it does not charge admin AI Lab text routes or text asset storage routes. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits, expired replay metadata is cleared, and expired attempt-linked temporary image replay objects under `tmp/ai-generated/{userId}/{tempId}` are deleted only after strict prefix/user/attempt validation. Cleanup does not delete ledger rows, usage events, attempt rows, saved media, private media, derivatives, video outputs, audit archives, export archives, or unrelated R2 objects.
 
 **Authorization pattern**: `requireUser()` and `requireAdmin()` return either a session object or a `Response` (error). Callers check `result instanceof Response` to distinguish.
 
@@ -166,6 +166,7 @@ src/
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and temporary result replay
+- `POST /api/ai/generate-text` — generate text through the HMAC-protected AI worker; org-scoped only, requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.text.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and bounded text replay metadata
 - `GET /api/ai/folders` — list folders (+ counts)
 - `POST /api/ai/folders` — create folder
 - `DELETE /api/ai/folders/:id` — delete folder and queue blob cleanup
@@ -194,7 +195,7 @@ src/
 
 **Cloudflare AI binding** `AI` — required for `/api/ai/generate-image`.
 
-**Service binding** `AI_LAB` — required for `/api/admin/ai/*` to reach the internal `workers/ai` service.
+**Service binding** `AI_LAB` — required for `/api/admin/ai/*` and org-scoped `/api/ai/generate-text` to reach the internal `workers/ai` service.
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
@@ -221,7 +222,7 @@ Key migration-dependent behavior:
 - `0033_harden_data_export_archives` — required before auth deploy if bounded private export archive generation/download APIs must work immediately
 - `0034_add_organizations` — required before auth deploy if Phase 2-A organization creation, membership, and admin organization inspection APIs must work immediately
 - `0035_add_billing_entitlements` — required before auth deploy if Phase 2-B billing plan, entitlement, credit ledger, usage event, and admin credit-grant APIs must work immediately
-- `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, and Phase 2-E usage-attempt cleanup/admin inspection must work immediately
+- `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F replay object cleanup, and Phase 2-H org-scoped text generation replay must work immediately
 
 ## Conventions
 
