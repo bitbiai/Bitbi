@@ -44,6 +44,7 @@ import {
   isAiGeneratedTempObjectExpired,
 } from "./routes/ai/generated-image-save-reference.js";
 import { archiveColdActivityLogs } from "./lib/activity-archive.js";
+import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
@@ -307,6 +308,37 @@ export default {
         service: "bitbi-auth",
         component: "scheduled-ai-generated-temp-cleanup",
         event: "ai_generated_temp_cleanup_failed",
+        level: "error",
+        ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const cleanup = await cleanupExpiredDataExportArchives({ env, now, limit: 25 });
+      if (
+        cleanup.scannedCount > 0 ||
+        cleanup.deletedCount > 0 ||
+        cleanup.missingCount > 0 ||
+        cleanup.failedCount > 0 ||
+        cleanup.skippedCount > 0
+      ) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-data-export-cleanup",
+          event: "export_archive_cleanup_completed",
+          level: cleanup.failedCount > 0 || cleanup.skippedCount > 0 ? "warn" : "info",
+          scanned_count: cleanup.scannedCount,
+          deleted_count: cleanup.deletedCount,
+          missing_count: cleanup.missingCount,
+          failed_count: cleanup.failedCount,
+          skipped_count: cleanup.skippedCount,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-data-export-cleanup",
+        event: "export_archive_cleanup_failed",
         level: "error",
         ...getErrorFields(error),
       });

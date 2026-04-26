@@ -39,7 +39,10 @@ const REQUIRED_LOOKUPS = [
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/plan", "admin.data-lifecycle.requests.plan"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/approve", "admin.data-lifecycle.requests.approve"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/generate-export", "admin.data-lifecycle.requests.generate-export"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/execute-safe", "admin.data-lifecycle.requests.execute-safe"],
   ["GET", "/api/admin/data-lifecycle/requests/dlr_123/export", "admin.data-lifecycle.requests.export.read"],
+  ["GET", "/api/admin/data-lifecycle/exports", "admin.data-lifecycle.exports.list"],
+  ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
 ];
 

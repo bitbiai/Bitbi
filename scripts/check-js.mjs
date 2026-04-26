@@ -25,6 +25,7 @@ const CHECK_TARGETS = [
   "workers/auth/src/lib/ai-video-jobs.js",
   "workers/auth/src/lib/activity-search.js",
   "workers/auth/src/lib/data-export-archive.js",
+  "workers/auth/src/lib/data-export-cleanup.js",
   "workers/auth/src/lib/data-lifecycle.js",
   "workers/auth/src/lib/security-secrets.js",
   "workers/auth/src/app/route-policy.js",

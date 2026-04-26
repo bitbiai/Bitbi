@@ -11,15 +11,16 @@ This file is an engineering baseline for retention and deletion behavior. It is 
 - Prefer dry-run deletion plans and admin approval before any irreversible operation.
 - Treat generated AI prompts, previews, media, wallet addresses, contact messages, and profile fields as potentially personal data.
 - Do not inline large R2 binaries into export archives; Phase 1-I export archives use authorized JSON manifests with media references only and do not expose raw internal media R2 keys.
+- Delete only owner-scoped or lifecycle-scoped R2 objects whose prefix has been explicitly approved. Phase 1-J cleanup is limited to `AUDIT_ARCHIVE` objects under `data-exports/`.
 
 ## Retention Candidates
 
 | Data | Current behavior observed | Proposed retention | Deletion/anonymization action | Enforcement status |
 | --- | --- | --- | --- | --- |
-| Sessions | Cron cleanup exists for expired sessions. | Session TTL plus cleanup grace. | Revoke/delete on approved deletion. | Existing cleanup plus Phase 1-H plan item. |
-| Password reset tokens | Expiring auth tokens exist. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-H plan item. |
-| Email verification tokens | Expiring verification tokens exist. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-H plan item. |
-| SIWE challenges | Challenge table exists. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-H plan item. |
+| Sessions | Cron cleanup exists for expired sessions. | Session TTL plus cleanup grace. | Revoke/delete on approved deletion. | Existing cleanup plus Phase 1-J safe executor pilot for approved requests. |
+| Password reset tokens | Expiring auth tokens exist. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-J safe executor pilot for approved requests. |
+| Email verification tokens | Expiring verification tokens exist. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-J safe executor pilot for approved requests. |
+| SIWE challenges | Challenge table exists. | Short TTL only. | Expire/delete. | Existing cleanup plus Phase 1-J safe executor pilot for approved requests. |
 | Admin MFA proofs/failed attempts | Durable failed-attempt state exists. | Short operational lockout window. | Expire/delete after lockout window. | Existing security state; explicit retention cleanup remains future work. |
 | Admin MFA credentials/recovery codes | Stored for enrolled admins. | Retain while admin enrollment is active. | Revoke/delete only after admin continuity review. | Phase 1-H plans revoke action; executor deferred. |
 | Profiles/avatars | Profile row and private R2 avatar. | Retain while account is active. | Delete/anonymize row; delete avatar object after approval. | Phase 1-H plan item only. |
@@ -32,13 +33,31 @@ This file is an engineering baseline for retention and deletion behavior. It is 
 | Admin audit logs | Admin/security audit table and archive. | Security/legal retention window, likely longer than user content. | Retain or anonymize target identifiers after approved policy. | Phase 1-H plans retain/anonymize; no hard-delete. |
 | Activity search projection | Derived indexed fields. | Same as source event. | Delete/anonymize with source event. | Projection cleanup exists for archive/prune; lifecycle executor deferred. |
 | Contact form submissions | Sent through Resend; no repo-owned D1 table identified. | External processor retention policy required. | Manual processor workflow until repo-owned storage exists. | Not enforced by repo. |
-| Export archives | Phase 1-I can generate bounded JSON archives into private `AUDIT_ARCHIVE` and records metadata in `data_export_archives`. | 14 days for generated archives. | Expire archive access by metadata; delete private archive object in a later bounded cleanup worker. | Generation, metadata, and access-expiration enforcement exist; physical R2 cleanup is deferred. |
+| Export archives | Phase 1-I can generate bounded JSON archives into private `AUDIT_ARCHIVE` and records metadata in `data_export_archives`. Phase 1-J adds bounded cleanup. | 14 days for generated archives. | Expire archive access by metadata; delete only approved private `data-exports/` archive objects through bounded cleanup. | Generation, metadata, access-expiration, admin/scheduled cleanup, and cleanup-failure recording exist. |
 | Data lifecycle requests/items | D1 request evidence. | Legal/support retention to be defined. | Retain as compliance/support evidence. | Schema and admin APIs added. |
 | Temporary R2 objects/cleanup queue | Cleanup/retry queue exists for some objects. | Short operational retry window. | Retry/delete stale objects. | Existing cleanup plus future lifecycle executor. |
 
 ## Current Enforcement
 
-Phase 1-H enforces request creation, planning, approval state, idempotency, route policy registration, admin-only access, fail-closed rate limiting, same-origin checks, and byte-limited bodies. Phase 1-I adds bounded export archive generation and authorized admin archive download for approved export plans. The system still does not execute irreversible deletion or hard-delete R2 objects by default.
+Phase 1-H enforces request creation, planning, approval state, idempotency, route policy registration, admin-only access, fail-closed rate limiting, same-origin checks, and byte-limited bodies. Phase 1-I adds bounded export archive generation and authorized admin archive download for approved export plans. Phase 1-J adds bounded expired-archive R2 cleanup and a safe executor pilot for reversible auth-state cleanup. The system still does not execute irreversible deletion or hard-delete user/media/audit records by default.
+
+## Contact Processor Policy Gap
+
+Contact form content is sent through Resend and is not stored in a repo-owned D1 table. Until a processor workflow or repo-owned contact-message store exists:
+
+- Contact messages are treated as high-PII.
+- Export/delete requests involving contact messages require manual processor/mailbox review.
+- No repository API currently promises contact-message export or deletion.
+- Product/legal must define the Resend/mailbox retention window before compliance claims are made.
+
+## Historical R2 Ownership Policy
+
+Phase 1-J cleanup is intentionally narrow. It only deletes `AUDIT_ARCHIVE` objects whose keys match the generated export archive prefix. Do not enable deletion for these categories until ownership is proven by D1 rows or a dry-run owner-map backfill:
+
+- Audit/activity archive JSONL chunks outside `data-exports/`.
+- Legacy `PRIVATE_MEDIA` keys not linked to `profiles`.
+- Legacy `USER_IMAGES` keys not linked to `ai_images`, `ai_text_assets`, or `ai_video_jobs`.
+- Any provider/transient object without an owner row.
 
 ## Required Before Destructive Deletion
 

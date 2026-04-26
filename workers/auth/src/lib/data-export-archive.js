@@ -2,9 +2,11 @@ import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { DataLifecycleError } from "./data-lifecycle.js";
 
 export const DATA_EXPORT_ARCHIVE_CONTENT_TYPE = "application/json; charset=utf-8";
+export const DATA_EXPORT_ARCHIVE_CURSOR_TYPE = "data_export_archives";
 
 const ARCHIVE_BUCKET_BINDING = "AUDIT_ARCHIVE";
 const ARCHIVE_BUCKET_LABEL = "AUDIT_ARCHIVE";
+export const DATA_EXPORT_ARCHIVE_PREFIX = "data-exports/";
 const ARCHIVE_MANIFEST_VERSION = 1;
 const ARCHIVE_TTL_DAYS = 14;
 const MAX_ARCHIVE_ITEMS = 1_000;
@@ -16,7 +18,7 @@ function archiveId() {
   return `dla_${randomTokenHex(16)}`;
 }
 
-function requireArchiveBucket(env) {
+export function requireArchiveBucket(env) {
   const bucket = env?.[ARCHIVE_BUCKET_BINDING];
   if (!bucket || typeof bucket.put !== "function" || typeof bucket.get !== "function") {
     throw new DataLifecycleError("Export archive storage is unavailable.", {
@@ -25,6 +27,12 @@ function requireArchiveBucket(env) {
     });
   }
   return bucket;
+}
+
+export function isApprovedDataExportArchiveKey(key) {
+  const value = String(key || "");
+  if (!value.startsWith(DATA_EXPORT_ARCHIVE_PREFIX)) return false;
+  return /^data-exports\/[^/]+\/[^/]+\/dla_[a-f0-9]{32}\.json$/.test(value);
 }
 
 function parseSummary(value) {
@@ -78,6 +86,10 @@ function serializeArchive(row) {
       contentType: DATA_EXPORT_ARCHIVE_CONTENT_TYPE,
     },
   };
+}
+
+export function serializeDataExportArchive(row) {
+  return serializeArchive(row);
 }
 
 async function fetchRequest(env, requestId) {
@@ -136,6 +148,34 @@ async function fetchArchiveById(env, archiveIdValue) {
      WHERE id = ?
      LIMIT 1`
   ).bind(archiveIdValue).first();
+}
+
+export async function listDataExportArchives(env, { limit = 50, cursor = null } = {}) {
+  const appliedLimit = Math.max(1, Math.min(Number(limit) || 50, 100));
+  const bindings = [];
+  const conditions = [];
+  if (cursor) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const rows = await env.DB.prepare(
+    `SELECT id, request_id, subject_user_id, r2_bucket, r2_key, sha256, size_bytes,
+            manifest_version, status, expires_at, created_at, updated_at, downloaded_at,
+            deleted_at, error_code, error_message
+     FROM data_export_archives
+     ${where}
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`
+  ).bind(...bindings, appliedLimit + 1).all();
+  const results = rows.results || [];
+  const page = results.slice(0, appliedLimit);
+  return {
+    archives: page.map(serializeArchive),
+    appliedLimit,
+    hasMore: results.length > appliedLimit,
+    last: page[page.length - 1] || null,
+  };
 }
 
 async function markRequestExportFailure(env, requestId, code, message) {

@@ -6,6 +6,7 @@ export const DATA_LIFECYCLE_STATUSES = Object.freeze({
   planned: "planned",
   approved: "approved",
   blocked: "blocked",
+  safeActionsCompleted: "safe_actions_completed",
 });
 
 const EXPORT_ARCHIVE_TTL_DAYS = 14;
@@ -873,6 +874,202 @@ export async function approveDataLifecycleRequest({ env, adminUser, requestId })
   ).bind(adminUser.id, now, now, row.id).run();
   const updated = await getDataLifecycleRequestRow(env, row.id);
   return { request: serializeRequest(updated), reused: false };
+}
+
+function isDestructiveExecutionRequested(body = {}) {
+  return Boolean(
+    body?.allowHardDelete ||
+    body?.hardDelete ||
+    body?.destructive ||
+    String(body?.mode || "").toLowerCase() === "destructive"
+  );
+}
+
+async function assertSafeExecutorAllowed(env, row, body) {
+  if (!row) {
+    throw new DataLifecycleError("Data lifecycle request not found.", {
+      status: 404,
+      code: "request_not_found",
+    });
+  }
+  if (row.type === "export") {
+    throw new DataLifecycleError("Export requests are handled by archive generation, not deletion execution.", {
+      status: 409,
+      code: "export_request_not_executable",
+    });
+  }
+  if (isDestructiveExecutionRequested(body)) {
+    throw new DataLifecycleError("Irreversible deletion is disabled.", {
+      status: 409,
+      code: "destructive_execution_disabled",
+    });
+  }
+  if (row.status === DATA_LIFECYCLE_STATUSES.blocked) {
+    throw new DataLifecycleError("This request is blocked and requires manual review.", {
+      status: 409,
+      code: "request_blocked",
+    });
+  }
+  if (
+    row.status !== DATA_LIFECYCLE_STATUSES.approved &&
+    row.status !== DATA_LIFECYCLE_STATUSES.safeActionsCompleted
+  ) {
+    throw new DataLifecycleError("Request must be approved before safe execution.", {
+      status: 409,
+      code: "approval_required",
+    });
+  }
+
+  const subject = await fetchSubjectUser(env, row.subject_user_id);
+  const activeAdminCount = await first(
+    env,
+    "SELECT COUNT(*) AS cnt FROM users WHERE role = 'admin' AND status = 'active'"
+  );
+  if (subject.role === "admin" && Number(activeAdminCount?.cnt || 0) <= 1) {
+    throw new DataLifecycleError("The only active admin cannot be deleted or anonymized by the lifecycle executor.", {
+      status: 409,
+      code: "only_admin_blocked",
+    });
+  }
+  return subject;
+}
+
+function safeActionRows(items) {
+  return items.filter((entry) => (
+    (entry.tableName === "sessions" && entry.action === "revoke") ||
+    (["password_reset_tokens", "email_verification_tokens", "siwe_challenges"].includes(entry.tableName) && entry.action === "expire_or_delete") ||
+    (entry.resourceType === "data_export_archive" && entry.action === "expire")
+  ));
+}
+
+export async function executeSafeDataLifecycleActions({ env, adminUser, requestId, body = {} }) {
+  if (!adminUser?.id) {
+    throw new DataLifecycleError("Admin session is required.", {
+      status: 401,
+      code: "unauthorized",
+    });
+  }
+  const row = await getDataLifecycleRequestRow(env, normalizeUserId(requestId));
+  const subject = await assertSafeExecutorAllowed(env, row, body);
+  const dryRun = body?.dryRun !== false;
+  const items = await getItems(env, row.id);
+  const safeItems = safeActionRows(items);
+  const now = nowIso();
+
+  if (row.status === DATA_LIFECYCLE_STATUSES.safeActionsCompleted && !dryRun) {
+    return {
+      request: serializeRequest(row),
+      subject: {
+        id: subject.id,
+        email: subject.email,
+        role: subject.role,
+        status: subject.status,
+      },
+      dryRun,
+      reused: true,
+      actions: safeItems.map((entry) => ({
+        itemId: entry.id,
+        resourceType: entry.resourceType,
+        tableName: entry.tableName,
+        action: entry.action,
+        status: entry.status,
+        affectedCount: 0,
+      })),
+      destructiveActionsDisabled: true,
+    };
+  }
+
+  const actions = [];
+  let sessionsRevoked = 0;
+  let passwordTokensExpired = 0;
+  let verificationTokensExpired = 0;
+  let siweChallengesExpired = 0;
+  let exportArchivesExpired = 0;
+
+  if (!dryRun) {
+    const sessionResult = await env.DB.prepare(
+      "DELETE FROM sessions WHERE user_id = ?"
+    ).bind(row.subject_user_id).run();
+    sessionsRevoked = Number(sessionResult?.meta?.changes || 0);
+
+    const passwordResult = await env.DB.prepare(
+      "UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL"
+    ).bind(now, row.subject_user_id).run();
+    passwordTokensExpired = Number(passwordResult?.meta?.changes || 0);
+
+    const verificationResult = await env.DB.prepare(
+      "UPDATE email_verification_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL"
+    ).bind(now, row.subject_user_id).run();
+    verificationTokensExpired = Number(verificationResult?.meta?.changes || 0);
+
+    const siweResult = await env.DB.prepare(
+      "UPDATE siwe_challenges SET used_at = ? WHERE user_id = ? AND used_at IS NULL"
+    ).bind(now, row.subject_user_id).run();
+    siweChallengesExpired = Number(siweResult?.meta?.changes || 0);
+
+    const archiveResult = await env.DB.prepare(
+      "UPDATE data_export_archives SET status = 'expired', expires_at = ?, updated_at = ? WHERE subject_user_id = ? AND status = 'ready' AND expires_at > ?"
+    ).bind(now, now, row.subject_user_id, now).run();
+    exportArchivesExpired = Number(archiveResult?.meta?.changes || 0);
+
+    await env.DB.prepare(
+      `UPDATE data_lifecycle_request_items
+       SET status = 'completed', updated_at = ?
+       WHERE request_id = ?
+         AND (
+           (table_name = 'sessions' AND action = 'revoke')
+           OR (table_name IN ('password_reset_tokens', 'email_verification_tokens', 'siwe_challenges') AND action = 'expire_or_delete')
+           OR (resource_type = 'data_export_archive' AND action = 'expire')
+         )`
+    ).bind(now, row.id).run();
+    await env.DB.prepare(
+      "UPDATE data_lifecycle_requests SET status = 'safe_actions_completed', updated_at = ? WHERE id = ?"
+    ).bind(now, row.id).run();
+  }
+
+  const affectedByTable = {
+    sessions: sessionsRevoked,
+    password_reset_tokens: passwordTokensExpired,
+    email_verification_tokens: verificationTokensExpired,
+    siwe_challenges: siweChallengesExpired,
+    data_export_archives: exportArchivesExpired,
+  };
+  for (const entry of safeItems) {
+    const key = entry.tableName || entry.resourceType;
+    actions.push({
+      itemId: entry.id,
+      resourceType: entry.resourceType,
+      tableName: entry.tableName,
+      action: entry.action,
+      status: dryRun ? "would_execute" : "completed",
+      affectedCount: dryRun ? null : Number(affectedByTable[key] || 0),
+    });
+  }
+  if (!safeItems.some((entry) => entry.resourceType === "data_export_archive")) {
+    actions.push({
+      itemId: null,
+      resourceType: "data_export_archive",
+      tableName: "data_export_archives",
+      action: "expire",
+      status: dryRun ? "would_execute" : "completed",
+      affectedCount: dryRun ? null : exportArchivesExpired,
+    });
+  }
+
+  const updated = dryRun ? row : await getDataLifecycleRequestRow(env, row.id);
+  return {
+    request: serializeRequest(updated),
+    subject: {
+      id: subject.id,
+      email: subject.email,
+      role: subject.role,
+      status: subject.status,
+    },
+    dryRun,
+    reused: false,
+    actions,
+    destructiveActionsDisabled: true,
+  };
 }
 
 export function dataLifecycleErrorResponse(error) {

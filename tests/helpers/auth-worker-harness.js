@@ -1046,6 +1046,12 @@ class MockD1 {
       return deepClone(this.state.dataLifecycleRequests.find((row) => row.id === requestId) || null);
     }
 
+    if (query === 'SELECT id, type FROM data_lifecycle_requests WHERE id = ? LIMIT 1') {
+      const [requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      return row ? { id: row.id, type: row.type } : null;
+    }
+
     if (
       query.includes('FROM data_lifecycle_requests') &&
       query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
@@ -1210,6 +1216,56 @@ class MockD1 {
       return deepClone(this.state.dataExportArchives.find((row) => row.id === archiveId) || null);
     }
 
+    if (
+      query.includes('FROM data_export_archives') &&
+      query.includes('ORDER BY created_at DESC, id DESC') &&
+      query.includes('LIMIT ?')
+    ) {
+      let index = 0;
+      let rows = this.state.dataExportArchives.slice();
+      if (query.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
+        const createdAt = bindings[index++];
+        const sameCreatedAt = bindings[index++];
+        const cursorId = bindings[index++];
+        rows = rows.filter((row) => (
+          String(row.created_at || '') < String(createdAt || '') ||
+          (String(row.created_at || '') === String(sameCreatedAt || '') && String(row.id || '') < String(cursorId || ''))
+        ));
+      }
+      const limit = Number(bindings[index]) || 50;
+      return {
+        results: deepClone(rows
+          .sort((a, b) => (
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          ))
+          .slice(0, limit)),
+      };
+    }
+
+    if (
+      query.includes('FROM data_export_archives') &&
+      query.includes('deleted_at IS NULL') &&
+      query.includes('expires_at <= ?') &&
+      query.includes('ORDER BY expires_at ASC, created_at ASC, id ASC')
+    ) {
+      const [now, limit] = bindings;
+      const rows = this.state.dataExportArchives
+        .filter((row) => !row.deleted_at)
+        .filter((row) => String(row.expires_at || '') <= String(now || ''))
+        .filter((row) => (
+          ['ready', 'expired'].includes(row.status) ||
+          (row.status === 'cleanup_failed' && row.error_code === 'archive_cleanup_r2_failed')
+        ))
+        .sort((a, b) => (
+          String(a.expires_at || '').localeCompare(String(b.expires_at || '')) ||
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          String(a.id || '').localeCompare(String(b.id || ''))
+        ))
+        .slice(0, Number(limit) || 25);
+      return { results: deepClone(rows) };
+    }
+
     if (query === "UPDATE data_export_archives SET status = 'failed', error_code = ?, error_message = ?, updated_at = ? WHERE id = ?") {
       const [errorCode, errorMessage, updatedAt, archiveId] = bindings;
       const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
@@ -1262,11 +1318,120 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === "UPDATE data_export_archives SET status = 'cleanup_failed', error_code = ?, error_message = ?, updated_at = ? WHERE id = ?") {
+      const [errorCode, errorMessage, updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'cleanup_failed';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_export_archives SET status = 'deleted', deleted_at = ?, updated_at = ?, error_code = NULL, error_message = NULL WHERE id = ?") {
+      const [deletedAt, updatedAt, archiveId] = bindings;
+      const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'deleted';
+      row.deleted_at = deletedAt;
+      row.updated_at = updatedAt;
+      row.error_code = null;
+      row.error_message = null;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_export_archives SET status = 'expired', expires_at = ?, updated_at = ? WHERE subject_user_id = ? AND status = 'ready' AND expires_at > ?") {
+      const [expiresAt, updatedAt, subjectUserId, now] = bindings;
+      let changes = 0;
+      for (const row of this.state.dataExportArchives) {
+        if (row.subject_user_id === subjectUserId && row.status === 'ready' && String(row.expires_at || '') > String(now || '')) {
+          row.status = 'expired';
+          row.expires_at = expiresAt;
+          row.updated_at = updatedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (query === 'UPDATE data_export_archives SET downloaded_at = ?, updated_at = ? WHERE id = ?') {
       const [downloadedAt, updatedAt, archiveId] = bindings;
       const row = this.state.dataExportArchives.find((entry) => entry.id === archiveId);
       if (!row) return { success: true, meta: { changes: 0 } };
       row.downloaded_at = downloadedAt;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM sessions WHERE user_id = ?') {
+      const [userId] = bindings;
+      const before = this.state.sessions.length;
+      this.state.sessions = this.state.sessions.filter((row) => row.user_id !== userId);
+      return { success: true, meta: { changes: before - this.state.sessions.length } };
+    }
+
+    if (query === 'UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL') {
+      const [usedAt, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.passwordResetTokens) {
+        if (row.user_id === userId && row.used_at == null) {
+          row.used_at = usedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'UPDATE email_verification_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL') {
+      const [usedAt, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.emailVerificationTokens) {
+        if (row.user_id === userId && row.used_at == null) {
+          row.used_at = usedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'UPDATE siwe_challenges SET used_at = ? WHERE user_id = ? AND used_at IS NULL') {
+      const [usedAt, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.siweChallenges) {
+        if (row.user_id === userId && row.used_at == null) {
+          row.used_at = usedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (
+      query.startsWith("UPDATE data_lifecycle_request_items SET status = 'completed', updated_at = ? WHERE request_id = ?")
+    ) {
+      const [updatedAt, requestId] = bindings;
+      let changes = 0;
+      for (const row of this.state.dataLifecycleRequestItems) {
+        const isSafeAction = (
+          (row.table_name === 'sessions' && row.action === 'revoke') ||
+          (['password_reset_tokens', 'email_verification_tokens', 'siwe_challenges'].includes(row.table_name) && row.action === 'expire_or_delete') ||
+          (row.resource_type === 'data_export_archive' && row.action === 'expire')
+        );
+        if (row.request_id === requestId && isSafeAction) {
+          row.status = 'completed';
+          row.updated_at = updatedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === "UPDATE data_lifecycle_requests SET status = 'safe_actions_completed', updated_at = ? WHERE id = ?") {
+      const [updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'safe_actions_completed';
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }

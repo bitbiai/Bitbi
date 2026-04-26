@@ -6,7 +6,7 @@ This is the Phase 1-I engineering design for executing approved deletion and ano
 
 ## Current State
 
-Phase 1-H added admin-only lifecycle request creation, planning, and approval. Phase 1-I adds bounded export archive generation, but deletion/anonymization execution remains disabled by default.
+Phase 1-H added admin-only lifecycle request creation, planning, and approval. Phase 1-I adds bounded export archive generation. Phase 1-J adds a safe execution pilot for reversible actions only; irreversible deletion/anonymization remains disabled by default.
 
 Current deletion/anonymization plans can identify:
 
@@ -39,17 +39,24 @@ Minimum requirements before irreversible execution:
 - Legal/product retention exceptions must be approved before audit/security records are anonymized.
 - Every execution call must be idempotent.
 
-## Safe Phase 1-I Actions
+## Safe Phase 1-J Pilot Actions
 
-Phase 1-I intentionally does not expose an execution route. The only implemented lifecycle action beyond planning is bounded export archive generation for approved export requests.
+Phase 1-J exposes `POST /api/admin/data-lifecycle/requests/:id/execute-safe` for approved delete/anonymize requests. The route defaults to dry-run and rejects destructive modes.
 
-Safe actions that can be implemented in a later phase:
+Implemented safe actions:
 
 - Revoke active sessions for the subject user.
-- Expire unused reset, verification, and SIWE challenge rows.
-- Mark account as pending deletion if a reversible schema flag exists.
+- Expire unused password reset tokens.
+- Expire unused email verification tokens.
+- Expire unused SIWE challenge rows.
 - Mark export archives expired.
-- Mark lifecycle request status as ready for execution.
+- Mark matching lifecycle request items completed.
+- Mark lifecycle request status as `safe_actions_completed`.
+
+Still deferred:
+
+- Mark account as pending deletion. No reversible account-pending-deletion schema flag exists yet.
+- Revoke admin MFA credentials. Admin-continuity rules need a dedicated pilot before enabling this.
 
 ## Irreversible Actions Disabled By Default
 
@@ -61,6 +68,7 @@ Do not enable these without a dedicated migration, executor tests, staging dry r
 - Delete admin audit logs.
 - Irreversibly anonymize admin/security records.
 - Remove the only active admin.
+- Delete historical R2 objects whose owner mapping is not proven.
 
 ## R2 Deletion Stages
 

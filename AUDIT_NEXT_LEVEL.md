@@ -23,8 +23,9 @@ Reference documents:
 - `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` contains the Phase 1-G indexed audit/activity search projection, signed activity cursor behavior, query-shape guard, validation evidence, migration requirements, and remaining historical-backfill risks.
 - `PHASE1H_DATA_LIFECYCLE_REPORT.md` contains the Phase 1-H data lifecycle request schema, admin lifecycle APIs, export/deletion/anonymization planning behavior, validation evidence, deploy requirements, and remaining privacy-operation risks.
 - `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` contains the Phase 1-I bounded export archive generation, private R2 archive storage, archive authorization, deletion executor design, validation evidence, deploy requirements, and remaining privacy-operation risks.
-- `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I data inventory and engineering retention-policy baseline.
-- `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I deletion/anonymization executor state model, approval gates, disabled irreversible-action policy, rollback limitations, and future test plan.
+- `PHASE1J_RETENTION_EXECUTOR_REPORT.md` contains the Phase 1-J expired export archive cleanup, safe deletion/anonymization executor pilot, admin retention visibility, validation evidence, deploy requirements, and remaining privacy-operation risks.
+- `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I/1-J data inventory and engineering retention-policy baseline.
+- `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I/1-J deletion/anonymization executor state model, approval gates, safe reversible-action pilot, disabled irreversible-action policy, rollback limitations, and future test plan.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -136,6 +137,15 @@ Phase 1-I completed summary:
 - Added `docs/DATA_DELETION_EXECUTOR_DESIGN.md` to document the safe deletion/anonymization executor model while leaving irreversible hard deletion disabled by default.
 - Added route policies, release compatibility updates, lifecycle static guardrails, Worker tests, and documentation updates for Phase 1-I.
 
+Phase 1-J completed summary:
+
+- Added `workers/auth/src/lib/data-export-cleanup.js` for bounded expired export archive cleanup scoped to private `AUDIT_ARCHIVE` objects under `data-exports/`.
+- Integrated export archive cleanup into the existing auth Worker scheduled cleanup path without adding a new cron trigger.
+- Added admin-only archive retention visibility and cleanup routes: `GET /api/admin/data-lifecycle/exports` and `POST /api/admin/data-lifecycle/exports/cleanup-expired`.
+- Added `POST /api/admin/data-lifecycle/requests/:id/execute-safe` as a safe executor pilot for approved delete/anonymize requests. It supports dry-run by default and can only revoke sessions, expire reset/verification/SIWE tokens, and expire export archive metadata.
+- Kept irreversible hard deletion, R2 media deletion, audit-log deletion, primary identity anonymization, and user self-service delete disabled by default.
+- Added route policies, release compatibility updates, lifecycle static guards, Worker tests, and documentation updates for Phase 1-J.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -164,7 +174,7 @@ Findings reduced but not fully resolved:
 | Route security policy scattered across handlers | Reduced | `workers/auth/src/app/route-policy.js`, `scripts/check-route-policies.mjs`, source route-policy markers, CI/preflight integration, and `tests/workers.spec.js` now provide explicit high-risk auth-worker route metadata and coverage checks. |
 | Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
 | Scan-prone admin audit/activity search and raw activity cursors | Reduced | `0031_add_activity_search_index.sql`, `workers/auth/src/lib/activity-search.js`, updated `workers/auth/src/routes/admin.js`, and `scripts/check-admin-activity-query-shape.mjs` replace raw metadata search and raw cursors with indexed projection search and signed cursors for the admin audit/activity endpoints. |
-| Compliance-grade data lifecycle | Reduced | `0032_add_data_lifecycle_requests.sql`, `0033_harden_data_export_archives.sql`, `workers/auth/src/lib/data-lifecycle.js`, `workers/auth/src/lib/data-export-archive.js`, `workers/auth/src/routes/admin-data-lifecycle.js`, `DATA_INVENTORY.md`, `docs/DATA_RETENTION_POLICY.md`, and `docs/DATA_DELETION_EXECUTOR_DESIGN.md` add admin/support planning foundations, bounded export archive generation, private archive metadata, deletion executor design, and retention documentation. User self-service, physical expired-archive cleanup, contact processor workflow, legal policy approval, and irreversible deletion execution remain open. |
+| Compliance-grade data lifecycle | Reduced | `0032_add_data_lifecycle_requests.sql`, `0033_harden_data_export_archives.sql`, `workers/auth/src/lib/data-lifecycle.js`, `workers/auth/src/lib/data-export-archive.js`, `workers/auth/src/lib/data-export-cleanup.js`, `workers/auth/src/routes/admin-data-lifecycle.js`, `DATA_INVENTORY.md`, `docs/DATA_RETENTION_POLICY.md`, and `docs/DATA_DELETION_EXECUTOR_DESIGN.md` add admin/support planning foundations, bounded export archive generation, private archive metadata, bounded expired archive cleanup, safe reversible-action execution, deletion executor design, and retention documentation. User self-service, contact processor workflow, legal policy approval, irreversible deletion execution, and historical R2 owner backfill remain open. |
 
 Findings still open:
 
@@ -172,15 +182,15 @@ Findings still open:
 - Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates, and Phase 1-E added route policy guardrails for high-risk auth-worker route review.
 - Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
-- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, data lifecycle execution/user self-service/archive cleanup, full observability/SLOs, and load/performance budgets remain open or deferred.
+- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, user self-service privacy flows, irreversible deletion execution, full observability/SLOs, and load/performance budgets remain open or deferred.
 
 Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-I validation | Phase 1-I validation passed: `npm run test:workers` 311/311, `npm run test:static` 155/155, lifecycle/query/body/route/quality/operational checks, release compatibility checks, `npm run release:preflight`, `npm ls --depth=0`, `npm audit --audit-level=low`, and `git diff --check`. All changed/new Phase 1-I files listed in `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0033` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and Phase 1-H/1-I data lifecycle planning/archive generation is verified in staging. |
-| Current recommended next phase | Phase 1-I validation and staging verification | Apply migrations through `0033` in staging, verify admin data lifecycle create/list/detail/plan/approve/generate-export/download flows, confirm no destructive execution occurs, then add bounded archive cleanup and continue deletion executor implementation only after policy approval. |
+| Merge readiness | Conditional pass after Phase 1-J validation | Phase 1-J validation passed: `npm run test:workers` 313/313, `npm run test:static` 155/155, lifecycle/query/body/route/quality/operational checks, release compatibility checks, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-J files listed in `PHASE1J_RETENTION_EXECUTOR_REPORT.md` must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0033` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging. |
+| Current recommended next phase | Phase 1-J staging verification and privacy-policy decisions | Apply migrations through `0033` in staging, verify admin data lifecycle create/list/detail/plan/approve/generate-export/download/list-archives/cleanup-expired/execute-safe flows, confirm irreversible deletion remains disabled, then decide self-service privacy flow and destructive deletion policy only after product/legal approval. |
 
 ## Executive Summary
 

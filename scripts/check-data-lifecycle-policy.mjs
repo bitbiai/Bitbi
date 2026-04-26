@@ -22,6 +22,10 @@ const archiveHelper = fs.readFileSync(
   path.join(repoRoot, "workers/auth/src/lib/data-export-archive.js"),
   "utf8"
 );
+const cleanupHelper = fs.readFileSync(
+  path.join(repoRoot, "workers/auth/src/lib/data-export-cleanup.js"),
+  "utf8"
+);
 const route = fs.readFileSync(
   path.join(repoRoot, "workers/auth/src/routes/admin-data-lifecycle.js"),
   "utf8"
@@ -76,6 +80,9 @@ for (const [method, pathname, expectedId] of [
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/approve", "admin.data-lifecycle.requests.approve"],
   ["POST", "/api/admin/data-lifecycle/requests/dlr_123/generate-export", "admin.data-lifecycle.requests.generate-export"],
   ["GET", "/api/admin/data-lifecycle/requests/dlr_123/export", "admin.data-lifecycle.requests.export.read"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/execute-safe", "admin.data-lifecycle.requests.execute-safe"],
+  ["GET", "/api/admin/data-lifecycle/exports", "admin.data-lifecycle.exports.list"],
+  ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
 ]) {
   const policy = getRoutePolicy(method, pathname);
@@ -120,6 +127,18 @@ if (!archiveHelper.includes("MAX_ARCHIVE_ITEMS") || !archiveHelper.includes("MAX
   issues.push("data export archive helper must enforce item-count and byte-size bounds.");
 }
 
+if (!cleanupHelper.includes("DATA_EXPORT_ARCHIVE_PREFIX") || !cleanupHelper.includes("isApprovedDataExportArchiveKey")) {
+  issues.push("data export cleanup helper must enforce the approved data-exports/ prefix.");
+}
+
+if (!cleanupHelper.includes("archive_cleanup_invalid_scope")) {
+  issues.push("data export cleanup helper must fail safe for out-of-scope archive keys.");
+}
+
+if (/\.delete\([^)]*r2_key/i.test(cleanupHelper) && !cleanupHelper.includes("isApprovedDataExportArchiveKey(row.r2_key)")) {
+  issues.push("data export cleanup must not delete R2 keys without approved-prefix validation.");
+}
+
 if (/key:\s*entry\.r2_key/.test(archiveHelper) || /key:\s*row\.r2_key/.test(archiveHelper)) {
   issues.push("data export archive helper must not expose raw internal R2 keys in archive JSON.");
 }
@@ -130,6 +149,18 @@ if (!archiveHelper.includes("internalKeyIncluded: false") || !archiveHelper.incl
 
 if (!route.includes("normalizeDataLifecycleIdempotencyKey")) {
   issues.push("admin data lifecycle mutations must enforce Idempotency-Key.");
+}
+
+if (!route.includes("executeSafeDataLifecycleActions") || !helper.includes("destructive_execution_disabled")) {
+  issues.push("safe lifecycle executor must be present and hard-delete/destructive modes must remain disabled by default.");
+}
+
+if (/DELETE FROM\s+(users|ai_images|ai_text_assets|admin_audit_log)/i.test(helper)) {
+  issues.push("data lifecycle safe executor must not hard-delete user/content/audit rows.");
+}
+
+if (/\/api\/data-lifecycle|\/api\/privacy/i.test(route)) {
+  issues.push("user self-service lifecycle routes must not be exposed during Phase 1-J.");
 }
 
 if (issues.length > 0) {

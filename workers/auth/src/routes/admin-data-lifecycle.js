@@ -17,17 +17,33 @@ import {
   approveDataLifecycleRequest,
   createDataLifecycleRequest,
   dataLifecycleErrorResponse,
+  executeSafeDataLifecycleActions,
   getDataLifecycleRequest,
   listDataLifecycleRequests,
   normalizeDataLifecycleIdempotencyKey,
   planDataLifecycleRequest,
 } from "../lib/data-lifecycle.js";
 import {
+  DATA_EXPORT_ARCHIVE_CURSOR_TYPE,
   DATA_EXPORT_ARCHIVE_CONTENT_TYPE,
   generateDataExportArchive,
   getDataExportArchiveForRequest,
+  listDataExportArchives,
   readDataExportArchive,
 } from "../lib/data-export-archive.js";
+import { cleanupExpiredDataExportArchives } from "../lib/data-export-cleanup.js";
+import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationErrorResponse,
+  readCursorInteger,
+  readCursorString,
+  resolvePaginationLimit,
+} from "../lib/pagination.js";
+
+const DATA_EXPORT_ARCHIVE_CURSOR_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_EXPORT_ARCHIVE_LIMIT = 50;
+const MAX_EXPORT_ARCHIVE_LIMIT = 100;
 
 async function enforceDataLifecycleRateLimit(ctx) {
   const { request, env, pathname, method, correlationId } = ctx;
@@ -70,6 +86,32 @@ function decodePathId(value) {
       code: "invalid_path",
     });
   }
+}
+
+async function decodeArchiveCursorOrResponse(env, cursorParam) {
+  if (!cursorParam) return { cursor: null };
+  try {
+    const decoded = await decodePaginationCursor(env, cursorParam, DATA_EXPORT_ARCHIVE_CURSOR_TYPE);
+    const cursor = {
+      createdAt: readCursorString(decoded, "c"),
+      id: readCursorString(decoded, "i"),
+      exp: readCursorInteger(decoded, "exp", { min: 1 }),
+    };
+    if (cursor.exp <= Date.now()) {
+      return { response: paginationErrorResponse("Invalid cursor.") };
+    }
+    return { cursor };
+  } catch {
+    return { response: paginationErrorResponse("Invalid cursor.") };
+  }
+}
+
+async function encodeArchiveCursor(env, last) {
+  return encodePaginationCursor(env, DATA_EXPORT_ARCHIVE_CURSOR_TYPE, {
+    c: last.created_at,
+    i: last.id,
+    exp: Date.now() + DATA_EXPORT_ARCHIVE_CURSOR_TTL_MS,
+  });
 }
 
 async function requireLifecycleAdmin(ctx) {
@@ -119,6 +161,60 @@ export async function handleAdminDataLifecycle(ctx) {
         limit: url.searchParams.get("limit"),
       });
       return lifecycleJson({ ok: true, ...result });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  // GET /api/admin/data-lifecycle/exports
+  if (pathname === "/api/admin/data-lifecycle/exports" && method === "GET") {
+    try {
+      const decoded = await decodeArchiveCursorOrResponse(ctx.env, url.searchParams.get("cursor"));
+      if (decoded.response) return decoded.response;
+      const result = await listDataExportArchives(ctx.env, {
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: DEFAULT_EXPORT_ARCHIVE_LIMIT,
+          maxValue: MAX_EXPORT_ARCHIVE_LIMIT,
+        }),
+        cursor: decoded.cursor,
+      });
+      const nextCursor = result.hasMore && result.last
+        ? await encodeArchiveCursor(ctx.env, result.last)
+        : null;
+      const { last: _ignoredLast, ...safeResult } = result;
+      return lifecycleJson({ ok: true, ...safeResult, nextCursor });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  // POST /api/admin/data-lifecycle/exports/cleanup-expired
+  // route-policy: admin.data-lifecycle.exports.cleanup-expired
+  if (pathname === "/api/admin/data-lifecycle/exports/cleanup-expired" && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const result = await cleanupExpiredDataExportArchives({
+        env: ctx.env,
+        limit: parsed.body?.limit,
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_export_archive_cleanup_completed",
+        null,
+        {
+          scanned_count: result.scannedCount,
+          deleted_count: result.deletedCount,
+          missing_count: result.missingCount,
+          failed_count: result.failedCount,
+          skipped_count: result.skippedCount,
+        }
+      );
+      return lifecycleJson({ ok: true, cleanup: result });
     } catch (error) {
       return lifecycleError(error);
     }
@@ -197,6 +293,42 @@ export async function handleAdminDataLifecycle(ctx) {
         }
       );
       return lifecycleJson({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
+    } catch (error) {
+      return lifecycleError(error);
+    }
+  }
+
+  const executeSafeMatch = pathname.match(/^\/api\/admin\/data-lifecycle\/requests\/([^/]+)\/execute-safe$/);
+  // POST /api/admin/data-lifecycle/requests/:id/execute-safe
+  // route-policy: admin.data-lifecycle.requests.execute-safe
+  if (executeSafeMatch && method === "POST") {
+    try {
+      normalizeDataLifecycleIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readJsonBodyOrResponse(request, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const result = await executeSafeDataLifecycleActions({
+        env: ctx.env,
+        adminUser: admin.user,
+        requestId: decodePathId(executeSafeMatch[1]),
+        body: parsed.body,
+      });
+      await auditLifecycleEvent(
+        ctx,
+        admin.user,
+        "data_lifecycle_safe_actions_executed",
+        result.request.subjectUserId,
+        {
+          request_id: result.request.id,
+          request_type: result.request.type,
+          dry_run: result.dryRun,
+          action_count: result.actions.length,
+          destructive_actions_disabled: true,
+          reused: result.reused,
+        }
+      );
+      return lifecycleJson({ ok: true, ...result });
     } catch (error) {
       return lifecycleError(error);
     }

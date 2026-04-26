@@ -8,6 +8,8 @@ Phase 1-I implements bounded, sanitized export archive generation for approved a
 
 The phase does not implement irreversible deletion. Deletion/anonymization execution remains design-only and disabled by default. This preserves the Phase 1-H safety model while adding a practical export artifact path for support/admin workflows.
 
+Post-Phase 1-I handoff: Phase 1-J implements the bounded expired archive cleanup and a safe reversible-action executor pilot that were deferred here. Irreversible hard deletion, user self-service privacy flows, contact-processor policy enforcement, and historical R2 owner backfill remain deferred.
+
 ## Scope
 
 Implemented:
@@ -27,7 +29,7 @@ Not implemented:
 - Public or unauthenticated export download URLs.
 - Inline binary media archives.
 - Irreversible D1/R2 deletion.
-- Automated export-archive R2 cleanup cron.
+- Automated export-archive R2 cleanup cron. Post-Phase 1-J note: bounded scheduled cleanup now exists; this bullet is retained as historical Phase 1-I scope.
 - Legal compliance certification.
 
 ## Files Changed
@@ -122,7 +124,7 @@ The download route returns the archive JSON only through the authenticated admin
 
 Each archive has `expires_at` and `status`. The download route rejects expired archives with `410` and marks ready-but-expired metadata as `expired`.
 
-Physical R2 object cleanup is intentionally deferred until a bounded cleanup worker/cron is added and tested. The metadata/index foundation for expiration lookup now exists.
+Physical R2 object cleanup was intentionally deferred in Phase 1-I until a bounded cleanup worker/cron was added and tested. Post-Phase 1-J note: `workers/auth/src/lib/data-export-cleanup.js` now performs bounded, prefix-scoped cleanup for expired `data-exports/` objects.
 
 ## Deletion / Anonymization Executor
 
@@ -274,7 +276,7 @@ Do not deploy until:
 | --- | --- | ---: | ---: | --- |
 | No user self-service privacy center. | Support/admin must initiate exports. | No | No | Design user-facing request/confirmation flow later. |
 | No irreversible deletion executor. | Delete/anonymize requests remain plans only. | No | No, if documented | Implement executor only after legal/product policy and staging dry runs. |
-| No archive cleanup cron. | Expired R2 archive objects require later cleanup. | No | No, if TTL access enforcement is acceptable | Add bounded scheduled cleanup for `data-exports/` objects. |
+| No archive cleanup cron. | Phase 1-I left expired R2 archive object cleanup for later work. | No | No, if TTL access enforcement is acceptable | Post-Phase 1-J: bounded scheduled cleanup now exists; verify it in staging before production. |
 | Contact processor retention remains external. | Contact-form privacy handling still needs processor workflow. | No | Yes for full privacy claims | Decide Resend/contact retention process or repo-owned storage. |
 | Legal retention policy not approved. | Cannot claim compliance-grade lifecycle. | No | Yes for compliance claims | Product/legal review of retention and deletion policy. |
 
@@ -283,6 +285,6 @@ Do not deploy until:
 1. Commit all Phase 1-I files together, including untracked report, design, migration, and archive helper files.
 2. Apply migration `0033` in staging after `0032`.
 3. Verify admin export archive generation/download against realistic staging data.
-4. Add bounded scheduled cleanup for expired export archives.
+4. Post-Phase 1-J: verify bounded scheduled cleanup for expired export archives in staging.
 5. Decide user self-service export/delete policy and confirmation flow.
 6. Implement deletion/anonymization executor only after policy approval and dry-run evidence.

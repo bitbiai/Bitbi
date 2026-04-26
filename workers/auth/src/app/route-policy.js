@@ -272,9 +272,21 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     audit: { event: "data_lifecycle_export_archive_generated" },
   }),
+  adminJsonWrite("admin.data-lifecycle.requests.execute-safe", "POST", "/api/admin/data-lifecycle/requests/:id/execute-safe", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    audit: { event: "data_lifecycle_safe_actions_executed" },
+  }),
   adminRead("admin.data-lifecycle.requests.export.read", "/api/admin/data-lifecycle/requests/:id/export", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
     rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
+  adminRead("admin.data-lifecycle.exports.list", "/api/admin/data-lifecycle/exports", "privacy", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.data-lifecycle.exports.cleanup-expired", "POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],
+    audit: { event: "data_lifecycle_export_archive_cleanup_completed" },
   }),
   adminRead("admin.data-lifecycle.exports.read", "/api/admin/data-lifecycle/exports/:archiveId", "privacy", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AUDIT_ARCHIVE"],

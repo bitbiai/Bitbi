@@ -467,6 +467,8 @@ const baseManifest = {
       "GET /api/admin/user-activity",
       "GET /api/admin/data-lifecycle/requests",
       "POST /api/admin/data-lifecycle/requests",
+      "GET /api/admin/data-lifecycle/exports",
+      "POST /api/admin/data-lifecycle/exports/cleanup-expired",
       "GET /api/admin/mfa/status",
       "POST /api/admin/mfa/setup",
       "POST /api/admin/mfa/enable",
@@ -479,6 +481,7 @@ const baseManifest = {
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
+      "POST /api/admin/data-lifecycle/requests/:id/execute-safe",
       "GET /api/admin/data-lifecycle/requests/:id/export",
       "GET /api/admin/data-lifecycle/exports/:id",
     ],
@@ -761,6 +764,8 @@ function createValidContext() {
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
       if (pathname === "/api/admin/data-lifecycle/requests" && method === "GET") return handleDataLifecycleRequests();
       if (pathname === "/api/admin/data-lifecycle/requests" && method === "POST") return handleCreateDataLifecycleRequest();
+      if (pathname === "/api/admin/data-lifecycle/exports" && method === "GET") return handleDataLifecycleExports();
+      if (pathname === "/api/admin/data-lifecycle/exports/cleanup-expired" && method === "POST") return handleDataLifecycleExportCleanup();
       const dataLifecycleDetailMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)$/);
       if (dataLifecycleDetailMatch && method === "GET") return handleDataLifecycleRequest();
       const dataLifecyclePlanMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/plan$/);
@@ -769,6 +774,8 @@ function createValidContext() {
       if (dataLifecycleApproveMatch && method === "POST") return handleDataLifecycleApprove();
       const dataLifecycleGenerateExportMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/generate-export$/);
       if (dataLifecycleGenerateExportMatch && method === "POST") return handleDataLifecycleGenerateExport();
+      const dataLifecycleExecuteSafeMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/execute-safe$/);
+      if (dataLifecycleExecuteSafeMatch && method === "POST") return handleDataLifecycleExecuteSafe();
       const dataLifecycleRequestExportMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/export$/);
       if (dataLifecycleRequestExportMatch && method === "GET") return handleDataLifecycleRequestExport();
       const dataLifecycleArchiveMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/exports\\/([^/]+)$/);

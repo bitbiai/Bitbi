@@ -130,6 +130,9 @@ src/
 - `POST /api/admin/data-lifecycle/requests/:id/approve` — approve a planned request; execution remains deferred (requires admin)
 - `POST /api/admin/data-lifecycle/requests/:id/generate-export` — generate a bounded private JSON export archive for an approved export request (requires admin and `Idempotency-Key`)
 - `GET /api/admin/data-lifecycle/requests/:id/export` — inspect sanitized export archive metadata for a request (requires admin)
+- `POST /api/admin/data-lifecycle/requests/:id/execute-safe` — execute only reversible/low-risk lifecycle actions for an approved delete/anonymize request; destructive hard delete remains disabled (requires admin and `Idempotency-Key`)
+- `GET /api/admin/data-lifecycle/exports` — list sanitized export archive metadata with signed cursor pagination (requires admin)
+- `POST /api/admin/data-lifecycle/exports/cleanup-expired` — run a bounded, prefix-scoped expired export archive cleanup batch (requires admin and `Idempotency-Key`)
 - `GET /api/admin/data-lifecycle/exports/:id` — authorized admin download of private export archive JSON (requires admin)
 - `GET /api/admin/ai/models` — list AI lab presets and allowlisted models (requires admin)
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
@@ -167,7 +170,7 @@ src/
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png` and async admin video job output under `users/{userId}/video-jobs/{jobId}/`.
 
-**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores Phase 1-I data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. The scheduled auth cleanup keeps only the recent hot window in D1 and archives older rows here before pruning them.
+**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. Phase 1-J cleanup deletes only expired lifecycle export objects under that approved prefix and never broad-deletes audit archives or user media objects. The scheduled auth cleanup keeps only the recent hot window in D1, archives older rows here before pruning them, and runs the bounded export-archive cleanup step.
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
@@ -215,7 +218,7 @@ Key migration-dependent behavior:
 - Login checks password BEFORE status to prevent account enumeration via distinguishable error messages
 - Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
-- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
+- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, cleans expired lifecycle export archives under the `data-exports/` prefix, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
 - Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables, and `bitbi-ai-video-jobs` processes async admin video jobs outside browser request lifecycles
 - Admin audit/user activity search uses signed cursors from `PAGINATION_SIGNING_SECRET` and the `activity_search_index` projection. Do not reintroduce raw `meta_json LIKE` search or raw `created_at|id` cursors; run `npm run check:admin-activity-query-shape` after activity endpoint changes.
 - Environment secrets: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `RESEND_API_KEY`

@@ -486,6 +486,8 @@
       "GET /api/admin/user-activity",
       "GET /api/admin/data-lifecycle/requests",
       "POST /api/admin/data-lifecycle/requests",
+      "GET /api/admin/data-lifecycle/exports",
+      "POST /api/admin/data-lifecycle/exports/cleanup-expired",
       "GET /api/admin/mfa/status",
       "POST /api/admin/mfa/setup",
       "POST /api/admin/mfa/enable",
@@ -498,6 +500,7 @@
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
+      "POST /api/admin/data-lifecycle/requests/:id/execute-safe",
       "GET /api/admin/data-lifecycle/requests/:id/export",
       "GET /api/admin/data-lifecycle/exports/:id"
     ],

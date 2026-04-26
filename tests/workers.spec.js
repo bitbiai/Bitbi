@@ -15514,6 +15514,296 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.dataLifecycleRequests.find((row) => row.id === 'dlr_storage_fail').status).toBe('export_failed');
   });
 
+  test('admin data lifecycle export archive cleanup is bounded, prefix-scoped, idempotent, and sanitized', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-cleanup-admin');
+    const nonAdmin = createContractUser({ id: 'lifecycle-cleanup-user', role: 'user' });
+    const subject = createContractUser({ id: 'lifecycle-cleanup-subject', role: 'user' });
+    const goodKey = `data-exports/${subject.id}/dlr_cleanup_good/dla_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json`;
+    const missingKey = `data-exports/${subject.id}/dlr_cleanup_missing/dla_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json`;
+    const failKey = `data-exports/${subject.id}/dlr_cleanup_fail/dla_cccccccccccccccccccccccccccccccc.json`;
+    const invalidKey = 'admin-audit-log/2026/04/old.jsonl';
+    const freshKey = `data-exports/${subject.id}/dlr_cleanup_fresh/dla_dddddddddddddddddddddddddddddddd.json`;
+    const env = createAuthTestEnv({
+      users: [admin, nonAdmin, subject],
+      auditArchive: {
+        [goodKey]: { body: '{"ok":true}' },
+        [failKey]: { body: '{"ok":true}', failDelete: true },
+        [invalidKey]: { body: '{"audit":true}' },
+        [freshKey]: { body: '{"fresh":true}' },
+      },
+      dataLifecycleRequests: [
+        ...['good', 'missing', 'fail', 'invalid', 'fresh'].map((name) => ({
+          id: `dlr_cleanup_${name}`,
+          type: 'export',
+          subject_user_id: subject.id,
+          requested_by_user_id: null,
+          requested_by_admin_id: admin.id,
+          status: 'export_ready',
+          reason: `cleanup ${name}`,
+          approval_required: 1,
+          approved_by_admin_id: admin.id,
+          approved_at: '2026-04-20T10:00:00.000Z',
+          idempotency_key: `seed-cleanup-${name}`,
+          request_hash: 'hash',
+          dry_run: 1,
+          created_at: `2026-04-20T10:0${name.length % 5}:00.000Z`,
+          updated_at: `2026-04-20T10:0${name.length % 5}:00.000Z`,
+          completed_at: null,
+          expires_at: '2026-05-04T10:00:00.000Z',
+          error_code: null,
+          error_message: null,
+        })),
+      ],
+      dataExportArchives: [
+        {
+          id: 'dla_good',
+          request_id: 'dlr_cleanup_good',
+          subject_user_id: subject.id,
+          r2_bucket: 'AUDIT_ARCHIVE',
+          r2_key: goodKey,
+          sha256: 'sha',
+          size_bytes: 12,
+          manifest_version: 1,
+          status: 'ready',
+          expires_at: '2000-01-01T00:00:00.000Z',
+          created_at: '2026-04-20T10:01:00.000Z',
+          updated_at: '2026-04-20T10:01:00.000Z',
+          downloaded_at: null,
+          deleted_at: null,
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'dla_missing',
+          request_id: 'dlr_cleanup_missing',
+          subject_user_id: subject.id,
+          r2_bucket: 'AUDIT_ARCHIVE',
+          r2_key: missingKey,
+          sha256: 'sha',
+          size_bytes: 12,
+          manifest_version: 1,
+          status: 'expired',
+          expires_at: '2000-01-02T00:00:00.000Z',
+          created_at: '2026-04-20T10:02:00.000Z',
+          updated_at: '2026-04-20T10:02:00.000Z',
+          downloaded_at: null,
+          deleted_at: null,
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'dla_invalid',
+          request_id: 'dlr_cleanup_invalid',
+          subject_user_id: subject.id,
+          r2_bucket: 'AUDIT_ARCHIVE',
+          r2_key: invalidKey,
+          sha256: 'sha',
+          size_bytes: 12,
+          manifest_version: 1,
+          status: 'ready',
+          expires_at: '2000-01-03T00:00:00.000Z',
+          created_at: '2026-04-20T10:03:00.000Z',
+          updated_at: '2026-04-20T10:03:00.000Z',
+          downloaded_at: null,
+          deleted_at: null,
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'dla_fail',
+          request_id: 'dlr_cleanup_fail',
+          subject_user_id: subject.id,
+          r2_bucket: 'AUDIT_ARCHIVE',
+          r2_key: failKey,
+          sha256: 'sha',
+          size_bytes: 12,
+          manifest_version: 1,
+          status: 'ready',
+          expires_at: '2000-01-04T00:00:00.000Z',
+          created_at: '2026-04-20T10:04:00.000Z',
+          updated_at: '2026-04-20T10:04:00.000Z',
+          downloaded_at: null,
+          deleted_at: null,
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'dla_fresh',
+          request_id: 'dlr_cleanup_fresh',
+          subject_user_id: subject.id,
+          r2_bucket: 'AUDIT_ARCHIVE',
+          r2_key: freshKey,
+          sha256: 'sha',
+          size_bytes: 12,
+          manifest_version: 1,
+          status: 'ready',
+          expires_at: '2999-01-01T00:00:00.000Z',
+          created_at: '2026-04-20T10:05:00.000Z',
+          updated_at: '2026-04-20T10:05:00.000Z',
+          downloaded_at: null,
+          deleted_at: null,
+          error_code: null,
+          error_message: null,
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports?limit=2', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.archives).toHaveLength(2);
+    expect(listBody.nextCursor).toBeTruthy();
+    expect(JSON.stringify(listBody)).not.toContain('data-exports/');
+
+    const nonAdminCleanupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${nonAdminToken}`,
+        'Idempotency-Key': 'cleanup-non-admin-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminCleanupRes.status).toBe(403);
+
+    const foreignCleanupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'cleanup-foreign-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreignCleanupRes.status).toBe(403);
+    expect(env.AUDIT_ARCHIVE.deleteCalls).toHaveLength(0);
+
+    const cleanupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'cleanup-expired-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(cleanupRes.status).toBe(200);
+    const cleanupBody = await cleanupRes.json();
+    expect(cleanupBody.cleanup).toMatchObject({
+      scannedCount: 4,
+      deletedCount: 1,
+      missingCount: 1,
+      failedCount: 1,
+      skippedCount: 1,
+      appliedLimit: 4,
+    });
+    expect(JSON.stringify(cleanupBody)).not.toContain(goodKey);
+    expect(env.AUDIT_ARCHIVE.objects.has(goodKey)).toBe(false);
+    expect(env.AUDIT_ARCHIVE.objects.has(invalidKey)).toBe(true);
+    expect(env.AUDIT_ARCHIVE.objects.has(freshKey)).toBe(true);
+    expect(env.AUDIT_ARCHIVE.deleteCalls).toEqual(expect.arrayContaining([goodKey, failKey]));
+    expect(env.AUDIT_ARCHIVE.deleteCalls).not.toContain(invalidKey);
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_good').status).toBe('deleted');
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_missing').status).toBe('deleted');
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_invalid').status).toBe('cleanup_failed');
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_fail').status).toBe('cleanup_failed');
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_fresh').status).toBe('ready');
+
+    const repeatCleanupRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/exports/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'cleanup-expired-repeat-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatCleanupRes.status).toBe(200);
+    const repeatCleanupBody = await repeatCleanupRes.json();
+    expect(repeatCleanupBody.cleanup.scannedCount).toBe(1);
+    expect(repeatCleanupBody.cleanup.failedCount).toBe(1);
+  });
+
+  test('scheduled export archive cleanup is isolated from existing scheduled cleanup work', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const subject = createContractUser({ id: 'scheduled-export-cleanup-subject', role: 'user' });
+    const exportKey = `data-exports/${subject.id}/dlr_scheduled_cleanup/dla_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.json`;
+    const env = createAuthTestEnv({
+      users: [subject],
+      auditArchive: {
+        [exportKey]: { body: '{"ok":true}' },
+      },
+      userImages: {
+        'cleanup/good.webp': {
+          body: new Uint8Array([1, 2, 3]).buffer,
+        },
+      },
+      dataLifecycleRequests: [{
+        id: 'dlr_scheduled_cleanup',
+        type: 'export',
+        subject_user_id: subject.id,
+        requested_by_user_id: null,
+        requested_by_admin_id: null,
+        status: 'export_ready',
+        reason: 'scheduled cleanup',
+        approval_required: 1,
+        approved_by_admin_id: null,
+        approved_at: '2026-04-20T10:00:00.000Z',
+        idempotency_key: 'seed-scheduled-cleanup',
+        request_hash: 'hash',
+        dry_run: 1,
+        created_at: '2026-04-20T10:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+        completed_at: null,
+        expires_at: '2026-05-04T10:00:00.000Z',
+        error_code: null,
+        error_message: null,
+      }],
+      dataExportArchives: [{
+        id: 'dla_scheduled_cleanup',
+        request_id: 'dlr_scheduled_cleanup',
+        subject_user_id: subject.id,
+        r2_bucket: 'AUDIT_ARCHIVE',
+        r2_key: exportKey,
+        sha256: 'sha',
+        size_bytes: 12,
+        manifest_version: 1,
+        status: 'ready',
+        expires_at: '2000-01-01T00:00:00.000Z',
+        created_at: '2026-04-20T10:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+        downloaded_at: null,
+        deleted_at: null,
+        error_code: null,
+        error_message: null,
+      }],
+      r2CleanupQueue: [{
+        id: 1,
+        r2_key: 'cleanup/good.webp',
+        status: 'pending',
+        attempts: 0,
+        created_at: '2026-04-20T10:00:00.000Z',
+        last_attempt_at: null,
+      }],
+    });
+
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+    expect(env.AUDIT_ARCHIVE.objects.has(exportKey)).toBe(false);
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_scheduled_cleanup').status).toBe('deleted');
+    expect(env.USER_IMAGES.objects.has('cleanup/good.webp')).toBe(false);
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+  });
+
   test('admin data lifecycle deletion planning is dry-run only and blocks the only active admin', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('lifecycle-delete-admin');
@@ -15547,6 +15837,30 @@ test.describe('Worker routes', () => {
         used_at: null,
         created_at: '2026-04-20T10:00:00.000Z',
       }],
+      passwordResetTokens: [{
+        id: 'reset-delete-token',
+        user_id: member.id,
+        token_hash: 'reset-delete-hash-must-not-return',
+        expires_at: '2026-05-20T10:00:00.000Z',
+        used_at: null,
+        created_at: '2026-04-20T10:00:00.000Z',
+      }],
+      siweChallenges: [{
+        id: 'siwe-delete-token',
+        nonce: 'delete-nonce',
+        intent: 'link',
+        user_id: member.id,
+        address_normalized: '0xabc0000000000000000000000000000000000000',
+        domain: 'bitbi.ai',
+        uri: 'https://bitbi.ai',
+        chain_id: 1,
+        statement: 'Sign in',
+        issued_at: '2026-04-20T10:00:00.000Z',
+        expires_at: '2026-05-20T10:00:00.000Z',
+        used_at: null,
+        requested_ip: null,
+        created_at: '2026-04-20T10:00:00.000Z',
+      }],
       aiImages: [{
         id: 'delete-img',
         user_id: member.id,
@@ -15565,6 +15879,45 @@ test.describe('Worker routes', () => {
         target_user_id: member.id,
         meta_json: JSON.stringify({ target_email: member.email }),
         created_at: '2026-04-20T13:00:00.000Z',
+      }],
+      dataLifecycleRequests: [{
+        id: 'dlr_existing_archive_for_delete_subject',
+        type: 'export',
+        subject_user_id: member.id,
+        requested_by_user_id: null,
+        requested_by_admin_id: admin.id,
+        status: 'export_ready',
+        reason: 'existing archive',
+        approval_required: 1,
+        approved_by_admin_id: admin.id,
+        approved_at: '2026-04-20T10:00:00.000Z',
+        idempotency_key: 'existing-archive-request',
+        request_hash: 'hash',
+        dry_run: 1,
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T09:00:00.000Z',
+        completed_at: null,
+        expires_at: '2026-05-04T10:00:00.000Z',
+        error_code: null,
+        error_message: null,
+      }],
+      dataExportArchives: [{
+        id: 'dla_existing_delete_subject',
+        request_id: 'dlr_existing_archive_for_delete_subject',
+        subject_user_id: member.id,
+        r2_bucket: 'AUDIT_ARCHIVE',
+        r2_key: `data-exports/${member.id}/dlr_existing_archive_for_delete_subject/dla_ffffffffffffffffffffffffffffffff.json`,
+        sha256: 'sha',
+        size_bytes: 12,
+        manifest_version: 1,
+        status: 'ready',
+        expires_at: '2999-01-01T00:00:00.000Z',
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T09:00:00.000Z',
+        downloaded_at: null,
+        deleted_at: null,
+        error_code: null,
+        error_message: null,
       }],
     });
     const token = await seedSession(env, admin.id);
@@ -15605,6 +15958,17 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
     expect(env.DB.state.aiImages.some((row) => row.user_id === member.id)).toBe(true);
 
+    const unapprovedExecuteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', { dryRun: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-unapproved-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unapprovedExecuteRes.status).toBe(409);
+
     const approveRes = await authWorker.fetch(
       authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/approve`, 'POST', {}, {
         Origin: 'https://bitbi.ai',
@@ -15616,6 +15980,94 @@ test.describe('Worker routes', () => {
     );
     expect(approveRes.status).toBe(200);
     expect((await approveRes.json()).request.status).toBe('approved');
+
+    const missingExecuteIdemRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', { dryRun: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingExecuteIdemRes.status).toBe(428);
+
+    const destructiveExecuteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
+        dryRun: false,
+        mode: 'destructive',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-destructive-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(destructiveExecuteRes.status).toBe(409);
+    expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
+
+    const dryRunExecuteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
+        dryRun: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-dry-run-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRunExecuteRes.status).toBe(200);
+    const dryRunExecuteBody = await dryRunExecuteRes.json();
+    expect(dryRunExecuteBody.dryRun).toBe(true);
+    expect(dryRunExecuteBody.destructiveActionsDisabled).toBe(true);
+    expect(dryRunExecuteBody.actions.some((entry) => entry.status === 'would_execute')).toBe(true);
+    expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
+    expect(env.DB.state.emailVerificationTokens.find((row) => row.id === 'verify-token').used_at).toBe(null);
+
+    const executeRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-safe-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(executeRes.status).toBe(200);
+    const executeBody = await executeRes.json();
+    expect(executeBody.dryRun).toBe(false);
+    expect(executeBody.request.status).toBe('safe_actions_completed');
+    expect(executeBody.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableName: 'sessions', action: 'revoke', status: 'completed' }),
+      expect.objectContaining({ tableName: 'email_verification_tokens', action: 'expire_or_delete', status: 'completed' }),
+      expect.objectContaining({ tableName: 'password_reset_tokens', action: 'expire_or_delete', status: 'completed' }),
+      expect.objectContaining({ tableName: 'siwe_challenges', action: 'expire_or_delete', status: 'completed' }),
+      expect.objectContaining({ tableName: 'data_export_archives', action: 'expire', status: 'completed' }),
+    ]));
+    expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(false);
+    expect(env.DB.state.sessions.some((row) => row.user_id === admin.id)).toBe(true);
+    expect(env.DB.state.emailVerificationTokens.find((row) => row.id === 'verify-token').used_at).toBeTruthy();
+    expect(env.DB.state.passwordResetTokens.find((row) => row.id === 'reset-delete-token').used_at).toBeTruthy();
+    expect(env.DB.state.siweChallenges.find((row) => row.id === 'siwe-delete-token').used_at).toBeTruthy();
+    expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_existing_delete_subject').status).toBe('expired');
+    expect(env.DB.state.aiImages.some((row) => row.id === 'delete-img')).toBe(true);
+
+    const repeatExecuteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/execute-safe`, 'POST', {
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-execute-safe-repeat-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatExecuteRes.status).toBe(200);
+    expect((await repeatExecuteRes.json()).reused).toBe(true);
 
     const onlyAdminEnv = createAuthTestEnv({ users: [createAdminUser('only-lifecycle-admin')] });
     const onlyAdminToken = await seedSession(onlyAdminEnv, 'only-lifecycle-admin');
