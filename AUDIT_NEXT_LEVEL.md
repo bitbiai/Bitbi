@@ -6,6 +6,45 @@ Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
 
 Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
 
+## Current Remediation Status After Phase 1-J
+
+This section is the current handoff checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 1-J.
+
+Current repository state at checkpoint:
+
+- Branch: `main`
+- Latest commit observed: `a0e0b19 Phase 1-J Add export archive cleanup and safe`
+- Working tree: clean at the Phase 1-J checkpoint inspection; this handoff update modifies `AUDIT_NEXT_LEVEL.md`, `AUDIT_ACTION_PLAN.md`, and adds `PHASE1_COMPLETION_HANDOFF.md` plus `PHASE2A_ENTRYPOINT.md` until committed.
+- Latest auth D1 migration: `0033_harden_data_export_archives.sql`
+- Latest AI Worker Durable Object migration: `v1-service-auth-replay`
+- Current aggregate validation from Phase 1-J: `npm run test:workers` PASS 313/313, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, `git diff --check` PASS.
+- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0033`, staging Worker verification, and staging data lifecycle cleanup/executor verification are complete.
+
+Completed remediation phases:
+
+| Phase | Status | Main deliverables | Validation summary | Remaining deploy/staging blockers | Report |
+| --- | --- | --- | --- | --- | --- |
+| Phase 0-A | Completed | Static smoke fixes, priority fail-closed throttles, Auth-to-AI HMAC, critical config validation, AI worker lockfile. | Static 155/155, Worker 260/260, release preflight passed in report. | Matching `AI_SERVICE_AUTH_SECRET` and live Worker resource verification. | `PHASE0_REMEDIATION_REPORT.md` |
+| Phase 0-A+ | Completed | Nonce-backed HMAC replay protection with `SERVICE_AUTH_REPLAY`, expanded fail-closed route coverage, CSRF/security regressions. | HMAC/replay/MFA/limiter/config tests passed in Phase 0 report. | `SERVICE_AUTH_REPLAY` binding/migration and secret parity must be live-verified. | `PHASE0_REMEDIATION_REPORT.md` |
+| Phase 0-B | Completed | Cloudflare prereq validator, byte-limited parsers, more fail-closed write limits, durable admin MFA failed-attempt state, async video design. | Worker 272/272, static 155/155, release preflight passed. | Migrations from `0028` onward and live Cloudflare prereqs must be verified before deploy. | `PHASE0B_REMEDIATION_REPORT.md` |
+| Phase 1-A | Completed | Async video D1 table, queue binding, admin video job create/status APIs, idempotency foundation, body-parser guard. | Worker 280/280, static 155/155, release preflight passed. | `AI_VIDEO_JOBS_QUEUE` and migration `0029` must be staged/live-verified. | `PHASE1A_REMEDIATION_REPORT.md` |
+| Phase 1-B | Completed | Queue-safe video task create/poll, R2 output/poster ingest, poison-message persistence, async admin UI default path. | Worker 285/285, static 155/155, release preflight passed. | Staging provider/R2 validation; keep sync debug route disabled. | `PHASE1B_REMEDIATION_REPORT.md` |
+| Phase 1-C | Completed | Sync video debug gate, admin poison/failed-job inspection APIs, low-risk quality gates, toolchain pinning. | Worker 289/289, static 155/155, release preflight passed. | Alerts/IaC and broader type/lint migration remain later work. | `PHASE1C_REMEDIATION_REPORT.md` |
+| Phase 1-D | Completed | Purpose-specific auth secrets, dual-read/single-write compatibility, config/prereq validation. | Worker 300/300, static 155/155, release preflight passed. | Provision new secrets and keep legacy `SESSION_SECRET` until fallback is intentionally disabled. | `PHASE1D_SECRET_ROTATION_REPORT.md` |
+| Phase 1-E | Completed | High-risk auth Worker route policy registry and route-policy static guard. | Route-policy guard passed; Worker/static/release checks passed in report. | Registry is metadata/checking, not full central enforcement. | `PHASE1E_ROUTE_POLICY_REPORT.md` |
+| Phase 1-F | Completed | Health probes, operational readiness checks, SLO/event docs, backup/restore drill plan, runbooks, live-check scripts. | Worker 303/303, static 155/155, release preflight passed. | Live alerts, restore drills, dashboard drift checks remain manual/unproven. | `PHASE1F_OPERATIONAL_READINESS_REPORT.md` |
+| Phase 1-G | Completed | Indexed/redacted activity search projection, signed activity cursors, query-shape guard. | Worker 306/306, static 155/155, release preflight passed. | Migration `0031`, staging projection verification, optional historical backfill. | `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` |
+| Phase 1-H | Completed | Data inventory, retention baseline, lifecycle request schema, admin planning APIs, dry-run export/delete plans. | Worker 309/309, static 155/155, release preflight passed. | Migration `0032`, legal/product policy, no irreversible deletion. | `PHASE1H_DATA_LIFECYCLE_REPORT.md` |
+| Phase 1-I | Completed | Bounded sanitized export archive generation, private `AUDIT_ARCHIVE` storage, archive authorization, deletion executor design. | Worker 311/311, static 155/155, release preflight passed. | Migration `0033`, archive generation/download staging verification. | `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` |
+| Phase 1-J | Completed | Bounded expired archive cleanup, scheduled cleanup integration, admin cleanup visibility, safe reversible-action executor pilot. | Worker 313/313, static 155/155, release preflight passed. | Live `AUDIT_ARCHIVE` cleanup verification and safe executor staging verification. | `PHASE1J_RETENTION_EXECUTOR_REPORT.md` |
+
+Current status estimate:
+
+- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J for the documented scope.
+- It is substantially safer and more operable than the original audit baseline, but it is not full enterprise SaaS maturity.
+- Organization/tenant/RBAC, billing/entitlements, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
+- The next implementation phase should start at Phase 2-A: Organization / Tenant / RBAC foundation. Use `PHASE1_COMPLETION_HANDOFF.md` and `PHASE2A_ENTRYPOINT.md` as the resume documents.
+
 ## Remediation Progress
 
 This section records remediation progress after the original 2026-04-24 audit. The findings, risk ratings, command output, and maturity assessment below remain historically accurate for the repository state at audit time; they should not be read as the current status of every Phase 0 item.
