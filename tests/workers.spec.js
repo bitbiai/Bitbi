@@ -1789,6 +1789,348 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
   });
 });
 
+test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
+  function seedOrgAiUsageState({
+    user,
+    role = 'member',
+    orgId = 'org_f2cccccccccccccccccccccccccccccc',
+    creditBalance = 3,
+    extraUsers = [],
+    entitlements,
+    failUsageEventInsert = false,
+  }) {
+    const createdAt = '2026-04-26T12:00:00.000Z';
+    return {
+      failUsageEventInsert,
+      users: [user, ...extraUsers].filter(Boolean),
+      organizations: [{
+        id: orgId,
+        name: 'AI Usage Org',
+        slug: 'ai-usage-org',
+        status: 'active',
+        created_by_user_id: user.id,
+        created_at: createdAt,
+        updated_at: createdAt,
+      }],
+      organizationMemberships: [{
+        id: `om_ai_usage_${role}_${user.id}`.slice(0, 120),
+        organization_id: orgId,
+        user_id: user.id,
+        role,
+        status: 'active',
+        created_by_user_id: user.id,
+        created_at: createdAt,
+        updated_at: createdAt,
+      }],
+      creditLedger: creditBalance > 0 ? [{
+        id: `cl_seed_ai_usage_${user.id}`.slice(0, 120),
+        organization_id: orgId,
+        amount: creditBalance,
+        balance_after: creditBalance,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: `seed-ai-usage-${user.id}`.slice(0, 120),
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: createdAt,
+        metadata_json: '{}',
+      }] : [],
+      ...(entitlements ? { entitlements } : {}),
+    };
+  }
+
+  async function postGenerateImage({ worker, env, token, orgId, prompt = 'org image', idempotencyKey = 'phase2c-ai-usage-1' }) {
+    return worker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt,
+        steps: 4,
+        organization_id: orgId,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': idempotencyKey,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+  }
+
+  test('legacy user-scoped image generation remains uncharged when no organization context is supplied', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2c-legacy-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'legacy image generation',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      data: { prompt: 'legacy image generation' },
+    });
+    expect(body.billing).toBeUndefined();
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+  });
+
+  test('org owner, admin, and member roles can generate images with one credit charged', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+
+    for (const role of ['owner', 'admin', 'member']) {
+      const user = createContractUser({ id: `phase2c-${role}-user`, role: 'user' });
+      const orgId = `org_${role === 'owner' ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' : role === 'admin' ? 'abababababababababababababababab' : 'acacacacacacacacacacacacacacacac'}`;
+      const env = createAuthTestEnv({
+        ...seedOrgAiUsageState({ user, role, orgId, creditBalance: 2 }),
+        aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+      });
+      const token = await seedSession(env, user.id);
+
+      const res = await postGenerateImage({
+        worker: authWorker,
+        env,
+        token,
+        orgId,
+        prompt: `${role} org image`,
+        idempotencyKey: `phase2c-${role}-generate-1`,
+      });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.billing).toEqual({
+        organization_id: orgId,
+        feature: 'ai.image.generate',
+        credits_charged: 1,
+        balance_after: 1,
+      });
+      expect(JSON.stringify(body)).not.toContain('idempotency_key');
+      expect(env.DB.state.usageEvents).toHaveLength(1);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+      expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(1);
+    }
+  });
+
+  test('org-scoped image usage is idempotent and rejects same-key different-body conflicts before provider execution', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2c-idempotent-user', role: 'user' });
+    const orgId = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const first = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'repeatable org image',
+      idempotencyKey: 'phase2c-repeat-image',
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json()).billing.balance_after).toBe(1);
+
+    const repeated = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'repeatable org image',
+      idempotencyKey: 'phase2c-repeat-image',
+    });
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).billing.balance_after).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(aiCalls).toBe(2);
+
+    const conflict = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'same key but different prompt',
+      idempotencyKey: 'phase2c-repeat-image',
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
+    expect(aiCalls).toBe(2);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+  });
+
+  test('org-scoped image generation denies viewer, non-member, and missing idempotency before provider execution', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const viewer = createContractUser({ id: 'phase2c-viewer-user', role: 'user' });
+    const outsider = createContractUser({ id: 'phase2c-outsider-user', role: 'user' });
+    const orgId = 'org_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd';
+    let aiCalls = 0;
+    const viewerEnv = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: viewer, role: 'viewer', orgId, creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const viewerToken = await seedSession(viewerEnv, viewer.id);
+    const viewerRes = await postGenerateImage({
+      worker: authWorker,
+      env: viewerEnv,
+      token: viewerToken,
+      orgId,
+      idempotencyKey: 'phase2c-viewer-denied',
+    });
+    expect(viewerRes.status).toBe(403);
+    expect(aiCalls).toBe(0);
+    expect(viewerEnv.DB.state.usageEvents).toHaveLength(0);
+
+    const outsiderEnv = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: viewer, role: 'member', orgId, creditBalance: 2, extraUsers: [outsider] }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const outsiderToken = await seedSession(outsiderEnv, outsider.id);
+    const outsiderRes = await postGenerateImage({
+      worker: authWorker,
+      env: outsiderEnv,
+      token: outsiderToken,
+      orgId,
+      idempotencyKey: 'phase2c-outsider-denied',
+    });
+    expect(outsiderRes.status).toBe(404);
+    expect(aiCalls).toBe(0);
+    expect(outsiderEnv.DB.state.usageEvents).toHaveLength(0);
+
+    const owner = createContractUser({ id: 'phase2c-missing-key-user', role: 'user' });
+    const missingKeyEnv = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: owner, role: 'owner', orgId: 'org_cececececececececececececececece', creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const ownerToken = await seedSession(missingKeyEnv, owner.id);
+    const missingKey = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'missing key org image',
+        steps: 4,
+        organization_id: 'org_cececececececececececececececece',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      missingKeyEnv,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+    expect(aiCalls).toBe(0);
+    expect(missingKeyEnv.DB.state.usageEvents).toHaveLength(0);
+  });
+
+  test('insufficient org credits and provider failures do not record usage charges', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const brokeUser = createContractUser({ id: 'phase2c-broke-user', role: 'user' });
+    const brokeOrgId = 'org_dededededededededededededededede';
+    let brokeAiCalls = 0;
+    const brokeEnv = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: brokeUser, role: 'member', orgId: brokeOrgId, creditBalance: 0 }),
+      aiRun: async () => {
+        brokeAiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const brokeToken = await seedSession(brokeEnv, brokeUser.id);
+    const insufficient = await postGenerateImage({
+      worker: authWorker,
+      env: brokeEnv,
+      token: brokeToken,
+      orgId: brokeOrgId,
+      idempotencyKey: 'phase2c-insufficient',
+    });
+    expect(insufficient.status).toBe(402);
+    expect(brokeAiCalls).toBe(0);
+    expect(brokeEnv.DB.state.usageEvents).toHaveLength(0);
+    expect(brokeEnv.DB.state.creditLedger).toHaveLength(0);
+
+    const failingUser = createContractUser({ id: 'phase2c-provider-fail-user', role: 'user' });
+    const failingOrgId = 'org_efefefefefefefefefefefefefefefef';
+    const failingEnv = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: failingUser, role: 'member', orgId: failingOrgId, creditBalance: 2 }),
+      aiRun: async () => {
+        throw new Error('provider down');
+      },
+    });
+    const failingToken = await seedSession(failingEnv, failingUser.id);
+    const providerFailure = await postGenerateImage({
+      worker: authWorker,
+      env: failingEnv,
+      token: failingToken,
+      orgId: failingOrgId,
+      idempotencyKey: 'phase2c-provider-fail',
+    });
+    expect(providerFailure.status).toBe(502);
+    expect(failingEnv.DB.state.usageEvents).toHaveLength(0);
+    expect(failingEnv.DB.state.creditLedger).toHaveLength(1);
+    expect(failingEnv.DB.state.creditLedger[0].balance_after).toBe(2);
+  });
+
+  test('usage recording failure after provider success fails safe and does not persist a generated temp asset', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2c-recording-fail-user', role: 'user' });
+    const orgId = 'org_fafafafafafafafafafafafafafafafa';
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2, failUsageEventInsert: true }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      idempotencyKey: 'phase2c-recording-fail',
+    });
+    const body = await res.json();
+    expect(res.status).toBe(503);
+    expect(body).toMatchObject({
+      ok: false,
+      code: 'ai_usage_policy_unavailable',
+    });
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+    expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+  });
+});
+
 test.describe('Phase 1-F worker health endpoints', () => {
   test('AI worker exposes a public-safe health endpoint without requiring internal service auth', async () => {
     const aiWorker = await loadWorker('workers/ai/src/index.js');

@@ -83,7 +83,7 @@ src/
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
-**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes.
+**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution; it records one usage debit only after successful generation/finalization.
 
 **Authorization pattern**: `requireUser()` and `requireAdmin()` return either a session object or a `Response` (error). Callers check `result instanceof Response` to distinguish.
 
@@ -162,7 +162,7 @@ src/
 - `GET /api/admin/ai/video-jobs/failed/:id` — view one sanitized failed async-video job diagnostic (requires admin)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
-- `POST /api/ai/generate-image` — generate an image via Cloudflare AI
+- `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit
 - `GET /api/ai/folders` — list folders (+ counts)
 - `POST /api/ai/folders` — create folder
 - `DELETE /api/ai/folders/:id` — delete folder and queue blob cleanup

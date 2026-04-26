@@ -90,6 +90,24 @@ async function hashRequest(value) {
   return sha256Hex(JSON.stringify(value));
 }
 
+async function buildUsageRequestHash({
+  organizationId,
+  userId,
+  featureKey,
+  quantity,
+  credits,
+  requestFingerprint = null,
+}) {
+  return hashRequest({
+    organizationId,
+    userId: userId || null,
+    featureKey,
+    quantity,
+    credits,
+    requestFingerprint: normalizeNullableString(requestFingerprint, 128),
+  });
+}
+
 function serializePlan(row) {
   if (!row) return null;
   return {
@@ -320,6 +338,46 @@ async function fetchUsageByIdempotency(env, { organizationId, idempotencyKey }) 
   ).bind(organizationId, idempotencyKey).first();
 }
 
+export async function assertUsageIdempotencyAvailable({
+  env,
+  organizationId,
+  userId = null,
+  featureKey,
+  quantity = 1,
+  credits,
+  idempotencyKey,
+  requestFingerprint = null,
+}) {
+  const orgId = normalizeOrgId(organizationId);
+  const feature = normalizeFeatureKey(featureKey);
+  const normalizedQuantity = normalizePositiveInteger(quantity, {
+    max: MAX_CREDIT_CONSUME,
+    fieldName: "quantity",
+  });
+  const normalizedCredits = normalizePositiveInteger(credits ?? normalizedQuantity, {
+    max: MAX_CREDIT_CONSUME,
+    fieldName: "credits",
+  });
+  const existingUsage = await fetchUsageByIdempotency(env, { organizationId: orgId, idempotencyKey });
+  if (!existingUsage) return null;
+
+  const requestHash = await buildUsageRequestHash({
+    organizationId: orgId,
+    userId,
+    featureKey: feature,
+    quantity: normalizedQuantity,
+    credits: normalizedCredits,
+    requestFingerprint,
+  });
+  if (existingUsage.request_hash !== requestHash) {
+    throw new BillingError("Idempotency-Key conflicts with a different usage request.", {
+      status: 409,
+      code: "idempotency_conflict",
+    });
+  }
+  return serializeUsageEvent(existingUsage);
+}
+
 async function getBalanceCap(env, organizationId) {
   const state = await getOrganizationBillingState(env, { organizationId });
   const cap = entitlementMap(state.entitlements).get("credits.balance.max");
@@ -431,6 +489,7 @@ export async function consumeOrganizationCredits({
   quantity = 1,
   credits,
   idempotencyKey,
+  requestFingerprint = null,
   metadata = {},
 }) {
   const orgId = normalizeOrgId(organizationId);
@@ -443,12 +502,13 @@ export async function consumeOrganizationCredits({
     max: MAX_CREDIT_CONSUME,
     fieldName: "credits",
   });
-  const requestHash = await hashRequest({
+  const requestHash = await buildUsageRequestHash({
     organizationId: orgId,
-    userId: userId || null,
+    userId,
     featureKey: feature,
     quantity: normalizedQuantity,
     credits: normalizedCredits,
+    requestFingerprint,
   });
 
   const existingUsage = await fetchUsageByIdempotency(env, { organizationId: orgId, idempotencyKey });

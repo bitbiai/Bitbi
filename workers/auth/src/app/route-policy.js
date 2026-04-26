@@ -431,6 +431,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI", "USER_IMAGES"],
     audit: { event: "ai_generate_image" },
     sensitivity: "high",
+    billing: {
+      mode: "optional-organization-context",
+      feature: "ai.image.generate",
+      idempotency: "required when organization_id is supplied",
+    },
   }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),

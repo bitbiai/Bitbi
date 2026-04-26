@@ -15,6 +15,11 @@ import {
   AI_IMAGE_DERIVATIVE_VERSION,
   enqueueAiImageDerivativeJob,
 } from "../../lib/ai-image-derivatives.js";
+import {
+  AI_USAGE_OPERATIONS,
+  aiUsagePolicyErrorResponse,
+  prepareAiUsagePolicy,
+} from "../../lib/ai-usage-policy.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
@@ -294,6 +299,29 @@ export async function handleGenerateImage(ctx) {
     if (isNaN(seed) || seed < 0) seed = null;
   }
   const aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
+  let usagePolicy = null;
+  try {
+    usagePolicy = await prepareAiUsagePolicy({
+      env,
+      request,
+      user: session.user,
+      body,
+      operation: AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE,
+      route: "/api/ai/generate-image",
+    });
+  } catch (error) {
+    const policyError = aiUsagePolicyErrorResponse(error);
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_usage_policy_rejected",
+      level: policyError.status >= 500 ? "error" : "warn",
+      correlationId,
+      user_id: userId,
+      code: policyError.body?.code || "ai_usage_policy_rejected",
+    });
+    return respond(policyError.body, { status: policyError.status });
+  }
 
   if (!isAdmin) {
     try {
@@ -440,6 +468,27 @@ export async function handleGenerateImage(ctx) {
     );
   }
 
+  let billingMetadata = null;
+  try {
+    billingMetadata = await usagePolicy.chargeAfterSuccess({
+      model: modelConfig.id,
+      request_mode: modelConfig.requestMode || "json",
+    });
+  } catch (error) {
+    const policyError = aiUsagePolicyErrorResponse(error);
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_usage_charge_failed",
+      level: "error",
+      correlationId,
+      user_id: userId,
+      model: modelConfig.id,
+      code: policyError.body?.code || "ai_usage_charge_failed",
+    });
+    return respond(policyError.body, { status: policyError.status });
+  }
+
   let tempSavePayload = {};
   try {
     tempSavePayload = {
@@ -474,6 +523,7 @@ export async function handleGenerateImage(ctx) {
       model: modelConfig.id,
       ...tempSavePayload,
     },
+    ...(billingMetadata ? { billing: billingMetadata } : {}),
   });
 }
 

@@ -449,6 +449,7 @@ class BoundStatement {
 class MockD1 {
   constructor(seed = {}) {
     this.missingTables = new Set(Array.isArray(seed.missingTables) ? seed.missingTables : []);
+    this.failUsageEventInsert = Boolean(seed.failUsageEventInsert);
     this.runCalls = [];
     this.state = {
       users: [],
@@ -1374,6 +1375,9 @@ class MockD1 {
     }
 
     if (query.startsWith('INSERT INTO usage_events ( id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json ) VALUES')) {
+      if (this.failUsageEventInsert) {
+        throw new Error('simulated usage_events insert failure');
+      }
       const [
         id,
         organizationId,
@@ -1411,6 +1415,9 @@ class MockD1 {
     }
 
     if (query.startsWith('INSERT INTO usage_events ( id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json ) SELECT')) {
+      if (this.failUsageEventInsert) {
+        throw new Error('simulated usage_events insert failure');
+      }
       const [
         id,
         organizationId,
