@@ -1062,6 +1062,21 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'admin.ai.video-jobs.failed.list',
       auth: 'admin',
     }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/usage-attempts')).toEqual(expect.objectContaining({
+      id: 'admin.ai.usage-attempts.list',
+      auth: 'admin',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/ai/usage-attempts/cleanup-expired')).toEqual(expect.objectContaining({
+      id: 'admin.ai.usage-attempts.cleanup-expired',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/ai/usage-attempts/aua_123')).toEqual(expect.objectContaining({
+      id: 'admin.ai.usage-attempts.read',
+      auth: 'admin',
+    }));
     expect(getRoutePolicy('GET', '/api/admin/ai/video-jobs/job-123')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.status',
       auth: 'admin',
@@ -1856,6 +1871,40 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     );
   }
 
+  function seedAiUsageAttempt(overrides = {}) {
+    return {
+      id: overrides.id || 'aua_seeded0000000000000000000000000000',
+      organization_id: overrides.organization_id || 'org_a2e00000000000000000000000000000',
+      user_id: overrides.user_id || 'phase2e-ai-user',
+      feature_key: overrides.feature_key || 'ai.image.generate',
+      operation_key: overrides.operation_key || 'member.image.generate',
+      route: overrides.route || '/api/ai/generate-image',
+      idempotency_key: overrides.idempotency_key || `ai:${overrides.id || 'seeded'}`,
+      request_fingerprint: overrides.request_fingerprint || `fingerprint-${overrides.id || 'seeded'}`,
+      credit_cost: overrides.credit_cost ?? 1,
+      quantity: overrides.quantity ?? 1,
+      status: overrides.status || 'reserved',
+      provider_status: overrides.provider_status || 'not_started',
+      billing_status: overrides.billing_status || 'reserved',
+      result_status: overrides.result_status || 'none',
+      result_temp_key: overrides.result_temp_key ?? null,
+      result_save_reference: overrides.result_save_reference ?? null,
+      result_mime_type: overrides.result_mime_type ?? null,
+      result_model: overrides.result_model ?? null,
+      result_prompt_length: overrides.result_prompt_length ?? null,
+      result_steps: overrides.result_steps ?? null,
+      result_seed: overrides.result_seed ?? null,
+      balance_after: overrides.balance_after ?? null,
+      error_code: overrides.error_code ?? null,
+      error_message: overrides.error_message ?? null,
+      created_at: overrides.created_at || '2026-04-26T10:00:00.000Z',
+      updated_at: overrides.updated_at || '2026-04-26T10:00:00.000Z',
+      completed_at: overrides.completed_at ?? null,
+      expires_at: overrides.expires_at || '2000-01-01T00:00:00.000Z',
+      metadata_json: overrides.metadata_json || '{}',
+    };
+  }
+
   test('legacy user-scoped image generation remains uncharged when no organization context is supplied', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const user = createContractUser({ id: 'phase2c-legacy-user', role: 'user' });
@@ -2397,6 +2446,375 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.usageEvents).toHaveLength(1);
     expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
     expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(0);
+  });
+
+  test('Phase 2-E admin usage attempt inspection and cleanup are sanitized, bounded, and safe', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase2e-ai-admin');
+    const nonAdmin = createContractUser({ id: 'phase2e-ai-non-admin', role: 'user' });
+    const owner = createContractUser({ id: 'phase2e-ai-user', role: 'user' });
+    const orgId = 'org_a2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: owner, role: 'member', orgId, creditBalance: 2 }),
+      users: [admin, nonAdmin, owner],
+      aiUsageAttempts: [
+        seedAiUsageAttempt({
+          id: 'aua_reserved0000000000000000000000000001',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'reserved',
+          provider_status: 'not_started',
+          billing_status: 'reserved',
+          updated_at: '2026-04-20T10:01:00.000Z',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_running0000000000000000000000000002',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'provider_running',
+          provider_status: 'running',
+          billing_status: 'reserved',
+          updated_at: '2026-04-20T10:02:00.000Z',
+          expires_at: '2000-01-02T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_finalizing0000000000000000000000003',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'finalizing',
+          provider_status: 'succeeded',
+          billing_status: 'reserved',
+          updated_at: '2026-04-20T10:03:00.000Z',
+          expires_at: '2000-01-03T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_replay0000000000000000000000000004',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: 'tmp/ai-generated/secret-temp-key.png',
+          result_save_reference: 'secret-save-reference',
+          result_mime_type: 'image/png',
+          result_model: '@cf/black-forest-labs/flux-1-schnell',
+          result_prompt_length: 12,
+          result_steps: 4,
+          result_seed: 123,
+          balance_after: 1,
+          completed_at: '2026-04-20T10:04:00.000Z',
+          updated_at: '2026-04-20T10:04:00.000Z',
+          expires_at: '2000-01-04T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_fresh00000000000000000000000000005',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: 'tmp/ai-generated/fresh-temp-key.png',
+          result_save_reference: 'fresh-save-reference',
+          result_mime_type: 'image/png',
+          balance_after: 1,
+          completed_at: '2026-04-20T10:05:00.000Z',
+          updated_at: '2026-04-20T10:05:00.000Z',
+          expires_at: '2999-01-01T00:00:00.000Z',
+        }),
+      ],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const nonAdminList = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts', 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminList.status).toBe(403);
+
+    const list = await authWorker.fetch(
+      authJsonRequest(`/api/admin/ai/usage-attempts?organization_id=${orgId}&limit=2`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(list.status).toBe(200);
+    const listBody = await list.json();
+    expect(listBody.attempts).toHaveLength(2);
+    expect(listBody.nextCursor).toEqual(expect.any(String));
+    expect(JSON.stringify(listBody)).not.toContain('secret-save-reference');
+    expect(JSON.stringify(listBody)).not.toContain('secret-temp-key');
+    expect(JSON.stringify(listBody)).not.toContain('fingerprint-');
+    expect(JSON.stringify(listBody)).not.toContain('idempotency_key');
+
+    const detail = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/aua_replay0000000000000000000000000004', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(detail.status).toBe(200);
+    const detailBody = await detail.json();
+    expect(detailBody.attempt).toMatchObject({
+      attemptId: 'aua_replay0000000000000000000000000004',
+      organizationId: orgId,
+      replay: {
+        status: 'stored',
+        available: false,
+      },
+      result: {
+        status: 'stored',
+        mimeType: 'image/png',
+        steps: 4,
+        seed: 123,
+      },
+    });
+    expect(JSON.stringify(detailBody)).not.toContain('secret-save-reference');
+    expect(JSON.stringify(detailBody)).not.toContain('secret-temp-key');
+    expect(JSON.stringify(detailBody)).not.toContain('request_fingerprint');
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 4 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-dry-run',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const dryRunBody = await dryRun.json();
+    expect(dryRunBody.cleanup).toMatchObject({
+      dryRun: true,
+      scannedCount: 4,
+      expiredCount: 3,
+      reservationsReleasedCount: 2,
+      replayMetadataExpiredCount: 1,
+      failedCount: 0,
+      appliedLimit: 4,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_reserved0000000000000000000000000001').status).toBe('reserved');
+
+    const foreign = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 4, dry_run: false }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-foreign',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreign.status).toBe(403);
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_reserved0000000000000000000000000001').status).toBe('reserved');
+
+    const cleanup = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 4, dry_run: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-execute',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(cleanup.status).toBe(200);
+    const cleanupBody = await cleanup.json();
+    expect(cleanupBody.cleanup).toMatchObject({
+      dryRun: false,
+      scannedCount: 4,
+      expiredCount: 3,
+      reservationsReleasedCount: 2,
+      replayMetadataExpiredCount: 1,
+      failedCount: 0,
+    });
+    expect(JSON.stringify(cleanupBody)).not.toContain('secret-temp-key');
+    expect(JSON.stringify(cleanupBody)).not.toContain('secret-save-reference');
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_reserved0000000000000000000000000001')).toMatchObject({
+      status: 'expired',
+      billing_status: 'released',
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_running0000000000000000000000000002')).toMatchObject({
+      status: 'expired',
+      billing_status: 'released',
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_finalizing0000000000000000000000003')).toMatchObject({
+      status: 'billing_failed',
+      billing_status: 'failed',
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_replay0000000000000000000000000004')).toMatchObject({
+      status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'expired',
+      result_temp_key: null,
+      result_save_reference: null,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_fresh00000000000000000000000000005')).toMatchObject({
+      status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'stored',
+      result_temp_key: 'tmp/ai-generated/fresh-temp-key.png',
+    });
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+
+    const repeated = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 4, dry_run: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-repeat',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).cleanup.scannedCount).toBe(0);
+  });
+
+  test('Phase 2-E admin usage attempt cleanup rejects unsafe requests and fails closed on limiter state', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase2e-ai-limits-admin');
+    const orgId = 'org_f2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    const baseSeed = {
+      users: [admin],
+      aiUsageAttempts: [
+        seedAiUsageAttempt({
+          id: 'aua_limit000000000000000000000000000006',
+          organization_id: orgId,
+          user_id: admin.id,
+          status: 'reserved',
+          billing_status: 'reserved',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+      ],
+    };
+
+    const oversizedEnv = createAuthTestEnv(baseSeed);
+    const oversizedToken = await seedSession(oversizedEnv, admin.id);
+    const oversized = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', {
+        dry_run: false,
+        note: 'A'.repeat(40 * 1024),
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${oversizedToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-oversized',
+      }),
+      oversizedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(oversized.status).toBe(413);
+    expect(oversizedEnv.DB.state.aiUsageAttempts[0].status).toBe('reserved');
+
+    const windowMs = 10 * 60_000;
+    const windowStartMs = Date.now() - (Date.now() % windowMs);
+    const limitedEnv = createAuthTestEnv({
+      ...baseSeed,
+      publicRateLimitCounters: [{
+        scope: 'admin-ai-usage-attempts-write-ip',
+        limiter_key: '203.0.113.242',
+        count: 20,
+        window_start_ms: windowStartMs,
+        expires_at: new Date(windowStartMs + windowMs).toISOString(),
+      }],
+    });
+    const limitedToken = await seedSession(limitedEnv, admin.id);
+    const limited = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { dry_run: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${limitedToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-limited',
+        'CF-Connecting-IP': '203.0.113.242',
+      }),
+      limitedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(limited.status).toBe(429);
+    expect(limitedEnv.DB.state.aiUsageAttempts[0].status).toBe('reserved');
+
+    const failClosedEnv = createAuthTestEnv({
+      ...baseSeed,
+      disablePublicRateLimiterBinding: true,
+    });
+    const failClosedToken = await seedSession(failClosedEnv, admin.id);
+    const failClosed = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { dry_run: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${failClosedToken}`,
+        'Idempotency-Key': 'phase2e-ai-cleanup-fail-closed',
+      }),
+      failClosedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(failClosed.status).toBe(503);
+    expect(failClosedEnv.DB.state.aiUsageAttempts[0].status).toBe('reserved');
+  });
+
+  test('Phase 2-E scheduled cleanup releases expired attempts without corrupting completed attempts', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const diagnostics = captureDiagnosticLogs();
+    const user = createContractUser({ id: 'phase2e-scheduled-ai-user', role: 'user' });
+    const orgId = 'org_52e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      aiUsageAttempts: [
+        seedAiUsageAttempt({
+          id: 'aua_scheduled_expired_0000000000000001',
+          organization_id: orgId,
+          user_id: user.id,
+          status: 'provider_running',
+          provider_status: 'running',
+          billing_status: 'reserved',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_scheduled_complete_0000000000000002',
+          organization_id: orgId,
+          user_id: user.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: 'tmp/ai-generated/scheduled-fresh.png',
+          result_save_reference: 'scheduled-fresh-reference',
+          balance_after: 1,
+          completed_at: '2026-04-20T10:00:00.000Z',
+          expires_at: '2999-01-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    try {
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+      expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_scheduled_expired_0000000000000001')).toMatchObject({
+        status: 'expired',
+        provider_status: 'expired',
+        billing_status: 'released',
+      });
+      expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_scheduled_complete_0000000000000002')).toMatchObject({
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'stored',
+        result_temp_key: 'tmp/ai-generated/scheduled-fresh.png',
+      });
+      expect(env.DB.state.usageEvents).toHaveLength(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      expect(findDiagnosticEvent(diagnostics.entries, 'ai_usage_attempt_cleanup_completed')).toEqual(expect.objectContaining({
+        component: 'scheduled-ai-usage-attempt-cleanup',
+        scanned_count: 1,
+        expired_count: 1,
+        reservations_released_count: 1,
+      }));
+    } finally {
+      diagnostics.restore();
+    }
   });
 });
 

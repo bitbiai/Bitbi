@@ -469,12 +469,15 @@
       "/api/admin/ai/video-jobs",
       "/api/admin/ai/video-jobs/poison",
       "/api/admin/ai/video-jobs/failed",
+      "/api/admin/ai/usage-attempts",
+      "/api/admin/ai/usage-attempts/cleanup-expired",
       "/api/admin/ai/proxy-video"
     ],
     "authOnlyPatternRoutes": [
       "GET /api/admin/ai/video-jobs/:id",
       "GET /api/admin/ai/video-jobs/poison/:id",
       "GET /api/admin/ai/video-jobs/failed/:id",
+      "GET /api/admin/ai/usage-attempts/:id",
       "GET /api/admin/ai/video-jobs/:id/:param"
     ]
   },

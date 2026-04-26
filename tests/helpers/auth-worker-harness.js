@@ -1316,6 +1316,60 @@ class MockD1 {
       ) || null);
     }
 
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE id = ? LIMIT 1')) {
+      const [attemptId] = bindings;
+      return deepClone(this.state.aiUsageAttempts.find((row) => row.id === attemptId) || null);
+    }
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
+      const [
+        statusFilter,
+        statusValue,
+        organizationFilter,
+        organizationValue,
+        userFilter,
+        userValue,
+        featureFilter,
+        featureValue,
+        cursorFilter,
+        cursorUpdatedAtA,
+        cursorUpdatedAtB,
+        cursorId,
+        limit,
+      ] = bindings;
+      const rows = this.state.aiUsageAttempts
+        .filter((row) =>
+          (statusFilter == null || row.status === statusValue) &&
+          (organizationFilter == null || row.organization_id === organizationValue) &&
+          (userFilter == null || row.user_id === userValue) &&
+          (featureFilter == null || row.feature_key === featureValue) &&
+          (cursorFilter == null || row.updated_at < cursorUpdatedAtA || (row.updated_at === cursorUpdatedAtB && row.id < cursorId))
+        )
+        .sort((a, b) =>
+          String(b.updated_at || '').localeCompare(String(a.updated_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit));
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith("SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE expires_at <= ?")) {
+      const [expiresAt, limit] = bindings;
+      const eligible = this.state.aiUsageAttempts
+        .filter((row) => String(row.expires_at || '') <= String(expiresAt || ''))
+        .filter((row) =>
+          (row.billing_status === 'reserved' && ['reserved', 'provider_running', 'provider_failed', 'finalizing'].includes(row.status)) ||
+          (row.status === 'succeeded' && row.billing_status === 'finalized' && row.result_status === 'stored')
+        )
+        .sort((a, b) =>
+          String(a.expires_at || '').localeCompare(String(b.expires_at || '')) ||
+          String(a.updated_at || '').localeCompare(String(b.updated_at || '')) ||
+          String(a.id || '').localeCompare(String(b.id || ''))
+        )
+        .slice(0, Number(limit));
+      return { results: deepClone(eligible) };
+    }
+
     if (query.startsWith("INSERT INTO ai_usage_attempts ( id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, created_at, updated_at, expires_at, metadata_json ) SELECT")) {
       const [
         id,
@@ -1511,6 +1565,69 @@ class MockD1 {
         updated_at: updatedAt,
         completed_at: completedAt,
       });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'expired', provider_status = CASE WHEN provider_status = 'failed' THEN 'failed' ELSE 'expired' END")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id, expiresAt] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.billing_status === 'reserved' &&
+        ['reserved', 'provider_running', 'provider_failed'].includes(entry.status) &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'expired',
+        provider_status: row.provider_status === 'failed' ? 'failed' : 'expired',
+        billing_status: 'released',
+        result_status: 'none',
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'billing_failed', provider_status = 'succeeded', billing_status = 'failed', result_status = 'none', result_temp_key = NULL")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id, expiresAt] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.status === 'finalizing' &&
+        entry.billing_status === 'reserved' &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'billing_failed',
+        provider_status: 'succeeded',
+        billing_status: 'failed',
+        result_status: 'none',
+        result_temp_key: null,
+        result_save_reference: null,
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET result_status = 'expired', result_temp_key = NULL, result_save_reference = NULL")) {
+      const [updatedAt, id, expiresAt] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.status === 'succeeded' &&
+        entry.billing_status === 'finalized' &&
+        entry.result_status === 'stored' &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.result_status = 'expired';
+      row.result_temp_key = null;
+      row.result_save_reference = null;
+      row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }
 

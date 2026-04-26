@@ -83,7 +83,7 @@ src/
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
-**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation now creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available.
+**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits and expired replay metadata is cleared; cleanup does not delete ledger rows, usage events, attempt rows, or temporary replay objects.
 
 **Authorization pattern**: `requireUser()` and `requireAdmin()` return either a session object or a `Response` (error). Callers check `result instanceof Response` to distinguish.
 
@@ -160,6 +160,9 @@ src/
 - `GET /api/admin/ai/video-jobs/poison/:id` — view one sanitized poison message (requires admin)
 - `GET /api/admin/ai/video-jobs/failed` — list sanitized failed async-video job diagnostics (requires admin)
 - `GET /api/admin/ai/video-jobs/failed/:id` — view one sanitized failed async-video job diagnostic (requires admin)
+- `GET /api/admin/ai/usage-attempts` — list sanitized org-scoped AI usage attempts/reservations for admin inspection (requires admin)
+- `GET /api/admin/ai/usage-attempts/:id` — inspect one sanitized org-scoped AI usage attempt/reservation (requires admin)
+- `POST /api/admin/ai/usage-attempts/cleanup-expired` — run a bounded dry-run/default cleanup batch for expired/stuck AI usage attempts; execution releases stale reservations and expires replay metadata only (requires admin, same-origin, `Idempotency-Key`)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
 - `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and temporary result replay
@@ -183,7 +186,7 @@ src/
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png` and async admin video job output under `users/{userId}/video-jobs/{jobId}/`.
 
-**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. Phase 1-J cleanup deletes only expired lifecycle export objects under that approved prefix and never broad-deletes audit archives or user media objects. The scheduled auth cleanup keeps only the recent hot window in D1, archives older rows here before pruning them, and runs the bounded export-archive cleanup step.
+**R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. Phase 1-J cleanup deletes only expired lifecycle export objects under that approved prefix and never broad-deletes audit archives or user media objects. The scheduled auth cleanup keeps only the recent hot window in D1, archives older rows here before pruning them, runs the bounded export-archive cleanup step, and runs a bounded AI usage-attempt cleanup step that releases stale reservations and expires replay metadata without deleting temporary replay objects.
 
 **Queue** `bitbi-auth-activity-ingest` bound as `ACTIVITY_INGEST_QUEUE` — carries routine `admin_audit_log` and `user_activity_log` events off the hot request path. The auth worker itself consumes the queue and batch-persists those events back into the existing D1 tables with idempotent `INSERT OR IGNORE` writes.
 
@@ -218,7 +221,7 @@ Key migration-dependent behavior:
 - `0033_harden_data_export_archives` — required before auth deploy if bounded private export archive generation/download APIs must work immediately
 - `0034_add_organizations` — required before auth deploy if Phase 2-A organization creation, membership, and admin organization inspection APIs must work immediately
 - `0035_add_billing_entitlements` — required before auth deploy if Phase 2-B billing plan, entitlement, credit ledger, usage event, and admin credit-grant APIs must work immediately
-- `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, and result replay must work immediately
+- `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, and Phase 2-E usage-attempt cleanup/admin inspection must work immediately
 
 ## Conventions
 
@@ -234,7 +237,7 @@ Key migration-dependent behavior:
 - Login checks password BEFORE status to prevent account enumeration via distinguishable error messages
 - Session queries filter by `users.status = 'active'` — disabled users are immediately de-authenticated
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
-- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, cleans expired lifecycle export archives under the `data-exports/` prefix, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
+- Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, cleans expired lifecycle export archives under the `data-exports/` prefix, releases expired/stuck AI usage-attempt reservations and expires replay metadata, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
 - Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables, and `bitbi-ai-video-jobs` processes async admin video jobs outside browser request lifecycles
 - Admin audit/user activity search uses signed cursors from `PAGINATION_SIGNING_SECRET` and the `activity_search_index` projection. Do not reintroduce raw `meta_json LIKE` search or raw `created_at|id` cursors; run `npm run check:admin-activity-query-shape` after activity endpoint changes.
 - Environment secrets: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `RESEND_API_KEY`

@@ -450,12 +450,15 @@ const baseManifest = {
       "/api/admin/ai/video-jobs",
       "/api/admin/ai/video-jobs/poison",
       "/api/admin/ai/video-jobs/failed",
+      "/api/admin/ai/usage-attempts",
+      "/api/admin/ai/usage-attempts/cleanup-expired",
       "/api/admin/ai/proxy-video",
     ],
     authOnlyPatternRoutes: [
       "GET /api/admin/ai/video-jobs/:id",
       "GET /api/admin/ai/video-jobs/poison/:id",
       "GET /api/admin/ai/video-jobs/failed/:id",
+      "GET /api/admin/ai/usage-attempts/:id",
       "GET /api/admin/ai/video-jobs/:id/:param",
     ],
   },
@@ -818,10 +821,14 @@ function createValidContext() {
       if (pathname === "/api/admin/ai/video-jobs" && method === "POST") return handleCreateVideoJob();
       if (pathname === "/api/admin/ai/video-jobs/poison" && method === "GET") return handleVideoJobPoisonList();
       if (pathname === "/api/admin/ai/video-jobs/failed" && method === "GET") return handleVideoJobFailedList();
+      if (pathname === "/api/admin/ai/usage-attempts" && method === "GET") return handleUsageAttemptList();
+      if (pathname === "/api/admin/ai/usage-attempts/cleanup-expired" && method === "POST") return handleUsageAttemptCleanup();
       const videoJobPoisonMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/poison\\/([^/]+)$/);
       if (videoJobPoisonMatch && method === "GET") return handleVideoJobPoisonDetail();
       const videoJobFailedMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/failed\\/([^/]+)$/);
       if (videoJobFailedMatch && method === "GET") return handleVideoJobFailedDetail();
+      const usageAttemptMatch = pathname.match(/^\\/api\\/admin\\/ai\\/usage-attempts\\/([^/]+)$/);
+      if (usageAttemptMatch && method === "GET") return handleUsageAttemptDetail();
       const videoJobStatusMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)$/);
       if (videoJobStatusMatch && method === "GET") return handleVideoJobStatus();
       const videoJobOutputMatch = pathname.match(/^\\/api\\/admin\\/ai\\/video-jobs\\/([^/]+)\\/(output|poster)$/);

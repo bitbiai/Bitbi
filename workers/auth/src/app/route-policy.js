@@ -399,6 +399,18 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.adminVideoJobs,
     rateLimit: { id: "admin-ai-video-ops-ip", failClosed: true },
   }),
+  adminRead("admin.ai.usage-attempts.list", "/api/admin/ai/usage-attempts", "billing", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-ai-usage-attempts-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.ai.usage-attempts.cleanup-expired", "POST", "/api/admin/ai/usage-attempts/cleanup-expired", "billing", "smallJson", "admin-ai-usage-attempts-write-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "ai_usage_attempt_cleanup_completed" },
+  }),
+  adminRead("admin.ai.usage-attempts.read", "/api/admin/ai/usage-attempts/:id", "billing", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-usage-attempts-ip", failClosed: true },
+  }),
   adminRead("admin.ai.video-jobs.status", "/api/admin/ai/video-jobs/:id", "admin-ai", {
     config: REQUIRED_CONFIG.adminVideoJobs,
     rateLimit: { id: "admin-ai-video-job-status-ip", failClosed: true },

@@ -46,6 +46,7 @@ import {
 } from "./routes/ai/generated-image-save-reference.js";
 import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
+import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
 import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
@@ -319,6 +320,44 @@ export default {
         service: "bitbi-auth",
         component: "scheduled-ai-generated-temp-cleanup",
         event: "ai_generated_temp_cleanup_failed",
+        level: "error",
+        ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const usageAttemptCleanup = await cleanupExpiredAiUsageAttempts({
+        env,
+        now,
+        limit: 25,
+        dryRun: false,
+      });
+      if (
+        usageAttemptCleanup.scannedCount > 0 ||
+        usageAttemptCleanup.expiredCount > 0 ||
+        usageAttemptCleanup.reservationsReleasedCount > 0 ||
+        usageAttemptCleanup.replayMetadataExpiredCount > 0 ||
+        usageAttemptCleanup.failedCount > 0 ||
+        usageAttemptCleanup.skippedCount > 0
+      ) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-ai-usage-attempt-cleanup",
+          event: "ai_usage_attempt_cleanup_completed",
+          level: usageAttemptCleanup.failedCount > 0 || usageAttemptCleanup.skippedCount > 0 ? "warn" : "info",
+          scanned_count: usageAttemptCleanup.scannedCount,
+          expired_count: usageAttemptCleanup.expiredCount,
+          reservations_released_count: usageAttemptCleanup.reservationsReleasedCount,
+          replay_metadata_expired_count: usageAttemptCleanup.replayMetadataExpiredCount,
+          skipped_count: usageAttemptCleanup.skippedCount,
+          failed_count: usageAttemptCleanup.failedCount,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-ai-usage-attempt-cleanup",
+        event: "ai_usage_attempt_cleanup_failed",
         level: "error",
         ...getErrorFields(error),
       });

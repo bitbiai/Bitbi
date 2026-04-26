@@ -33,6 +33,11 @@ import {
   rateLimitAdminAi,
 } from "../lib/admin-ai-proxy.js";
 import {
+  BillingError,
+  billingErrorResponse,
+  normalizeBillingIdempotencyKey,
+} from "../lib/billing.js";
+import {
   createAdminAiVideoJob,
   getAdminAiVideoJob,
   getAdminAiVideoJobOutput,
@@ -43,15 +48,35 @@ import {
   normalizeAiVideoIdempotencyKey,
   serializeAiVideoJob,
 } from "../lib/ai-video-jobs.js";
+import {
+  adminAiUsageAttemptCursorExpiry,
+  buildAdminAiUsageAttemptFilterHash,
+  cleanupExpiredAiUsageAttempts,
+  getAdminAiUsageAttempt,
+  listAdminAiUsageAttempts,
+  normalizeAdminAiUsageAttemptFilters,
+} from "../lib/ai-usage-attempts.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationErrorResponse,
+  readCursorInteger,
+  readCursorString,
+  resolvePaginationLimit,
+} from "../lib/pagination.js";
 import {
   logWorkerConfigFailure,
   workerConfigUnavailableResponse,
   WorkerConfigError,
 } from "../lib/config.js";
 import { createAiGeneratedSaveReferenceFromBase64 } from "./ai/generated-image-save-reference.js";
+
+const ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE = "admin_ai_usage_attempts";
+const DEFAULT_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 25;
+const MAX_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 100;
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -94,12 +119,47 @@ function notFoundResponse(correlationId) {
   ), correlationId);
 }
 
+function billingAdminErrorResponse(error, correlationId) {
+  if (error instanceof BillingError) {
+    return withCorrelationId(json(billingErrorResponse(error), { status: error.status }), correlationId);
+  }
+  throw error;
+}
+
 function decodePathSegment(value) {
   try {
     return decodeURIComponent(value);
   } catch {
     return null;
   }
+}
+
+async function decodeUsageAttemptCursorOrResponse(env, cursorParam, expectedFilterHash, correlationId) {
+  if (!cursorParam) return { cursor: null };
+  try {
+    const decoded = await decodePaginationCursor(env, cursorParam, ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE);
+    const cursor = {
+      updatedAt: readCursorString(decoded, "u"),
+      id: readCursorString(decoded, "i"),
+      q: readCursorString(decoded, "q", { allowEmpty: true, maxLength: 80 }),
+      exp: readCursorInteger(decoded, "exp", { min: 1 }),
+    };
+    if (cursor.q !== expectedFilterHash || cursor.exp <= Date.now()) {
+      return { response: withCorrelationId(paginationErrorResponse("Invalid cursor."), correlationId) };
+    }
+    return { cursor };
+  } catch {
+    return { response: withCorrelationId(paginationErrorResponse("Invalid cursor."), correlationId) };
+  }
+}
+
+async function encodeUsageAttemptCursor(env, filterHash, row) {
+  return encodePaginationCursor(env, ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE, {
+    u: row.updated_at,
+    i: row.id,
+    q: filterHash,
+    exp: adminAiUsageAttemptCursorExpiry(),
+  });
 }
 
 function videoJobResponse(job, correlationId, { status = 200, existing = false } = {}) {
@@ -197,6 +257,105 @@ export async function handleAdminAI(ctx) {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-models-ip", 60, 600_000, correlationId);
     if (limited) return limited;
     return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
+  }
+
+  if (pathname === "/api/admin/ai/usage-attempts" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-usage-attempts-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    let filters;
+    try {
+      filters = normalizeAdminAiUsageAttemptFilters({
+        status: url.searchParams.get("status"),
+        organization_id: url.searchParams.get("organization_id"),
+        user_id: url.searchParams.get("user_id"),
+        feature: url.searchParams.get("feature"),
+      });
+      const filterHash = await buildAdminAiUsageAttemptFilterHash(filters);
+      const decoded = await decodeUsageAttemptCursorOrResponse(
+        env,
+        url.searchParams.get("cursor"),
+        filterHash,
+        correlationId
+      );
+      if (decoded.response) return decoded.response;
+
+      const page = await listAdminAiUsageAttempts(env, {
+        ...filters,
+        cursor: decoded.cursor,
+        limit: resolvePaginationLimit(url.searchParams.get("limit"), {
+          defaultValue: DEFAULT_ADMIN_AI_USAGE_ATTEMPT_LIMIT,
+          maxValue: MAX_ADMIN_AI_USAGE_ATTEMPT_LIMIT,
+        }),
+      });
+      const nextCursor = page.hasMore && page.last
+        ? await encodeUsageAttemptCursor(env, filterHash, page.last)
+        : null;
+      return withCorrelationId(json({
+        ok: true,
+        attempts: page.attempts,
+        nextCursor,
+        appliedLimit: page.appliedLimit,
+      }), correlationId);
+    } catch (error) {
+      return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  // route-policy: admin.ai.usage-attempts.cleanup-expired
+  if (pathname === "/api/admin/ai/usage-attempts/cleanup-expired" && method === "POST") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-usage-attempts-write-ip", 20, 600_000, correlationId);
+    if (limited) return limited;
+
+    try {
+      normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const parsed = await readAdminAiJsonBody(request, correlationId, {
+        maxBytes: BODY_LIMITS.smallJson,
+      });
+      if (parsed.response) return parsed.response;
+      const cleanup = await cleanupExpiredAiUsageAttempts({
+        env,
+        limit: parsed.body?.limit,
+        dryRun: parsed.body?.dry_run !== false,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-usage-attempts",
+        event: "ai_usage_attempt_cleanup_completed",
+        level: cleanup.failedCount > 0 || cleanup.skippedCount > 0 ? "warn" : "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        dry_run: cleanup.dryRun,
+        scanned_count: cleanup.scannedCount,
+        expired_count: cleanup.expiredCount,
+        reservations_released_count: cleanup.reservationsReleasedCount,
+        replay_metadata_expired_count: cleanup.replayMetadataExpiredCount,
+        skipped_count: cleanup.skippedCount,
+        failed_count: cleanup.failedCount,
+      });
+      return withCorrelationId(json({ ok: true, cleanup }), correlationId);
+    } catch (error) {
+      return billingAdminErrorResponse(error, correlationId);
+    }
+  }
+
+  const usageAttemptMatch = pathname.match(/^\/api\/admin\/ai\/usage-attempts\/([^/]+)$/);
+  if (usageAttemptMatch && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-usage-attempts-ip", 60, 600_000, correlationId);
+    if (limited) return limited;
+
+    const attemptId = decodePathSegment(usageAttemptMatch[1]);
+    if (!attemptId || attemptId.includes("/")) {
+      return notFoundResponse(correlationId);
+    }
+
+    try {
+      const attempt = await getAdminAiUsageAttempt(env, attemptId);
+      if (!attempt) return notFoundResponse(correlationId);
+      return withCorrelationId(json({ ok: true, attempt }), correlationId);
+    } catch (error) {
+      return billingAdminErrorResponse(error, correlationId);
+    }
   }
 
   // route-policy: admin.ai.test-text
