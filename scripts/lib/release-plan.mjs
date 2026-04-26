@@ -136,6 +136,7 @@ function isValidationOnlyPath(relativePath) {
     || /^PHASE0[A-Z0-9_]*\.md$/.test(normalized)
     || /^PHASE1[A-Z0-9_]*\.md$/.test(normalized)
     || /^PHASE2[A-Z0-9_]*\.md$/.test(normalized)
+    || /^PHASE_ADMIN[A-Z0-9_]*\.md$/.test(normalized)
     || normalized === "AI_VIDEO_ASYNC_JOB_DESIGN.md";
 }
 

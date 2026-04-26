@@ -2,7 +2,7 @@
 
 Date: 2026-04-24
 
-Last updated: 2026-04-26 after Phase 0-A, Phase 0-A+, Phase 0-B, Phase 1-A, Phase 1-B, Phase 1-C, Phase 1-D purpose-specific secret hardening, Phase 1-E route policy registry hardening, Phase 1-F operational readiness foundations, Phase 1-G audit/activity search scalability hardening, Phase 1-H data lifecycle foundation work, Phase 1-I export archive/delete-executor foundation work, Phase 1-J retention/executor pilot work, Phase 2-A organization/RBAC foundation work, Phase 2-B billing/entitlement foundation work, Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped AI usage reservation hardening, Phase 2-E AI usage attempt cleanup/admin inspection, Phase 2-F AI replay object retention cleanup, Phase 2-H org-scoped member text generation API work, Phase 2-I billing event ingestion foundation work, and Phase 2-J Stripe Testmode credit-pack checkout foundation work.
+Last updated: 2026-04-26 after Phase 0-A, Phase 0-A+, Phase 0-B, Phase 1-A, Phase 1-B, Phase 1-C, Phase 1-D purpose-specific secret hardening, Phase 1-E route policy registry hardening, Phase 1-F operational readiness foundations, Phase 1-G audit/activity search scalability hardening, Phase 1-H data lifecycle foundation work, Phase 1-I export archive/delete-executor foundation work, Phase 1-J retention/executor pilot work, Phase 2-A organization/RBAC foundation work, Phase 2-B billing/entitlement foundation work, Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped AI usage reservation hardening, Phase 2-E AI usage attempt cleanup/admin inspection, Phase 2-F AI replay object retention cleanup, Phase 2-H org-scoped member text generation API work, Phase 2-I billing event ingestion foundation work, Phase 2-J Stripe Testmode credit-pack checkout foundation work, and the Admin Control Plane UI phase.
 
 Scope: top 20 highest-impact fixes for `/Users/btc2020/Bitbi/Bitbi`, preserved in exact original priority order. This file is now a status-tracked action plan. Historical audit findings are not deleted; each item records current status, evidence, remaining risk, and the next action.
 
@@ -31,6 +31,7 @@ Source documents:
 - `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md`
 - `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md`
 - `PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md`
+- `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`
 - `PHASE1_COMPLETION_HANDOFF.md`
 - `PHASE2A_ENTRYPOINT.md`
 - `DATA_INVENTORY.md`
@@ -44,9 +45,9 @@ Source documents:
 
 | Area | Status | Evidence | Remaining risk | Next action |
 | --- | --- | --- | --- | --- |
-| Merge readiness | Pending final pre-merge review after validation | Phase 2-J adds Stripe Testmode credit-pack checkout: migration `0038`, fixed server-side test pack catalog, owner/admin checkout creation, raw-body Stripe signature verification, verified Testmode checkout webhook credit grant, duplicate/mismatch protection, route-policy/release updates, and Worker tests. Full local validation is recorded in `PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md` and the Phase 2-J response. | Production deploy still requires migrations through `0038`, Stripe Testmode secrets/URLs/webhook endpoint, live Cloudflare verification, and staging checkout/webhook/exactly-once credit grant verification. Phase 2-J files must be committed together after review. | Run Staff Security/DB/SRE review, then commit the complete Phase 2-J file set together if approved. |
+| Merge readiness | Pending final pre-merge review after validation | Phase 2-J is committed. The Admin Control Plane UI phase adds a frontend-only operator surface in the existing admin area for implemented security, organization/RBAC, billing, billing events, AI usage attempts, data lifecycle, operations, readiness, and settings capabilities. It reuses existing sanitized admin APIs and adds no backend route, migration, dependency, or live billing activation. Validation is recorded in `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`. | Production deploy still requires migrations through `0038`, Stripe Testmode secrets/URLs/webhook endpoint, live Cloudflare verification, and staging verification for org, billing, AI usage, lifecycle, billing-event, and control-plane UI flows. | Run focused Staff frontend/security/privacy/SRE review of the Admin Control Plane diff, then commit the complete UI/test/report set together if approved. |
 | Production deploy readiness | Blocked | Repo config declares required auth/AI secrets, optional synthetic `BILLING_WEBHOOK_TEST_SECRET`, optional Stripe Testmode config, `SERVICE_AUTH_REPLAY`, auth migrations through `0038`, AI/video queues, `USER_IMAGES`, `AUDIT_ARCHIVE`, and `AI_LAB`. `ALLOW_SYNC_VIDEO_DEBUG` must remain absent/false unless a controlled emergency debug rollback is approved. | Live Cloudflare secrets/bindings/queues/R2/D1 migrations and Stripe Testmode endpoint/secrets were not verified by this implementation pass. Missing migration `0038` breaks Stripe checkout session tracking; missing migration `0037` breaks billing event ingestion; missing migration `0036` breaks Phase 2-D org-scoped image retry/reservation behavior and Phase 2-H text replay/attempt behavior; missing migration `0035` breaks billing APIs. Organization and billing tables do not mean full tenant isolation or production billing readiness. | Provision/verify all Phase 0/1/2 secrets/resources, apply migrations `0028`-`0038`, verify organization, billing/entitlement/credit grant, image/text usage, usage cleanup, replay cleanup, synthetic billing webhook, and Stripe Testmode checkout/webhook flows in staging, keep `ALLOW_SYNC_VIDEO_DEBUG` disabled, and run staging verification before production. |
-| Phase 0-A through 2-J security/operations posture | Reduced immediate risk | HMAC service auth, nonce replay protection, fail-closed limiters, body-size limits, durable MFA failed-attempt state, config validation, async admin video jobs, route-policy checks, operational readiness docs/checks, signed activity cursors, indexed/redacted activity search, data lifecycle foundations, organization/RBAC foundation, billing/entitlement/credit-ledger foundation, org-scoped image/text credit enforcement with usage attempts/replay/cleanup, provider-neutral billing event ingestion, and Stripe Testmode checkout foundation are present. | This is not full SaaS maturity. Legacy `SESSION_SECRET` fallback remains during migration, route policy is metadata/checking rather than full centralized enforcement, live checks skip by default in CI, dashboard controls/alerts are not repo-enforced, restore drills are not executed, user self-service privacy flow and irreversible deletion execution remain deferred, existing assets remain user-owned, no live payments/subscriptions/invoices/customer portal exist, video AI is not credit-enforced, and compliance/load-testing work remains open. | Complete Cloudflare staging verification, live health/header checks with `--require-live`, staging restore drill, alert/drift automation, Phase 2-A through 2-J staging verification, self-service privacy policy, provider hardening, tenant migration plan, and broader SaaS platform gaps. |
+| Phase 0-A through 2-J security/operations posture | Reduced immediate risk | HMAC service auth, nonce replay protection, fail-closed limiters, body-size limits, durable MFA failed-attempt state, config validation, async admin video jobs, route-policy checks, operational readiness docs/checks, signed activity cursors, indexed/redacted activity search, data lifecycle foundations, organization/RBAC foundation, billing/entitlement/credit-ledger foundation, org-scoped image/text credit enforcement with usage attempts/replay/cleanup, provider-neutral billing event ingestion, Stripe Testmode checkout foundation, and a frontend-only Admin Control Plane surface are present. | This is not full SaaS maturity. Legacy `SESSION_SECRET` fallback remains during migration, route policy is metadata/checking rather than full centralized enforcement, live checks skip by default in CI, Cloudflare dashboard controls/alerts are not editable from the admin UI, restore drills are not executed, user self-service privacy flow and irreversible deletion execution remain deferred, existing assets remain user-owned, no live payments/subscriptions/invoices/customer portal exist, video AI is not credit-enforced, and compliance/load-testing work remains open. | Complete Cloudflare staging verification, live health/header checks with `--require-live`, staging restore drill, alert/drift automation, Phase 2-A through 2-J and Admin Control Plane staging verification, self-service privacy policy, provider hardening, tenant migration plan, and broader SaaS platform gaps. |
 
 Phase 2-J is implemented as a Stripe Testmode credit-pack checkout foundation. Future changes must keep checkout creation, Stripe raw-body signature verification, billing event storage, exactly-once credit grant behavior, tests, route policy metadata, release compatibility, and documentation files together to avoid stale validation or route-policy drift.
 
@@ -89,12 +90,12 @@ Phase 2-J is implemented as a Stripe Testmode credit-pack checkout foundation. F
 | 19 | Add load/performance and frontend budget tests | Still open | No k6/Artillery/Lighthouse/WebPageTest budgets were added. Phase 1-G added query-shape checks, but not runtime load budgets. | Capacity limits and frontend performance regressions remain unmeasured. | Add API load tests and frontend budgets after tenant ownership and billing enforcement paths are defined. |
 | 20 | Pin runtime/toolchain versions consistently | Resolved for current scope | Phase 1-C adds `.nvmrc` with Node 20, `package.json`/`package-lock.json` engines for Node 20/npm 10+, and `scripts/check-toolchain.mjs`. `.github/workflows/static.yml` continues to use Node 20 and now runs the toolchain check. | This does not pin every transitive tool binary outside npm, and local developers can still ignore engines unless they opt into enforcement. | Keep `check:toolchain` blocking; consider Volta/asdf or stricter engine enforcement only after team agreement. |
 
-## Immediate Pre-Deploy / Phase 2-J Backlog
+## Immediate Pre-Deploy / Admin Control Plane Backlog
 
-These are the highest-priority follow-ups after the Phase 2-J implementation. They are deployment/staging prerequisites plus the next roadmap entrypoint; they are not reasons to redo Phase 0, Phase 1, Phase 2-A, Phase 2-B, Phase 2-C, Phase 2-D, Phase 2-E, Phase 2-F, Phase 2-G, Phase 2-H, or Phase 2-I work.
+These are the highest-priority follow-ups after the Phase 2-J implementation and Admin Control Plane UI phase. They are deployment/staging prerequisites plus the next roadmap entrypoint; they are not reasons to redo Phase 0, Phase 1, Phase 2-A, Phase 2-B, Phase 2-C, Phase 2-D, Phase 2-E, Phase 2-F, Phase 2-G, Phase 2-H, Phase 2-I, Phase 2-J, or Admin Control Plane work.
 
 1. Keep validation green; re-run `npm run release:preflight` after any further application/config/test changes.
-2. Commit the Phase 2-J code, test, and documentation updates together after review.
+2. Commit the Admin Control Plane UI, test, and documentation updates together after review.
 3. Provision and verify the six new `workers/auth` purpose-specific secrets without printing values.
 4. Keep legacy `SESSION_SECRET` present while `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` remains enabled.
 5. Provision and verify matching `AI_SERVICE_AUTH_SECRET` in both `workers/auth` and `workers/ai`.
@@ -120,9 +121,10 @@ These are the highest-priority follow-ups after the Phase 2-J implementation. Th
 25. Verify Phase 2-H org-scoped `/api/ai/generate-text` success, same-key replay, entitlement denial, insufficient-credit denial, viewer/non-member denial, no duplicate provider execution, no duplicate debit, provider-failure no-charge behavior, billing-failure safety, and admin AI/text-asset compatibility in staging after migration `0036`.
 26. Verify Phase 2-I synthetic billing webhook missing/invalid/stale signature failures, valid event ingestion, duplicate delivery handling, payload mismatch handling, live-mode rejection, sanitized admin inspection, and no real credit/subscription side effects in staging after migration `0037`.
 27. Verify Phase 2-J Stripe Testmode checkout creation, missing/live Stripe config failure modes, raw-body Stripe signature verification, valid Testmode `checkout.session.completed`, duplicate delivery no-double-grant behavior, payload mismatch conflict, failed/unpaid no-credit behavior, sanitized admin inspection, and no live billing side effects in staging after migration `0038`.
-28. Decide whether historical audit/activity records need a controlled projection backfill and whether user-facing self-service privacy flows are required before production launch.
-29. Execute and record a staging D1/R2 restore drill.
-30. Choose the next Phase 2 track: Stripe live-readiness hardening, video AI entitlement wiring, or domain-by-domain tenant ownership migration. Do not combine all tracks into one large rewrite.
+28. Verify the Admin Control Plane in staging with real admin APIs, including unavailable-state handling, sanitized billing event detail, AI usage cleanup dry-run/execute controls, lifecycle read-only metadata, and existing Users/Activity/AI Lab regressions.
+29. Decide whether historical audit/activity records need a controlled projection backfill and whether user-facing self-service privacy flows are required before production launch.
+30. Execute and record a staging D1/R2 restore drill.
+31. Choose the next Phase 2 track: Stripe live-readiness hardening, video AI entitlement wiring, or domain-by-domain tenant ownership migration. Do not combine all tracks into one large rewrite.
 
 ## Next Phase: Stripe Hardening, Video AI Route, Or Tenant Migration Track
 
@@ -132,7 +134,7 @@ Phase 2-J has implemented Stripe Testmode credit-pack checkout and verified Test
 - Option B: wire the existing async/member-safe video route family to organization entitlements and credits while preserving admin/debug boundaries.
 - Option C: continue tenant migration by adding nullable `organization_id` to one low-risk domain and proving dual-read/backfill behavior.
 
-Do not redo completed Phase 0, Phase 1, Phase 2-A, Phase 2-B, Phase 2-C, Phase 2-D, Phase 2-E, Phase 2-F, Phase 2-G, Phase 2-H, Phase 2-I, or Phase 2-J work. Treat the following as baseline capabilities unless a focused regression is found:
+Do not redo completed Phase 0, Phase 1, Phase 2-A, Phase 2-B, Phase 2-C, Phase 2-D, Phase 2-E, Phase 2-F, Phase 2-G, Phase 2-H, Phase 2-I, Phase 2-J, or Admin Control Plane work. Treat the following as baseline capabilities unless a focused regression is found:
 
 - Service-to-service HMAC, nonce replay protection, fail-closed sensitive limits, request body limits, admin MFA failed-attempt state, and purpose-specific auth secrets.
 - Async admin video jobs with R2 output handling, poison persistence, sync debug gating, and admin operational inspection.
@@ -146,6 +148,7 @@ Do not redo completed Phase 0, Phase 1, Phase 2-A, Phase 2-B, Phase 2-C, Phase 2
 - Phase 2-H backend-only org-scoped `/api/ai/generate-text` with text entitlement/credit enforcement, attempt reservation/finalization, same-key text replay, and admin/text-asset route compatibility.
 - Phase 2-I provider-neutral billing event ingestion with synthetic raw-body verification, idempotent event storage, duplicate/mismatch handling, dry-run action planning, and sanitized admin inspection.
 - Phase 2-J Stripe Testmode credit-pack checkout, Stripe raw-body signature verification, verified Testmode checkout credit grants, duplicate no-double-grant behavior, live-mode rejection, and additive migration `0038`.
+- Admin Control Plane frontend surfaces for implemented admin APIs, with no backend rewrite, no secret editing, no live billing controls, and safe unavailable states.
 
 Read these documents before the next Phase 2 pass:
 
@@ -158,6 +161,7 @@ Read these documents before the next Phase 2 pass:
 - `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md`
 - `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md`
 - `PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md`
+- `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`
 - `AUDIT_NEXT_LEVEL.md`
 - `AUDIT_ACTION_PLAN.md`
 - `PHASE1_COMPLETION_HANDOFF.md`
@@ -168,14 +172,14 @@ Read these documents before the next Phase 2 pass:
 Next Phase 2 prerequisites:
 
 - `git status --short` is clean.
-- Phase 2-J changes are committed together after full validation.
+- Admin Control Plane changes are committed together after full validation and review.
 - `npm run release:preflight` passes on the starting commit.
 - Latest auth migration number is documented as `0038`.
 - Production deploy is not assumed; live Cloudflare secret/binding/migration verification remains a separate deployment task.
 
 ## Production Deploy Blockers
 
-Do not deploy Phase 0-A/0-A+/0-B/1-A/1-B/1-C/1-D/1-E/1-F/1-G/1-H/1-I/1-J/2-A/2-B/2-C/2-D/2-E/2-F/2-H/2-I/2-J to production until all of these are complete:
+Do not deploy Phase 0-A/0-A+/0-B/1-A/1-B/1-C/1-D/1-E/1-F/1-G/1-H/1-I/1-J/2-A/2-B/2-C/2-D/2-E/2-F/2-H/2-I/2-J/Admin Control Plane changes to production until all of these are complete:
 
 - `SESSION_HASH_SECRET` exists in `workers/auth`.
 - `PAGINATION_SIGNING_SECRET` exists in `workers/auth`.

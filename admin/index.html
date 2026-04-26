@@ -112,11 +112,20 @@
 <nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none">
     <div class="admin-nav__inner">
         <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
+        <a href="#security" class="admin-nav__link" data-section="security">Security</a>
+        <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
+        <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
+        <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
+        <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
+        <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
+        <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
+        <a href="#readiness" class="admin-nav__link" data-section="readiness">Readiness</a>
         <a href="#users" class="admin-nav__link" data-section="users">Users</a>
         <a href="#content" class="admin-nav__link" data-section="content">Content</a>
         <a href="#media" class="admin-nav__link" data-section="media">Media</a>
         <a href="#access" class="admin-nav__link" data-section="access">Access</a>
         <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+        <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
     </div>
 </nav>
 
@@ -189,6 +198,19 @@
                  DASHBOARD
                  ═══════════════════════════════════════ -->
             <div id="sectionDashboard" class="admin-section">
+                <div class="admin-control-hero glass glass-card reveal visible" aria-labelledby="controlPlaneTitle">
+                    <div>
+                        <p class="admin-control-hero__eyebrow">Admin Control Plane</p>
+                        <h2 id="controlPlaneTitle" class="admin-control-hero__title">Operate BITBI without exposing internals.</h2>
+                        <p class="admin-control-hero__copy">Security, SaaS, billing, AI, data lifecycle, and operational foundations are surfaced from existing admin APIs. Live production readiness remains a staging/deployment task.</p>
+                    </div>
+                    <div class="admin-control-hero__badges" aria-label="Control plane status">
+                        <span class="badge badge--active">Merge-ready baseline</span>
+                        <span class="badge badge--legacy">Staging verification required</span>
+                        <span class="badge badge--disabled">Production blocked</span>
+                        <span class="badge badge--user">Testmode only</span>
+                    </div>
+                </div>
 
                 <!-- Stats Cards -->
                 <div class="admin-stats-meta">
@@ -227,6 +249,22 @@
                         <span class="admin-quick-link__icon">&#x1F465;</span>
                         <span class="admin-quick-link__label">Manage Users</span>
                     </a>
+                    <a href="#orgs" class="admin-quick-link glass glass-card reveal" data-nav="orgs">
+                        <span class="admin-quick-link__icon">&#x1F3E2;</span>
+                        <span class="admin-quick-link__label">Organizations</span>
+                    </a>
+                    <a href="#billing" class="admin-quick-link glass glass-card reveal" data-nav="billing">
+                        <span class="admin-quick-link__icon">&#x1F4B3;</span>
+                        <span class="admin-quick-link__label">Billing & Credits</span>
+                    </a>
+                    <a href="#ai-usage" class="admin-quick-link glass glass-card reveal" data-nav="ai-usage">
+                        <span class="admin-quick-link__icon">&#x1F9E0;</span>
+                        <span class="admin-quick-link__label">AI Usage</span>
+                    </a>
+                    <a href="#lifecycle" class="admin-quick-link glass glass-card reveal" data-nav="lifecycle">
+                        <span class="admin-quick-link__icon">&#x1F512;</span>
+                        <span class="admin-quick-link__label">Data Lifecycle</span>
+                    </a>
                     <a href="#content" class="admin-quick-link glass glass-card reveal" data-nav="content">
                         <span class="admin-quick-link__icon">&#x1F4DD;</span>
                         <span class="admin-quick-link__label">Content</span>
@@ -239,11 +277,259 @@
                         <span class="admin-quick-link__icon">&#x1F4CB;</span>
                         <span class="admin-quick-link__label">Activity Log</span>
                     </a>
-                    <a href="#access" class="admin-quick-link glass glass-card reveal" data-nav="access">
-                        <span class="admin-quick-link__icon">&#x1F512;</span>
-                        <span class="admin-quick-link__label">Access Rules</span>
+                    <a href="#readiness" class="admin-quick-link glass glass-card reveal" data-nav="readiness">
+                        <span class="admin-quick-link__icon">&#x2705;</span>
+                        <span class="admin-quick-link__label">Readiness</span>
                     </a>
                 </div>
+
+                <div id="controlPlaneCapabilityGrid" class="admin-control-grid" aria-live="polite"></div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 SECURITY & POLICY
+                 ═══════════════════════════════════════ -->
+            <div id="sectionSecurity" class="admin-section" style="display:none">
+                <div id="controlSecurity" class="admin-control-stack"></div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 ORGANIZATIONS / RBAC
+                 ═══════════════════════════════════════ -->
+            <div id="sectionOrgs" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">Organizations / RBAC</h3>
+                        <p class="admin-shell__desc">Admin inspection for organizations, member roles, and active membership state. Read-only in this control plane.</p>
+                    </div>
+                    <button type="button" id="orgsRefresh" class="btn-action">Refresh</button>
+                </div>
+                <div id="orgsState" class="admin-state">Loading organizations...</div>
+                <div id="orgsList" class="admin-control-stack"></div>
+                <div id="orgDetail" class="admin-control-detail glass glass-card" hidden></div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 BILLING / CREDITS / ENTITLEMENTS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionBilling" class="admin-section" style="display:none">
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <div class="admin-control-card-head">
+                            <div>
+                                <h3 class="admin-section-title">Plans & Entitlements</h3>
+                                <p class="admin-shell__desc">Read-only plan catalog and entitlement keys.</p>
+                            </div>
+                            <button type="button" id="billingPlansRefresh" class="btn-action">Refresh</button>
+                        </div>
+                        <div id="billingPlansState" class="admin-state">Loading plans...</div>
+                        <div id="billingPlans"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Organization Billing</h3>
+                        <p class="admin-shell__desc">Inspect an organization credit balance and grant manual credits with confirmation.</p>
+                        <form id="orgBillingLookupForm" class="admin-control-form">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Organization ID</span>
+                                <input id="orgBillingId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_...">
+                            </label>
+                            <button type="submit" class="btn-action">Load Billing</button>
+                        </form>
+                        <div id="orgBillingState" class="admin-state">Enter an organization ID to inspect billing state.</div>
+                        <div id="orgBillingDetail"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Manual Credit Grant</h3>
+                        <p class="admin-shell__desc">Admin-only grant. Requires reason, confirmation, same-origin browser context, and a generated idempotency key.</p>
+                        <form id="creditGrantForm" class="admin-control-form">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Organization ID</span>
+                                <input id="creditGrantOrgId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_...">
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Credits</span>
+                                <input id="creditGrantAmount" class="admin-ai__input" type="number" min="1" max="100000" step="1" placeholder="100">
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Reason</span>
+                                <textarea id="creditGrantReason" class="admin-ai__textarea" rows="3" maxlength="500" placeholder="Support adjustment, incident compensation, test credit pack reconciliation..."></textarea>
+                            </label>
+                            <button type="submit" class="admin-ai__run">Grant Credits</button>
+                        </form>
+                        <div id="creditGrantResult" class="admin-state" aria-live="polite"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 BILLING EVENTS / STRIPE TESTMODE
+                 ═══════════════════════════════════════ -->
+            <div id="sectionBillingEvents" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">Billing Events / Stripe Testmode</h3>
+                        <p class="admin-shell__desc">Sanitized billing-provider event inspection. Stripe is Testmode-only; live billing is disabled.</p>
+                    </div>
+                    <div class="admin-control-toolbar__badges">
+                        <span class="badge badge--user">Testmode only</span>
+                        <span class="badge badge--disabled">Live disabled</span>
+                    </div>
+                </div>
+                <form id="billingEventsFilter" class="admin-control-filter glass glass-card">
+                    <label class="admin-ai__field">
+                        <span class="admin-ai__label">Provider</span>
+                        <select id="billingEventsProvider" class="admin-ai__input">
+                            <option value="">All</option>
+                            <option value="stripe">Stripe</option>
+                            <option value="test">Synthetic test</option>
+                        </select>
+                    </label>
+                    <label class="admin-ai__field">
+                        <span class="admin-ai__label">Status</span>
+                        <select id="billingEventsStatus" class="admin-ai__input">
+                            <option value="">All</option>
+                            <option value="received">Received</option>
+                            <option value="planned">Planned</option>
+                            <option value="ignored">Ignored</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </label>
+                    <button type="submit" class="btn-action">Apply</button>
+                </form>
+                <div id="billingEventsState" class="admin-state">Loading billing events...</div>
+                <div id="billingEventsList"></div>
+                <div id="billingEventDetail" class="admin-control-detail glass glass-card" hidden></div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 AI USAGE / ATTEMPTS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionAiUsage" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">AI Usage / Credits / Attempts</h3>
+                        <p class="admin-shell__desc">Inspect org-scoped AI usage attempts, reservations, replay state, and bounded cleanup. Legacy no-org image usage remains outside credit enforcement.</p>
+                    </div>
+                    <button type="button" id="aiAttemptsRefresh" class="btn-action">Refresh</button>
+                </div>
+                <form id="aiAttemptsFilter" class="admin-control-filter glass glass-card">
+                    <label class="admin-ai__field">
+                        <span class="admin-ai__label">Feature</span>
+                        <select id="aiAttemptsFeature" class="admin-ai__input">
+                            <option value="">All</option>
+                            <option value="ai.image.generate">Image</option>
+                            <option value="ai.text.generate">Text</option>
+                        </select>
+                    </label>
+                    <label class="admin-ai__field">
+                        <span class="admin-ai__label">Status</span>
+                        <input id="aiAttemptsStatus" class="admin-ai__input" type="text" placeholder="reserved, succeeded, provider_failed...">
+                    </label>
+                    <label class="admin-ai__field">
+                        <span class="admin-ai__label">Organization ID</span>
+                        <input id="aiAttemptsOrgId" class="admin-ai__input" type="text" placeholder="org_...">
+                    </label>
+                    <button type="submit" class="btn-action">Apply</button>
+                </form>
+                <div id="aiAttemptsState" class="admin-state">Loading usage attempts...</div>
+                <div id="aiAttemptsList"></div>
+                <div id="aiAttemptDetail" class="admin-control-detail glass glass-card" hidden></div>
+                <div class="admin-shell glass glass-card reveal visible">
+                    <h3 class="admin-section-title">Cleanup Expired Attempts</h3>
+                    <p class="admin-shell__desc">Dry-run is the default. Execute mode releases stale reservations and cleans only eligible expired replay metadata/temporary replay objects.</p>
+                    <form id="aiCleanupForm" class="admin-control-form admin-control-form--inline">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Limit</span>
+                            <input id="aiCleanupLimit" class="admin-ai__input" type="number" min="1" max="50" step="1" value="10">
+                        </label>
+                        <label class="admin-ai__field admin-ai__field--inline">
+                            <input id="aiCleanupExecute" type="checkbox">
+                            <span class="admin-ai__label">Execute instead of dry-run</span>
+                        </label>
+                        <button type="submit" class="admin-ai__run">Run Cleanup</button>
+                    </form>
+                    <div id="aiCleanupResult" class="admin-state" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 DATA LIFECYCLE
+                 ═══════════════════════════════════════ -->
+            <div id="sectionLifecycle" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">Data Lifecycle / Privacy Operations</h3>
+                        <p class="admin-shell__desc">Admin request and export archive inspection. Irreversible deletion remains disabled by backend policy.</p>
+                    </div>
+                    <div class="admin-control-toolbar__badges">
+                        <span class="badge badge--legacy">Dry-run planning</span>
+                        <span class="badge badge--disabled">No legal compliance claim</span>
+                    </div>
+                </div>
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <div class="admin-control-card-head">
+                            <div>
+                                <h3 class="admin-section-title">Requests</h3>
+                                <p class="admin-shell__desc">Recent export, delete, anonymize, and retention-cleanup requests.</p>
+                            </div>
+                            <button type="button" id="lifecycleRequestsRefresh" class="btn-action">Refresh</button>
+                        </div>
+                        <div id="lifecycleRequestsState" class="admin-state">Loading requests...</div>
+                        <div id="lifecycleRequests"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <div class="admin-control-card-head">
+                            <div>
+                                <h3 class="admin-section-title">Export Archives</h3>
+                                <p class="admin-shell__desc">Private archive metadata only. Raw archive bodies are not shown in this control plane.</p>
+                            </div>
+                            <button type="button" id="lifecycleArchivesRefresh" class="btn-action">Refresh</button>
+                        </div>
+                        <div id="lifecycleArchivesState" class="admin-state">Loading archives...</div>
+                        <div id="lifecycleArchives"></div>
+                        <div class="admin-reference-note">Expired archive cleanup endpoint exists, but this UI does not expose it because the backend cleanup is execute-only rather than dry-run.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 OPERATIONS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionOperations" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">AI Operations / Video Diagnostics</h3>
+                        <p class="admin-shell__desc">Operational diagnostics for async admin video jobs and poison/failure queues. Sync video debug remains disabled unless explicitly configured.</p>
+                    </div>
+                    <button type="button" id="operationsRefresh" class="btn-action">Refresh</button>
+                </div>
+                <div class="admin-shell-grid">
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Poison Messages</h3>
+                        <div id="videoPoisonState" class="admin-state">Loading poison messages...</div>
+                        <div id="videoPoisonList"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Failed Jobs</h3>
+                        <div id="videoFailedState" class="admin-state">Loading failed jobs...</div>
+                        <div id="videoFailedList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 RELEASE / OPERATIONAL READINESS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionReadiness" class="admin-section" style="display:none">
+                <div id="readinessChecklist" class="admin-control-stack"></div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 ADMIN SETTINGS
+                 ═══════════════════════════════════════ -->
+            <div id="sectionSettings" class="admin-section" style="display:none">
+                <div id="adminSettingsPanel" class="admin-control-stack"></div>
             </div>
 
             <!-- ═══════════════════════════════════════

@@ -501,7 +501,8 @@
       "/admin/ai/video-jobs/failed",
       "/admin/ai/compare",
       "/admin/ai/live-agent",
-      "/admin/ai/save-text-asset"
+      "/admin/ai/save-text-asset",
+      "/admin/ai/usage-attempts/cleanup-expired"
     ],
     "authToAiRoutes": {
       "/api/admin/ai/models": "/internal/ai/models",

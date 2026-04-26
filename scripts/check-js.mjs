@@ -44,6 +44,7 @@ const CHECK_TARGETS = [
   "workers/auth/src/routes/orgs.js",
   "workers/ai/src/routes/video-task.js",
   "js/pages/admin/ai-lab.js",
+  "js/pages/admin/control-plane.js",
   "js/shared/auth-api.js",
   "js/shared/admin-ai-contract.mjs",
   "js/shared/request-body.mjs",

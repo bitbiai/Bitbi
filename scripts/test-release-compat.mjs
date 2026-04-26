@@ -483,6 +483,7 @@ const baseManifest = {
       "/admin/ai/compare",
       "/admin/ai/live-agent",
       "/admin/ai/save-text-asset",
+      "/admin/ai/usage-attempts/cleanup-expired",
     ],
     authToAiRoutes: {
       "/api/admin/ai/models": "/internal/ai/models",
@@ -763,6 +764,7 @@ function createValidContext() {
       export function apiAdminAiCompare() { return request('POST', '/admin/ai/compare'); }
       export function apiAdminAiLiveAgent() { return request('POST', '/admin/ai/live-agent'); }
       export function apiAdminAiSaveTextAsset() { return request('POST', '/admin/ai/save-text-asset'); }
+      export function apiAdminAiCleanupUsageAttempts() { return request('POST', '/admin/ai/usage-attempts/cleanup-expired'); }
     `,
     authIndexSource: `
       if (pathname === "/api/health" && method === "GET") return handleHealth();

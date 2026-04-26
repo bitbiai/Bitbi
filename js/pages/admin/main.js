@@ -29,6 +29,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { galleryItems } from '../../shared/gallery-data.js?v=__ASSET_VERSION__';
 import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
+import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__';
 
 /* ═══════════════════════════════════════════════════════════
    DOM refs
@@ -86,23 +87,41 @@ const $lightboxEmail = document.getElementById('lightboxEmail');
 /* Section containers */
 const sections = {
     dashboard: document.getElementById('sectionDashboard'),
+    security:  document.getElementById('sectionSecurity'),
+    orgs:      document.getElementById('sectionOrgs'),
+    billing:   document.getElementById('sectionBilling'),
+    'billing-events': document.getElementById('sectionBillingEvents'),
+    'ai-usage': document.getElementById('sectionAiUsage'),
+    lifecycle: document.getElementById('sectionLifecycle'),
+    operations: document.getElementById('sectionOperations'),
+    readiness: document.getElementById('sectionReadiness'),
     users:     document.getElementById('sectionUsers'),
     content:   document.getElementById('sectionContent'),
     media:     document.getElementById('sectionMedia'),
     'ai-lab':  document.getElementById('sectionAiLab'),
     access:    document.getElementById('sectionAccess'),
     activity:  document.getElementById('sectionActivity'),
+    settings:  document.getElementById('sectionSettings'),
 };
 
 /* Section metadata for hero */
 const sectionMeta = {
-    dashboard: { title: 'Dashboard',        desc: 'System overview and quick actions' },
+    dashboard: { title: 'Command Center',   desc: 'System overview, readiness, and control-plane entrypoints' },
+    security:  { title: 'Security & Policy', desc: 'Route policy, MFA, service auth, and fail-closed guardrails' },
+    orgs:      { title: 'Organizations',    desc: 'Organization, tenant, and membership inspection' },
+    billing:   { title: 'Billing & Credits', desc: 'Plans, entitlements, balances, and safe manual credit grants' },
+    'billing-events': { title: 'Billing Events', desc: 'Provider event inspection and Stripe Testmode status' },
+    'ai-usage': { title: 'AI Usage',         desc: 'Org-scoped usage attempts, reservations, replay, and cleanup' },
+    lifecycle: { title: 'Data Lifecycle',   desc: 'Export, deletion planning, archive, and retention operations' },
+    operations: { title: 'Operations',      desc: 'Async AI video diagnostics and operational visibility' },
+    readiness: { title: 'Readiness',        desc: 'Release, migration, Cloudflare, and staging verification checklist' },
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
     content:   { title: 'Content',          desc: 'Site content entries and publishing' },
     media:     { title: 'Media Library',    desc: 'Assets, images, audio, and video files' },
     'ai-lab':  { title: 'AI Lab',           desc: 'Admin-only AI tests, previews, and model comparisons' },
     access:    { title: 'Access Control',   desc: 'Membership gating and role-based access' },
     activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
+    settings:  { title: 'Admin Settings',   desc: 'Safe settings boundaries and deployment-owned configuration' },
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -117,6 +136,7 @@ function showToast(message, type = 'success') {
 }
 
 const aiLab = createAdminAiLab({ showToast });
+const controlPlane = createAdminControlPlane({ showToast, formatDate });
 const ADMIN_MFA_GATE_CODES = new Set([
     'admin_mfa_enrollment_required',
     'admin_mfa_required',
@@ -347,6 +367,7 @@ function bootstrapAdminPanel() {
 
     initAvatarDropdown();
     initLightbox();
+    controlPlane.bind();
 
     $searchForm.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -537,6 +558,10 @@ function showSection(name) {
 
     // Load section data
     if (name === 'dashboard') loadDashboard();
+    controlPlane.load(name).catch((error) => {
+        console.warn(error);
+        showToast('Failed to load control-plane section.', 'error');
+    });
     if (name === 'users') loadUsers($searchInput.value.trim());
     if (name === 'activity') loadActivity();
     if (name === 'content' && !contentLoaded) { loadContent(); contentLoaded = true; }

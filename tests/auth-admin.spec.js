@@ -1291,6 +1291,299 @@ async function mockAdminAiLab(page, captures = {}) {
   });
 }
 
+async function fulfillJson(route, body, status = 200) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
+  });
+}
+
+async function mockAdminControlPlane(page, captures = {}) {
+  captures.creditGrantRequests = captures.creditGrantRequests || [];
+  captures.aiCleanupRequests = captures.aiCleanupRequests || [];
+
+  const orgList = {
+    ok: true,
+    organizations: [
+      {
+        id: 'org_control_1234567890',
+        name: 'Control Plane Org',
+        slug: 'control-plane-org',
+        status: 'active',
+        memberCount: 3,
+        createdByEmail: 'owner@example.com',
+        createdAt: '2026-04-18T10:00:00.000Z',
+      },
+    ],
+  };
+
+  await page.route('**/api/admin/orgs?*', async (route) => {
+    await fulfillJson(route, orgList);
+  });
+  await page.route('**/api/admin/orgs', async (route) => {
+    await fulfillJson(route, orgList);
+  });
+  await page.route('**/api/admin/orgs/org_control_1234567890', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      organization: {
+        id: 'org_control_1234567890',
+        name: 'Control Plane Org',
+        slug: 'control-plane-org',
+        status: 'active',
+        createdByEmail: 'owner@example.com',
+        createdAt: '2026-04-18T10:00:00.000Z',
+      },
+      members: [
+        {
+          userId: 'user_owner',
+          email: 'owner@example.com',
+          role: 'owner',
+          status: 'active',
+          createdAt: '2026-04-18T10:05:00.000Z',
+        },
+        {
+          userId: 'user_member',
+          email: 'member@example.com',
+          role: 'member',
+          status: 'active',
+          createdAt: '2026-04-18T11:05:00.000Z',
+        },
+      ],
+    });
+  });
+
+  await page.route('**/api/admin/billing/plans', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      livePaymentProviderEnabled: false,
+      plans: [
+        {
+          code: 'free',
+          name: 'Free',
+          status: 'active',
+          monthlyCreditGrant: 25,
+          entitlements: [
+            { featureKey: 'ai.image.generate' },
+            { featureKey: 'ai.text.generate' },
+          ],
+        },
+        {
+          code: 'creator_test',
+          name: 'Creator Test',
+          status: 'active',
+          monthlyCreditGrant: 500,
+          entitlements: [
+            { featureKey: 'ai.image.generate' },
+            { featureKey: 'ai.text.generate' },
+            { featureKey: 'ai.video.generate' },
+          ],
+        },
+      ],
+    });
+  });
+
+  await page.route('**/api/admin/orgs/org_control_1234567890/billing', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      billing: {
+        organizationId: 'org_control_1234567890',
+        planCode: 'free',
+        creditBalance: 125,
+        entitlements: [
+          { featureKey: 'ai.image.generate' },
+          { featureKey: 'ai.text.generate' },
+        ],
+      },
+    });
+  });
+
+  await page.route('**/api/admin/orgs/org_control_1234567890/credits/grant', async (route) => {
+    captures.creditGrantRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      ledgerEntry: {
+        amount: route.request().postDataJSON().amount,
+        balanceAfter: 175,
+      },
+    }, 201);
+  });
+
+  const billingEventsPayload = {
+    ok: true,
+    livePaymentProviderEnabled: false,
+    events: [
+      {
+        id: 'bpe_control_1',
+        provider: 'stripe',
+        providerMode: 'test',
+        eventType: 'checkout.session.completed',
+        processingStatus: 'completed',
+        verificationStatus: 'verified',
+        organizationId: 'org_control_1234567890',
+        userId: 'user_owner',
+        receivedAt: '2026-04-20T10:00:00.000Z',
+        payloadSummary: {
+          credit_pack_id: 'credits_100',
+          credits: 100,
+          raw_payload: 'should-not-render',
+          payload_hash: 'internal-hash',
+        },
+      },
+    ],
+  };
+  await page.route('**/api/admin/billing/events?*', async (route) => {
+    await fulfillJson(route, billingEventsPayload);
+  });
+  await page.route('**/api/admin/billing/events', async (route) => {
+    await fulfillJson(route, billingEventsPayload);
+  });
+  await page.route('**/api/admin/billing/events/bpe_control_1', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      livePaymentProviderEnabled: false,
+      event: {
+        ...billingEventsPayload.events[0],
+        actions: [
+          {
+            actionType: 'grant_credits',
+            status: 'completed',
+            dryRun: false,
+            summary: {
+              credits: 100,
+              secret_value: 'hidden',
+              stripe_signature: 'hidden',
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  const attemptsPayload = {
+    ok: true,
+    attempts: [
+      {
+        attemptId: 'aua_control_1',
+        organizationId: 'org_control_1234567890',
+        userId: 'user_member',
+        feature: 'ai.text.generate',
+        status: 'completed',
+        providerStatus: 'succeeded',
+        billingStatus: 'finalized',
+        creditCost: 1,
+        replay: { available: true, status: 'available' },
+        updatedAt: '2026-04-21T10:00:00.000Z',
+      },
+    ],
+  };
+  await page.route('**/api/admin/ai/usage-attempts?*', async (route) => {
+    await fulfillJson(route, attemptsPayload);
+  });
+  await page.route('**/api/admin/ai/usage-attempts', async (route) => {
+    await fulfillJson(route, attemptsPayload);
+  });
+  await page.route('**/api/admin/ai/usage-attempts/aua_control_1', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      attempt: {
+        ...attemptsPayload.attempts[0],
+        route: '/api/ai/generate-text',
+        operation: 'ai.text.generate',
+        result: {
+          model: '@cf/openai/gpt-oss-20b',
+          promptLength: 128,
+          replayTextLength: 220,
+          idempotencyKeyHash: 'should-not-render',
+          requestFingerprintHash: 'should-not-render',
+        },
+        error: null,
+      },
+    });
+  });
+  await page.route('**/api/admin/ai/usage-attempts/cleanup-expired', async (route) => {
+    captures.aiCleanupRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      cleanup: {
+        scannedCount: 3,
+        expiredCount: 1,
+        reservationsReleasedCount: 1,
+        replayObjectsDeletedCount: 0,
+        failedCount: 0,
+      },
+    });
+  });
+
+  await page.route('**/api/admin/data-lifecycle/requests?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      requests: [
+        {
+          id: 'dlr_control_1',
+          type: 'export',
+          status: 'archive_generated',
+          subjectUserId: 'user_member',
+          dryRun: true,
+          createdAt: '2026-04-22T09:00:00.000Z',
+          expiresAt: '2026-05-22T09:00:00.000Z',
+        },
+      ],
+    });
+  });
+  await page.route('**/api/admin/data-lifecycle/exports?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      archives: [
+        {
+          id: 'dxa_control_1',
+          status: 'available',
+          subjectUserId: 'user_member',
+          sizeBytes: 2048,
+          createdAt: '2026-04-22T09:30:00.000Z',
+          expiresAt: '2026-05-22T09:30:00.000Z',
+        },
+      ],
+    });
+  });
+
+  await page.route('**/api/admin/ai/video-jobs/poison?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      poisonMessages: [
+        {
+          id: 'poison_control_1',
+          jobId: 'video_job_1',
+          reason: 'max_attempts',
+          createdAt: '2026-04-23T08:00:00.000Z',
+        },
+      ],
+    });
+  });
+  await page.route('**/api/admin/ai/video-jobs/failed?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      failedJobs: [
+        {
+          id: 'video_job_2',
+          jobId: 'video_job_2',
+          status: 'failed',
+          errorCode: 'provider_failed',
+          updatedAt: '2026-04-23T08:30:00.000Z',
+        },
+      ],
+    });
+  });
+}
+
 async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   const folderPayload = options.folderPayload || {
     folders: [],
@@ -4426,6 +4719,142 @@ test.describe('Profile page (authenticated mobile)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Admin Control Plane
+// ---------------------------------------------------------------------------
+
+test.describe('Admin Control Plane', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+    await mockAdminAiLab(page);
+  });
+
+  test('renders command center and major admin sections from existing APIs', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const consoleErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !message.text().includes('Failed to load resource')) {
+        consoleErrors.push(message.text());
+      }
+    });
+
+    const response = await page.goto('/admin/index.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#controlPlaneTitle')).toContainText('Operate BITBI');
+    await expect(page.locator('#sectionDashboard')).toContainText('Production blocked');
+    await expect(page.locator('#sectionDashboard')).toContainText('Testmode only');
+    await expect(page.locator('#statTotal')).toHaveText('12');
+
+    await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeVisible();
+
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Organizations / RBAC');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Billing / Credits');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
+
+    await page.locator('a.admin-nav__link[data-section="security"]').click();
+    await expect(page).toHaveURL(/#security$/);
+    await expect(page.locator('#sectionSecurity')).toContainText('Route Policy Registry');
+    await expect(page.locator('#sectionSecurity')).toContainText('Secret values');
+
+    await page.locator('a.admin-nav__link[data-section="orgs"]').click();
+    await expect(page).toHaveURL(/#orgs$/);
+    await expect(page.locator('#sectionOrgs')).toContainText('Control Plane Org');
+    await page.getByRole('button', { name: 'Inspect' }).first().click();
+    await expect(page.locator('#orgDetail')).toContainText('owner@example.com');
+    await expect(page.locator('#orgDetail')).toContainText('member@example.com');
+
+    await page.locator('a.admin-nav__link[data-section="billing"]').click();
+    await expect(page.locator('#sectionBilling')).toContainText('Free');
+    await expect(page.locator('#sectionBilling')).toContainText('ai.text.generate');
+    await page.locator('#orgBillingId').fill('org_control_1234567890');
+    await page.locator('#orgBillingLookupForm').getByRole('button', { name: 'Load Billing' }).click();
+    await expect(page.locator('#orgBillingDetail')).toContainText('Credit balance');
+    await expect(page.locator('#orgBillingDetail')).toContainText('125');
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#creditGrantOrgId').fill('org_control_1234567890');
+    await page.locator('#creditGrantAmount').fill('50');
+    await page.locator('#creditGrantReason').fill('Support adjustment for control-plane test');
+    await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
+    await expect(page.locator('#creditGrantResult')).toContainText('Credit grant recorded');
+    expect(captures.creditGrantRequests).toHaveLength(1);
+    expect(captures.creditGrantRequests[0].idempotencyKey).toMatch(/^admin-credit-grant-/);
+    expect(captures.creditGrantRequests[0].body).toEqual({
+      amount: 50,
+      reason: 'Support adjustment for control-plane test',
+    });
+
+    await page.locator('a.admin-nav__link[data-section="billing-events"]').click();
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Testmode only');
+    await expect(page.locator('#billingEventsList')).toContainText('checkout.session.completed');
+    await page.locator('#billingEventsList').getByRole('button', { name: 'Inspect' }).click();
+    await expect(page.locator('#billingEventDetail')).toContainText('grant_credits');
+    await expect(page.locator('#billingEventDetail')).not.toContainText('should-not-render');
+    await expect(page.locator('#billingEventDetail')).not.toContainText('stripe_signature');
+
+    await page.locator('a.admin-nav__link[data-section="ai-usage"]').click();
+    await expect(page.locator('#aiAttemptsList')).toContainText('AI Text');
+    await page.locator('#aiAttemptsList').getByRole('button', { name: 'Inspect' }).click();
+    await expect(page.locator('#aiAttemptDetail')).toContainText('/api/ai/generate-text');
+    await expect(page.locator('#aiAttemptDetail')).not.toContainText('should-not-render');
+    await page.locator('#aiCleanupForm').getByRole('button', { name: 'Run Cleanup' }).click();
+    await expect(page.locator('#aiCleanupResult')).toContainText('Scanned 3');
+    expect(captures.aiCleanupRequests).toHaveLength(1);
+    expect(captures.aiCleanupRequests[0].idempotencyKey).toMatch(/^ai-usage-cleanup-/);
+    expect(captures.aiCleanupRequests[0].body.dry_run).toBe(true);
+
+    await page.locator('a.admin-nav__link[data-section="lifecycle"]').click();
+    await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');
+    await expect(page.locator('#sectionLifecycle')).toContainText('execute-only rather than dry-run');
+
+    await page.locator('a.admin-nav__link[data-section="operations"]').click();
+    await expect(page.locator('#sectionOperations')).toContainText('max_attempts');
+    await expect(page.locator('#sectionOperations')).toContainText('provider_failed');
+
+    await page.locator('a.admin-nav__link[data-section="readiness"]').click();
+    await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
+    await expect(page.locator('#sectionReadiness')).toContainText('Blocked');
+
+    await page.locator('a.admin-nav__link[data-section="settings"]').click();
+    await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
+
+    const renderedText = await page.locator('#adminPanel').innerText();
+    expect(renderedText).not.toContain('whsec_');
+    expect(renderedText).not.toContain('Stripe-Signature');
+    expect(renderedText).not.toContain('idempotencyKeyHash');
+    expect(renderedText).not.toContain('requestFingerprintHash');
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('shows unavailable states when a backend capability is absent', async ({
+    page,
+  }) => {
+    await page.route('**/api/admin/orgs?*', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Not found' }, 404);
+    });
+    await page.route('**/api/admin/orgs', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Not found' }, 404);
+    });
+
+    const response = await page.goto('/admin/index.html#orgs');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionOrgs')).toBeVisible();
+    await expect(page.locator('#orgsList')).toContainText('Capability unavailable');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Admin AI Lab
 // ---------------------------------------------------------------------------
 
@@ -4569,7 +4998,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicDownload')).toBeVisible();
 
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Dashboard');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
     await expect(page.locator('#statTotal')).toHaveText('12');
   });
 

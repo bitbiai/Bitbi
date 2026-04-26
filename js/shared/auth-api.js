@@ -200,6 +200,89 @@ export function apiAdminUserActivity(limit, cursor, search) {
     return request('GET', `/admin/user-activity${qs}`);
 }
 
+export function apiAdminOrganizations({ limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/orgs${qs}`);
+}
+
+export function apiAdminOrganization(orgId) {
+    return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}`);
+}
+
+export function apiAdminBillingPlans() {
+    return request('GET', '/admin/billing/plans');
+}
+
+export function apiAdminOrganizationBilling(orgId) {
+    return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}/billing`);
+}
+
+export function apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey }) {
+    return request('POST', `/admin/orgs/${encodeURIComponent(orgId)}/credits/grant`, {
+        amount,
+        reason,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminBillingEvents({ provider, status, eventType, organizationId, limit } = {}) {
+    const params = new URLSearchParams();
+    if (provider) params.set('provider', provider);
+    if (status) params.set('status', status);
+    if (eventType) params.set('event_type', eventType);
+    if (organizationId) params.set('organization_id', organizationId);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/billing/events${qs}`);
+}
+
+export function apiAdminBillingEvent(eventId) {
+    return request('GET', `/admin/billing/events/${encodeURIComponent(eventId)}`);
+}
+
+export function apiAdminAiUsageAttempts({ status, organizationId, userId, feature, limit, cursor } = {}) {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (organizationId) params.set('organization_id', organizationId);
+    if (userId) params.set('user_id', userId);
+    if (feature) params.set('feature', feature);
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/ai/usage-attempts${qs}`);
+}
+
+export function apiAdminAiUsageAttempt(attemptId) {
+    return request('GET', `/admin/ai/usage-attempts/${encodeURIComponent(attemptId)}`);
+}
+
+export function apiAdminAiCleanupUsageAttempts({ limit, dryRun, idempotencyKey }) {
+    return request('POST', '/admin/ai/usage-attempts/cleanup-expired', {
+        limit,
+        dry_run: dryRun !== false,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminDataLifecycleRequests({ limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/data-lifecycle/requests${qs}`);
+}
+
+export function apiAdminDataLifecycleArchives({ limit, cursor } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/data-lifecycle/exports${qs}`);
+}
+
 export function apiAdminAiModels(options) {
     return request('GET', '/admin/ai/models', undefined, options);
 }
