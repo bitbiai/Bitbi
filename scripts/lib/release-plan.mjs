@@ -55,6 +55,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run validate:release",
   "npm run validate:cloudflare-prereqs",
   "npm run check:worker-body-parsers",
+  "npm run check:admin-activity-query-shape",
 ]);
 
 const WORKER_RECOMMENDED_CHECKS = Object.freeze([

@@ -20,6 +20,7 @@ Reference documents:
 - `PHASE1D_SECRET_ROTATION_REPORT.md` contains the Phase 1-D purpose-specific security secret inventory, dual-read/single-write compatibility behavior, validation evidence, rollout plan, and rollback guidance.
 - `PHASE1E_ROUTE_POLICY_REPORT.md` contains the Phase 1-E auth-worker route policy registry, coverage guard, CI/preflight integration, validation evidence, and remaining route-policy migration risks.
 - `PHASE1F_OPERATIONAL_READINESS_REPORT.md` contains the Phase 1-F health/readiness, live-check, SLO, runbook, backup/restore drill, queue/backlog, validation, and remaining operational-readiness evidence.
+- `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` contains the Phase 1-G indexed audit/activity search projection, signed activity cursor behavior, query-shape guard, validation evidence, migration requirements, and remaining historical-backfill risks.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -102,6 +103,16 @@ Phase 1-F completed summary:
 - Integrated the operational readiness checks into package scripts, release planning, release compatibility workflow checks, CI, and targeted JS syntax checks.
 - `PHASE1F_OPERATIONAL_READINESS_REPORT.md` documents the inventory, health/readiness behavior, scripts, runbooks, SLO/alert baseline, validation evidence, and remaining live-verification gaps.
 
+Phase 1-G completed summary:
+
+- Added D1 migration `0031_add_activity_search_index.sql` for a normalized `activity_search_index` projection table with indexes for source/time, action, actor email, target email, and entity lookup.
+- Added `workers/auth/src/lib/activity-search.js` to normalize searchable fields and sanitize returned activity metadata.
+- Updated activity write paths and queue ingestion so new admin audit/user activity events populate the projection table.
+- Updated `/api/admin/activity` and `/api/admin/user-activity` to use signed cursors backed by `PAGINATION_SIGNING_SECRET`, route/filter-bound cursor payloads, and projection-backed prefix search instead of raw `meta_json` search.
+- Bounded admin action counts to the hot retention window.
+- Added `scripts/check-admin-activity-query-shape.mjs` plus CI/preflight integration to block raw metadata search, raw activity cursors, and unbounded admin action count regressions.
+- `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` documents the baseline inventory, migration, search behavior change, backfill strategy, validation, deploy requirements, and remaining risks.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -129,6 +140,7 @@ Findings reduced but not fully resolved:
 | Purpose-specific security secrets | Reduced | Phase 1-D separates new session, pagination, admin MFA encryption/proof/recovery, and AI save-reference material from `SESSION_SECRET`; legacy fallback remains during the migration window. |
 | Route security policy scattered across handlers | Reduced | `workers/auth/src/app/route-policy.js`, `scripts/check-route-policies.mjs`, source route-policy markers, CI/preflight integration, and `tests/workers.spec.js` now provide explicit high-risk auth-worker route metadata and coverage checks. |
 | Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
+| Scan-prone admin audit/activity search and raw activity cursors | Reduced | `0031_add_activity_search_index.sql`, `workers/auth/src/lib/activity-search.js`, updated `workers/auth/src/routes/admin.js`, and `scripts/check-admin-activity-query-shape.mjs` replace raw metadata search and raw cursors with indexed projection search and signed cursors for the admin audit/activity endpoints. |
 
 Findings still open:
 
@@ -136,15 +148,15 @@ Findings still open:
 - Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates, and Phase 1-E added route policy guardrails for high-risk auth-worker route review.
 - Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
-- Scalable activity indexes, signed activity cursors, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, full observability/SLOs, and load/performance budgets remain open or deferred.
+- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, full observability/SLOs, and load/performance budgets remain open or deferred.
 
 Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-F validation | Phase 1-F validation passed: `npm run test:workers` 303/303, `npm run test:static` 155/155, operational readiness checks, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-F files listed in `PHASE1F_OPERATIONAL_READINESS_REPORT.md`, including untracked files, must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0030` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, and staging verification passes. |
-| Current recommended next phase | Phase 1-G / Phase 2 planning | Run live staging checks, configure/verify Cloudflare alerts, execute a staging restore drill, add dashboard/IaC drift checks, then continue broader SaaS platform work. |
+| Merge readiness | Conditional pass after Phase 1-G validation | Phase 1-G validation passed: `npm run test:workers` 306/306, `npm run test:static` 155/155, query-shape guard, route-policy/body-parser/quality/operational checks, release compatibility checks, `npm run release:preflight`, and root package audit. All changed/new Phase 1-G files listed in `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0031` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and historical search/backfill expectations are settled. |
+| Current recommended next phase | Phase 1-G staging verification / Phase 2 planning | Apply migration `0031` in staging, verify indexed activity search and signed cursors, decide historical backfill requirements, then continue live staging checks, alert setup, restore drill, dashboard/IaC drift checks, and broader SaaS platform work. |
 
 ## Executive Summary
 

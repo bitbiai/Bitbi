@@ -121,8 +121,8 @@ src/
 - `GET /api/admin/stats` — aggregate admin dashboard stats
 - `GET /api/admin/avatars/latest` — latest avatar uploads
 - `GET /api/admin/avatars/:userId` — serve a user's avatar
-- `GET /api/admin/activity?limit=&cursor=` — cursor-paginated audit log with action counts
-- `GET /api/admin/user-activity?limit=&cursor=&search=` — cursor-paginated user activity log
+- `GET /api/admin/activity?limit=&cursor=&search=` — signed-cursor-paginated audit log with hot-window action counts and indexed prefix search over normalized action/email/entity fields
+- `GET /api/admin/user-activity?limit=&cursor=&search=` — signed-cursor-paginated user activity log with indexed prefix search over normalized action/email/entity fields
 - `GET /api/admin/ai/models` — list AI lab presets and allowlisted models (requires admin)
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
@@ -153,7 +153,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -171,7 +171,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0030_harden_ai_video_jobs_phase1b`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0031_add_activity_search_index`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -189,6 +189,7 @@ Key migration-dependent behavior:
 - `0028_add_admin_mfa_failed_attempts` — required before auth deploy if admin MFA verification lockout must fail closed with durable failed-attempt state and reset-on-success semantics
 - `0029_add_ai_video_jobs` — required before auth deploy if async admin video job creation/status/queue processing must work immediately
 - `0030_harden_ai_video_jobs_phase1b` — required before auth deploy if queue-safe video task polling, R2 output/poster metadata, and video poison-message persistence must work immediately
+- `0031_add_activity_search_index` — required before auth deploy if activity ingest writes and admin audit/user-activity indexed search must work immediately
 
 ## Conventions
 
@@ -206,6 +207,7 @@ Key migration-dependent behavior:
 - `verification_method` column tracks how email was verified: `legacy_auto` (migration backfill), `email_verified` (real verification), or NULL (new unverified user)
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
 - Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables, and `bitbi-ai-video-jobs` processes async admin video jobs outside browser request lifecycles
+- Admin audit/user activity search uses signed cursors from `PAGINATION_SIGNING_SECRET` and the `activity_search_index` projection. Do not reintroduce raw `meta_json LIKE` search or raw `created_at|id` cursors; run `npm run check:admin-activity-query-shape` after activity endpoint changes.
 - Environment secrets: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `RESEND_API_KEY`
 - Optional env var: `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` (defaults enabled for the Phase 1-D compatibility window; set to `false` only after legacy session hashes, MFA material/proofs, cursors, and image save references have expired or migrated)
 - Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

@@ -8,6 +8,7 @@ import {
   getRequestLogFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
+import { buildActivitySearchIndexInsertStatement } from "./activity-search.js";
 
 export const ACTIVITY_INGEST_QUEUE_NAME = "bitbi-auth-activity-ingest";
 export const ACTIVITY_INGEST_QUEUE_MESSAGE_TYPE = "bitbi.activity_ingest";
@@ -161,6 +162,16 @@ export function buildAdminAuditInsertStatement(env, event, { ignoreConflicts = f
   );
 }
 
+export function buildActivityIngestStatements(env, event, { ignoreConflicts = false } = {}) {
+  const sourceStatement = event.table === USER_ACTIVITY_LOG_TABLE
+    ? buildUserActivityInsertStatement(env, event, { ignoreConflicts })
+    : buildAdminAuditInsertStatement(env, event, { ignoreConflicts });
+  return [
+    sourceStatement,
+    buildActivitySearchIndexInsertStatement(env, event, { ignoreConflicts }),
+  ];
+}
+
 export async function logUserActivity(
   env,
   userId,
@@ -236,9 +247,9 @@ export async function enqueueAdminAuditEvent(
     }
 
     try {
-      const result = await buildAdminAuditInsertStatement(env, event, {
+      const [result] = await env.DB.batch(buildActivityIngestStatements(env, event, {
         ignoreConflicts: true,
-      }).run();
+      }));
       logAdminFallbackOutcome({
         event: "admin_audit_fallback_persisted",
         correlationId,

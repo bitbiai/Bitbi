@@ -6,7 +6,21 @@ import {
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { nowIso } from "../lib/tokens.js";
 import { requireAdmin } from "../lib/session.js";
-import { getActivityRetentionMetadata } from "../lib/activity-archive.js";
+import {
+  getActivityRetentionCutoff,
+  getActivityRetentionMetadata,
+} from "../lib/activity-archive.js";
+import {
+  ACTIVITY_CURSOR_TTL_MS,
+  ADMIN_AUDIT_LOG_TABLE,
+  ADMIN_ACTIVITY_CURSOR_TYPE,
+  ADMIN_USER_ACTIVITY_CURSOR_TYPE,
+  USER_ACTIVITY_LOG_TABLE,
+  buildActivitySearchFilterHash,
+  buildActivitySearchRange,
+  normalizeActivitySearchTerm,
+  sanitizeActivityMetaJson,
+} from "../lib/activity-search.js";
 import {
   evaluateSharedRateLimit,
   isProductionEnvironment,
@@ -24,6 +38,7 @@ import {
   encodePaginationCursor,
   paginationErrorResponse,
   readCursorString,
+  readCursorInteger,
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { handleAdminAI } from "./admin-ai.js";
@@ -33,9 +48,80 @@ import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js"
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
 const DEFAULT_ADMIN_USERS_LIMIT = 50;
 const MAX_ADMIN_USERS_LIMIT = 100;
+const DEFAULT_ADMIN_ACTIVITY_LIMIT = 50;
+const MAX_ADMIN_ACTIVITY_LIMIT = 100;
 
 function normalizeAdminUserSearch(value) {
   return String(value || "").trim();
+}
+
+function normalizeActivityEntry(entry, actorEmailField, targetEmailField = null) {
+  const normalized = {
+    ...entry,
+    meta_json: sanitizeActivityMetaJson(entry.action, entry.meta_json),
+  };
+  const fallback = (() => {
+    try {
+      return JSON.parse(entry.meta_json || "{}");
+    } catch {
+      return {};
+    }
+  })();
+  if (actorEmailField && !normalized[actorEmailField]) {
+    normalized[actorEmailField] = fallback.actor_email || fallback.email || null;
+  }
+  if (targetEmailField && !normalized[targetEmailField]) {
+    normalized[targetEmailField] = fallback.target_email || null;
+  }
+  return normalized;
+}
+
+function appendActivitySearchConditions(conditions, bindings, search) {
+  const range = buildActivitySearchRange(search);
+  if (!range) return false;
+  const [start, end] = range;
+  conditions.push(`(
+    (idx.action_norm >= ? AND idx.action_norm < ?)
+    OR (idx.actor_email_norm >= ? AND idx.actor_email_norm < ?)
+    OR (idx.target_email_norm >= ? AND idx.target_email_norm < ?)
+    OR (idx.entity_id >= ? AND idx.entity_id < ?)
+  )`);
+  bindings.push(start, end, start, end, start, end, start, end);
+  return true;
+}
+
+function appendActivityCursorCondition(conditions, bindings, cursor, { createdColumn, idColumn }) {
+  if (!cursor) return;
+  conditions.push(`(${createdColumn} < ? OR (${createdColumn} = ? AND ${idColumn} < ?))`);
+  bindings.push(cursor.c, cursor.c, cursor.i);
+}
+
+async function decodeActivityCursorOrResponse(env, cursorParam, cursorType, expectedFilterHash) {
+  if (!cursorParam) return { cursor: null };
+  try {
+    const decoded = await decodePaginationCursor(env, cursorParam, cursorType);
+    const cursor = {
+      c: readCursorString(decoded, "c"),
+      i: readCursorString(decoded, "i"),
+      q: readCursorString(decoded, "q", { allowEmpty: true, maxLength: 80 }),
+      exp: readCursorInteger(decoded, "exp", { min: 1 }),
+    };
+    if (cursor.q !== expectedFilterHash || cursor.exp <= Date.now()) {
+      return { response: paginationErrorResponse("Invalid cursor.") };
+    }
+    return { cursor };
+  } catch {
+    return { response: paginationErrorResponse("Invalid cursor.") };
+  }
+}
+
+async function encodeActivityCursor(env, cursorType, filterHash, last) {
+  return encodePaginationCursor(env, cursorType, {
+    c: last.created_at,
+    i: last.id,
+    q: filterHash,
+    exp: Date.now() + ACTIVITY_CURSOR_TTL_MS,
+  });
 }
 
 async function enforceAdminActionRateLimit(ctx) {
@@ -685,80 +771,93 @@ export async function handleAdmin(ctx) {
     const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
-    const limit = Math.min(
-      Math.max(parseInt(url.searchParams.get("limit")) || 50, 1),
-      100
-    );
+    const limit = resolvePaginationLimit(url.searchParams.get("limit"), {
+      defaultValue: DEFAULT_ADMIN_ACTIVITY_LIMIT,
+      maxValue: MAX_ADMIN_ACTIVITY_LIMIT,
+    });
     const cursorParam = url.searchParams.get("cursor") || null;
-    const search = url.searchParams.get("search") || null;
+    const search = normalizeActivitySearchTerm(url.searchParams.get("search"));
+    const filterHash = await buildActivitySearchFilterHash(ADMIN_AUDIT_LOG_TABLE, search);
+    const cutoffIso = getActivityRetentionCutoff();
 
-    const conditions = [];
-    const bindings = [];
+    const cursorResult = await decodeActivityCursorOrResponse(
+      env,
+      cursorParam,
+      ADMIN_ACTIVITY_CURSOR_TYPE,
+      filterHash
+    );
+    if (cursorResult.response) return cursorResult.response;
+    const cursor = cursorResult.cursor;
 
-    if (cursorParam) {
-      const sep = cursorParam.indexOf("|");
-      if (sep === -1) {
-        return json(
-          { ok: false, error: "Invalid cursor format." },
-          { status: 400 }
-        );
+    const entriesQuery = (() => {
+      const conditions = [];
+      const bindings = [];
+
+      if (search) {
+        conditions.push(`idx.source_table = '${ADMIN_AUDIT_LOG_TABLE}'`);
+        appendActivityCursorCondition(conditions, bindings, cursor, {
+          createdColumn: "idx.created_at",
+          idColumn: "idx.source_event_id",
+        });
+        appendActivitySearchConditions(conditions, bindings, search);
+        return env.DB.prepare(
+          `SELECT a.id, a.action, a.meta_json, a.created_at,
+                  a.admin_user_id, COALESCE(au.email, idx.actor_email_norm) AS admin_email,
+                  a.target_user_id, COALESCE(tu.email, idx.target_email_norm) AS target_email
+           FROM activity_search_index idx
+           JOIN admin_audit_log a ON a.id = idx.source_event_id
+           LEFT JOIN users au ON au.id = a.admin_user_id
+           LEFT JOIN users tu ON tu.id = a.target_user_id
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY idx.created_at DESC, idx.source_event_id DESC
+           LIMIT ?`
+        ).bind(...bindings, limit + 1);
       }
-      const cursorTime = cursorParam.slice(0, sep);
-      const cursorId = cursorParam.slice(sep + 1);
-      conditions.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))");
-      bindings.push(cursorTime, cursorTime, cursorId);
-    }
 
-    if (search) {
-      const like = `%${search}%`;
-      conditions.push("(au.email LIKE ? OR tu.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)");
-      bindings.push(like, like, like, like);
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    const entriesQuery = env.DB.prepare(
-      `SELECT a.id, a.action, a.meta_json, a.created_at,
-              a.admin_user_id, au.email AS admin_email,
-              a.target_user_id, tu.email AS target_email
-       FROM admin_audit_log a
-       LEFT JOIN users au ON au.id = a.admin_user_id
-       LEFT JOIN users tu ON tu.id = a.target_user_id
-       ${whereClause}
-       ORDER BY a.created_at DESC, a.id DESC
-       LIMIT ?`
-    ).bind(...bindings, limit + 1);
+      appendActivityCursorCondition(conditions, bindings, cursor, {
+        createdColumn: "a.created_at",
+        idColumn: "a.id",
+      });
+      const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      return env.DB.prepare(
+        `SELECT a.id, a.action, a.meta_json, a.created_at,
+                a.admin_user_id, COALESCE(au.email, idx.actor_email_norm) AS admin_email,
+                a.target_user_id, COALESCE(tu.email, idx.target_email_norm) AS target_email
+         FROM admin_audit_log a
+         LEFT JOIN activity_search_index idx
+           ON idx.source_table = 'admin_audit_log'
+          AND idx.source_event_id = a.id
+         LEFT JOIN users au ON au.id = a.admin_user_id
+         LEFT JOIN users tu ON tu.id = a.target_user_id
+         ${whereClause}
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT ?`
+      ).bind(...bindings, limit + 1);
+    })();
 
     const [entriesRes, countsRes] = await env.DB.batch([
       entriesQuery,
       env.DB.prepare(
-        "SELECT action, COUNT(*) AS cnt FROM admin_audit_log GROUP BY action"
-      ),
+        `SELECT action, COUNT(*) AS cnt
+         FROM admin_audit_log
+         WHERE created_at >= ?
+         GROUP BY action`
+      ).bind(cutoffIso),
     ]);
 
-    const rows = entriesRes.results;
+    const rows = entriesRes.results || [];
     const hasMore = rows.length > limit;
-    const entries = hasMore ? rows.slice(0, limit) : rows;
-
-    // Backfill emails from identity snapshots when LEFT JOIN returns NULL
-    for (const entry of entries) {
-      if (!entry.target_email || !entry.admin_email) {
-        try {
-          const meta = JSON.parse(entry.meta_json || '{}');
-          if (!entry.target_email && meta.target_email) entry.target_email = meta.target_email;
-          if (!entry.admin_email && meta.actor_email) entry.admin_email = meta.actor_email;
-        } catch {}
-      }
-    }
+    const entries = (hasMore ? rows.slice(0, limit) : rows)
+      .map((entry) => normalizeActivityEntry(entry, "admin_email", "target_email"));
 
     let nextCursor = null;
     if (hasMore && entries.length > 0) {
       const last = entries[entries.length - 1];
-      nextCursor = `${last.created_at}|${last.id}`;
+      nextCursor = await encodeActivityCursor(env, ADMIN_ACTIVITY_CURSOR_TYPE, filterHash, last);
     }
 
     const counts = {};
-    for (const row of countsRes.results) {
+    for (const row of countsRes.results || []) {
       counts[row.action] = row.cnt;
     }
 
@@ -767,6 +866,7 @@ export async function handleAdmin(ctx) {
       entries,
       nextCursor,
       counts,
+      searchMode: search ? "indexed_prefix" : "recent",
       ...getActivityRetentionMetadata(),
     });
   }
@@ -776,49 +876,67 @@ export async function handleAdmin(ctx) {
     const result = await requireAdmin(request, env, { isSecure, correlationId });
     if (result instanceof Response) return result;
 
-    const limit = Math.min(
-      Math.max(parseInt(url.searchParams.get("limit")) || 50, 1),
-      100
-    );
+    const limit = resolvePaginationLimit(url.searchParams.get("limit"), {
+      defaultValue: DEFAULT_ADMIN_ACTIVITY_LIMIT,
+      maxValue: MAX_ADMIN_ACTIVITY_LIMIT,
+    });
     const cursorParam = url.searchParams.get("cursor") || null;
-    const search = url.searchParams.get("search") || null;
+    const search = normalizeActivitySearchTerm(url.searchParams.get("search"));
+    const filterHash = await buildActivitySearchFilterHash(USER_ACTIVITY_LOG_TABLE, search);
 
-    const conditions = [];
-    const bindings = [];
-
-    if (cursorParam) {
-      const sep = cursorParam.indexOf("|");
-      if (sep === -1) {
-        return json(
-          { ok: false, error: "Invalid cursor format." },
-          { status: 400 }
-        );
-      }
-      const cursorTime = cursorParam.slice(0, sep);
-      const cursorId = cursorParam.slice(sep + 1);
-      conditions.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))");
-      bindings.push(cursorTime, cursorTime, cursorId);
-    }
-
-    if (search) {
-      const like = `%${search}%`;
-      conditions.push("(u.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)");
-      bindings.push(like, like, like);
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const cursorResult = await decodeActivityCursorOrResponse(
+      env,
+      cursorParam,
+      ADMIN_USER_ACTIVITY_CURSOR_TYPE,
+      filterHash
+    );
+    if (cursorResult.response) return cursorResult.response;
+    const cursor = cursorResult.cursor;
 
     let entriesRes;
     try {
-      entriesRes = await env.DB.prepare(
-        `SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at,
-                u.email AS user_email
-         FROM user_activity_log a
-         LEFT JOIN users u ON u.id = a.user_id
-         ${whereClause}
-         ORDER BY a.created_at DESC, a.id DESC
-         LIMIT ?`
-      ).bind(...bindings, limit + 1).all();
+      const conditions = [];
+      const bindings = [];
+      let entriesQuery;
+
+      if (search) {
+        conditions.push(`idx.source_table = '${USER_ACTIVITY_LOG_TABLE}'`);
+        appendActivityCursorCondition(conditions, bindings, cursor, {
+          createdColumn: "idx.created_at",
+          idColumn: "idx.source_event_id",
+        });
+        appendActivitySearchConditions(conditions, bindings, search);
+        entriesQuery = env.DB.prepare(
+          `SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at,
+                  COALESCE(u.email, idx.actor_email_norm) AS user_email
+           FROM activity_search_index idx
+           JOIN user_activity_log a ON a.id = idx.source_event_id
+           LEFT JOIN users u ON u.id = a.user_id
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY idx.created_at DESC, idx.source_event_id DESC
+           LIMIT ?`
+        ).bind(...bindings, limit + 1);
+      } else {
+        appendActivityCursorCondition(conditions, bindings, cursor, {
+          createdColumn: "a.created_at",
+          idColumn: "a.id",
+        });
+        const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+        entriesQuery = env.DB.prepare(
+          `SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at,
+                  COALESCE(u.email, idx.actor_email_norm) AS user_email
+           FROM user_activity_log a
+           LEFT JOIN activity_search_index idx
+             ON idx.source_table = 'user_activity_log'
+            AND idx.source_event_id = a.id
+           LEFT JOIN users u ON u.id = a.user_id
+           ${whereClause}
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT ?`
+        ).bind(...bindings, limit + 1);
+      }
+
+      entriesRes = await entriesQuery.all();
     } catch (e) {
       // Graceful degradation if migration 0012 has not been applied
       if (String(e).includes("no such table")) {
@@ -834,30 +952,22 @@ export async function handleAdmin(ctx) {
       throw e;
     }
 
-    const rows = entriesRes.results;
+    const rows = entriesRes.results || [];
     const hasMore = rows.length > limit;
-    const entries = hasMore ? rows.slice(0, limit) : rows;
-
-    // Backfill email from meta if user was deleted
-    for (const entry of entries) {
-      if (!entry.user_email) {
-        try {
-          const meta = JSON.parse(entry.meta_json || '{}');
-          if (meta.email) entry.user_email = meta.email;
-        } catch {}
-      }
-    }
+    const entries = (hasMore ? rows.slice(0, limit) : rows)
+      .map((entry) => normalizeActivityEntry(entry, "user_email"));
 
     let nextCursor = null;
     if (hasMore && entries.length > 0) {
       const last = entries[entries.length - 1];
-      nextCursor = `${last.created_at}|${last.id}`;
+      nextCursor = await encodeActivityCursor(env, ADMIN_USER_ACTIVITY_CURSOR_TYPE, filterHash, last);
     }
 
     return json({
       ok: true,
       entries,
       nextCursor,
+      searchMode: search ? "indexed_prefix" : "recent",
       ...getActivityRetentionMetadata(),
     });
   }

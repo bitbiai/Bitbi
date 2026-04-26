@@ -240,8 +240,14 @@ export const ROUTE_POLICIES = Object.freeze([
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
-  adminRead("admin.activity.read", "/api/admin/activity", "admin"),
-  adminRead("admin.user-activity.read", "/api/admin/user-activity", "admin"),
+  adminRead("admin.activity.read", "/api/admin/activity", "admin", {
+    config: ["DB", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { noneReason: "Read-only admin audit search uses signed keyset cursors and bounded indexed query shapes." },
+  }),
+  adminRead("admin.user-activity.read", "/api/admin/user-activity", "admin", {
+    config: ["DB", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { noneReason: "Read-only admin user-activity search uses signed keyset cursors and bounded indexed query shapes." },
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

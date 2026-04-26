@@ -74,6 +74,8 @@ jobs:
         run: npm run test:cloudflare-prereqs
       - name: Check Worker body parser guardrails
         run: npm run check:worker-body-parsers
+      - name: Check admin activity query shape
+        run: npm run check:admin-activity-query-shape
       - name: Run asset version tests
         run: npm run test:asset-version
       - name: Validate release compatibility

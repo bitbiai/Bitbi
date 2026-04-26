@@ -236,6 +236,7 @@ function createContext() {
       { command: "npm run validate:release", cwd: null, execute: true },
       { command: "npm run validate:cloudflare-prereqs", cwd: null, execute: true },
       { command: "npm run check:worker-body-parsers", cwd: null, execute: true },
+      { command: "npm run check:admin-activity-query-shape", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {
         command: "npx wrangler d1 migrations apply bitbi-auth-db --remote",

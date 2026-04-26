@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0030_harden_ai_video_jobs_phase1b.sql",
+        latest: "0031_add_activity_search_index.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -511,6 +511,7 @@ function createValidContext() {
           "0028_add_admin_mfa_failed_attempts.sql",
           "0029_add_ai_video_jobs.sql",
           "0030_harden_ai_video_jobs_phase1b.sql",
+          "0031_add_activity_search_index.sql",
         ],
       },
     },

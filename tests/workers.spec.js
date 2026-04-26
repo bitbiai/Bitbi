@@ -31,6 +31,11 @@ async function loadPaginationModule() {
   return import(modulePath);
 }
 
+async function loadActivitySearchModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/activity-search.js')).href;
+  return import(modulePath);
+}
+
 async function loadObservabilityModule() {
   const observabilityPath = pathToFileURL(path.join(process.cwd(), 'js/shared/worker-observability.mjs')).href;
   return import(observabilityPath);
@@ -7258,6 +7263,15 @@ test.describe('Worker routes', () => {
       action: 'login',
       ip_address: '203.0.113.210',
     });
+    expect(env.DB.state.activitySearchIndex).toHaveLength(1);
+    expect(env.DB.state.activitySearchIndex[0]).toMatchObject({
+      source_table: 'user_activity_log',
+      source_event_id: env.DB.state.userActivityLog[0].id,
+      actor_user_id: 'queued-login-user',
+      actor_email_norm: 'queued-login@example.com',
+      action_norm: 'login',
+    });
+    expect(env.DB.state.activitySearchIndex[0].summary).toBeNull();
   });
 
   test('admin audit change-status enqueues instead of direct-writing on the common path and the consumer persists it', async () => {
@@ -7307,6 +7321,17 @@ test.describe('Worker routes', () => {
       action: 'change_status',
       target_user_id: 'queued-target',
     });
+    expect(env.DB.state.activitySearchIndex).toHaveLength(1);
+    expect(env.DB.state.activitySearchIndex[0]).toMatchObject({
+      source_table: 'admin_audit_log',
+      source_event_id: env.DB.state.adminAuditLog[0].id,
+      actor_user_id: 'queued-admin',
+      actor_email_norm: 'queued-admin@example.com',
+      target_user_id: 'queued-target',
+      target_email_norm: 'queued-target@example.com',
+      action_norm: 'change_status',
+    });
+    expect(env.DB.state.activitySearchIndex[0].summary).toBeNull();
   });
 
   test('activity ingest consumer retries on D1 failure and ignores duplicate redelivery by row id', async () => {
@@ -7351,6 +7376,12 @@ test.describe('Worker routes', () => {
     expect(secondBatch.states[0].retried).toBe(false);
     expect(env.DB.state.userActivityLog).toHaveLength(1);
     expect(env.DB.state.userActivityLog[0].id).toBe('activity-queued-1');
+    expect(env.DB.state.activitySearchIndex).toHaveLength(1);
+    expect(env.DB.state.activitySearchIndex[0]).toMatchObject({
+      source_table: 'user_activity_log',
+      source_event_id: 'activity-queued-1',
+      actor_email_norm: 'queued-user@example.com',
+    });
   });
 
   test('user activity queue publish failures fail soft without direct D1 fallback', async () => {
@@ -7445,6 +7476,13 @@ test.describe('Worker routes', () => {
         admin_user_id: 'fallback-admin',
         action: 'change_role',
         target_user_id: 'fallback-target',
+      });
+      expect(env.DB.state.activitySearchIndex).toHaveLength(1);
+      expect(env.DB.state.activitySearchIndex[0]).toMatchObject({
+        source_table: 'admin_audit_log',
+        source_event_id: env.DB.state.adminAuditLog[0].id,
+        actor_email_norm: 'fallback-admin@example.com',
+        target_email_norm: 'fallback-target@example.com',
       });
       expect(
         env.DB.runCalls.some((call) =>
@@ -14631,6 +14669,322 @@ test.describe('Worker routes', () => {
       retentionDays: 90,
       retentionCutoff: expect.any(String),
     });
+  });
+
+  test('admin activity uses signed cursors, bounded counts, and indexed projection search without raw metadata matches', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('activity-search-admin'),
+        createContractUser({
+          id: 'activity-search-target',
+          role: 'user',
+          email: 'activity-search-target@example.com',
+        }),
+      ],
+      adminAuditLog: [
+        {
+          id: 'audit-search-a',
+          admin_user_id: 'activity-search-admin',
+          action: 'change_role',
+          target_user_id: 'activity-search-target',
+          meta_json: JSON.stringify({
+            actor_email: 'activity-search-admin@example.com',
+            target_email: 'activity-search-target@example.com',
+            role: 'admin',
+            secret_details: 'raw-metadata-only',
+          }),
+          created_at: '2026-04-20T10:00:00.000Z',
+        },
+        {
+          id: 'audit-search-b',
+          admin_user_id: 'activity-search-admin',
+          action: 'change_status',
+          target_user_id: 'activity-search-target',
+          meta_json: JSON.stringify({
+            actor_email: 'activity-search-admin@example.com',
+            target_email: 'activity-search-target@example.com',
+            status: 'disabled',
+          }),
+          created_at: '2026-04-20T11:00:00.000Z',
+        },
+        {
+          id: 'audit-search-c',
+          admin_user_id: 'activity-search-admin',
+          action: 'delete_user',
+          target_user_id: 'activity-search-target',
+          meta_json: JSON.stringify({
+            actor_email: 'activity-search-admin@example.com',
+            target_email: 'activity-search-target@example.com',
+            target_role: 'user',
+          }),
+          created_at: '2026-04-20T12:00:00.000Z',
+        },
+        {
+          id: 'audit-search-old',
+          admin_user_id: 'activity-search-admin',
+          action: 'revoke_sessions',
+          target_user_id: 'activity-search-target',
+          meta_json: '{}',
+          created_at: '2025-01-01T00:00:00.000Z',
+        },
+      ],
+      activitySearchIndex: [
+        {
+          source_table: 'admin_audit_log',
+          source_event_id: 'audit-search-a',
+          actor_user_id: 'activity-search-admin',
+          actor_email_norm: 'activity-search-admin@example.com',
+          target_user_id: 'activity-search-target',
+          target_email_norm: 'activity-search-target@example.com',
+          action_norm: 'change_role',
+          entity_type: 'user',
+          entity_id: 'activity-search-target',
+          summary: 'change_role activity-search-target',
+          created_at: '2026-04-20T10:00:00.000Z',
+        },
+        {
+          source_table: 'admin_audit_log',
+          source_event_id: 'audit-search-b',
+          actor_user_id: 'activity-search-admin',
+          actor_email_norm: 'activity-search-admin@example.com',
+          target_user_id: 'activity-search-target',
+          target_email_norm: 'activity-search-target@example.com',
+          action_norm: 'change_status',
+          entity_type: 'user',
+          entity_id: 'activity-search-target',
+          summary: 'change_status activity-search-target',
+          created_at: '2026-04-20T11:00:00.000Z',
+        },
+        {
+          source_table: 'admin_audit_log',
+          source_event_id: 'audit-search-c',
+          actor_user_id: 'activity-search-admin',
+          actor_email_norm: 'activity-search-admin@example.com',
+          target_user_id: 'activity-search-target',
+          target_email_norm: 'activity-search-target@example.com',
+          action_norm: 'delete_user',
+          entity_type: 'user',
+          entity_id: 'activity-search-target',
+          summary: 'delete_user activity-search-target',
+          created_at: '2026-04-20T12:00:00.000Z',
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, 'activity-search-admin');
+
+    const firstPageRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/activity?limit=2', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(firstPageRes.status).toBe(200);
+    const firstPage = await firstPageRes.json();
+    expect(firstPage.entries.map((entry) => entry.id)).toEqual(['audit-search-c', 'audit-search-b']);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    expect(firstPage.nextCursor).not.toContain('|');
+    expect(firstPage.counts).toMatchObject({
+      delete_user: 1,
+      change_status: 1,
+      change_role: 1,
+    });
+    expect(firstPage.counts.revoke_sessions || 0).toBe(0);
+
+    const secondPageRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/activity?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor)}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(secondPageRes.status).toBe(200);
+    const secondPage = await secondPageRes.json();
+    expect(secondPage.entries.map((entry) => entry.id)).toEqual(['audit-search-a', 'audit-search-old']);
+
+    const tamperedCursor = `${firstPage.nextCursor.slice(0, -1)}x`;
+    const tamperedRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/activity?cursor=${encodeURIComponent(tamperedCursor)}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(tamperedRes.status).toBe(400);
+
+    const crossFilterRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/activity?search=change&cursor=${encodeURIComponent(firstPage.nextCursor)}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(crossFilterRes.status).toBe(400);
+
+    const rawMetaSearchRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/activity?search=raw-metadata-only', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(rawMetaSearchRes.status).toBe(200);
+    await expect(rawMetaSearchRes.json()).resolves.toMatchObject({
+      ok: true,
+      entries: [],
+      searchMode: 'indexed_prefix',
+    });
+
+    const indexedSearchRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/activity?search=activity-search-target', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(indexedSearchRes.status).toBe(200);
+    const indexedSearch = await indexedSearchRes.json();
+    expect(indexedSearch.entries.map((entry) => entry.id)).toEqual([
+      'audit-search-c',
+      'audit-search-b',
+      'audit-search-a',
+    ]);
+    expect(indexedSearch.entries[2].meta_json).toBe(JSON.stringify({ role: 'admin' }));
+    expect(indexedSearch.entries[2].meta_json).not.toContain('actor_email');
+    expect(indexedSearch.entries[2].meta_json).not.toContain('raw-metadata-only');
+  });
+
+  test('user activity uses signed cursors and projection-backed prefix search', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('user-activity-admin'),
+        createContractUser({
+          id: 'user-activity-member',
+          role: 'user',
+          email: 'user-activity-member@example.com',
+        }),
+      ],
+      userActivityLog: [
+        {
+          id: 'user-activity-a',
+          user_id: 'user-activity-member',
+          action: 'login',
+          meta_json: JSON.stringify({
+            email: 'user-activity-member@example.com',
+            secret_details: 'user-raw-only',
+          }),
+          ip_address: '203.0.113.80',
+          created_at: '2026-04-20T10:00:00.000Z',
+        },
+        {
+          id: 'user-activity-b',
+          user_id: 'user-activity-member',
+          action: 'wallet_login',
+          meta_json: JSON.stringify({ email: 'user-activity-member@example.com' }),
+          ip_address: '203.0.113.81',
+          created_at: '2026-04-20T11:00:00.000Z',
+        },
+      ],
+      activitySearchIndex: [
+        {
+          source_table: 'user_activity_log',
+          source_event_id: 'user-activity-a',
+          actor_user_id: 'user-activity-member',
+          actor_email_norm: 'user-activity-member@example.com',
+          action_norm: 'login',
+          entity_type: 'user',
+          entity_id: 'user-activity-member',
+          created_at: '2026-04-20T10:00:00.000Z',
+        },
+        {
+          source_table: 'user_activity_log',
+          source_event_id: 'user-activity-b',
+          actor_user_id: 'user-activity-member',
+          actor_email_norm: 'user-activity-member@example.com',
+          action_norm: 'wallet_login',
+          entity_type: 'user',
+          entity_id: 'user-activity-member',
+          created_at: '2026-04-20T11:00:00.000Z',
+        },
+      ],
+    });
+    const adminToken = await seedSession(env, 'user-activity-admin');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/user-activity?limit=1&search=wallet', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      searchMode: 'indexed_prefix',
+      nextCursor: null,
+    });
+    expect(body.entries.map((entry) => entry.id)).toEqual(['user-activity-b']);
+    expect(body.entries[0].meta_json).toBe('{}');
+
+    const rawMetaSearchRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/user-activity?search=user-raw-only', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(rawMetaSearchRes.status).toBe(200);
+    await expect(rawMetaSearchRes.json()).resolves.toMatchObject({
+      ok: true,
+      entries: [],
+    });
+  });
+
+  test('activity cursors reject expired signed payloads and missing pagination config fails closed', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { encodePaginationCursor } = await loadPaginationModule();
+    const { ADMIN_ACTIVITY_CURSOR_TYPE, buildActivitySearchFilterHash } = await loadActivitySearchModule();
+    const env = createAuthTestEnv({
+      users: [
+        createAdminUser('expired-activity-admin'),
+      ],
+    });
+    const adminToken = await seedSession(env, 'expired-activity-admin');
+    const filterHash = await buildActivitySearchFilterHash('admin_audit_log', '');
+    const expiredCursor = await encodePaginationCursor(env, ADMIN_ACTIVITY_CURSOR_TYPE, {
+      c: '2026-04-20T10:00:00.000Z',
+      i: 'audit-expired',
+      q: filterHash,
+      exp: Date.now() - 1000,
+    });
+
+    const expiredRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/activity?cursor=${encodeURIComponent(expiredCursor)}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(expiredRes.status).toBe(400);
+
+    const missingSecretEnv = createAuthTestEnv({
+      PAGINATION_SIGNING_SECRET: '',
+      users: [
+        createAdminUser('missing-pagination-secret-admin'),
+      ],
+    });
+    const missingSecretToken = await seedSession(missingSecretEnv, 'missing-pagination-secret-admin');
+    const missingSecretRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/activity', 'GET', undefined, {
+        Cookie: `bitbi_session=${missingSecretToken}`,
+      }),
+      missingSecretEnv,
+      createExecutionContext().execCtx
+    );
+    expect(missingSecretRes.status).toBe(503);
   });
 
   test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {

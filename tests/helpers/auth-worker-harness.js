@@ -444,6 +444,7 @@ class MockD1 {
       profiles: [],
       favorites: [],
       adminAuditLog: [],
+      activitySearchIndex: [],
       rateLimitCounters: [],
       aiFolders: [],
       aiImages: [],
@@ -521,6 +522,9 @@ class MockD1 {
     }
     if (this.missingTables.has('user_activity_log') && query.includes('user_activity_log')) {
       throw new Error('no such table: user_activity_log');
+    }
+    if (this.missingTables.has('activity_search_index') && query.includes('activity_search_index')) {
+      throw new Error('no such table: activity_search_index');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -639,6 +643,45 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (
+      query.startsWith('INSERT INTO activity_search_index ( source_table, source_event_id, actor_user_id, actor_email_norm, target_user_id, target_email_norm, action_norm, entity_type, entity_id, summary, created_at ) VALUES')
+      || query.startsWith('INSERT OR IGNORE INTO activity_search_index ( source_table, source_event_id, actor_user_id, actor_email_norm, target_user_id, target_email_norm, action_norm, entity_type, entity_id, summary, created_at ) VALUES')
+    ) {
+      const [
+        sourceTable,
+        sourceEventId,
+        actorUserId,
+        actorEmailNorm,
+        targetUserId,
+        targetEmailNorm,
+        actionNorm,
+        entityType,
+        entityId,
+        summary,
+        createdAt,
+      ] = bindings;
+      const existing = this.state.activitySearchIndex.find((row) =>
+        row.source_table === sourceTable && row.source_event_id === sourceEventId
+      );
+      if (existing) {
+        return { success: true, meta: { changes: query.startsWith('INSERT OR IGNORE') ? 0 : 0 } };
+      }
+      this.state.activitySearchIndex.push({
+        source_table: sourceTable,
+        source_event_id: sourceEventId,
+        actor_user_id: actorUserId,
+        actor_email_norm: actorEmailNorm,
+        target_user_id: targetUserId,
+        target_email_norm: targetEmailNorm,
+        action_norm: actionNorm,
+        entity_type: entityType,
+        entity_id: entityId,
+        summary,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'SELECT id, user_id, action, meta_json, ip_address, created_at FROM user_activity_log WHERE created_at < ? ORDER BY created_at ASC, id ASC LIMIT ?') {
       const [cutoffIso, limit] = bindings;
       const rows = this.state.userActivityLog
@@ -656,6 +699,16 @@ class MockD1 {
       const before = this.state.userActivityLog.length;
       this.state.userActivityLog = this.state.userActivityLog.filter((row) => !idSet.has(row.id));
       return { success: true, meta: { changes: before - this.state.userActivityLog.length } };
+    }
+
+    if (query.startsWith('DELETE FROM activity_search_index WHERE source_table = ? AND source_event_id IN (')) {
+      const [sourceTable, ...ids] = bindings;
+      const idSet = new Set(ids);
+      const before = this.state.activitySearchIndex.length;
+      this.state.activitySearchIndex = this.state.activitySearchIndex.filter((row) =>
+        row.source_table !== sourceTable || !idSet.has(row.source_event_id)
+      );
+      return { success: true, meta: { changes: before - this.state.activitySearchIndex.length } };
     }
 
     if (query.startsWith('INSERT INTO rate_limit_counters (scope, limiter_key, window_start_ms, count, expires_at, updated_at)')) {
@@ -1383,47 +1436,122 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.adminAuditLog.length } };
     }
 
-    if (query.startsWith('SELECT a.id, a.action, a.meta_json, a.created_at, a.admin_user_id, au.email AS admin_email, a.target_user_id, tu.email AS target_email FROM admin_audit_log a LEFT JOIN users au ON au.id = a.admin_user_id LEFT JOIN users tu ON tu.id = a.target_user_id')) {
+    if (query.startsWith('SELECT a.id, a.action, a.meta_json, a.created_at, a.admin_user_id, COALESCE(au.email, idx.actor_email_norm) AS admin_email, a.target_user_id, COALESCE(tu.email, idx.target_email_norm) AS target_email FROM activity_search_index idx JOIN admin_audit_log a')) {
       let limit = Number(bindings.at(-1)) || 0;
       let cursorTime = null;
       let cursorId = null;
-      let search = null;
+      let searchStart = null;
+      let searchEnd = null;
+      let bindingIndex = 0;
+
+      if (query.includes('(idx.created_at < ? OR (idx.created_at = ? AND idx.source_event_id < ?))')) {
+        [cursorTime, , cursorId] = bindings.slice(bindingIndex, bindingIndex + 3);
+        bindingIndex += 3;
+      }
+      if (query.includes('idx.action_norm >= ?')) {
+        searchStart = bindings[bindingIndex];
+        searchEnd = bindings[bindingIndex + 1];
+      }
+
+      let rows = this.state.activitySearchIndex
+        .filter((indexRow) => indexRow.source_table === 'admin_audit_log')
+        .map((indexRow) => {
+          const row = this.state.adminAuditLog.find((entry) => entry.id === indexRow.source_event_id);
+          if (!row) return null;
+          const admin = this.state.users.find((user) => user.id === row.admin_user_id);
+          const target = this.state.users.find((user) => user.id === row.target_user_id);
+          return {
+            id: row.id,
+            action: row.action,
+            meta_json: row.meta_json,
+            created_at: row.created_at,
+            admin_user_id: row.admin_user_id,
+            admin_email: admin?.email || indexRow.actor_email_norm || null,
+            target_user_id: row.target_user_id,
+            target_email: target?.email || indexRow.target_email_norm || null,
+            indexRow,
+          };
+        })
+        .filter(Boolean);
+
+      if (cursorTime && cursorId) {
+        rows = rows.filter((row) => row.indexRow.created_at < cursorTime || (row.indexRow.created_at === cursorTime && row.indexRow.source_event_id < cursorId));
+      }
+      if (searchStart && searchEnd) {
+        const inRange = (value) => (
+          typeof value === 'string' && value >= searchStart && value < searchEnd
+        );
+        rows = rows.filter((row) => {
+          const indexRow = row.indexRow;
+          return (
+            inRange(indexRow.action_norm)
+            || inRange(indexRow.actor_email_norm)
+            || inRange(indexRow.target_email_norm)
+            || inRange(indexRow.entity_id)
+          );
+        });
+      }
+
+      rows.sort((a, b) => {
+        if (a.indexRow.created_at !== b.indexRow.created_at) return b.indexRow.created_at.localeCompare(a.indexRow.created_at);
+        return b.indexRow.source_event_id.localeCompare(a.indexRow.source_event_id);
+      });
+
+      return { results: rows.slice(0, limit).map(({ indexRow, ...row }) => ({ ...row })) };
+    }
+
+    if (query.startsWith('SELECT a.id, a.action, a.meta_json, a.created_at, a.admin_user_id, COALESCE(au.email, idx.actor_email_norm) AS admin_email, a.target_user_id, COALESCE(tu.email, idx.target_email_norm) AS target_email FROM admin_audit_log a')) {
+      let limit = Number(bindings.at(-1)) || 0;
+      let cursorTime = null;
+      let cursorId = null;
+      let searchStart = null;
+      let searchEnd = null;
+      let bindingIndex = 0;
 
       if (query.includes('(a.created_at < ? OR (a.created_at = ? AND a.id < ?))')) {
-        [cursorTime, , cursorId] = bindings;
+        [cursorTime, , cursorId] = bindings.slice(bindingIndex, bindingIndex + 3);
+        bindingIndex += 3;
       }
-      if (query.includes('(au.email LIKE ? OR tu.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)')) {
-        const searchIndex = cursorTime ? 3 : 0;
-        const like = bindings[searchIndex];
-        search = typeof like === 'string' ? like.replace(/^%|%$/g, '') : null;
+      if (query.includes('idx.action_norm >= ?')) {
+        searchStart = bindings[bindingIndex];
+        searchEnd = bindings[bindingIndex + 1];
       }
 
       let rows = this.state.adminAuditLog.map((row) => {
         const admin = this.state.users.find((user) => user.id === row.admin_user_id);
         const target = this.state.users.find((user) => user.id === row.target_user_id);
+        const indexRow = this.state.activitySearchIndex.find((entry) =>
+          entry.source_table === 'admin_audit_log' && entry.source_event_id === row.id
+        );
         return {
           id: row.id,
           action: row.action,
           meta_json: row.meta_json,
           created_at: row.created_at,
           admin_user_id: row.admin_user_id,
-          admin_email: admin?.email || null,
+          admin_email: admin?.email || indexRow?.actor_email_norm || null,
           target_user_id: row.target_user_id,
-          target_email: target?.email || null,
+          target_email: target?.email || indexRow?.target_email_norm || null,
+          indexRow,
         };
       });
 
       if (cursorTime && cursorId) {
         rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
       }
-      if (search) {
-        const needle = search.toLowerCase();
-        rows = rows.filter((row) =>
-          String(row.admin_email || '').toLowerCase().includes(needle) ||
-          String(row.target_email || '').toLowerCase().includes(needle) ||
-          String(row.action || '').toLowerCase().includes(needle) ||
-          String(row.meta_json || '').toLowerCase().includes(needle)
+      if (searchStart && searchEnd) {
+        const inRange = (value) => (
+          typeof value === 'string' && value >= searchStart && value < searchEnd
         );
+        rows = rows.filter((row) => {
+          const indexRow = row.indexRow;
+          return !!indexRow && (
+            inRange(indexRow.action_norm)
+            || inRange(indexRow.actor_email_norm)
+            || inRange(indexRow.target_email_norm)
+            || inRange(indexRow.entity_id)
+          );
+        });
       }
 
       rows.sort((a, b) => {
@@ -1431,12 +1559,14 @@ class MockD1 {
         return b.id.localeCompare(a.id);
       });
 
-      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
+      return { results: rows.slice(0, limit).map(({ indexRow, ...row }) => ({ ...row })) };
     }
 
-    if (query === 'SELECT action, COUNT(*) AS cnt FROM admin_audit_log GROUP BY action') {
+    if (query === 'SELECT action, COUNT(*) AS cnt FROM admin_audit_log WHERE created_at >= ? GROUP BY action') {
+      const [cutoffIso] = bindings;
       const counts = new Map();
       for (const row of this.state.adminAuditLog) {
+        if (row.created_at < cutoffIso) continue;
         counts.set(row.action, (counts.get(row.action) || 0) + 1);
       }
       return {
@@ -1444,23 +1574,90 @@ class MockD1 {
       };
     }
 
-    if (query.startsWith('SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at, u.email AS user_email FROM user_activity_log a LEFT JOIN users u ON u.id = a.user_id')) {
+    if (query.startsWith('SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at, COALESCE(u.email, idx.actor_email_norm) AS user_email FROM activity_search_index idx JOIN user_activity_log a')) {
       let limit = Number(bindings.at(-1)) || 0;
       let cursorTime = null;
       let cursorId = null;
-      let search = null;
+      let searchStart = null;
+      let searchEnd = null;
+      let bindingIndex = 0;
+
+      if (query.includes('(idx.created_at < ? OR (idx.created_at = ? AND idx.source_event_id < ?))')) {
+        [cursorTime, , cursorId] = bindings.slice(bindingIndex, bindingIndex + 3);
+        bindingIndex += 3;
+      }
+      if (query.includes('idx.action_norm >= ?')) {
+        searchStart = bindings[bindingIndex];
+        searchEnd = bindings[bindingIndex + 1];
+      }
+
+      let rows = this.state.activitySearchIndex
+        .filter((indexRow) => indexRow.source_table === 'user_activity_log')
+        .map((indexRow) => {
+          const row = this.state.userActivityLog.find((entry) => entry.id === indexRow.source_event_id);
+          if (!row) return null;
+          const user = this.state.users.find((entry) => entry.id === row.user_id);
+          return {
+            id: row.id,
+            user_id: row.user_id,
+            action: row.action,
+            meta_json: row.meta_json,
+            ip_address: row.ip_address,
+            created_at: row.created_at,
+            user_email: user?.email || indexRow.actor_email_norm || null,
+            indexRow,
+          };
+        })
+        .filter(Boolean);
+
+      if (cursorTime && cursorId) {
+        rows = rows.filter((row) => row.indexRow.created_at < cursorTime || (row.indexRow.created_at === cursorTime && row.indexRow.source_event_id < cursorId));
+      }
+      if (searchStart && searchEnd) {
+        const inRange = (value) => (
+          typeof value === 'string' && value >= searchStart && value < searchEnd
+        );
+        rows = rows.filter((row) => {
+          const indexRow = row.indexRow;
+          return (
+            inRange(indexRow.action_norm)
+            || inRange(indexRow.actor_email_norm)
+            || inRange(indexRow.target_email_norm)
+            || inRange(indexRow.entity_id)
+          );
+        });
+      }
+
+      rows.sort((a, b) => {
+        if (a.indexRow.created_at !== b.indexRow.created_at) return b.indexRow.created_at.localeCompare(a.indexRow.created_at);
+        return b.indexRow.source_event_id.localeCompare(a.indexRow.source_event_id);
+      });
+
+      return { results: rows.slice(0, limit).map(({ indexRow, ...row }) => ({ ...row })) };
+    }
+
+    if (query.startsWith('SELECT a.id, a.user_id, a.action, a.meta_json, a.ip_address, a.created_at, COALESCE(u.email, idx.actor_email_norm) AS user_email FROM user_activity_log a')) {
+      let limit = Number(bindings.at(-1)) || 0;
+      let cursorTime = null;
+      let cursorId = null;
+      let searchStart = null;
+      let searchEnd = null;
+      let bindingIndex = 0;
 
       if (query.includes('(a.created_at < ? OR (a.created_at = ? AND a.id < ?))')) {
-        [cursorTime, , cursorId] = bindings;
+        [cursorTime, , cursorId] = bindings.slice(bindingIndex, bindingIndex + 3);
+        bindingIndex += 3;
       }
-      if (query.includes('(u.email LIKE ? OR a.action LIKE ? OR a.meta_json LIKE ?)')) {
-        const searchIndex = cursorTime ? 3 : 0;
-        const like = bindings[searchIndex];
-        search = typeof like === 'string' ? like.replace(/^%|%$/g, '') : null;
+      if (query.includes('idx.action_norm >= ?')) {
+        searchStart = bindings[bindingIndex];
+        searchEnd = bindings[bindingIndex + 1];
       }
 
       let rows = this.state.userActivityLog.map((row) => {
         const user = this.state.users.find((entry) => entry.id === row.user_id);
+        const indexRow = this.state.activitySearchIndex.find((entry) =>
+          entry.source_table === 'user_activity_log' && entry.source_event_id === row.id
+        );
         return {
           id: row.id,
           user_id: row.user_id,
@@ -1468,20 +1665,27 @@ class MockD1 {
           meta_json: row.meta_json,
           ip_address: row.ip_address,
           created_at: row.created_at,
-          user_email: user?.email || null,
+          user_email: user?.email || indexRow?.actor_email_norm || null,
+          indexRow,
         };
       });
 
       if (cursorTime && cursorId) {
         rows = rows.filter((row) => row.created_at < cursorTime || (row.created_at === cursorTime && row.id < cursorId));
       }
-      if (search) {
-        const needle = search.toLowerCase();
-        rows = rows.filter((row) =>
-          String(row.user_email || '').toLowerCase().includes(needle) ||
-          String(row.action || '').toLowerCase().includes(needle) ||
-          String(row.meta_json || '').toLowerCase().includes(needle)
+      if (searchStart && searchEnd) {
+        const inRange = (value) => (
+          typeof value === 'string' && value >= searchStart && value < searchEnd
         );
+        rows = rows.filter((row) => {
+          const indexRow = row.indexRow;
+          return !!indexRow && (
+            inRange(indexRow.action_norm)
+            || inRange(indexRow.actor_email_norm)
+            || inRange(indexRow.target_email_norm)
+            || inRange(indexRow.entity_id)
+          );
+        });
       }
 
       rows.sort((a, b) => {
@@ -1489,7 +1693,7 @@ class MockD1 {
         return b.id.localeCompare(a.id);
       });
 
-      return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
+      return { results: rows.slice(0, limit).map(({ indexRow, ...row }) => ({ ...row })) };
     }
 
     if (query === "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'") {

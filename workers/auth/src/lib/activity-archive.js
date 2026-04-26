@@ -103,6 +103,13 @@ async function pruneArchivedRows(env, config, rows) {
   const result = await env.DB.prepare(`${config.deleteSqlPrefix}${placeholders})`)
     .bind(...ids)
     .run();
+  await env.DB.prepare(
+    `DELETE FROM activity_search_index
+     WHERE source_table = ?
+       AND source_event_id IN (${placeholders})`
+  )
+    .bind(config.table, ...ids)
+    .run();
   return result?.meta || { changes: 0 };
 }
 

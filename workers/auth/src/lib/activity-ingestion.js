@@ -8,8 +8,7 @@ import {
   ACTIVITY_INGEST_QUEUE_SCHEMA_VERSION,
   ADMIN_AUDIT_LOG_TABLE,
   USER_ACTIVITY_LOG_TABLE,
-  buildAdminAuditInsertStatement,
-  buildUserActivityInsertStatement,
+  buildActivityIngestStatements,
 } from "./activity.js";
 
 function permanentIngestError(message, code) {
@@ -84,13 +83,6 @@ function normalizeActivityEvent(body) {
   throw permanentIngestError("Queue payload table is invalid.", "bad_queue_payload");
 }
 
-function buildInsertStatement(env, event) {
-  if (event.table === USER_ACTIVITY_LOG_TABLE) {
-    return buildUserActivityInsertStatement(env, event, { ignoreConflicts: true });
-  }
-  return buildAdminAuditInsertStatement(env, event, { ignoreConflicts: true });
-}
-
 export function isLikelyActivityIngestMessage(body) {
   if (!isPlainObject(body)) return false;
   return (
@@ -152,9 +144,13 @@ export async function processActivityIngestQueueBatch(batch, env) {
   }
 
   try {
-    const results = await env.DB.batch(valid.map(({ event }) => buildInsertStatement(env, event)));
+    const statements = valid.flatMap(({ event }) =>
+      buildActivityIngestStatements(env, event, { ignoreConflicts: true })
+    );
+    const results = await env.DB.batch(statements);
     let insertedCount = 0;
-    for (const result of results) {
+    for (let index = 0; index < results.length; index += 2) {
+      const result = results[index];
       insertedCount += Number(result?.meta?.changes) || 0;
     }
     const duplicateCount = Math.max(0, valid.length - insertedCount);
