@@ -406,6 +406,7 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.usage-attempts.cleanup-expired", "POST", "/api/admin/ai/usage-attempts/cleanup-expired", "billing", "smallJson", "admin-ai-usage-attempts-write-ip", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     audit: { event: "ai_usage_attempt_cleanup_completed" },
+    notes: "Releases expired reservations and deletes only expired, attempt-linked temporary AI replay objects under the approved tmp/ai-generated/ prefix.",
   }),
   adminRead("admin.ai.usage-attempts.read", "/api/admin/ai/usage-attempts/:id", "billing", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],

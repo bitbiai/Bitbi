@@ -148,6 +148,7 @@ class MockBucket {
     this.failPutWith = null;
     this.putCalls = [];
     this.getCalls = [];
+    this.headCalls = [];
     this.listCalls = [];
     this.deleteCalls = [];
     for (const [key, value] of Object.entries(initial)) {
@@ -182,6 +183,18 @@ class MockBucket {
   async get(key) {
     this.getCalls.push(key);
     return this.objects.get(key) || null;
+  }
+
+  async head(key) {
+    this.headCalls.push(key);
+    const value = this.objects.get(key);
+    if (!value) return null;
+    return {
+      key,
+      httpMetadata: value.httpMetadata || {},
+      size: value.size,
+      uploaded: value.uploaded,
+    };
   }
 
   async delete(key) {
@@ -1321,6 +1334,13 @@ class MockD1 {
       return deepClone(this.state.aiUsageAttempts.find((row) => row.id === attemptId) || null);
     }
 
+    if (query === "SELECT id FROM ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1") {
+      const [tempKey] = bindings;
+      return deepClone(this.state.aiUsageAttempts.find((row) =>
+        row.result_temp_key === tempKey && row.result_status === 'stored'
+      ) || null);
+    }
+
     if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
       const [
         statusFilter,
@@ -1615,12 +1635,15 @@ class MockD1 {
     }
 
     if (query.startsWith("UPDATE ai_usage_attempts SET result_status = 'expired', result_temp_key = NULL, result_save_reference = NULL")) {
-      const [updatedAt, id, expiresAt] = bindings;
+      const [updatedAt, id, tempKeyOrExpiresAt, maybeExpiresAt] = bindings;
+      const expectedTempKey = bindings.length >= 4 ? tempKeyOrExpiresAt : null;
+      const expiresAt = bindings.length >= 4 ? maybeExpiresAt : tempKeyOrExpiresAt;
       const row = this.state.aiUsageAttempts.find((entry) =>
         entry.id === id &&
         entry.status === 'succeeded' &&
         entry.billing_status === 'finalized' &&
         entry.result_status === 'stored' &&
+        (expectedTempKey == null || entry.result_temp_key === expectedTempKey) &&
         String(entry.expires_at || '') <= String(expiresAt || '')
       );
       if (!row) return { success: true, meta: { changes: 0 } };

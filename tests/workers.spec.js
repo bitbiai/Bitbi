@@ -2454,9 +2454,24 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const nonAdmin = createContractUser({ id: 'phase2e-ai-non-admin', role: 'user' });
     const owner = createContractUser({ id: 'phase2e-ai-user', role: 'user' });
     const orgId = 'org_a2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    const { buildAiGeneratedTempOriginalKey } = await loadAiGeneratedSaveReferenceModule();
+    const replayTempKey = buildAiGeneratedTempOriginalKey(owner.id, 'expired-replay');
+    const freshTempKey = buildAiGeneratedTempOriginalKey(owner.id, 'fresh-replay');
     const env = createAuthTestEnv({
       ...seedOrgAiUsageState({ user: owner, role: 'member', orgId, creditBalance: 2 }),
       users: [admin, nonAdmin, owner],
+      userImages: {
+        [replayTempKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-04T00:00:00.000Z',
+        },
+        [freshTempKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2026-04-20T10:05:00.000Z',
+        },
+      },
       aiUsageAttempts: [
         seedAiUsageAttempt({
           id: 'aua_reserved0000000000000000000000000001',
@@ -2496,7 +2511,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
           provider_status: 'succeeded',
           billing_status: 'finalized',
           result_status: 'stored',
-          result_temp_key: 'tmp/ai-generated/secret-temp-key.png',
+          result_temp_key: replayTempKey,
           result_save_reference: 'secret-save-reference',
           result_mime_type: 'image/png',
           result_model: '@cf/black-forest-labs/flux-1-schnell',
@@ -2516,7 +2531,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
           provider_status: 'succeeded',
           billing_status: 'finalized',
           result_status: 'stored',
-          result_temp_key: 'tmp/ai-generated/fresh-temp-key.png',
+          result_temp_key: freshTempKey,
           result_save_reference: 'fresh-save-reference',
           result_mime_type: 'image/png',
           balance_after: 1,
@@ -2598,9 +2613,13 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expiredCount: 3,
       reservationsReleasedCount: 2,
       replayMetadataExpiredCount: 1,
+      replayObjectsEligibleCount: 1,
+      replayObjectsDeletedCount: 0,
+      replayObjectMetadataClearedCount: 0,
       failedCount: 0,
       appliedLimit: 4,
     });
+    expect(env.USER_IMAGES.objects.has(replayTempKey)).toBe(true);
     expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_reserved0000000000000000000000000001').status).toBe('reserved');
 
     const foreign = await authWorker.fetch(
@@ -2632,6 +2651,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expiredCount: 3,
       reservationsReleasedCount: 2,
       replayMetadataExpiredCount: 1,
+      replayObjectsEligibleCount: 1,
+      replayObjectsDeletedCount: 1,
+      replayObjectMetadataClearedCount: 1,
       failedCount: 0,
     });
     expect(JSON.stringify(cleanupBody)).not.toContain('secret-temp-key');
@@ -2655,12 +2677,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       result_temp_key: null,
       result_save_reference: null,
     });
+    expect(env.USER_IMAGES.objects.has(replayTempKey)).toBe(false);
     expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_fresh00000000000000000000000000005')).toMatchObject({
       status: 'succeeded',
       billing_status: 'finalized',
       result_status: 'stored',
-      result_temp_key: 'tmp/ai-generated/fresh-temp-key.png',
+      result_temp_key: freshTempKey,
     });
+    expect(env.USER_IMAGES.objects.has(freshTempKey)).toBe(true);
     expect(env.DB.state.usageEvents).toHaveLength(0);
     expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
 
@@ -2756,6 +2780,196 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(failClosedEnv.DB.state.aiUsageAttempts[0].status).toBe('reserved');
   });
 
+  test('Phase 2-F replay object cleanup is prefix-scoped, bounded, sanitized, and idempotent for missing objects', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase2f-replay-admin');
+    const owner = createContractUser({ id: 'phase2f-replay-user', role: 'user' });
+    const orgId = 'org_f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2';
+    const { buildAiGeneratedTempOriginalKey } = await loadAiGeneratedSaveReferenceModule();
+    const eligibleKey = buildAiGeneratedTempOriginalKey(owner.id, 'eligible-replay');
+    const missingKey = buildAiGeneratedTempOriginalKey(owner.id, 'missing-replay');
+    const deleteFailKey = buildAiGeneratedTempOriginalKey(owner.id, 'delete-fail-replay');
+    const activeKey = buildAiGeneratedTempOriginalKey(owner.id, 'active-replay');
+    const unsafeKey = `users/${owner.id}/folders/unsorted/not-a-temp-replay.png`;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user: owner, role: 'member', orgId, creditBalance: 3 }),
+      users: [admin, owner],
+      userImages: {
+        [eligibleKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [deleteFailKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+          failDelete: true,
+        },
+        [activeKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [unsafeKey]: {
+          body: Buffer.from('saved-user-media'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+      },
+      aiUsageAttempts: [
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_eligible_00000000000001',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: eligibleKey,
+          result_save_reference: 'eligible-save-reference',
+          completed_at: '2026-04-20T10:00:00.000Z',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_missing_000000000000002',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: missingKey,
+          result_save_reference: 'missing-save-reference',
+          completed_at: '2026-04-20T10:01:00.000Z',
+          expires_at: '2000-01-02T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_unsafe_0000000000000003',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: unsafeKey,
+          result_save_reference: 'unsafe-save-reference',
+          completed_at: '2026-04-20T10:02:00.000Z',
+          expires_at: '2000-01-03T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_fail_00000000000000004',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: deleteFailKey,
+          result_save_reference: 'delete-fail-save-reference',
+          completed_at: '2026-04-20T10:03:00.000Z',
+          expires_at: '2000-01-04T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_active_000000000000005',
+          organization_id: orgId,
+          user_id: owner.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: activeKey,
+          result_save_reference: 'active-save-reference',
+          completed_at: '2026-04-20T10:04:00.000Z',
+          expires_at: '2999-01-01T00:00:00.000Z',
+        }),
+      ],
+    });
+    const adminToken = await seedSession(env, admin.id);
+
+    const dryRun = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 10 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2f-replay-cleanup-dry-run',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dryRun.status).toBe(200);
+    const dryRunBody = await dryRun.json();
+    expect(dryRunBody.cleanup).toMatchObject({
+      dryRun: true,
+      scannedCount: 4,
+      replayObjectsEligibleCount: 3,
+      replayObjectsDeletedCount: 0,
+      replayObjectMetadataClearedCount: 0,
+      replayObjectsSkippedUnsafeKeyCount: 1,
+      replayObjectsSkippedMissingObjectCount: 1,
+      failedCount: 0,
+    });
+    expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.objects.has(eligibleKey)).toBe(true);
+
+    const cleanup = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/usage-attempts/cleanup-expired', 'POST', { limit: 10, dry_run: false }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase2f-replay-cleanup-execute',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(cleanup.status).toBe(200);
+    const cleanupBody = await cleanup.json();
+    expect(cleanupBody.cleanup).toMatchObject({
+      dryRun: false,
+      scannedCount: 4,
+      replayMetadataExpiredCount: 2,
+      replayObjectsEligibleCount: 3,
+      replayObjectsDeletedCount: 1,
+      replayObjectMetadataClearedCount: 2,
+      replayObjectsSkippedUnsafeKeyCount: 1,
+      replayObjectsSkippedMissingObjectCount: 1,
+      replayObjectFailedCount: 1,
+      failedCount: 1,
+    });
+    const serializedCleanup = JSON.stringify(cleanupBody);
+    expect(serializedCleanup).not.toContain(eligibleKey);
+    expect(serializedCleanup).not.toContain(deleteFailKey);
+    expect(serializedCleanup).not.toContain(unsafeKey);
+    expect(serializedCleanup).not.toContain('eligible-save-reference');
+    expect(env.USER_IMAGES.objects.has(eligibleKey)).toBe(false);
+    expect(env.USER_IMAGES.objects.has(deleteFailKey)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(unsafeKey)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(activeKey)).toBe(true);
+    expect(env.USER_IMAGES.deleteCalls).toEqual([eligibleKey, deleteFailKey]);
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_eligible_00000000000001')).toMatchObject({
+      result_status: 'expired',
+      result_temp_key: null,
+      result_save_reference: null,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_missing_000000000000002')).toMatchObject({
+      result_status: 'expired',
+      result_temp_key: null,
+      result_save_reference: null,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_unsafe_0000000000000003')).toMatchObject({
+      result_status: 'stored',
+      result_temp_key: unsafeKey,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_fail_00000000000000004')).toMatchObject({
+      result_status: 'stored',
+      result_temp_key: deleteFailKey,
+    });
+    expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_active_000000000000005')).toMatchObject({
+      result_status: 'stored',
+      result_temp_key: activeKey,
+    });
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+  });
+
   test('Phase 2-E scheduled cleanup releases expired attempts without corrupting completed attempts', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const diagnostics = captureDiagnosticLogs();
@@ -2812,6 +3026,109 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         expired_count: 1,
         reservations_released_count: 1,
       }));
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('Phase 2-F scheduled cleanup deletes only expired attempt-linked replay objects through usage cleanup', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const diagnostics = captureDiagnosticLogs();
+    const user = createContractUser({ id: 'phase2f-scheduled-user', role: 'user' });
+    const orgId = 'org_62f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2';
+    const { buildAiGeneratedTempOriginalKey } = await loadAiGeneratedSaveReferenceModule();
+    const expiredReplayKey = buildAiGeneratedTempOriginalKey(user.id, 'expired-linked-replay');
+    const activeReplayKey = buildAiGeneratedTempOriginalKey(user.id, 'active-linked-replay');
+    const unlinkedTempKey = buildAiGeneratedTempOriginalKey(user.id, 'unlinked-temp');
+    const savedUserMediaKey = `users/${user.id}/folders/unsorted/saved-image.png`;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      userImages: {
+        [expiredReplayKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [activeReplayKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [unlinkedTempKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [savedUserMediaKey]: {
+          body: Buffer.from('saved-user-media'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+      },
+      aiUsageAttempts: [
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_scheduled_expired_0001',
+          organization_id: orgId,
+          user_id: user.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: expiredReplayKey,
+          result_save_reference: 'scheduled-expired-save-reference',
+          completed_at: '2026-04-20T10:00:00.000Z',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedAiUsageAttempt({
+          id: 'aua_phase2f_scheduled_active_00002',
+          organization_id: orgId,
+          user_id: user.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: activeReplayKey,
+          result_save_reference: 'scheduled-active-save-reference',
+          completed_at: '2026-04-20T10:01:00.000Z',
+          expires_at: '2999-01-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    try {
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+      expect(env.USER_IMAGES.objects.has(expiredReplayKey)).toBe(false);
+      expect(env.USER_IMAGES.objects.has(activeReplayKey)).toBe(true);
+      expect(env.USER_IMAGES.objects.has(unlinkedTempKey)).toBe(false);
+      expect(env.USER_IMAGES.objects.has(savedUserMediaKey)).toBe(true);
+      expect(env.USER_IMAGES.deleteCalls).toEqual(expect.arrayContaining([
+        expiredReplayKey,
+        unlinkedTempKey,
+      ]));
+      expect(env.USER_IMAGES.deleteCalls).not.toContain(activeReplayKey);
+      expect(env.USER_IMAGES.deleteCalls).not.toContain(savedUserMediaKey);
+      expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_scheduled_expired_0001')).toMatchObject({
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'expired',
+        result_temp_key: null,
+        result_save_reference: null,
+      });
+      expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_phase2f_scheduled_active_00002')).toMatchObject({
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'stored',
+        result_temp_key: activeReplayKey,
+      });
+      expect(findDiagnosticEvent(diagnostics.entries, 'ai_usage_attempt_cleanup_completed')).toEqual(expect.objectContaining({
+        component: 'scheduled-ai-usage-attempt-cleanup',
+        replay_objects_deleted_count: 1,
+        replay_object_metadata_cleared_count: 1,
+      }));
+      expect(JSON.stringify(diagnostics.entries)).not.toContain(expiredReplayKey);
+      expect(env.DB.state.usageEvents).toHaveLength(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     } finally {
       diagnostics.restore();
     }

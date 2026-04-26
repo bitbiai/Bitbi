@@ -1,6 +1,7 @@
 import { BillingError } from "./billing.js";
 import { addMinutesIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { normalizeOrgId } from "./orgs.js";
+import { AI_GENERATED_TEMP_OBJECT_PREFIX } from "../routes/ai/generated-image-save-reference.js";
 
 const ATTEMPT_TTL_MINUTES = 30;
 const MAX_ERROR_MESSAGE_LENGTH = 160;
@@ -10,6 +11,16 @@ const MAX_ATTEMPT_CLEANUP_LIMIT = 50;
 const DEFAULT_ADMIN_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_ATTEMPT_LIMIT = 100;
 const ADMIN_ATTEMPT_LIST_TTL_MS = 60 * 60 * 1000;
+const MAX_REPLAY_OBJECT_KEY_LENGTH = 512;
+const DISALLOWED_REPLAY_OBJECT_PREFIXES = [
+  "users/",
+  "data-exports/",
+  "admin-audit-logs/",
+  "user-activity-logs/",
+  "avatars/",
+  "video-jobs/",
+  "cleanup/",
+];
 const ADMIN_VISIBLE_STATUSES = new Set([
   "reserved",
   "provider_running",
@@ -109,6 +120,61 @@ function normalizeShortText(value, fallback = null) {
   const text = String(value || "").trim();
   if (!text) return fallback;
   return text.slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+function hasUnsafeObjectKeyCharacters(key) {
+  return (
+    key.includes("..") ||
+    key.includes("\\") ||
+    key.includes("\0") ||
+    key.includes("//") ||
+    key.startsWith("/") ||
+    /[\u0000-\u001f\u007f]/.test(key)
+  );
+}
+
+function validateReplayTempObjectKey(row) {
+  const key = typeof row?.result_temp_key === "string" ? row.result_temp_key : "";
+  if (!key || key.length > MAX_REPLAY_OBJECT_KEY_LENGTH) {
+    return { ok: false, code: "missing_or_oversized_key" };
+  }
+  if (DISALLOWED_REPLAY_OBJECT_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    return { ok: false, code: "disallowed_prefix" };
+  }
+  if (!key.startsWith(AI_GENERATED_TEMP_OBJECT_PREFIX)) {
+    return { ok: false, code: "unapproved_prefix" };
+  }
+  if (hasUnsafeObjectKeyCharacters(key)) {
+    return { ok: false, code: "unsafe_key" };
+  }
+
+  const suffix = key.slice(AI_GENERATED_TEMP_OBJECT_PREFIX.length);
+  const parts = suffix.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return { ok: false, code: "invalid_key_shape" };
+  }
+  if (parts[0] !== String(row?.user_id || "")) {
+    return { ok: false, code: "user_mismatch" };
+  }
+  if (!/^[A-Za-z0-9._-]{1,200}$/.test(parts[1])) {
+    return { ok: false, code: "invalid_temp_id" };
+  }
+
+  return { ok: true, key };
+}
+
+async function getReplayObjectMetadata(env, key) {
+  const bucket = env?.USER_IMAGES;
+  if (!bucket || typeof bucket.delete !== "function") {
+    throw new Error("AI replay object storage is unavailable.");
+  }
+  if (typeof bucket.head === "function") {
+    return bucket.head(key);
+  }
+  if (typeof bucket.get === "function") {
+    return bucket.get(key);
+  }
+  throw new Error("AI replay object storage lookup is unavailable.");
 }
 
 function serializeAttempt(row) {
@@ -713,7 +779,7 @@ async function listCleanupCandidates(env, { now, limit }) {
 
 function cleanupActionForAttempt(row) {
   if (row.status === "succeeded" && row.billing_status === "finalized" && row.result_status === "stored") {
-    return "expire_replay_metadata";
+    return "cleanup_replay_object";
   }
   if (row.status === "finalizing" && row.billing_status === "reserved") {
     return "mark_billing_failed";
@@ -789,9 +855,83 @@ async function expireReplayMetadata(env, row, now) {
        AND status = 'succeeded'
        AND billing_status = 'finalized'
        AND result_status = 'stored'
+       AND result_temp_key = ?
        AND expires_at <= ?`
-  ).bind(now, row.id, now).run();
+  ).bind(now, row.id, row.result_temp_key, now).run();
   return Number(result?.meta?.changes || 0);
+}
+
+async function cleanupReplayObjectForAttempt(env, row, now, { dryRun = true } = {}) {
+  if (
+    row.status !== "succeeded" ||
+    row.billing_status !== "finalized" ||
+    row.result_status !== "stored" ||
+    String(row.expires_at || "") > String(now || "")
+  ) {
+    return {
+      eligible: false,
+      skippedActive: true,
+      errorCode: "ai_usage_replay_cleanup_ineligible",
+    };
+  }
+
+  const validation = validateReplayTempObjectKey(row);
+  if (!validation.ok) {
+    return {
+      eligible: false,
+      skippedUnsafeKey: true,
+      errorCode: `ai_usage_replay_${validation.code}`,
+    };
+  }
+
+  let objectMetadata;
+  try {
+    objectMetadata = await getReplayObjectMetadata(env, validation.key);
+  } catch {
+    return {
+      eligible: true,
+      failed: true,
+      errorCode: "ai_usage_replay_object_lookup_failed",
+    };
+  }
+
+  if (dryRun) {
+    return {
+      eligible: true,
+      missingObject: !objectMetadata,
+      errorCode: objectMetadata ? null : "ai_usage_replay_object_missing",
+    };
+  }
+
+  if (!objectMetadata) {
+    const changes = await expireReplayMetadata(env, row, now);
+    return {
+      eligible: true,
+      missingObject: true,
+      metadataCleared: changes > 0,
+      changed: changes > 0,
+      errorCode: changes > 0 ? "ai_usage_replay_object_missing" : "ai_usage_replay_cleanup_noop",
+    };
+  }
+
+  try {
+    await env.USER_IMAGES.delete(validation.key);
+  } catch {
+    return {
+      eligible: true,
+      failed: true,
+      errorCode: "ai_usage_replay_object_delete_failed",
+    };
+  }
+
+  const changes = await expireReplayMetadata(env, row, now);
+  return {
+    eligible: true,
+    deleted: true,
+    metadataCleared: changes > 0,
+    changed: changes > 0,
+    errorCode: changes > 0 ? null : "ai_usage_replay_cleanup_noop",
+  };
 }
 
 export async function cleanupExpiredAiUsageAttempts({
@@ -815,6 +955,13 @@ export async function cleanupExpiredAiUsageAttempts({
   let expiredCount = 0;
   let reservationsReleasedCount = 0;
   let replayMetadataExpiredCount = 0;
+  let replayObjectsEligibleCount = 0;
+  let replayObjectsDeletedCount = 0;
+  let replayObjectMetadataClearedCount = 0;
+  let replayObjectsSkippedActiveCount = 0;
+  let replayObjectsSkippedUnsafeKeyCount = 0;
+  let replayObjectsSkippedMissingObjectCount = 0;
+  let replayObjectFailedCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
   const results = [];
@@ -839,8 +986,28 @@ export async function cleanupExpiredAiUsageAttempts({
     }
 
     if (isDryRun) {
-      if (action === "expire_replay_metadata") {
-        replayMetadataExpiredCount += 1;
+      if (action === "cleanup_replay_object") {
+        const replayCleanup = await cleanupReplayObjectForAttempt(env, row, now, { dryRun: true });
+        if (replayCleanup.eligible) {
+          replayObjectsEligibleCount += 1;
+          replayMetadataExpiredCount += 1;
+        }
+        if (replayCleanup.skippedActive) {
+          replayObjectsSkippedActiveCount += 1;
+          skippedCount += 1;
+        }
+        if (replayCleanup.skippedUnsafeKey) {
+          replayObjectsSkippedUnsafeKeyCount += 1;
+          skippedCount += 1;
+        }
+        if (replayCleanup.missingObject) {
+          replayObjectsSkippedMissingObjectCount += 1;
+        }
+        if (replayCleanup.failed) {
+          failedCount += 1;
+          replayObjectFailedCount += 1;
+        }
+        result.errorCode = replayCleanup.errorCode || null;
       } else {
         expiredCount += 1;
         if (action === "release_reservation") reservationsReleasedCount += 1;
@@ -860,13 +1027,35 @@ export async function cleanupExpiredAiUsageAttempts({
       } else if (action === "mark_billing_failed") {
         changes = await markExpiredFinalizationFailed(env, row, now);
         if (changes > 0) expiredCount += 1;
-      } else if (action === "expire_replay_metadata") {
-        changes = await expireReplayMetadata(env, row, now);
-        if (changes > 0) replayMetadataExpiredCount += 1;
+      } else if (action === "cleanup_replay_object") {
+        const replayCleanup = await cleanupReplayObjectForAttempt(env, row, now, { dryRun: false });
+        if (replayCleanup.eligible) replayObjectsEligibleCount += 1;
+        if (replayCleanup.deleted) replayObjectsDeletedCount += 1;
+        if (replayCleanup.metadataCleared) {
+          replayObjectMetadataClearedCount += 1;
+          replayMetadataExpiredCount += 1;
+        }
+        if (replayCleanup.skippedActive) {
+          replayObjectsSkippedActiveCount += 1;
+          skippedCount += 1;
+        }
+        if (replayCleanup.skippedUnsafeKey) {
+          replayObjectsSkippedUnsafeKeyCount += 1;
+          skippedCount += 1;
+        }
+        if (replayCleanup.missingObject) {
+          replayObjectsSkippedMissingObjectCount += 1;
+        }
+        if (replayCleanup.failed) {
+          failedCount += 1;
+          replayObjectFailedCount += 1;
+        }
+        result.errorCode = replayCleanup.errorCode || null;
+        changes = replayCleanup.changed ? 1 : 0;
       }
       if (changes > 0) {
         result.changed = true;
-      } else {
+      } else if (!result.errorCode) {
         skippedCount += 1;
         result.errorCode = "ai_usage_cleanup_noop";
       }
@@ -883,6 +1072,13 @@ export async function cleanupExpiredAiUsageAttempts({
     expiredCount,
     reservationsReleasedCount,
     replayMetadataExpiredCount,
+    replayObjectsEligibleCount,
+    replayObjectsDeletedCount,
+    replayObjectMetadataClearedCount,
+    replayObjectsSkippedActiveCount,
+    replayObjectsSkippedUnsafeKeyCount,
+    replayObjectsSkippedMissingObjectCount,
+    replayObjectFailedCount,
     skippedCount,
     failedCount,
     appliedLimit,

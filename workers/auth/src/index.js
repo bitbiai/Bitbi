@@ -111,6 +111,9 @@ async function cleanupExpiredGeneratedImageTemps(env) {
     if (!isAiGeneratedTempObjectExpired(object?.uploaded, now)) {
       continue;
     }
+    if (await isLinkedAiUsageReplayObject(env, object.key)) {
+      continue;
+    }
     try {
       await env.USER_IMAGES.delete(object.key);
       deletedCount += 1;
@@ -124,6 +127,19 @@ async function cleanupExpiredGeneratedImageTemps(env) {
     deletedCount,
     failedCount,
   };
+}
+
+async function isLinkedAiUsageReplayObject(env, key) {
+  if (!key || !env?.DB) return false;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT id FROM ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1"
+    ).bind(key).first();
+    return Boolean(row?.id);
+  } catch (error) {
+    if (String(error?.message || error).includes("no such table")) return false;
+    throw error;
+  }
 }
 
 export default {
@@ -337,6 +353,8 @@ export default {
         usageAttemptCleanup.expiredCount > 0 ||
         usageAttemptCleanup.reservationsReleasedCount > 0 ||
         usageAttemptCleanup.replayMetadataExpiredCount > 0 ||
+        usageAttemptCleanup.replayObjectsDeletedCount > 0 ||
+        usageAttemptCleanup.replayObjectFailedCount > 0 ||
         usageAttemptCleanup.failedCount > 0 ||
         usageAttemptCleanup.skippedCount > 0
       ) {
@@ -349,6 +367,13 @@ export default {
           expired_count: usageAttemptCleanup.expiredCount,
           reservations_released_count: usageAttemptCleanup.reservationsReleasedCount,
           replay_metadata_expired_count: usageAttemptCleanup.replayMetadataExpiredCount,
+          replay_objects_eligible_count: usageAttemptCleanup.replayObjectsEligibleCount,
+          replay_objects_deleted_count: usageAttemptCleanup.replayObjectsDeletedCount,
+          replay_object_metadata_cleared_count: usageAttemptCleanup.replayObjectMetadataClearedCount,
+          replay_objects_skipped_active_count: usageAttemptCleanup.replayObjectsSkippedActiveCount,
+          replay_objects_skipped_unsafe_key_count: usageAttemptCleanup.replayObjectsSkippedUnsafeKeyCount,
+          replay_objects_skipped_missing_object_count: usageAttemptCleanup.replayObjectsSkippedMissingObjectCount,
+          replay_object_failed_count: usageAttemptCleanup.replayObjectFailedCount,
           skipped_count: usageAttemptCleanup.skippedCount,
           failed_count: usageAttemptCleanup.failedCount,
         });

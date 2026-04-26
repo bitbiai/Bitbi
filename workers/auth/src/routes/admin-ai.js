@@ -330,6 +330,13 @@ export async function handleAdminAI(ctx) {
         expired_count: cleanup.expiredCount,
         reservations_released_count: cleanup.reservationsReleasedCount,
         replay_metadata_expired_count: cleanup.replayMetadataExpiredCount,
+        replay_objects_eligible_count: cleanup.replayObjectsEligibleCount,
+        replay_objects_deleted_count: cleanup.replayObjectsDeletedCount,
+        replay_object_metadata_cleared_count: cleanup.replayObjectMetadataClearedCount,
+        replay_objects_skipped_active_count: cleanup.replayObjectsSkippedActiveCount,
+        replay_objects_skipped_unsafe_key_count: cleanup.replayObjectsSkippedUnsafeKeyCount,
+        replay_objects_skipped_missing_object_count: cleanup.replayObjectsSkippedMissingObjectCount,
+        replay_object_failed_count: cleanup.replayObjectFailedCount,
         skipped_count: cleanup.skippedCount,
         failed_count: cleanup.failedCount,
       });
