@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0036_add_ai_usage_attempts.sql",
+        latest: "0037_add_billing_event_ingestion.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -239,6 +239,15 @@ const baseManifest = {
         summary: "Required for signing internal AI requests.",
       },
       {
+        id: "auth-billing-webhook-test-secret",
+        kind: "secret",
+        worker: "auth",
+        name: "BILLING_WEBHOOK_TEST_SECRET",
+        requiredForRelease: false,
+        documentation: "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
+        summary: "Optional synthetic billing webhook verification secret; absent secret keeps the route fail-closed.",
+      },
+      {
         id: "ai-service-auth-secret",
         kind: "secret",
         worker: "ai",
@@ -361,6 +370,7 @@ const baseManifest = {
       "GET /api/verify-email",
       "POST /api/resend-verification",
       "POST /api/request-reverification",
+      "POST /api/billing/webhooks/test",
     ],
     delegatedExactPaths: [
       "/api/favorites",
@@ -470,6 +480,7 @@ const baseManifest = {
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
+      "GET /api/admin/billing/events",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
@@ -489,6 +500,7 @@ const baseManifest = {
       "GET /api/admin/orgs/:id",
       "GET /api/admin/orgs/:id/billing",
       "POST /api/admin/orgs/:id/credits/grant",
+      "GET /api/admin/billing/events/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -517,6 +529,7 @@ function createValidContext() {
     "workers/contact/src/index.js",
     "docs/ai-image-derivatives-runbook.md",
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+    "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);
@@ -539,6 +552,7 @@ function createValidContext() {
           "0033_harden_data_export_archives.sql",
           "0034_add_organizations.sql",
           "0036_add_ai_usage_attempts.sql",
+          "0037_add_billing_event_ingestion.sql",
         ],
       },
     },
@@ -720,6 +734,7 @@ function createValidContext() {
       if (pathname === "/api/favorites") { return handleFavorites(); }
       if (pathname === "/api/orgs") { return handleOrgs(); }
       if (pathname.startsWith("/api/orgs/")) { return handleOrgs(); }
+      if (pathname === "/api/billing/webhooks/test" && method === "POST") return handleBillingWebhooks();
       if (pathname.startsWith("/api/admin/")) { return handleAdmin(); }
       if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword();
       if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset();
@@ -777,6 +792,7 @@ function createValidContext() {
       if (pathname === "/api/admin/stats" && method === "GET") return handleAdminStats();
       if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
       if (pathname === "/api/admin/billing/plans" && method === "GET") return handleAdminBillingPlans();
+      if (pathname === "/api/admin/billing/events" && method === "GET") return handleAdminBillingEvents();
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
@@ -804,6 +820,8 @@ function createValidContext() {
       if (adminOrgBillingMatch && method === "GET") return handleAdminOrgBilling();
       const adminOrgCreditGrantMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/credits\\/grant$/);
       if (adminOrgCreditGrantMatch && method === "POST") return handleAdminOrgCreditGrant();
+      const adminBillingEventMatch = pathname.match(/^\\/api\\/admin\\/billing\\/events\\/([^/]+)$/);
+      if (adminBillingEventMatch && method === "GET") return handleAdminBillingEvent();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();

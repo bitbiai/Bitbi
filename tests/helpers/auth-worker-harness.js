@@ -527,6 +527,8 @@ class MockD1 {
         { id: 'ent_free_credits_balance_max', plan_id: 'plan_free', feature_key: 'credits.balance.max', enabled: 1, value_kind: 'number', value_numeric: 1000, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
       ],
       billingCustomers: [],
+      billingProviderEvents: [],
+      billingEventActions: [],
       creditLedger: [],
       usageEvents: [],
       aiUsageAttempts: [],
@@ -633,6 +635,12 @@ class MockD1 {
     }
     if (this.missingTables.has('ai_usage_attempts') && query.includes('ai_usage_attempts')) {
       throw new Error('no such table: ai_usage_attempts');
+    }
+    if (this.missingTables.has('billing_provider_events') && query.includes('billing_provider_events')) {
+      throw new Error('no such table: billing_provider_events');
+    }
+    if (this.missingTables.has('billing_event_actions') && query.includes('billing_event_actions')) {
+      throw new Error('no such table: billing_event_actions');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -1845,6 +1853,135 @@ class MockD1 {
         .filter((row) => row.organization_id === organizationId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
         .slice(0, Number(limit));
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE provider = ? AND provider_event_id = ?')) {
+      const [provider, providerEventId] = bindings;
+      return deepClone(this.state.billingProviderEvents.find((row) =>
+        row.provider === provider && row.provider_event_id === providerEventId
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO billing_provider_events ( id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, dedupe_key, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at ) VALUES')) {
+      const [
+        id,
+        provider,
+        providerEventId,
+        providerAccount,
+        providerMode,
+        eventType,
+        eventCreatedAt,
+        receivedAt,
+        processingStatus,
+        verificationStatus,
+        dedupeKey,
+        payloadHash,
+        payloadSummaryJson,
+        organizationId,
+        userId,
+        billingCustomerId,
+        errorCode,
+        errorMessage,
+        attemptCount,
+        lastProcessedAt,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.billingProviderEvents.some((row) =>
+        row.id === id ||
+        (row.provider === provider && row.provider_event_id === providerEventId) ||
+        row.dedupe_key === dedupeKey
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_provider_events');
+      }
+      this.state.billingProviderEvents.push({
+        id,
+        provider,
+        provider_event_id: providerEventId,
+        provider_account: providerAccount,
+        provider_mode: providerMode,
+        event_type: eventType,
+        event_created_at: eventCreatedAt,
+        received_at: receivedAt,
+        processing_status: processingStatus,
+        verification_status: verificationStatus,
+        dedupe_key: dedupeKey,
+        payload_hash: payloadHash,
+        payload_summary_json: payloadSummaryJson,
+        organization_id: organizationId,
+        user_id: userId,
+        billing_customer_id: billingCustomerId,
+        error_code: errorCode,
+        error_message: errorMessage,
+        attempt_count: attemptCount,
+        last_processed_at: lastProcessedAt,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO billing_event_actions ( id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at ) VALUES')) {
+      const [id, eventId, actionType, status, dryRun, summaryJson, createdAt, updatedAt] = bindings;
+      if (this.state.billingEventActions.some((row) =>
+        row.id === id || (row.event_id === eventId && row.action_type === actionType)
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_event_actions');
+      }
+      this.state.billingEventActions.push({
+        id,
+        event_id: eventId,
+        action_type: actionType,
+        status,
+        dry_run: dryRun,
+        summary_json: summaryJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE id = ?')) {
+      const [eventId] = bindings;
+      return deepClone(this.state.billingProviderEvents.find((row) => row.id === eventId) || null);
+    }
+
+    if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE (? IS NULL OR provider = ?)')) {
+      const [
+        providerFilter,
+        providerValue,
+        statusFilter,
+        statusValue,
+        typeFilter,
+        typeValue,
+        organizationFilter,
+        organizationValue,
+        limit,
+      ] = bindings;
+      const rows = this.state.billingProviderEvents
+        .filter((row) =>
+          (providerFilter == null || row.provider === providerValue) &&
+          (statusFilter == null || row.processing_status === statusValue) &&
+          (typeFilter == null || row.event_type === typeValue) &&
+          (organizationFilter == null || row.organization_id === organizationValue)
+        )
+        .sort((a, b) =>
+          String(b.received_at || '').localeCompare(String(a.received_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit));
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at FROM billing_event_actions WHERE event_id = ?')) {
+      const [eventId] = bindings;
+      const rows = this.state.billingEventActions
+        .filter((row) => row.event_id === eventId)
+        .sort((a, b) =>
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          String(a.id || '').localeCompare(String(b.id || ''))
+        );
       return { results: deepClone(rows) };
     }
 
@@ -5334,6 +5471,9 @@ function createAuthTestEnv(seed = {}) {
     AI_SERVICE_AUTH_SECRET: seed.AI_SERVICE_AUTH_SECRET === undefined
       ? 'test-ai-service-auth-secret'
       : seed.AI_SERVICE_AUTH_SECRET,
+    BILLING_WEBHOOK_TEST_SECRET: seed.BILLING_WEBHOOK_TEST_SECRET === undefined
+      ? 'test-billing-webhook-secret-v1-32chars'
+      : seed.BILLING_WEBHOOK_TEST_SECRET,
     ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
     PBKDF2_ITERATIONS: '100000',
     DB,

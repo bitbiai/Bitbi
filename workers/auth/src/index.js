@@ -14,6 +14,7 @@ import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
 import { handleOrgs } from "./routes/orgs.js";
+import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
@@ -78,6 +79,12 @@ function getAllowedOrigins(env) {
 
 function requiresTrustedRequestContext(pathname, method) {
   if (pathname === "/api/verify-email" && method === "GET") {
+    return false;
+  }
+  if (
+    pathname === "/api/billing/webhooks/test" &&
+    String(method || "").toUpperCase() === "POST"
+  ) {
     return false;
   }
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
@@ -231,6 +238,13 @@ export default {
     }
     if (pathname.startsWith("/api/orgs/")) {
       const result = await handleOrgs(ctx);
+      if (result) return result;
+    }
+
+    // Billing provider webhooks use provider signatures instead of browser CSRF.
+    // route-policy: billing.webhooks.test
+    if (pathname === "/api/billing/webhooks/test" && method === "POST") {
+      const result = await handleBillingWebhooks(ctx);
       if (result) return result;
     }
 

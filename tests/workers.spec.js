@@ -98,6 +98,11 @@ async function loadBillingModule() {
   return import(modulePath);
 }
 
+async function loadBillingEventsModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/billing-events.js')).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -1120,6 +1125,22 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'same-origin-required',
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('POST', '/api/billing/webhooks/test')).toEqual(expect.objectContaining({
+      id: 'billing.webhooks.test',
+      auth: 'anonymous',
+      csrf: 'not-browser-facing',
+      body: expect.objectContaining({ kind: 'raw', maxBytesName: 'billingWebhookRaw' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/events')).toEqual(expect.objectContaining({
+      id: 'admin.billing.events.list',
+      auth: 'admin',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/events/bpe_0123456789abcdef0123456789abcdef')).toEqual(expect.objectContaining({
+      id: 'admin.billing.events.read',
+      auth: 'admin',
+    }));
   });
 });
 
@@ -1801,6 +1822,353 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
       credits: 1,
       idempotencyKey: 'helper-disabled-consume-1',
     })).rejects.toMatchObject({ code: 'feature_not_entitled' });
+  });
+});
+
+test.describe('Phase 2-I provider-neutral billing event ingestion foundation', () => {
+  async function signedBillingWebhookRequest({
+    path = '/api/billing/webhooks/test',
+    body,
+    secret = 'test-billing-webhook-secret-v1-32chars',
+    timestamp = Date.now(),
+    signatureOverride = null,
+    headers = {},
+  }) {
+    const { buildSyntheticBillingWebhookSignature } = await loadBillingEventsModule();
+    const rawBody = typeof body === 'string' ? body : JSON.stringify(body);
+    const signature = signatureOverride || await buildSyntheticBillingWebhookSignature({
+      secret,
+      provider: path.split('/').at(-1),
+      timestamp,
+      rawBody,
+    });
+    return new Request(`https://bitbi.ai${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-bitbi-billing-timestamp': String(timestamp),
+        'x-bitbi-billing-signature': signature,
+        ...headers,
+      },
+      body: rawBody,
+    });
+  }
+
+  test('synthetic webhook verification fails closed before parsing or side effects', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const basePayload = {
+      id: 'evt_phase2i_invalid',
+      type: 'invoice.paid',
+      mode: 'test',
+      data: { amount: 1000, currency: 'usd', payment_method: 'card_unsafe' },
+    };
+
+    const missingConfigEnv = createAuthTestEnv({ BILLING_WEBHOOK_TEST_SECRET: '' });
+    const missingConfig = await worker.fetch(
+      new Request('https://bitbi.ai/api/billing/webhooks/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basePayload),
+      }),
+      missingConfigEnv,
+      createExecutionContext().execCtx
+    );
+    expect(missingConfig.status).toBe(503);
+    expect(missingConfigEnv.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const env = createAuthTestEnv();
+    const missingSignature = await worker.fetch(
+      new Request('https://bitbi.ai/api/billing/webhooks/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basePayload),
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingSignature.status).toBe(401);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const invalidSignature = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: basePayload,
+        signatureOverride: `v1=${'0'.repeat(64)}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidSignature.status).toBe(401);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const staleTimestamp = Date.now() - (10 * 60_000);
+    const stale = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: basePayload,
+        timestamp: staleTimestamp,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(stale.status).toBe(401);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const unsupportedProvider = await worker.fetch(
+      new Request('https://bitbi.ai/api/billing/webhooks/stripe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://bitbi.ai',
+          'x-bitbi-billing-timestamp': String(Date.now()),
+          'x-bitbi-billing-signature': `v1=${'1'.repeat(64)}`,
+        },
+        body: JSON.stringify(basePayload),
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unsupportedProvider.status).toBe(404);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const malformedRaw = '{not valid json';
+    const malformed = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: malformedRaw,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(malformed.status).toBe(400);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+
+    const oversized = await worker.fetch(
+      new Request('https://bitbi.ai/api/billing/webhooks/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'x'.repeat((128 * 1024) + 1),
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(oversized.status).toBe(413);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(0);
+  });
+
+  test('valid synthetic events are stored idempotently without billing side effects', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'phase2i-billing-owner', role: 'user' });
+    const orgId = 'org_ffffffffffffffffffffffffffffffff';
+    const env = createAuthTestEnv({
+      users: [owner],
+      organizations: [{
+        id: orgId,
+        name: 'Webhook Billing Org',
+        slug: 'webhook-billing-org',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+    const payload = {
+      id: 'evt_phase2i_invoice_paid',
+      type: 'invoice.paid',
+      mode: 'test',
+      created: 1777200000,
+      data: {
+        organization_id: orgId,
+        amount: 1200,
+        currency: 'usd',
+        payment_method: 'pm_should_not_be_stored',
+        card: { last4: '4242' },
+      },
+    };
+
+    const accepted = await worker.fetch(
+      await signedBillingWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const acceptedBody = await accepted.json();
+    expect(accepted.status).toBe(202);
+    expect(acceptedBody).toEqual(expect.objectContaining({
+      ok: true,
+      duplicate: false,
+      actionPlanned: true,
+      liveBillingEnabled: false,
+    }));
+    expect(acceptedBody.event).toEqual(expect.objectContaining({
+      provider: 'test',
+      providerEventId: 'evt_phase2i_invoice_paid',
+      providerMode: 'test',
+      eventType: 'invoice.paid',
+      processingStatus: 'planned',
+      verificationStatus: 'verified_test_signature',
+      organizationId: orgId,
+    }));
+    expect(JSON.stringify(acceptedBody)).not.toContain('payload_hash');
+    expect(JSON.stringify(acceptedBody)).not.toContain('pm_should_not_be_stored');
+    expect(acceptedBody.event.payloadSummary).toEqual(expect.objectContaining({
+      paymentDataRedacted: true,
+    }));
+    expect(acceptedBody.event.payloadSummary.dataKeys).not.toContain('payment_method');
+    expect(acceptedBody.event.payloadSummary).not.toHaveProperty('cardLast4');
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.organizationSubscriptions).toHaveLength(0);
+
+    const duplicate = await worker.fetch(
+      await signedBillingWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const duplicateBody = await duplicate.json();
+    expect(duplicate.status).toBe(200);
+    expect(duplicateBody.duplicate).toBe(true);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+
+    const mismatch = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: {
+          ...payload,
+          data: { ...payload.data, amount: 1300 },
+        },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mismatch.status).toBe(409);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+
+    const unsupportedEvent = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: {
+          id: 'evt_phase2i_customer_updated',
+          type: 'customer.updated',
+          mode: 'test',
+          data: { organization_id: orgId, email: 'redacted@example.com' },
+        },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const unsupportedBody = await unsupportedEvent.json();
+    expect(unsupportedEvent.status).toBe(202);
+    expect(unsupportedBody.event.processingStatus).toBe('ignored');
+    expect(unsupportedBody.actionPlanned).toBe(false);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(2);
+    expect(env.DB.state.billingEventActions).toHaveLength(1);
+    expect(JSON.stringify(unsupportedBody)).not.toContain('redacted@example.com');
+
+    const liveEvent = await worker.fetch(
+      await signedBillingWebhookRequest({
+        body: {
+          id: 'evt_phase2i_live_event',
+          type: 'invoice.paid',
+          mode: 'live',
+          data: { organization_id: orgId, amount: 1000 },
+        },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(liveEvent.status).toBe(403);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(2);
+  });
+
+  test('admin billing event inspection is admin-only and sanitized', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase2i-billing-admin');
+    const nonAdmin = createContractUser({ id: 'phase2i-billing-non-admin', role: 'user' });
+    const orgId = 'org_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const env = createAuthTestEnv({
+      users: [admin, nonAdmin],
+      organizations: [{
+        id: orgId,
+        name: 'Inspection Org',
+        slug: 'inspection-org',
+        status: 'active',
+        created_by_user_id: admin.id,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const payload = {
+      id: 'evt_phase2i_admin_inspect',
+      type: 'credit_pack.purchased',
+      mode: 'test',
+      data: {
+        organization_id: orgId,
+        amount: 5000,
+        currency: 'usd',
+        payment_method: 'pm_secret',
+        provider_signature: 'sig_secret',
+      },
+    };
+    const ingested = await worker.fetch(
+      await signedBillingWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(ingested.status).toBe(202);
+    const eventId = env.DB.state.billingProviderEvents[0].id;
+
+    const nonAdminList = await worker.fetch(
+      authJsonRequest('/api/admin/billing/events', 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminList.status).toBe(403);
+
+    const list = await worker.fetch(
+      authJsonRequest('/api/admin/billing/events?provider=test&status=planned&limit=500', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const listBody = await list.json();
+    expect(list.status).toBe(200);
+    expect(listBody.events).toHaveLength(1);
+    expect(listBody.events[0]).toEqual(expect.objectContaining({
+      id: eventId,
+      providerEventId: 'evt_phase2i_admin_inspect',
+      eventType: 'credit_pack.purchased',
+      processingStatus: 'planned',
+    }));
+    expect(JSON.stringify(listBody)).not.toContain('payload_hash');
+    expect(JSON.stringify(listBody)).not.toContain('pm_secret');
+    expect(JSON.stringify(listBody)).not.toContain('sig_secret');
+    expect(JSON.stringify(listBody)).not.toContain('request_fingerprint');
+
+    const detail = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/events/${eventId}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const detailBody = await detail.json();
+    expect(detail.status).toBe(200);
+    expect(detailBody.event.actions).toHaveLength(1);
+    expect(detailBody.event.actions[0]).toEqual(expect.objectContaining({
+      actionType: 'credit_pack.purchased',
+      status: 'deferred',
+      dryRun: true,
+    }));
+    expect(JSON.stringify(detailBody)).not.toContain('payment_method');
+    expect(JSON.stringify(detailBody)).not.toContain('provider_signature');
+    expect(JSON.stringify(detailBody)).not.toContain('payload_hash');
+    expect(detailBody.livePaymentProviderEnabled).toBe(false);
   });
 });
 

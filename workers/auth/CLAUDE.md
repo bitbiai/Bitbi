@@ -100,6 +100,7 @@ src/
 - `GET /api/verify-email?token=` — verify email address
 - `POST /api/resend-verification` — resend verification email (requires auth)
 - `POST /api/request-reverification` — legacy users request real email verification (requires auth)
+- `POST /api/billing/webhooks/test` — synthetic test-only billing event ingestion route with raw-body HMAC verification, byte limit, and fail-closed limiter; no browser CSRF and no live billing side effects
 - `GET /api/profile` — user profile data (requires auth)
 - `PATCH /api/profile` — update profile fields (requires auth)
 - `GET /api/profile/avatar` — user's avatar image from R2, or 404 (requires auth)
@@ -132,6 +133,8 @@ src/
 - `GET /api/admin/orgs/:id` — inspect sanitized organization and member metadata (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/orgs/:id/billing` — inspect sanitized organization billing/credit state (requires admin/MFA in production, fail-closed limiter)
 - `POST /api/admin/orgs/:id/credits/grant` — grant organization credits manually with `Idempotency-Key` (requires admin/MFA in production, same-origin, byte-limited JSON, fail-closed limiter)
+- `GET /api/admin/billing/events` — list sanitized billing-provider event metadata (requires admin/MFA in production, fail-closed limiter)
+- `GET /api/admin/billing/events/:id` — inspect one sanitized billing-provider event and deferred dry-run action summaries (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/avatars/latest` — latest avatar uploads
 - `GET /api/admin/avatars/:userId` — serve a user's avatar
 - `GET /api/admin/activity?limit=&cursor=&search=` — signed-cursor-paginated audit log with hot-window action counts and indexed prefix search over normalized action/email/entity fields
@@ -181,7 +184,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -199,7 +202,9 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0036_add_ai_usage_attempts`.
+**Secret** `BILLING_WEBHOOK_TEST_SECRET` — optional Phase 2-I synthetic billing webhook verification secret for `POST /api/billing/webhooks/test`. If missing or too short, the route fails closed. This is not a live provider secret and does not enable production payment processing.
+
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0037_add_billing_event_ingestion`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -223,6 +228,7 @@ Key migration-dependent behavior:
 - `0034_add_organizations` — required before auth deploy if Phase 2-A organization creation, membership, and admin organization inspection APIs must work immediately
 - `0035_add_billing_entitlements` — required before auth deploy if Phase 2-B billing plan, entitlement, credit ledger, usage event, and admin credit-grant APIs must work immediately
 - `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F replay object cleanup, and Phase 2-H org-scoped text generation replay must work immediately
+- `0037_add_billing_event_ingestion` — required before auth deploy if Phase 2-I synthetic billing webhook ingestion and admin billing-event inspection must work immediately
 
 ## Conventions
 
@@ -241,6 +247,6 @@ Key migration-dependent behavior:
 - Scheduled cleanup: daily cron (03:00 UTC) purges expired sessions/tokens, expired AI quota reservations, expired shared rate-limit counters, retries pending `r2_cleanup_queue` deletes, cleans expired lifecycle export archives under the `data-exports/` prefix, releases expired/stuck AI usage-attempt reservations, deletes only expired attempt-linked temporary replay objects under `tmp/ai-generated/`, and re-enqueues only stale AI-image derivative work that has cooled down enough for recovery
 - Queue consumers: `bitbi-ai-image-derivatives` handles derivative generation, `bitbi-auth-activity-ingest` batch-persists queued admin audit / user activity rows into the hot D1 tables, and `bitbi-ai-video-jobs` processes async admin video jobs outside browser request lifecycles
 - Admin audit/user activity search uses signed cursors from `PAGINATION_SIGNING_SECRET` and the `activity_search_index` projection. Do not reintroduce raw `meta_json LIKE` search or raw `created_at|id` cursors; run `npm run check:admin-activity-query-shape` after activity endpoint changes.
-- Environment secrets: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `RESEND_API_KEY`
+- Environment secrets: `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, optional `BILLING_WEBHOOK_TEST_SECRET`, `RESEND_API_KEY`
 - Optional env var: `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` (defaults enabled for the Phase 1-D compatibility window; set to `false` only after legacy session hashes, MFA material/proofs, cursors, and image save references have expired or migrated)
 - Optional env var: `PBKDF2_ITERATIONS` (int, default 100000, clamped to 100000 max — Cloudflare Workers runtime limit)

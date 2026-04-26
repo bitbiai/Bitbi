@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0036_add_ai_usage_attempts.sql",
+        "latest": "0037_add_billing_event_ingestion.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -258,6 +258,15 @@
         "summary": "Required for HMAC signing of auth-worker requests to the internal AI worker. Must match the AI worker AI_SERVICE_AUTH_SECRET before production deploy."
       },
       {
+        "id": "auth-billing-webhook-test-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "BILLING_WEBHOOK_TEST_SECRET",
+        "requiredForRelease": false,
+        "documentation": "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
+        "summary": "Optional Phase 2-I synthetic billing webhook verification secret. If absent, the test-only webhook route fails closed; live payment providers remain disabled."
+      },
+      {
         "id": "ai-service-auth-secret",
         "kind": "secret",
         "worker": "ai",
@@ -379,7 +388,8 @@
       "POST /api/reset-password",
       "GET /api/verify-email",
       "POST /api/resend-verification",
-      "POST /api/request-reverification"
+      "POST /api/request-reverification",
+      "POST /api/billing/webhooks/test"
     ],
     "delegatedExactPaths": [
       "/api/favorites",
@@ -489,6 +499,7 @@
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
+      "GET /api/admin/billing/events",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
@@ -508,6 +519,7 @@
       "GET /api/admin/orgs/:id",
       "GET /api/admin/orgs/:id/billing",
       "POST /api/admin/orgs/:id/credits/grant",
+      "GET /api/admin/billing/events/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",

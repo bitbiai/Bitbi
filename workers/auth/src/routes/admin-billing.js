@@ -20,6 +20,12 @@ import {
   listAdminPlans,
   normalizeBillingIdempotencyKey,
 } from "../lib/billing.js";
+import {
+  BillingEventError,
+  billingEventErrorResponse,
+  getBillingProviderEvent,
+  listBillingProviderEvents,
+} from "../lib/billing-events.js";
 
 async function enforceAdminBillingRateLimit(ctx, {
   scope = "admin-billing-read-ip",
@@ -47,6 +53,9 @@ async function enforceAdminBillingRateLimit(ctx, {
 function billingErrorJson(error) {
   if (error instanceof BillingError) {
     return json(billingErrorResponse(error), { status: error.status });
+  }
+  if (error instanceof BillingEventError) {
+    return json(billingEventErrorResponse(error), { status: error.status });
   }
   throw error;
 }
@@ -89,8 +98,10 @@ async function auditBillingEvent(ctx, adminUser, action, meta = {}) {
 }
 
 export async function handleAdminBilling(ctx) {
-  const { request, env, pathname, method, isSecure, correlationId } = ctx;
+  const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   const isBillingRoute = pathname === "/api/admin/billing/plans"
+    || pathname === "/api/admin/billing/events"
+    || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/orgs\/[^/]+\/billing$/.test(pathname)
     || /^\/api\/admin\/orgs\/[^/]+\/credits\/grant$/.test(pathname);
   if (!isBillingRoute) return null;
@@ -106,6 +117,35 @@ export async function handleAdminBilling(ctx) {
     if (limited) return limited;
     const plans = await listAdminPlans(env);
     return json({ ok: true, plans, livePaymentProviderEnabled: false });
+  }
+
+  if (pathname === "/api/admin/billing/events" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const events = await listBillingProviderEvents(env, {
+        provider: url.searchParams.get("provider"),
+        status: url.searchParams.get("status"),
+        eventType: url.searchParams.get("event_type") || url.searchParams.get("eventType"),
+        organizationId: url.searchParams.get("organization_id") || url.searchParams.get("organizationId"),
+        limit: url.searchParams.get("limit"),
+      });
+      return json({ ok: true, events, livePaymentProviderEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error);
+    }
+  }
+
+  const eventMatch = pathname.match(/^\/api\/admin\/billing\/events\/([^/]+)$/);
+  if (eventMatch && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const event = await getBillingProviderEvent(env, { id: eventMatch[1] });
+      return json({ ok: true, event, livePaymentProviderEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error);
+    }
   }
 
   const billingMatch = pathname.match(/^\/api\/admin\/orgs\/([^/]+)\/billing$/);

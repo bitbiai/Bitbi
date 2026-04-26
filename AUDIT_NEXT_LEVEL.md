@@ -6,19 +6,19 @@ Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
 
 Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
 
-## Current Remediation Status After Phase 2-H
+## Current Remediation Status After Phase 2-I
 
-This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-H.
+This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-I.
 
 Current repository state at checkpoint:
 
 - Branch: `main`
-- Latest commit observed before Phase 2-H edits: `40ddac7 Phase 2-F Add AI replay object retention cleanup`
-- Working tree: Phase 2-H implementation adds backend-only org-scoped member text generation, route-policy/release updates, tests, and documentation until committed.
-- Latest auth D1 migration: `0036_add_ai_usage_attempts.sql`
+- Latest commit observed before Phase 2-I edits: `dff506d Phase 2-H`
+- Working tree: Phase 2-I implementation adds provider-neutral billing event ingestion, route-policy/release updates, tests, and documentation until committed.
+- Latest auth D1 migration: `0037_add_billing_event_ingestion.sql`
 - Latest AI Worker Durable Object migration: `v1-service-auth-replay`
-- Current aggregate validation during Phase 2-H: `npm run test:workers` passed 339/339, `npm run test:static` passed 155/155, `npm run release:preflight` passed, and `git diff --check` passed. Live Cloudflare validation and production deploy were not run.
-- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0036`, staging Worker verification, staging data lifecycle cleanup/executor verification, staging organization-flow verification, staging billing/entitlement/credit verification, staging org-scoped AI image usage retry/reservation verification, staging AI usage attempt cleanup/admin inspection verification, staging replay object cleanup verification, and staging org-scoped member text generation verification are complete.
+- Current aggregate validation during Phase 2-I: `npm run test:workers` passed 342/342 during implementation. Final full validation is recorded in `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md` and the Phase 2-I response. Live Cloudflare validation and production deploy were not run.
+- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0037`, staging Worker verification, staging data lifecycle cleanup/executor verification, staging organization-flow verification, staging billing/entitlement/credit verification, staging org-scoped AI image/text usage retry/reservation verification, staging AI usage attempt cleanup/admin inspection verification, staging replay object cleanup verification, and staging synthetic billing webhook verification/admin inspection/no-side-effect verification are complete.
 
 Completed remediation phases:
 
@@ -44,13 +44,14 @@ Completed remediation phases:
 | Phase 2-E | Completed for current scope | Bounded AI usage attempt cleanup, stale reservation release without debits, replay metadata expiry, scheduled cleanup integration, admin usage-attempt list/detail/cleanup APIs, route-policy/release/doc/test updates. | Worker 334/334, static 155/155, release preflight passed. | Migration `0036`, staging cleanup/admin inspection/dry-run/execution/scheduled cleanup verification, and later temporary replay object deletion policy. | `PHASE2E_AI_USAGE_ATTEMPT_CLEANUP_REPORT.md` |
 | Phase 2-F | Completed for current scope | Prefix-scoped deletion of expired temporary replay objects, generic temp cleanup skip for attempt-linked objects, sanitized cleanup counts/logs, route-policy note updates, docs/tests. | Worker 336/336, static 155/155, release preflight passed. | Migration `0036`, staging replay cleanup dry-run/execution, scheduled cleanup, R2 delete failure handling, no unrelated object deletion, no debit/ledger/usage mutation. | `PHASE2F_AI_REPLAY_OBJECT_RETENTION_REPORT.md` |
 | Phase 2-H | Completed for current scope | Backend-only org-scoped `POST /api/ai/generate-text`, HMAC Auth-to-AI text proxying, `ai.text.generate` entitlement/credit enforcement, attempt reservation/finalization, bounded text replay metadata, route-policy/release/doc/test updates. | Worker 339/339, static 155/155, release preflight passed, `git diff --check` passed. | Migration `0036`, staging org-scoped text success/replay/denial/provider-failure/billing-failure verification, and live Auth-to-AI secret/binding verification. | `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md` |
+| Phase 2-I | Completed for current scope | Provider-neutral billing event ingestion, migration `0037`, synthetic raw-body HMAC verification, idempotent event storage, duplicate/mismatch handling, dry-run action planning, sanitized admin billing-event inspection, route-policy/release/doc/test updates. | Worker 342/342 passed during implementation; final full validation is in `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md` and the Phase 2-I response. | Migration `0037`, staging synthetic webhook signature failure/success/dedup/mismatch/admin-inspection/no-side-effect verification; no live provider enabled. | `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md` |
 
 Current status estimate:
 
-- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J, Phase 2-A organization/RBAC foundation, Phase 2-B billing/entitlement foundation, targeted Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped image usage retry/reservation hardening, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F temporary replay object cleanup, and Phase 2-H backend-only org-scoped member text generation for the documented scope.
+- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J, Phase 2-A organization/RBAC foundation, Phase 2-B billing/entitlement foundation, targeted Phase 2-C org-scoped AI image usage enforcement, Phase 2-D org-scoped image usage retry/reservation hardening, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F temporary replay object cleanup, Phase 2-H backend-only org-scoped member text generation, and Phase 2-I provider-neutral billing event ingestion for the documented scope.
 - It is substantially safer and more operable than the original audit baseline, but it is not full enterprise SaaS maturity.
-- Existing assets remain user-owned; full tenant isolation, live payment-provider integration, broad AI route credit enforcement, permanent provider-result cache, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
-- The next implementation phase should be chosen between video AI entitlement wiring, payment-provider integration design, and domain-by-domain tenant ownership migration. Do not redo Phase 0/1/2-A/2-B/2-C/2-D/2-E/2-F/2-H foundations.
+- Existing assets remain user-owned; full tenant isolation, live payment-provider integration, checkout/invoices, production-trusted payment webhooks, broad AI route credit enforcement, permanent provider-result cache, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
+- The next implementation phase should be chosen between provider-specific billing adapter design, video AI entitlement wiring, and domain-by-domain tenant ownership migration. Do not redo Phase 0/1/2-A/2-B/2-C/2-D/2-E/2-F/2-G/2-H/2-I foundations.
 
 ## Remediation Progress
 
@@ -77,6 +78,7 @@ Reference documents:
 - `PHASE2E_AI_USAGE_ATTEMPT_CLEANUP_REPORT.md` contains the Phase 2-E AI usage attempt cleanup/admin inspection behavior, scheduled cleanup behavior, validation evidence, deploy requirements, and remaining monetization/retention risks.
 - `PHASE2F_AI_REPLAY_OBJECT_RETENTION_REPORT.md` contains the Phase 2-F temporary replay object cleanup behavior, prefix/attempt-linkage safety rules, scheduled/admin cleanup behavior, validation evidence, deploy requirements, and remaining monetization/retention risks.
 - `PHASE2H_MEMBER_TEXT_GENERATION_API_REPORT.md` contains the Phase 2-H backend-only org-scoped member text generation API behavior, entitlement/credit enforcement, text replay behavior, validation evidence, deploy requirements, and remaining monetization/tenant risks.
+- `PHASE2I_BILLING_EVENT_INGESTION_REPORT.md` contains the Phase 2-I provider-neutral billing event ingestion schema, raw-body verification boundary, idempotency behavior, sanitized admin inspection, validation evidence, deploy requirements, and remaining payment-provider risks.
 - `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I/1-J data inventory and engineering retention-policy baseline.
 - `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I/1-J deletion/anonymization executor state model, approval gates, safe reversible-action pilot, disabled irreversible-action policy, rollback limitations, and future test plan.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
