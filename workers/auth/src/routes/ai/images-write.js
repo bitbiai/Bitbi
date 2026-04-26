@@ -91,6 +91,16 @@ function decodeBase64ToBytes(base64) {
   return bytes;
 }
 
+function encodeBytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 function decodeDataUriImage(imageData) {
   const match = String(imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
   if (!match) {
@@ -243,6 +253,83 @@ async function releaseQuotaReservation(env, reservationId) {
   ).bind(reservationId).run();
 }
 
+async function replayOrgScopedGeneratedImage({
+  env,
+  usagePolicy,
+  prompt,
+  aiRequest,
+  modelConfig,
+  respond,
+  correlationId,
+  userId,
+}) {
+  const attempt = usagePolicy.attempt;
+  if (usagePolicy.attemptKind === "completed_expired") {
+    return respond({
+      ok: false,
+      error: "The idempotent image result is no longer available.",
+      code: "ai_usage_result_expired",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  if (
+    attempt.resultStatus !== "stored" ||
+    !attempt.resultTempKey ||
+    !attempt.resultSaveReference
+  ) {
+    return respond({
+      ok: false,
+      error: "The idempotent image request completed, but the generated image is no longer replayable.",
+      code: "ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 409 });
+  }
+
+  const tempObject = await env.USER_IMAGES.get(attempt.resultTempKey);
+  if (!tempObject) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-generate-image",
+      event: "ai_usage_replay_temp_missing",
+      level: "warn",
+      correlationId,
+      user_id: userId,
+      organization_id: usagePolicy.organizationId,
+    });
+    return respond({
+      ok: false,
+      error: "The idempotent image result is no longer available.",
+      code: "ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  const tempBuffer = await toArrayBuffer(tempObject.body ?? tempObject);
+  if (!tempBuffer || tempBuffer.byteLength === 0) {
+    return respond({
+      ok: false,
+      error: "The idempotent image result is no longer available.",
+      code: "ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  return respond({
+    ok: true,
+    data: {
+      imageBase64: encodeBytesToBase64(new Uint8Array(tempBuffer)),
+      mimeType: tempObject.httpMetadata?.contentType || attempt.resultMimeType || "image/png",
+      prompt,
+      steps: attempt.resultSteps ?? aiRequest.steps,
+      seed: attempt.resultSeed ?? aiRequest.seed,
+      model: attempt.resultModel || modelConfig.id,
+      saveReference: attempt.resultSaveReference,
+    },
+    billing: usagePolicy.billingMetadata({ replay: true }),
+  });
+}
+
 export async function handleGenerateImage(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
@@ -323,6 +410,44 @@ export async function handleGenerateImage(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
 
+  if (usagePolicy.mode === "organization") {
+    if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
+      return replayOrgScopedGeneratedImage({
+        env,
+        usagePolicy,
+        prompt,
+        aiRequest,
+        modelConfig,
+        respond,
+        correlationId,
+        userId,
+      });
+    }
+    if (usagePolicy.attemptKind === "in_progress") {
+      return respond({
+        ok: false,
+        error: "This idempotent image request is already in progress.",
+        code: "ai_usage_attempt_in_progress",
+        billing: {
+          organization_id: usagePolicy.organizationId,
+          feature: usagePolicy.featureKey,
+          credits_reserved: usagePolicy.credits,
+        },
+      }, { status: 409 });
+    }
+    if (usagePolicy.attemptKind === "billing_failed") {
+      return respond({
+        ok: false,
+        error: "Image generation could not be finalized. Please use a new idempotency key to retry.",
+        code: "ai_usage_billing_failed",
+        billing: {
+          organization_id: usagePolicy.organizationId,
+          feature: usagePolicy.featureKey,
+        },
+      }, { status: 503 });
+    }
+  }
+
   if (!isAdmin) {
     try {
       const reservation = await reserveDailyQuota(env, userId);
@@ -345,6 +470,31 @@ export async function handleGenerateImage(ctx) {
 
   let base64 = null;
   let mimeType = "image/png";
+
+  if (usagePolicy.mode === "organization") {
+    try {
+      await usagePolicy.markProviderRunning();
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "ai_usage_attempt_start_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        organization_id: usagePolicy.organizationId,
+        ...getErrorFields(error),
+      });
+      if (quotaReservationId) {
+        try { await releaseQuotaReservation(env, quotaReservationId); } catch {}
+      }
+      return respond({
+        ok: false,
+        error: "AI usage policy could not be verified.",
+        code: "ai_usage_policy_unavailable",
+      }, { status: 503 });
+    }
+  }
 
   try {
     const result = await env.AI.run(modelConfig.id, aiRequest.payload);
@@ -371,11 +521,19 @@ export async function handleGenerateImage(ctx) {
       const buf = await toArrayBuffer(v);
       if (buf && buf.byteLength > 0) {
         const bytes = new Uint8Array(buf);
-        base64 = btoa(bytes.reduce((s, b) => s + String.fromCharCode(b), ""));
+        base64 = encodeBytesToBase64(bytes);
         break;
       }
     }
   } catch (e) {
+    if (usagePolicy.mode === "organization") {
+      try {
+        await usagePolicy.markProviderFailed({
+          code: "provider_failed",
+          message: "Image provider call failed.",
+        });
+      } catch {}
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-image",
@@ -395,6 +553,14 @@ export async function handleGenerateImage(ctx) {
   }
 
   if (!base64) {
+    if (usagePolicy.mode === "organization") {
+      try {
+        await usagePolicy.markProviderFailed({
+          code: "provider_empty_result",
+          message: "Image provider returned no image.",
+        });
+      } catch {}
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-image",
@@ -427,6 +593,14 @@ export async function handleGenerateImage(ctx) {
         try {
           await env.DB.prepare("DELETE FROM ai_generation_log WHERE id = ?").bind(logId).run();
         } catch {}
+        if (usagePolicy.mode === "organization") {
+          try {
+            await usagePolicy.markProviderFailed({
+              code: "generation_finalize_conflict",
+              message: "Image generation finalization conflicted before billing.",
+            });
+          } catch {}
+        }
         logDiagnostic({
           service: "bitbi-auth",
           component: "ai-generate-image",
@@ -448,6 +622,14 @@ export async function handleGenerateImage(ctx) {
       ).bind(logId, userId, completedAt).run();
     }
   } catch (e) {
+    if (usagePolicy.mode === "organization") {
+      try {
+        await usagePolicy.markProviderFailed({
+          code: "generation_finalize_failed",
+          message: "Image generation finalization failed before billing.",
+        });
+      } catch {}
+    }
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-image",
@@ -470,11 +652,32 @@ export async function handleGenerateImage(ctx) {
 
   let billingMetadata = null;
   try {
+    if (usagePolicy.mode === "organization") {
+      await usagePolicy.markFinalizing();
+    }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
     });
+    if (usagePolicy.mode === "organization") {
+      await usagePolicy.markSucceeded({
+        mimeType,
+        model: modelConfig.id,
+        promptLength: prompt.length,
+        steps: aiRequest.steps,
+        seed: aiRequest.seed,
+        balanceAfter: billingMetadata.balance_after,
+      });
+    }
   } catch (error) {
+    if (usagePolicy.mode === "organization") {
+      try {
+        await usagePolicy.markBillingFailed({
+          code: error?.code || "billing_failed",
+          message: "AI usage billing finalization failed.",
+        });
+      } catch {}
+    }
     const policyError = aiUsagePolicyErrorResponse(error);
     logDiagnostic({
       service: "bitbi-auth",
@@ -490,13 +693,15 @@ export async function handleGenerateImage(ctx) {
   }
 
   let tempSavePayload = {};
+  let tempSaveResult = null;
   try {
+    tempSaveResult = await createAiGeneratedSaveReferenceFromBase64(env, {
+      userId,
+      imageBase64: base64,
+      mimeType,
+    });
     tempSavePayload = {
-      saveReference: (await createAiGeneratedSaveReferenceFromBase64(env, {
-        userId,
-        imageBase64: base64,
-        mimeType,
-      })).saveReference,
+      saveReference: tempSaveResult.saveReference,
     };
   } catch (error) {
     logDiagnostic({
@@ -510,6 +715,32 @@ export async function handleGenerateImage(ctx) {
       is_admin: isAdmin,
       ...getErrorFields(error),
     });
+  }
+
+  if (usagePolicy.mode === "organization" && tempSaveResult) {
+    try {
+      await usagePolicy.markSucceeded({
+        tempKey: tempSaveResult.tempKey,
+        saveReference: tempSaveResult.saveReference,
+        mimeType,
+        model: modelConfig.id,
+        promptLength: prompt.length,
+        steps: aiRequest.steps,
+        seed: aiRequest.seed,
+        balanceAfter: billingMetadata?.balance_after ?? null,
+      });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "ai_usage_attempt_result_update_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        organization_id: usagePolicy.organizationId,
+        ...getErrorFields(error),
+      });
+    }
   }
 
   return respond({

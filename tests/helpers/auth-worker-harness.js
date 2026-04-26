@@ -65,6 +65,18 @@ function latestCreditLedgerEntry(rows, organizationId) {
   return latest;
 }
 
+function activeAiUsageReservedCredits(rows, organizationId, now, { excludeId = null } = {}) {
+  return (rows || [])
+    .filter((row) =>
+      row.organization_id === organizationId &&
+      row.billing_status === 'reserved' &&
+      ['reserved', 'provider_running', 'finalizing'].includes(row.status) &&
+      String(row.expires_at || '') > String(now || '') &&
+      (!excludeId || row.id !== excludeId)
+    )
+    .reduce((sum, row) => sum + Number(row.credit_cost || 0), 0);
+}
+
 function listAiImageKeys(row) {
   return Array.from(new Set([row?.r2_key, row?.thumb_key, row?.medium_key].filter(Boolean)));
 }
@@ -504,6 +516,7 @@ class MockD1 {
       billingCustomers: [],
       creditLedger: [],
       usageEvents: [],
+      aiUsageAttempts: [],
       ...deepClone(seed),
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
@@ -604,6 +617,9 @@ class MockD1 {
     }
     if (this.missingTables.has('usage_events') && query.includes('usage_events')) {
       throw new Error('no such table: usage_events');
+    }
+    if (this.missingTables.has('ai_usage_attempts') && query.includes('ai_usage_attempts')) {
+      throw new Error('no such table: ai_usage_attempts');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -1291,6 +1307,211 @@ class MockD1 {
       return deepClone(this.state.usageEvents.find((row) =>
         row.organization_id === organizationId && row.idempotency_key === idempotencyKey
       ) || null);
+    }
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE organization_id = ? AND idempotency_key = ?')) {
+      const [organizationId, idempotencyKey] = bindings;
+      return deepClone(this.state.aiUsageAttempts.find((row) =>
+        row.organization_id === organizationId && row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (query.startsWith("INSERT INTO ai_usage_attempts ( id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, created_at, updated_at, expires_at, metadata_json ) SELECT")) {
+      const [
+        id,
+        organizationId,
+        userId,
+        featureKey,
+        operationKey,
+        route,
+        idempotencyKey,
+        requestFingerprint,
+        creditCost,
+        quantity,
+        createdAt,
+        updatedAt,
+        expiresAt,
+        metadataJson,
+        ledgerOrganizationId,
+        reservationOrganizationId,
+        reservationNow,
+        requiredCredits,
+      ] = bindings;
+      const currentBalance = Number(latestCreditLedgerEntry(this.state.creditLedger, ledgerOrganizationId)?.balance_after || 0);
+      const reservedCredits = activeAiUsageReservedCredits(this.state.aiUsageAttempts, reservationOrganizationId, reservationNow);
+      if (currentBalance - reservedCredits < Number(requiredCredits)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      if (this.state.aiUsageAttempts.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: ai_usage_attempts');
+      }
+      this.state.aiUsageAttempts.push({
+        id,
+        organization_id: organizationId,
+        user_id: userId,
+        feature_key: featureKey,
+        operation_key: operationKey,
+        route,
+        idempotency_key: idempotencyKey,
+        request_fingerprint: requestFingerprint,
+        credit_cost: creditCost,
+        quantity,
+        status: 'reserved',
+        provider_status: 'not_started',
+        billing_status: 'reserved',
+        result_status: 'none',
+        result_temp_key: null,
+        result_save_reference: null,
+        result_mime_type: null,
+        result_model: null,
+        result_prompt_length: null,
+        result_steps: null,
+        result_seed: null,
+        balance_after: null,
+        error_code: null,
+        error_message: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+        expires_at: expiresAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved'")) {
+      const [updatedAt, expiresAt, id, requestFingerprint, ledgerOrganizationId, reservationOrganizationId, reservationNow, excludeId, requiredCredits] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) => entry.id === id && entry.request_fingerprint === requestFingerprint);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      const currentBalance = Number(latestCreditLedgerEntry(this.state.creditLedger, ledgerOrganizationId)?.balance_after || 0);
+      const reservedCredits = activeAiUsageReservedCredits(this.state.aiUsageAttempts, reservationOrganizationId, reservationNow, { excludeId });
+      if (currentBalance - reservedCredits < Number(requiredCredits)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      Object.assign(row, {
+        status: 'reserved',
+        provider_status: 'not_started',
+        billing_status: 'reserved',
+        result_status: 'none',
+        result_temp_key: null,
+        result_save_reference: null,
+        result_mime_type: null,
+        result_model: null,
+        result_prompt_length: null,
+        result_steps: null,
+        result_seed: null,
+        balance_after: null,
+        error_code: null,
+        error_message: null,
+        updated_at: updatedAt,
+        completed_at: null,
+        expires_at: expiresAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'provider_running', provider_status = 'running'")) {
+      const [updatedAt, id] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id && entry.status === 'reserved' && entry.billing_status === 'reserved'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'provider_running';
+      row.provider_status = 'running';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'provider_failed', provider_status = 'failed', billing_status = 'released'")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id && entry.billing_status === 'reserved'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'provider_failed',
+        provider_status: 'failed',
+        billing_status: 'released',
+        result_status: 'none',
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'finalizing', provider_status = 'succeeded'")) {
+      const [updatedAt, id] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id && entry.billing_status === 'reserved'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'finalizing';
+      row.provider_status = 'succeeded';
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'billing_failed', provider_status = 'succeeded', billing_status = 'failed'")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id && entry.billing_status === 'reserved'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'billing_failed',
+        provider_status: 'succeeded',
+        billing_status: 'failed',
+        result_status: 'none',
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'succeeded', provider_status = 'succeeded', billing_status = 'finalized'")) {
+      const [
+        resultStatus,
+        tempKey,
+        saveReference,
+        mimeType,
+        model,
+        promptLength,
+        steps,
+        seed,
+        balanceAfter,
+        updatedAt,
+        completedAt,
+        id,
+      ] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) =>
+        entry.id === id && ['finalizing', 'succeeded'].includes(entry.status)
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'succeeded',
+        provider_status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: resultStatus,
+        result_temp_key: tempKey,
+        result_save_reference: saveReference,
+        result_mime_type: mimeType,
+        result_model: model,
+        result_prompt_length: promptLength,
+        result_steps: steps,
+        result_seed: seed,
+        balance_after: balanceAfter,
+        error_code: null,
+        error_message: null,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) VALUES')) {

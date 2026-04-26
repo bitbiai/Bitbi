@@ -83,7 +83,7 @@ src/
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
-**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution; it records one usage debit only after successful generation/finalization.
+**AI Image Studio**: `/api/ai/*` uses the `AI` binding for generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation now creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available.
 
 **Authorization pattern**: `requireUser()` and `requireAdmin()` return either a session object or a `Response` (error). Callers check `result instanceof Response` to distinguish.
 
@@ -162,7 +162,7 @@ src/
 - `GET /api/admin/ai/video-jobs/failed/:id` — view one sanitized failed async-video job diagnostic (requires admin)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
 - `GET /api/ai/quota` — remaining non-admin daily image quota
-- `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit
+- `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and temporary result replay
 - `GET /api/ai/folders` — list folders (+ counts)
 - `POST /api/ai/folders` — create folder
 - `DELETE /api/ai/folders/:id` — delete folder and queue blob cleanup
@@ -177,7 +177,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -195,7 +195,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0035_add_billing_entitlements`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0036_add_ai_usage_attempts`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -218,6 +218,7 @@ Key migration-dependent behavior:
 - `0033_harden_data_export_archives` — required before auth deploy if bounded private export archive generation/download APIs must work immediately
 - `0034_add_organizations` — required before auth deploy if Phase 2-A organization creation, membership, and admin organization inspection APIs must work immediately
 - `0035_add_billing_entitlements` — required before auth deploy if Phase 2-B billing plan, entitlement, credit ledger, usage event, and admin credit-grant APIs must work immediately
+- `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, and result replay must work immediately
 
 ## Conventions
 

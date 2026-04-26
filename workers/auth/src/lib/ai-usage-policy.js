@@ -1,4 +1,13 @@
-import { BillingError, billingErrorResponse, normalizeBillingIdempotencyKey, assertOrganizationFeatureEnabled, assertOrganizationHasCredits, assertUsageIdempotencyAvailable, consumeOrganizationCredits } from "./billing.js";
+import { BillingError, billingErrorResponse, normalizeBillingIdempotencyKey, assertOrganizationFeatureEnabled, consumeOrganizationCredits } from "./billing.js";
+import {
+  beginAiUsageAttempt,
+  billingMetadataFromAttempt,
+  markAiUsageAttemptBillingFailed,
+  markAiUsageAttemptFinalizing,
+  markAiUsageAttemptProviderFailed,
+  markAiUsageAttemptProviderRunning,
+  markAiUsageAttemptSucceeded,
+} from "./ai-usage-attempts.js";
 import { OrgRbacError, normalizeOrgId, orgRbacErrorResponse, requireOrgRole } from "./orgs.js";
 import { sha256Hex } from "./tokens.js";
 
@@ -175,29 +184,51 @@ export async function prepareAiUsagePolicy({
     organizationId,
     userId: user?.id || null,
   });
-  const existingUsage = await assertUsageIdempotencyAvailable({
+  const attemptState = await beginAiUsageAttempt({
     env,
     organizationId,
     userId: user?.id || null,
     featureKey: resolvedOperation.featureKey,
-    quantity: resolvedOperation.quantity || 1,
-    credits: resolvedOperation.credits,
+    operationKey: resolvedOperation.id,
+    route,
     idempotencyKey,
     requestFingerprint,
+    creditCost: resolvedOperation.credits,
+    quantity: resolvedOperation.quantity || 1,
   });
-  if (!existingUsage) {
-    await assertOrganizationHasCredits(env, {
-      organizationId,
-      credits: resolvedOperation.credits,
-    });
-  }
 
   return {
     mode: "organization",
     organizationId,
     featureKey: resolvedOperation.featureKey,
     credits: resolvedOperation.credits,
+    attemptKind: attemptState.kind,
+    attempt: attemptState.attempt,
     idempotencyKey,
+    async markProviderRunning() {
+      return markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+    },
+    async markProviderFailed({ code = "provider_failed", message = null } = {}) {
+      return markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { code, message });
+    },
+    async markFinalizing() {
+      return markAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+    },
+    async markBillingFailed({ code = "billing_failed", message = null } = {}) {
+      return markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message });
+    },
+    async markSucceeded(result = {}) {
+      return markAiUsageAttemptSucceeded(env, attemptState.attempt.id, result);
+    },
+    billingMetadata({ replay = false, balanceAfter = null } = {}) {
+      return billingMetadataFromAttempt(
+        {
+          ...attemptState.attempt,
+          balanceAfter: balanceAfter == null ? attemptState.attempt.balanceAfter : balanceAfter,
+        },
+        { replay }
+      );
+    },
     async chargeAfterSuccess(metadata = {}) {
       const result = await consumeOrganizationCredits({
         env,

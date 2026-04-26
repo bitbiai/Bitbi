@@ -1958,10 +1958,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       idempotencyKey: 'phase2c-repeat-image',
     });
     expect(repeated.status).toBe(200);
-    expect((await repeated.json()).billing.balance_after).toBe(1);
+    const repeatedBody = await repeated.json();
+    expect(repeatedBody.billing).toMatchObject({
+      balance_after: 1,
+      idempotent_replay: true,
+    });
     expect(env.DB.state.usageEvents).toHaveLength(1);
     expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
-    expect(aiCalls).toBe(2);
+    expect(aiCalls).toBe(1);
 
     const conflict = await postGenerateImage({
       worker: authWorker,
@@ -1976,7 +1980,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       ok: false,
       code: 'idempotency_conflict',
     });
-    expect(aiCalls).toBe(2);
+    expect(aiCalls).toBe(1);
     expect(env.DB.state.usageEvents).toHaveLength(1);
   });
 
@@ -2128,6 +2132,271 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.usageEvents).toHaveLength(0);
     expect(env.DB.state.creditLedger).toHaveLength(1);
     expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+    expect(env.DB.state.aiUsageAttempts).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'billing_failed',
+      provider_status: 'succeeded',
+      billing_status: 'failed',
+    });
+  });
+
+  test('Phase 2-D replays org-scoped successful retries without another provider call or debit', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2d-replay-user', role: 'user' });
+    const orgId = 'org_d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2';
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const first = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d replay image',
+      idempotencyKey: 'phase2d-replay-key',
+    });
+    const firstBody = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstBody.data.saveReference).toEqual(expect.any(String));
+    expect(firstBody.billing).toEqual({
+      organization_id: orgId,
+      feature: 'ai.image.generate',
+      credits_charged: 1,
+      balance_after: 1,
+    });
+
+    const repeated = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d replay image',
+      idempotencyKey: 'phase2d-replay-key',
+    });
+    const repeatedBody = await repeated.json();
+    expect(repeated.status).toBe(200);
+    expect(repeatedBody.data.imageBase64).toBe(firstBody.data.imageBase64);
+    expect(repeatedBody.data.saveReference).toBe(firstBody.data.saveReference);
+    expect(repeatedBody.billing).toMatchObject({
+      organization_id: orgId,
+      feature: 'ai.image.generate',
+      credits_charged: 1,
+      balance_after: 1,
+      idempotent_replay: true,
+    });
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'stored',
+    });
+    expect(JSON.stringify(repeatedBody)).not.toContain('request_fingerprint');
+    expect(JSON.stringify(repeatedBody)).not.toContain('idempotency_key');
+    expect(JSON.stringify(repeatedBody)).not.toContain('result_temp_key');
+  });
+
+  test('Phase 2-D pending duplicate idempotency request does not start a second provider call', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2d-pending-user', role: 'user' });
+    const orgId = 'org_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2';
+    let aiCalls = 0;
+    let duplicateStatus = null;
+    let duplicateBody = null;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        const duplicate = await postGenerateImage({
+          worker: authWorker,
+          env,
+          token,
+          orgId,
+          prompt: 'phase 2d pending image',
+          idempotencyKey: 'phase2d-pending-key',
+        });
+        duplicateStatus = duplicate.status;
+        duplicateBody = await duplicate.json();
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d pending image',
+      idempotencyKey: 'phase2d-pending-key',
+    });
+    expect(res.status).toBe(200);
+    expect(duplicateStatus).toBe(409);
+    expect(duplicateBody).toMatchObject({
+      ok: false,
+      code: 'ai_usage_attempt_in_progress',
+      billing: {
+        organization_id: orgId,
+        feature: 'ai.image.generate',
+        credits_reserved: 1,
+      },
+    });
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+  });
+
+  test('Phase 2-D provider failure releases reservation and same-key retry charges exactly once', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2d-provider-retry-user', role: 'user' });
+    const orgId = 'org_c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2';
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        if (aiCalls === 1) throw new Error('provider temporary failure');
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const failed = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d retry after failure',
+      idempotencyKey: 'phase2d-provider-retry',
+    });
+    expect(failed.status).toBe(502);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'provider_failed',
+      billing_status: 'released',
+    });
+
+    const retry = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d retry after failure',
+      idempotencyKey: 'phase2d-provider-retry',
+    });
+    const retryBody = await retry.json();
+    expect(retry.status).toBe(200);
+    expect(retryBody.billing.balance_after).toBe(1);
+    expect(aiCalls).toBe(2);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts).toHaveLength(1);
+    expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
+      status: 'succeeded',
+      billing_status: 'finalized',
+    });
+  });
+
+  test('Phase 2-D billing finalization failure is terminal for that idempotency key and does not persist an uncharged image', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2d-billing-fail-user', role: 'user' });
+    const orgId = 'org_d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3';
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 2, failUsageEventInsert: true }),
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const failed = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d billing failure',
+      idempotencyKey: 'phase2d-billing-failure',
+    });
+    expect(failed.status).toBe(503);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+    expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+
+    const retry = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'phase 2d billing failure',
+      idempotencyKey: 'phase2d-billing-failure',
+    });
+    const retryBody = await retry.json();
+    expect(retry.status).toBe(503);
+    expect(retryBody).toMatchObject({
+      ok: false,
+      code: 'ai_usage_billing_failed',
+    });
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+  });
+
+  test('Phase 2-D active reservations reduce available credits for concurrent org-scoped requests', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2d-reservation-user', role: 'user' });
+    const orgId = 'org_e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    let aiCalls = 0;
+    let secondStatus = null;
+    let secondBody = null;
+    const env = createAuthTestEnv({
+      ...seedOrgAiUsageState({ user, role: 'member', orgId, creditBalance: 1 }),
+      aiRun: async () => {
+        aiCalls += 1;
+        const second = await postGenerateImage({
+          worker: authWorker,
+          env,
+          token,
+          orgId,
+          prompt: 'second reservation should fail',
+          idempotencyKey: 'phase2d-reservation-second',
+        });
+        secondStatus = second.status;
+        secondBody = await second.json();
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const first = await postGenerateImage({
+      worker: authWorker,
+      env,
+      token,
+      orgId,
+      prompt: 'first reservation succeeds',
+      idempotencyKey: 'phase2d-reservation-first',
+    });
+    expect(first.status).toBe(200);
+    expect(secondStatus).toBe(402);
+    expect(secondBody).toMatchObject({
+      ok: false,
+      code: 'insufficient_credits',
+    });
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(0);
   });
 });
 

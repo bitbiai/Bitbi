@@ -8,7 +8,7 @@ Scope: Phase 1-H / Phase 1-I / Phase 1-J engineering inventory for user/account/
 
 The product stores user account data, authentication state, wallet addresses, profile/avatar data, favorites, generated AI assets, admin/user activity, async video job metadata, poison-message diagnostics, and operational cleanup state in Cloudflare D1 and R2. The contact Worker sends contact form content through Resend; this repository does not currently define durable contact-message storage.
 
-Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. Phase 2-A adds organization and membership foundation tables but does not migrate existing user-owned assets into tenant ownership. Phase 2-B adds billing/plan/entitlement/credit ledger foundation tables without enabling a live payment provider. Phase 2-C starts writing organization-scoped `usage_events` / `credit_ledger` debits only for `/api/ai/generate-image` requests that explicitly include organization context. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
+Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. Phase 2-A adds organization and membership foundation tables but does not migrate existing user-owned assets into tenant ownership. Phase 2-B adds billing/plan/entitlement/credit ledger foundation tables without enabling a live payment provider. Phase 2-C starts writing organization-scoped `usage_events` / `credit_ledger` debits only for `/api/ai/generate-image` requests that explicitly include organization context. Phase 2-D adds `ai_usage_attempts` so those org-scoped image requests can reserve credits, avoid duplicate provider calls on idempotent retries, and replay stored temporary results when available. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
 
 ## D1 Data Inventory
 
@@ -48,6 +48,7 @@ Phase 1-H adds request tracking tables for export/deletion/anonymization plannin
 | `billing_customers` | `organization_id`, provider reference | Medium | No user export by default until provider policy is defined | Retain/anonymize according to billing/legal policy | Define before payment provider integration | Placeholder mapping table only; must not contain payment secrets. |
 | `credit_ledger` | `organization_id`, `created_by_user_id` | Medium | Deferred; summarize only after billing export policy update | Retain for auditability; anonymize actor fields only with approved policy | Billing/audit retention required | Phase 2-B records credit grants/consumption and running balances. |
 | `usage_events` | `organization_id`, `user_id` | Medium | Deferred; summarize only after billing export policy update | Retain/anonymize according to usage/billing policy | Billing/cost retention required | Phase 2-B records idempotent feature usage events; Phase 2-C writes org-scoped image generation usage. Metadata contains route/operation/model only, not raw prompts or request bodies. |
+| `ai_usage_attempts` | `organization_id`, `user_id` | Medium | Deferred; summarize only after billing export policy update | Retain short-to-medium operational/audit window; expire failed/stuck attempts by policy | Billing/cost/retry safety | Phase 2-D records org-scoped image generation attempt/reservation/finalization state. It stores request fingerprints, idempotency hashes, sanitized result references, and status/error codes; it does not store raw prompts, image bytes, provider secrets, or raw request bodies. |
 
 ## R2 Inventory
 
@@ -88,7 +89,7 @@ Excluded from destructive deletion until owner mapping is proven:
 - Planning is idempotent by request id and safe by default; no irreversible deletion executor is present.
 - Irreversible hard deletion of users, user media, AI asset rows, and audit records remains disabled.
 - User self-service export/delete endpoints are deferred; Phase 1-H/1-I provides admin/support APIs only.
-- Organization, membership, billing, entitlement, credit ledger, and usage-event export/delete behavior is not yet integrated into lifecycle plans; Phase 2-A/2-B/2-C only add schema, helpers, minimal APIs, and opt-in org-scoped image generation debits.
+- Organization, membership, billing, entitlement, credit ledger, usage-event, and AI usage-attempt export/delete behavior is not yet integrated into lifecycle plans; Phase 2-A/2-B/2-C/2-D only add schema, helpers, minimal APIs, opt-in org-scoped image generation debits, and retry-safe attempt tracking.
 
 ## Open Decisions
 
@@ -99,4 +100,4 @@ Excluded from destructive deletion until owner mapping is proven:
 - Whether user self-service requests should require email confirmation, cooldowns, and delayed execution.
 - Whether deleted accounts should be anonymized in place, tombstoned, or recreated as separate compliance records.
 - How organization ownership, membership history, and future tenant-owned assets should be represented in export/deletion/anonymization plans.
-- How organization billing history, provider customer mappings, credit ledger entries, and usage events should be represented in export/deletion/anonymization plans before a live payment provider is added.
+- How organization billing history, provider customer mappings, credit ledger entries, usage events, and AI usage attempts should be represented in export/deletion/anonymization plans before a live payment provider is added.
