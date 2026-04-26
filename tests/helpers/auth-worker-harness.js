@@ -529,6 +529,7 @@ class MockD1 {
       billingCustomers: [],
       billingProviderEvents: [],
       billingEventActions: [],
+      billingCheckoutSessions: [],
       creditLedger: [],
       usageEvents: [],
       aiUsageAttempts: [],
@@ -1856,6 +1857,159 @@ class MockD1 {
       return { results: deepClone(rows) };
     }
 
+    if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, credit_ledger_entry_id, created_at, updated_at, completed_at FROM billing_checkout_sessions WHERE organization_id = ? AND user_id = ? AND idempotency_key_hash = ?')) {
+      const [organizationId, userId, idempotencyKeyHash] = bindings;
+      return deepClone(this.state.billingCheckoutSessions.find((row) =>
+        row.organization_id === organizationId &&
+        row.user_id === userId &&
+        row.idempotency_key_hash === idempotencyKeyHash
+      ) || null);
+    }
+
+    if (query.startsWith("SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, credit_ledger_entry_id, created_at, updated_at, completed_at FROM billing_checkout_sessions WHERE provider = 'stripe' AND provider_checkout_session_id = ?")) {
+      const [sessionId] = bindings;
+      return deepClone(this.state.billingCheckoutSessions.find((row) =>
+        row.provider === 'stripe' && row.provider_checkout_session_id === sessionId
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO billing_checkout_sessions ( id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, metadata_json, created_at, updated_at ) VALUES')) {
+      const [
+        id,
+        provider,
+        providerMode,
+        providerCheckoutSessionId,
+        providerPaymentIntentId,
+        organizationId,
+        userId,
+        creditPackId,
+        credits,
+        amountCents,
+        currency,
+        status,
+        idempotencyKeyHash,
+        requestFingerprintHash,
+        checkoutUrl,
+        providerCustomerId,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.billingCheckoutSessions.some((row) =>
+        row.id === id ||
+        (row.provider === provider && row.provider_checkout_session_id === providerCheckoutSessionId) ||
+        (row.organization_id === organizationId && row.user_id === userId && row.idempotency_key_hash === idempotencyKeyHash)
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_checkout_sessions');
+      }
+      this.state.billingCheckoutSessions.push({
+        id,
+        provider,
+        provider_mode: providerMode,
+        provider_checkout_session_id: providerCheckoutSessionId,
+        provider_payment_intent_id: providerPaymentIntentId,
+        organization_id: organizationId,
+        user_id: userId,
+        credit_pack_id: creditPackId,
+        credits,
+        amount_cents: amountCents,
+        currency,
+        status,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_fingerprint_hash: requestFingerprintHash,
+        checkout_url: checkoutUrl,
+        provider_customer_id: providerCustomerId,
+        billing_event_id: null,
+        credit_ledger_entry_id: null,
+        error_code: null,
+        error_message: null,
+        metadata_json: metadataJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO billing_checkout_sessions ( id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, credit_ledger_entry_id, metadata_json, created_at, updated_at, completed_at ) VALUES')) {
+      const [
+        id,
+        provider,
+        providerMode,
+        providerCheckoutSessionId,
+        providerPaymentIntentId,
+        organizationId,
+        userId,
+        creditPackId,
+        credits,
+        amountCents,
+        currency,
+        status,
+        idempotencyKeyHash,
+        requestFingerprintHash,
+        checkoutUrl,
+        providerCustomerId,
+        billingEventId,
+        creditLedgerEntryId,
+        metadataJson,
+        createdAt,
+        updatedAt,
+        completedAt,
+      ] = bindings;
+      if (this.state.billingCheckoutSessions.some((row) =>
+        row.id === id ||
+        (row.provider === provider && row.provider_checkout_session_id === providerCheckoutSessionId) ||
+        (row.organization_id === organizationId && row.user_id === userId && row.idempotency_key_hash === idempotencyKeyHash)
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_checkout_sessions');
+      }
+      this.state.billingCheckoutSessions.push({
+        id,
+        provider,
+        provider_mode: providerMode,
+        provider_checkout_session_id: providerCheckoutSessionId,
+        provider_payment_intent_id: providerPaymentIntentId,
+        organization_id: organizationId,
+        user_id: userId,
+        credit_pack_id: creditPackId,
+        credits,
+        amount_cents: amountCents,
+        currency,
+        status,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_fingerprint_hash: requestFingerprintHash,
+        checkout_url: checkoutUrl,
+        provider_customer_id: providerCustomerId,
+        billing_event_id: billingEventId,
+        credit_ledger_entry_id: creditLedgerEntryId,
+        error_code: null,
+        error_message: null,
+        metadata_json: metadataJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE billing_checkout_sessions SET status = 'completed', provider_payment_intent_id = COALESCE")) {
+      const [paymentIntentId, customerId, billingEventId, ledgerEntryId, updatedAt, completedAt, sessionId] = bindings;
+      const row = this.state.billingCheckoutSessions.find((entry) =>
+        entry.provider === 'stripe' && entry.provider_checkout_session_id === sessionId
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'completed';
+      row.provider_payment_intent_id = paymentIntentId || row.provider_payment_intent_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.billing_event_id = billingEventId || row.billing_event_id;
+      row.credit_ledger_entry_id = ledgerEntryId || row.credit_ledger_entry_id;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      row.completed_at = row.completed_at || completedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE provider = ? AND provider_event_id = ?')) {
       const [provider, providerEventId] = bindings;
       return deepClone(this.state.billingProviderEvents.find((row) =>
@@ -1939,6 +2093,44 @@ class MockD1 {
         created_at: createdAt,
         updated_at: updatedAt,
       });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE billing_provider_events SET processing_status = ?')) {
+      const [
+        processingStatus,
+        organizationId,
+        userId,
+        billingCustomerId,
+        errorCode,
+        errorMessage,
+        lastProcessedAt,
+        updatedAt,
+        eventId,
+      ] = bindings;
+      const row = this.state.billingProviderEvents.find((entry) => entry.id === eventId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.processing_status = processingStatus;
+      row.organization_id = organizationId || row.organization_id;
+      row.user_id = userId || row.user_id;
+      row.billing_customer_id = billingCustomerId || row.billing_customer_id;
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.last_processed_at = lastProcessedAt;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE billing_event_actions SET status = ?')) {
+      const [status, dryRun, summaryJson, updatedAt, eventId, actionType] = bindings;
+      const row = this.state.billingEventActions.find((entry) =>
+        entry.event_id === eventId && entry.action_type === actionType
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = status;
+      row.dry_run = dryRun;
+      row.summary_json = summaryJson;
+      row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -5474,6 +5666,11 @@ function createAuthTestEnv(seed = {}) {
     BILLING_WEBHOOK_TEST_SECRET: seed.BILLING_WEBHOOK_TEST_SECRET === undefined
       ? 'test-billing-webhook-secret-v1-32chars'
       : seed.BILLING_WEBHOOK_TEST_SECRET,
+    STRIPE_MODE: seed.STRIPE_MODE,
+    STRIPE_SECRET_KEY: seed.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: seed.STRIPE_WEBHOOK_SECRET,
+    STRIPE_CHECKOUT_SUCCESS_URL: seed.STRIPE_CHECKOUT_SUCCESS_URL,
+    STRIPE_CHECKOUT_CANCEL_URL: seed.STRIPE_CHECKOUT_CANCEL_URL,
     ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
     PBKDF2_ITERATIONS: '100000',
     DB,

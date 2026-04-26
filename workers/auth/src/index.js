@@ -82,7 +82,8 @@ function requiresTrustedRequestContext(pathname, method) {
     return false;
   }
   if (
-    pathname === "/api/billing/webhooks/test" &&
+    (pathname === "/api/billing/webhooks/test" ||
+      pathname === "/api/billing/webhooks/stripe") &&
     String(method || "").toUpperCase() === "POST"
   ) {
     return false;
@@ -244,6 +245,11 @@ export default {
     // Billing provider webhooks use provider signatures instead of browser CSRF.
     // route-policy: billing.webhooks.test
     if (pathname === "/api/billing/webhooks/test" && method === "POST") {
+      const result = await handleBillingWebhooks(ctx);
+      if (result) return result;
+    }
+    // route-policy: billing.webhooks.stripe
+    if (pathname === "/api/billing/webhooks/stripe" && method === "POST") {
       const result = await handleBillingWebhooks(ctx);
       if (result) return result;
     }

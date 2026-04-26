@@ -1,0 +1,888 @@
+import { BillingError, grantOrganizationCredits, normalizeBillingIdempotencyKey } from "./billing.js";
+import {
+  BillingEventError,
+  BILLING_WEBHOOK_STRIPE_PROVIDER,
+  ingestVerifiedBillingProviderEvent,
+  parseBillingWebhookPayload,
+  updateBillingProviderEventProcessing,
+} from "./billing-events.js";
+import { normalizeOrgId } from "./orgs.js";
+import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
+
+export const STRIPE_MODE_TEST = "test";
+export const STRIPE_WEBHOOK_TOLERANCE_MS = 5 * 60_000;
+export const STRIPE_CHECKOUT_API_URL = "https://api.stripe.com/v1/checkout/sessions";
+
+const STRIPE_SIGNATURE_HEADER = "stripe-signature";
+const CHECKOUT_SESSION_ID_PATTERN = /^cs_test_[A-Za-z0-9_:-]{8,200}$/;
+const PAYMENT_INTENT_ID_PATTERN = /^pi_test_[A-Za-z0-9_:-]{8,200}$/;
+const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const CHECKOUT_SESSION_URL_PATTERN = /^https:\/\/checkout\.stripe\.com\/.+/;
+const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
+
+export const STRIPE_CREDIT_PACKS = Object.freeze([
+  Object.freeze({
+    id: "credits_100",
+    name: "100 Credit Test Pack",
+    credits: 100,
+    amountCents: 900,
+    currency: "eur",
+    active: true,
+    sortOrder: 100,
+  }),
+  Object.freeze({
+    id: "credits_500",
+    name: "500 Credit Test Pack",
+    credits: 500,
+    amountCents: 3900,
+    currency: "eur",
+    active: true,
+    sortOrder: 500,
+  }),
+  Object.freeze({
+    id: "credits_1000",
+    name: "1000 Credit Test Pack",
+    credits: 1000,
+    amountCents: 6900,
+    currency: "eur",
+    active: true,
+    sortOrder: 1000,
+  }),
+]);
+
+export class StripeBillingError extends Error {
+  constructor(message, { status = 400, code = "stripe_billing_error" } = {}) {
+    super(message);
+    this.name = "StripeBillingError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function stripeBillingErrorResponse(error) {
+  return {
+    ok: false,
+    error: error.message || "Stripe billing request failed.",
+    code: error.code || "stripe_billing_error",
+  };
+}
+
+function checkoutSessionId() {
+  return `bcs_${randomTokenHex(16)}`;
+}
+
+function safeString(value, maxLength = 256) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return text.slice(0, maxLength);
+}
+
+function normalizeStripeMode(env) {
+  const mode = safeString(env?.STRIPE_MODE, 16);
+  if (!mode) {
+    throw new StripeBillingError("Stripe Testmode is not configured.", {
+      status: 503,
+      code: "stripe_testmode_unavailable",
+    });
+  }
+  if (mode !== STRIPE_MODE_TEST) {
+    throw new StripeBillingError("Live Stripe billing is disabled.", {
+      status: 403,
+      code: "stripe_live_mode_disabled",
+    });
+  }
+  return mode;
+}
+
+function normalizeStripeSecretKey(env) {
+  const key = safeString(env?.STRIPE_SECRET_KEY, 256);
+  if (!key) {
+    throw new StripeBillingError("Stripe Testmode secret key is not configured.", {
+      status: 503,
+      code: "stripe_secret_unavailable",
+    });
+  }
+  if (key.startsWith("sk_live_")) {
+    throw new StripeBillingError("Live Stripe keys are disabled.", {
+      status: 403,
+      code: "stripe_live_mode_disabled",
+    });
+  }
+  if (!key.startsWith("sk_test_")) {
+    throw new StripeBillingError("Stripe Testmode secret key is invalid.", {
+      status: 503,
+      code: "stripe_secret_unavailable",
+    });
+  }
+  return key;
+}
+
+function normalizeStripeWebhookSecret(env) {
+  const secret = safeString(env?.STRIPE_WEBHOOK_SECRET, 256);
+  if (!secret) {
+    throw new StripeBillingError("Stripe webhook verification is not configured.", {
+      status: 503,
+      code: "stripe_webhook_secret_unavailable",
+    });
+  }
+  if (!secret.startsWith("whsec_") || secret.length < 16) {
+    throw new StripeBillingError("Stripe webhook verification is not configured.", {
+      status: 503,
+      code: "stripe_webhook_secret_unavailable",
+    });
+  }
+  return secret;
+}
+
+function normalizeHttpsUrl(value, fieldName) {
+  const text = safeString(value, 2048);
+  if (!text) {
+    throw new StripeBillingError(`${fieldName} is not configured.`, {
+      status: 503,
+      code: "stripe_checkout_url_unavailable",
+    });
+  }
+  try {
+    const url = new URL(text);
+    if (url.protocol !== "https:") throw new Error("not https");
+    return url.toString();
+  } catch {
+    throw new StripeBillingError(`${fieldName} must be an HTTPS URL.`, {
+      status: 503,
+      code: "stripe_checkout_url_unavailable",
+    });
+  }
+}
+
+function getStripeCheckoutConfig(env) {
+  return {
+    mode: normalizeStripeMode(env),
+    secretKey: normalizeStripeSecretKey(env),
+    successUrl: normalizeHttpsUrl(env?.STRIPE_CHECKOUT_SUCCESS_URL, "Stripe checkout success URL"),
+    cancelUrl: normalizeHttpsUrl(env?.STRIPE_CHECKOUT_CANCEL_URL, "Stripe checkout cancel URL"),
+  };
+}
+
+function normalizePackId(value) {
+  const packId = safeString(value, 64);
+  if (!packId || !/^[a-z0-9_-]{3,64}$/i.test(packId)) {
+    throw new StripeBillingError("A valid credit pack id is required.", {
+      status: 400,
+      code: "invalid_credit_pack",
+    });
+  }
+  return packId;
+}
+
+export function getStripeCreditPack(packId) {
+  const normalized = normalizePackId(packId);
+  const pack = STRIPE_CREDIT_PACKS.find((entry) => entry.id === normalized);
+  if (!pack || !pack.active) {
+    throw new StripeBillingError("Unsupported credit pack.", {
+      status: 400,
+      code: "unsupported_credit_pack",
+    });
+  }
+  return pack;
+}
+
+function serializePack(pack) {
+  return {
+    id: pack.id,
+    name: pack.name,
+    credits: pack.credits,
+    amountCents: pack.amountCents,
+    currency: pack.currency,
+  };
+}
+
+function serializeCheckoutRow(row, { includeUrl = false } = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerMode: row.provider_mode,
+    sessionId: row.provider_checkout_session_id || null,
+    organizationId: row.organization_id,
+    userId: row.user_id,
+    creditPack: {
+      id: row.credit_pack_id,
+      credits: Number(row.credits || 0),
+      amountCents: Number(row.amount_cents || 0),
+      currency: row.currency,
+    },
+    status: row.status,
+    completedAt: row.completed_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    checkoutUrl: includeUrl ? (row.checkout_url || null) : undefined,
+  };
+}
+
+async function hashJson(value) {
+  return sha256Hex(JSON.stringify(value));
+}
+
+async function checkoutRequestFingerprint({ organizationId, userId, pack }) {
+  return hashJson({
+    organizationId,
+    userId,
+    creditPackId: pack.id,
+    credits: pack.credits,
+    amountCents: pack.amountCents,
+    currency: pack.currency,
+  });
+}
+
+async function fetchCheckoutByIdempotency(env, { organizationId, userId, idempotencyKeyHash }) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_payment_intent_id, organization_id, user_id, credit_pack_id,
+            credits, amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, credit_ledger_entry_id, created_at, updated_at,
+            completed_at
+     FROM billing_checkout_sessions
+     WHERE organization_id = ? AND user_id = ? AND idempotency_key_hash = ?
+     LIMIT 1`
+  ).bind(organizationId, userId, idempotencyKeyHash).first();
+}
+
+async function fetchCheckoutByProviderSession(env, sessionId) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_payment_intent_id, organization_id, user_id, credit_pack_id,
+            credits, amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, credit_ledger_entry_id, created_at, updated_at,
+            completed_at
+     FROM billing_checkout_sessions
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?
+     LIMIT 1`
+  ).bind(sessionId).first();
+}
+
+function normalizeStripeCheckoutSession(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new StripeBillingError("Stripe Checkout Session response is invalid.", {
+      status: 502,
+      code: "stripe_checkout_invalid_response",
+    });
+  }
+  const id = safeString(value.id, 220);
+  const url = safeString(value.url, 2048);
+  if (!id || !CHECKOUT_SESSION_ID_PATTERN.test(id) || value.livemode === true) {
+    throw new StripeBillingError("Stripe Checkout Session response is not testmode.", {
+      status: 502,
+      code: "stripe_checkout_invalid_response",
+    });
+  }
+  if (!url || !CHECKOUT_SESSION_URL_PATTERN.test(url)) {
+    throw new StripeBillingError("Stripe Checkout Session URL is invalid.", {
+      status: 502,
+      code: "stripe_checkout_invalid_response",
+    });
+  }
+  return {
+    id,
+    url,
+    customer: safeString(value.customer, 128),
+    paymentIntent: safeString(value.payment_intent, 128),
+  };
+}
+
+async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) {
+  const fetchImpl = env.__TEST_FETCH || globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    throw new StripeBillingError("Stripe API fetch is unavailable.", {
+      status: 503,
+      code: "stripe_fetch_unavailable",
+    });
+  }
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), STRIPE_CHECKOUT_TIMEOUT_MS)
+    : null;
+  try {
+    const response = await fetchImpl(STRIPE_CHECKOUT_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.secretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body,
+      signal: controller?.signal,
+    });
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    if (!response.ok) {
+      throw new StripeBillingError("Stripe Checkout Session could not be created.", {
+        status: 502,
+        code: "stripe_checkout_create_failed",
+      });
+    }
+    return normalizeStripeCheckoutSession(parsed);
+  } catch (error) {
+    if (error instanceof StripeBillingError) throw error;
+    throw new StripeBillingError("Stripe Checkout Session could not be created.", {
+      status: 502,
+      code: "stripe_checkout_create_failed",
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function buildCheckoutForm({ config, pack, organizationId, userId, checkoutId }) {
+  const body = new URLSearchParams();
+  body.set("mode", "payment");
+  body.set("success_url", config.successUrl);
+  body.set("cancel_url", config.cancelUrl);
+  body.set("client_reference_id", checkoutId);
+  body.set("line_items[0][quantity]", "1");
+  body.set("line_items[0][price_data][currency]", pack.currency);
+  body.set("line_items[0][price_data][unit_amount]", String(pack.amountCents));
+  body.set("line_items[0][price_data][product_data][name]", pack.name);
+  body.set("metadata[organization_id]", organizationId);
+  body.set("metadata[user_id]", userId);
+  body.set("metadata[credit_pack_id]", pack.id);
+  body.set("metadata[credits]", String(pack.credits));
+  body.set("metadata[internal_checkout_session_id]", checkoutId);
+  return body;
+}
+
+export async function createStripeCreditPackCheckout({
+  env,
+  organizationId,
+  userId,
+  packId,
+  idempotencyKey,
+}) {
+  const orgId = normalizeOrgId(organizationId);
+  const normalizedUserId = normalizeUserId(userId);
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const pack = getStripeCreditPack(packId);
+  const keyHash = await sha256Hex(normalizedKey);
+  const requestHash = await checkoutRequestFingerprint({ organizationId: orgId, userId: normalizedUserId, pack });
+  const existing = await fetchCheckoutByIdempotency(env, {
+    organizationId: orgId,
+    userId: normalizedUserId,
+    idempotencyKeyHash: keyHash,
+  });
+  if (existing) {
+    if (existing.request_fingerprint_hash !== requestHash) {
+      throw new StripeBillingError("Idempotency-Key conflicts with a different checkout request.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    return {
+      checkout: serializeCheckoutRow(existing, { includeUrl: true }),
+      creditPack: serializePack(pack),
+      reused: true,
+    };
+  }
+
+  const config = getStripeCheckoutConfig(env);
+  const id = checkoutSessionId();
+  const stripeSession = await postStripeCheckoutSession({
+    env,
+    config,
+    body: buildCheckoutForm({
+      config,
+      pack,
+      organizationId: orgId,
+      userId: normalizedUserId,
+      checkoutId: id,
+    }),
+    idempotencyKey: `bitbi-${keyHash.slice(0, 48)}`,
+  });
+
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO billing_checkout_sessions (
+       id, provider, provider_mode, provider_checkout_session_id,
+       provider_payment_intent_id, organization_id, user_id, credit_pack_id,
+       credits, amount_cents, currency, status, idempotency_key_hash,
+       request_fingerprint_hash, checkout_url, provider_customer_id,
+       metadata_json, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    "stripe",
+    STRIPE_MODE_TEST,
+    stripeSession.id,
+    stripeSession.paymentIntent && PAYMENT_INTENT_ID_PATTERN.test(stripeSession.paymentIntent)
+      ? stripeSession.paymentIntent
+      : null,
+    orgId,
+    normalizedUserId,
+    pack.id,
+    pack.credits,
+    pack.amountCents,
+    pack.currency,
+    "created",
+    keyHash,
+    requestHash,
+    stripeSession.url,
+    stripeSession.customer,
+    JSON.stringify({ phase: "2-J", liveBillingEnabled: false }),
+    now,
+    now
+  ).run();
+
+  return {
+    checkout: {
+      id,
+      provider: "stripe",
+      providerMode: STRIPE_MODE_TEST,
+      sessionId: stripeSession.id,
+      organizationId: orgId,
+      userId: normalizedUserId,
+      creditPack: serializePack(pack),
+      status: "created",
+      checkoutUrl: stripeSession.url,
+      createdAt: now,
+      updatedAt: now,
+    },
+    creditPack: serializePack(pack),
+    reused: false,
+  };
+}
+
+function normalizeUserId(value) {
+  const userId = safeString(value, 128);
+  if (!userId || !USER_ID_PATTERN.test(userId)) {
+    throw new StripeBillingError("A valid user id is required.", {
+      status: 400,
+      code: "invalid_user_id",
+    });
+  }
+  return userId;
+}
+
+function normalizeStripeMetadataOrgId(value) {
+  try {
+    return normalizeOrgId(value);
+  } catch {
+    throw new StripeBillingError("Stripe organization metadata is invalid.", {
+      status: 400,
+      code: "stripe_checkout_metadata_invalid",
+    });
+  }
+}
+
+function parseStripeSignatureHeader(value) {
+  const header = String(value || "").trim();
+  if (!header) {
+    throw new StripeBillingError("Stripe webhook signature is invalid.", {
+      status: 401,
+      code: "stripe_webhook_invalid_signature",
+    });
+  }
+  const parts = header.split(",").map((part) => part.trim()).filter(Boolean);
+  const timestamps = [];
+  const signatures = [];
+  for (const part of parts) {
+    const separator = part.indexOf("=");
+    if (separator <= 0) continue;
+    const key = part.slice(0, separator);
+    const valuePart = part.slice(separator + 1);
+    if (key === "t") timestamps.push(valuePart);
+    if (key === "v1") signatures.push(valuePart.toLowerCase());
+  }
+  const timestamp = timestamps.at(-1);
+  if (!timestamp || !/^\d{10}$/.test(timestamp) || signatures.length === 0) {
+    throw new StripeBillingError("Stripe webhook signature is invalid.", {
+      status: 401,
+      code: "stripe_webhook_invalid_signature",
+    });
+  }
+  if (signatures.some((signature) => !/^[a-f0-9]{64}$/.test(signature))) {
+    throw new StripeBillingError("Stripe webhook signature is invalid.", {
+      status: 401,
+      code: "stripe_webhook_invalid_signature",
+    });
+  }
+  return {
+    timestamp,
+    signatures,
+  };
+}
+
+async function hmacSha256Hex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(message)
+  );
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function safeEqualHex(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
+export async function buildStripeWebhookSignature({ secret, timestamp, rawBody }) {
+  const normalizedSecret = normalizeStripeWebhookSecret({ STRIPE_WEBHOOK_SECRET: secret });
+  const timestampText = String(timestamp || "");
+  const signature = await hmacSha256Hex(normalizedSecret, `${timestampText}.${String(rawBody || "")}`);
+  return `t=${timestampText},v1=${signature}`;
+}
+
+export async function verifyStripeWebhookRequest({ env, rawBody, request, now = Date.now() }) {
+  normalizeStripeMode(env);
+  const secret = normalizeStripeWebhookSecret(env);
+  const parsed = parseStripeSignatureHeader(request.headers.get(STRIPE_SIGNATURE_HEADER));
+  const timestampMs = Number(parsed.timestamp) * 1000;
+  if (!Number.isFinite(timestampMs) || Math.abs(now - timestampMs) > STRIPE_WEBHOOK_TOLERANCE_MS) {
+    throw new StripeBillingError("Stripe webhook signature is stale.", {
+      status: 401,
+      code: "stripe_webhook_stale_signature",
+    });
+  }
+  const expected = await hmacSha256Hex(secret, `${parsed.timestamp}.${String(rawBody || "")}`);
+  if (!parsed.signatures.some((signature) => safeEqualHex(signature, expected))) {
+    throw new StripeBillingError("Stripe webhook signature is invalid.", {
+      status: 401,
+      code: "stripe_webhook_invalid_signature",
+    });
+  }
+  return {
+    provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
+    verificationStatus: "verified_test_signature",
+    timestamp: parsed.timestamp,
+  };
+}
+
+function getStripeSessionObject(payload) {
+  const object = payload?.data?.object;
+  if (!object || typeof object !== "object" || Array.isArray(object)) {
+    throw new StripeBillingError("Stripe event object is invalid.", {
+      status: 400,
+      code: "stripe_event_invalid_object",
+    });
+  }
+  return object;
+}
+
+function normalizeCheckoutCompletion(payload) {
+  if (payload?.type !== "checkout.session.completed") {
+    return null;
+  }
+  if (payload.livemode === true) {
+    throw new StripeBillingError("Live Stripe events are disabled.", {
+      status: 403,
+      code: "stripe_live_mode_disabled",
+    });
+  }
+  const session = getStripeSessionObject(payload);
+  if (session.livemode === true) {
+    throw new StripeBillingError("Live Stripe Checkout Sessions are disabled.", {
+      status: 403,
+      code: "stripe_live_mode_disabled",
+    });
+  }
+  const sessionId = safeString(session.id, 220);
+  if (!sessionId || !CHECKOUT_SESSION_ID_PATTERN.test(sessionId)) {
+    throw new StripeBillingError("Stripe Checkout Session is invalid.", {
+      status: 400,
+      code: "stripe_checkout_session_invalid",
+    });
+  }
+  if (session.mode !== "payment" || session.payment_status !== "paid") {
+    throw new StripeBillingError("Stripe Checkout Session is not a paid credit-pack payment.", {
+      status: 400,
+      code: "stripe_checkout_not_paid",
+    });
+  }
+  const metadata = session.metadata && typeof session.metadata === "object" && !Array.isArray(session.metadata)
+    ? session.metadata
+    : {};
+  const organizationId = normalizeStripeMetadataOrgId(metadata.organization_id || metadata.organizationId);
+  const userId = normalizeUserId(metadata.user_id || metadata.userId);
+  const pack = getStripeCreditPack(metadata.credit_pack_id || metadata.creditPackId);
+  const metadataCredits = Number(metadata.credits);
+  const amountTotal = Number(session.amount_total);
+  const currency = safeString(session.currency, 16)?.toLowerCase();
+  if (!Number.isInteger(metadataCredits) || metadataCredits !== pack.credits) {
+    throw new StripeBillingError("Stripe credit pack metadata is invalid.", {
+      status: 400,
+      code: "stripe_credit_pack_mismatch",
+    });
+  }
+  if (amountTotal !== pack.amountCents || currency !== pack.currency) {
+    throw new StripeBillingError("Stripe checkout amount does not match the credit pack.", {
+      status: 400,
+      code: "stripe_credit_pack_amount_mismatch",
+    });
+  }
+  return {
+    sessionId,
+    paymentIntent: safeString(session.payment_intent, 128),
+    customer: safeString(session.customer, 128),
+    organizationId,
+    userId,
+    pack,
+    internalCheckoutSessionId: safeString(metadata.internal_checkout_session_id, 64),
+  };
+}
+
+async function markStripeEventFailed(env, {
+  eventId,
+  actionType,
+  errorCode,
+  errorMessage,
+}) {
+  return updateBillingProviderEventProcessing(env, {
+    eventId,
+    processingStatus: "failed",
+    errorCode,
+    errorMessage,
+    actionType,
+    actionStatus: "failed",
+    actionDryRun: false,
+    actionSummary: {
+      sideEffectsEnabled: true,
+      creditGrantStatus: "failed",
+      errorCode,
+    },
+  });
+}
+
+async function upsertCompletedCheckoutSession({
+  env,
+  completion,
+  billingEventId,
+  ledgerEntryId = null,
+}) {
+  const existing = await fetchCheckoutByProviderSession(env, completion.sessionId);
+  const now = nowIso();
+  if (existing) {
+    if (
+      existing.organization_id !== completion.organizationId ||
+      existing.user_id !== completion.userId ||
+      existing.credit_pack_id !== completion.pack.id ||
+      Number(existing.credits) !== completion.pack.credits ||
+      Number(existing.amount_cents) !== completion.pack.amountCents ||
+      String(existing.currency).toLowerCase() !== completion.pack.currency
+    ) {
+      throw new StripeBillingError("Stripe Checkout Session does not match the stored checkout request.", {
+        status: 409,
+        code: "stripe_checkout_session_mismatch",
+      });
+    }
+    await env.DB.prepare(
+      `UPDATE billing_checkout_sessions
+       SET status = 'completed',
+           provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+           provider_customer_id = COALESCE(?, provider_customer_id),
+           billing_event_id = COALESCE(?, billing_event_id),
+           credit_ledger_entry_id = COALESCE(?, credit_ledger_entry_id),
+           error_code = NULL,
+           error_message = NULL,
+           updated_at = ?,
+           completed_at = COALESCE(completed_at, ?)
+       WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
+    ).bind(
+      completion.paymentIntent && PAYMENT_INTENT_ID_PATTERN.test(completion.paymentIntent)
+        ? completion.paymentIntent
+        : null,
+      completion.customer,
+      billingEventId,
+      ledgerEntryId,
+      now,
+      now,
+      completion.sessionId
+    ).run();
+    return fetchCheckoutByProviderSession(env, completion.sessionId);
+  }
+
+  const checkoutId = completion.internalCheckoutSessionId && /^bcs_[a-f0-9]{32}$/.test(completion.internalCheckoutSessionId)
+    ? completion.internalCheckoutSessionId
+    : checkoutSessionId();
+  await env.DB.prepare(
+    `INSERT INTO billing_checkout_sessions (
+       id, provider, provider_mode, provider_checkout_session_id,
+       provider_payment_intent_id, organization_id, user_id, credit_pack_id,
+       credits, amount_cents, currency, status, idempotency_key_hash,
+       request_fingerprint_hash, checkout_url, provider_customer_id,
+       billing_event_id, credit_ledger_entry_id, metadata_json,
+       created_at, updated_at, completed_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    checkoutId,
+    "stripe",
+    STRIPE_MODE_TEST,
+    completion.sessionId,
+    completion.paymentIntent && PAYMENT_INTENT_ID_PATTERN.test(completion.paymentIntent)
+      ? completion.paymentIntent
+      : null,
+    completion.organizationId,
+    completion.userId,
+    completion.pack.id,
+    completion.pack.credits,
+    completion.pack.amountCents,
+    completion.pack.currency,
+    "completed",
+    await sha256Hex(`webhook:${completion.sessionId}`),
+    await checkoutRequestFingerprint({
+      organizationId: completion.organizationId,
+      userId: completion.userId,
+      pack: completion.pack,
+    }),
+    null,
+    completion.customer,
+    billingEventId,
+    ledgerEntryId,
+    JSON.stringify({ phase: "2-J", createdFromWebhook: true }),
+    now,
+    now,
+    now
+  ).run();
+  return fetchCheckoutByProviderSession(env, completion.sessionId);
+}
+
+export async function handleVerifiedStripeWebhookEvent({
+  env,
+  rawBody,
+  payload,
+  verificationStatus,
+}) {
+  if (payload?.livemode === true) {
+    throw new StripeBillingError("Live Stripe events are disabled.", {
+      status: 403,
+      code: "stripe_live_mode_disabled",
+    });
+  }
+  const stored = await ingestVerifiedBillingProviderEvent({
+    env,
+    provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
+    rawBody,
+    payload,
+    verificationStatus,
+  });
+  if (stored.duplicate) {
+    return {
+      ...stored,
+      creditGrant: null,
+      checkout: null,
+    };
+  }
+
+  if (payload?.type !== "checkout.session.completed") {
+    return {
+      ...stored,
+      creditGrant: null,
+      checkout: null,
+    };
+  }
+
+  let completion;
+  try {
+    completion = normalizeCheckoutCompletion(payload);
+  } catch (error) {
+    if (error instanceof StripeBillingError) {
+      await markStripeEventFailed(env, {
+        eventId: stored.event.id,
+        actionType: payload.type,
+        errorCode: error.code,
+        errorMessage: error.message,
+      });
+      throw error;
+    }
+    throw error;
+  }
+
+  try {
+    await upsertCompletedCheckoutSession({
+      env,
+      completion,
+      billingEventId: stored.event.id,
+      ledgerEntryId: null,
+    });
+    const grant = await grantOrganizationCredits({
+      env,
+      organizationId: completion.organizationId,
+      amount: completion.pack.credits,
+      createdByUserId: completion.userId,
+      idempotencyKey: `stripe:${stored.event.providerEventId}`,
+      source: "stripe_test_checkout",
+      reason: `credit_pack:${completion.pack.id}`,
+    });
+    const checkout = await upsertCompletedCheckoutSession({
+      env,
+      completion,
+      billingEventId: stored.event.id,
+      ledgerEntryId: grant.ledgerEntry.id,
+    });
+    const event = await updateBillingProviderEventProcessing(env, {
+      eventId: stored.event.id,
+      processingStatus: "planned",
+      organizationId: completion.organizationId,
+      userId: completion.userId,
+      actionType: payload.type,
+      actionStatus: "planned",
+      actionDryRun: false,
+      actionSummary: {
+        sideEffectsEnabled: true,
+        creditGrantStatus: grant.reused ? "already_granted" : "granted",
+        creditPackId: completion.pack.id,
+        credits: completion.pack.credits,
+      },
+    });
+    return {
+      event,
+      duplicate: false,
+      actionPlanned: true,
+      creditGrant: {
+        organizationId: completion.organizationId,
+        creditsGranted: completion.pack.credits,
+        balanceAfter: grant.creditBalance,
+        reused: grant.reused,
+      },
+      checkout: serializeCheckoutRow(checkout),
+    };
+  } catch (error) {
+    const code = error instanceof BillingError || error instanceof StripeBillingError
+      ? error.code
+      : "stripe_credit_grant_failed";
+    const message = error instanceof BillingError || error instanceof StripeBillingError
+      ? error.message
+      : "Stripe credit grant failed.";
+    await markStripeEventFailed(env, {
+      eventId: stored.event.id,
+      actionType: payload.type,
+      errorCode: code,
+      errorMessage: message,
+    });
+    throw error instanceof StripeBillingError
+      ? error
+      : new StripeBillingError("Stripe credit grant failed.", {
+          status: 503,
+          code: "stripe_credit_grant_failed",
+        });
+  }
+}
+
+export function parseVerifiedStripeWebhookPayload(rawBody) {
+  return parseBillingWebhookPayload(rawBody);
+}

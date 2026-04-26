@@ -23,7 +23,13 @@ import {
   listUserOrganizations,
   normalizeOrgIdempotencyKey,
   orgRbacErrorResponse,
+  requireOrgRole,
 } from "../lib/orgs.js";
+import {
+  StripeBillingError,
+  createStripeCreditPackCheckout,
+  stripeBillingErrorResponse,
+} from "../lib/stripe-billing.js";
 
 function idempotencyKeyOrResponse(request) {
   try {
@@ -48,6 +54,9 @@ function orgErrorResponse(error) {
   }
   if (error instanceof BillingError) {
     return json(billingErrorResponse(error), { status: error.status });
+  }
+  if (error instanceof StripeBillingError) {
+    return json(stripeBillingErrorResponse(error), { status: error.status });
   }
   throw error;
 }
@@ -142,6 +151,58 @@ async function handleAddOrganizationMember(ctx, session, organizationId) {
   }
 }
 
+async function handleCreateCreditPackCheckout(ctx, session, organizationId) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "org-billing-checkout-user",
+    userId: session.user.id,
+    maxRequests: 10,
+    windowMs: 15 * 60_000,
+    component: "org-billing-checkout",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.smallJson,
+  });
+  if (parsed.response) return parsed.response;
+
+  try {
+    await requireOrgRole(ctx.env, {
+      organizationId,
+      userId: session.user.id,
+      minRole: "admin",
+    });
+    const result = await createStripeCreditPackCheckout({
+      env: ctx.env,
+      organizationId,
+      userId: session.user.id,
+      packId: parsed.body?.pack_id || parsed.body?.packId,
+      idempotencyKey: idempotency.key,
+    });
+    if (!result.reused) {
+      await logOrgActivity(ctx, session.user.id, "stripe_credit_pack_checkout_created", {
+        organization_id: result.checkout.organizationId,
+        credit_pack_id: result.creditPack.id,
+        credits: result.creditPack.credits,
+      });
+    }
+    return json({
+      ok: true,
+      reused: result.reused,
+      checkout_url: result.checkout.checkoutUrl,
+      session_id: result.checkout.sessionId,
+      mode: result.checkout.providerMode,
+      credit_pack: result.creditPack,
+      livePaymentProviderEnabled: false,
+    }, { status: result.reused ? 200 : 201 });
+  } catch (error) {
+    return orgErrorResponse(error);
+  }
+}
+
 export async function handleOrgs(ctx) {
   const { request, env, pathname, method, url } = ctx;
   if (pathname !== "/api/orgs" && !pathname.startsWith("/api/orgs/")) {
@@ -217,6 +278,12 @@ export async function handleOrgs(ctx) {
     } catch (error) {
       return orgErrorResponse(error);
     }
+  }
+
+  const checkoutMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing\/checkout\/credit-pack$/);
+  // route-policy: orgs.billing.checkout.credit-pack
+  if (checkoutMatch && method === "POST") {
+    return handleCreateCreditPackCheckout(ctx, session, checkoutMatch[1]);
   }
 
   const usageMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/usage$/);

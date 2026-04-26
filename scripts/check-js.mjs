@@ -31,6 +31,7 @@ const CHECK_TARGETS = [
   "workers/auth/src/lib/data-lifecycle.js",
   "workers/auth/src/lib/billing.js",
   "workers/auth/src/lib/billing-events.js",
+  "workers/auth/src/lib/stripe-billing.js",
   "workers/auth/src/lib/orgs.js",
   "workers/auth/src/lib/security-secrets.js",
   "workers/auth/src/app/route-policy.js",

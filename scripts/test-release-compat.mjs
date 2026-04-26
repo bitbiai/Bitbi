@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0037_add_billing_event_ingestion.sql",
+        latest: "0038_add_stripe_credit_pack_checkout.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -248,6 +248,51 @@ const baseManifest = {
         summary: "Optional synthetic billing webhook verification secret; absent secret keeps the route fail-closed.",
       },
       {
+        id: "auth-stripe-secret-key",
+        kind: "secret",
+        worker: "auth",
+        name: "STRIPE_SECRET_KEY",
+        requiredForRelease: false,
+        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        summary: "Optional Stripe Testmode secret key; absent key keeps Stripe checkout fail-closed.",
+      },
+      {
+        id: "auth-stripe-webhook-secret",
+        kind: "secret",
+        worker: "auth",
+        name: "STRIPE_WEBHOOK_SECRET",
+        requiredForRelease: false,
+        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        summary: "Optional Stripe Testmode webhook endpoint secret; absent secret keeps Stripe webhooks fail-closed.",
+      },
+      {
+        id: "auth-stripe-mode-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "STRIPE_MODE",
+        requiredForRelease: false,
+        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        summary: "Optional Stripe mode flag; Phase 2-J only supports test mode.",
+      },
+      {
+        id: "auth-stripe-checkout-success-url-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "STRIPE_CHECKOUT_SUCCESS_URL",
+        requiredForRelease: false,
+        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        summary: "Optional HTTPS success URL for Stripe Testmode checkout sessions.",
+      },
+      {
+        id: "auth-stripe-checkout-cancel-url-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "STRIPE_CHECKOUT_CANCEL_URL",
+        requiredForRelease: false,
+        documentation: "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+        summary: "Optional HTTPS cancel URL for Stripe Testmode checkout sessions.",
+      },
+      {
         id: "ai-service-auth-secret",
         kind: "secret",
         worker: "ai",
@@ -371,6 +416,7 @@ const baseManifest = {
       "POST /api/resend-verification",
       "POST /api/request-reverification",
       "POST /api/billing/webhooks/test",
+      "POST /api/billing/webhooks/stripe",
     ],
     delegatedExactPaths: [
       "/api/favorites",
@@ -530,6 +576,7 @@ function createValidContext() {
     "docs/ai-image-derivatives-runbook.md",
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
+    "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);
@@ -553,6 +600,7 @@ function createValidContext() {
           "0034_add_organizations.sql",
           "0036_add_ai_usage_attempts.sql",
           "0037_add_billing_event_ingestion.sql",
+          "0038_add_stripe_credit_pack_checkout.sql",
         ],
       },
     },
@@ -735,6 +783,7 @@ function createValidContext() {
       if (pathname === "/api/orgs") { return handleOrgs(); }
       if (pathname.startsWith("/api/orgs/")) { return handleOrgs(); }
       if (pathname === "/api/billing/webhooks/test" && method === "POST") return handleBillingWebhooks();
+      if (pathname === "/api/billing/webhooks/stripe" && method === "POST") return handleBillingWebhooks();
       if (pathname.startsWith("/api/admin/")) { return handleAdmin(); }
       if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword();
       if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset();

@@ -101,6 +101,7 @@ src/
 - `POST /api/resend-verification` — resend verification email (requires auth)
 - `POST /api/request-reverification` — legacy users request real email verification (requires auth)
 - `POST /api/billing/webhooks/test` — synthetic test-only billing event ingestion route with raw-body HMAC verification, byte limit, and fail-closed limiter; no browser CSRF and no live billing side effects
+- `POST /api/billing/webhooks/stripe` — Stripe Testmode-only billing webhook route with raw-body `Stripe-Signature` verification, byte limit, and fail-closed limiter; no browser CSRF, no live-mode side effects, no subscriptions/invoices/customer portal
 - `GET /api/profile` — user profile data (requires auth)
 - `PATCH /api/profile` — update profile fields (requires auth)
 - `GET /api/profile/avatar` — user's avatar image from R2, or 404 (requires auth)
@@ -117,6 +118,7 @@ src/
 - `GET /api/orgs/:id/entitlements` — read effective plan entitlements for an active organization member
 - `GET /api/orgs/:id/billing` — read organization billing/credit summary for an org owner/admin
 - `GET /api/orgs/:id/usage` — read recent organization usage events for an org owner/admin
+- `POST /api/orgs/:id/billing/checkout/credit-pack` — create a Stripe Testmode Checkout Session for a fixed server-side credit pack as org owner/admin (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter); credits are granted only by verified Testmode webhook completion
 - `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
 - `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
@@ -184,7 +186,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -204,7 +206,9 @@ src/
 
 **Secret** `BILLING_WEBHOOK_TEST_SECRET` — optional Phase 2-I synthetic billing webhook verification secret for `POST /api/billing/webhooks/test`. If missing or too short, the route fails closed. This is not a live provider secret and does not enable production payment processing.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0037_add_billing_event_ingestion`.
+**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_WEBHOOK_SECRET` verifies `POST /api/billing/webhooks/stripe`; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS. Missing config makes Stripe routes fail closed and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
+
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0038_add_stripe_credit_pack_checkout`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -229,6 +233,7 @@ Key migration-dependent behavior:
 - `0035_add_billing_entitlements` — required before auth deploy if Phase 2-B billing plan, entitlement, credit ledger, usage event, and admin credit-grant APIs must work immediately
 - `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F replay object cleanup, and Phase 2-H org-scoped text generation replay must work immediately
 - `0037_add_billing_event_ingestion` — required before auth deploy if Phase 2-I synthetic billing webhook ingestion and admin billing-event inspection must work immediately
+- `0038_add_stripe_credit_pack_checkout` — required before auth deploy if Phase 2-J Stripe Testmode credit-pack checkout session tracking and verified checkout credit grants must work immediately
 
 ## Conventions
 

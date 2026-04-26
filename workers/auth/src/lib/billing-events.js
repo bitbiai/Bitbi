@@ -2,12 +2,16 @@ import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { normalizeOrgId } from "./orgs.js";
 
 export const BILLING_WEBHOOK_TEST_PROVIDER = "test";
+export const BILLING_WEBHOOK_STRIPE_PROVIDER = "stripe";
 export const BILLING_WEBHOOK_VERSION = "v1";
 export const BILLING_WEBHOOK_TIMESTAMP_HEADER = "x-bitbi-billing-timestamp";
 export const BILLING_WEBHOOK_SIGNATURE_HEADER = "x-bitbi-billing-signature";
 export const BILLING_WEBHOOK_REPLAY_WINDOW_MS = 5 * 60_000;
 
-const SUPPORTED_PROVIDERS = new Set([BILLING_WEBHOOK_TEST_PROVIDER]);
+const SUPPORTED_PROVIDERS = new Set([
+  BILLING_WEBHOOK_TEST_PROVIDER,
+  BILLING_WEBHOOK_STRIPE_PROVIDER,
+]);
 const SUPPORTED_MODES = new Set(["test", "sandbox", "synthetic"]);
 const LIVE_MODE = "live";
 const EVENT_ID_PATTERN = /^[A-Za-z0-9._:-]{3,128}$/;
@@ -16,6 +20,7 @@ const PROVIDER_PATTERN = /^[a-z0-9_-]{2,32}$/i;
 const MAX_SUMMARY_STRING_LENGTH = 128;
 const SUPPORTED_ACTION_EVENT_TYPES = new Set([
   "checkout.completed",
+  "checkout.session.completed",
   "subscription.created",
   "subscription.updated",
   "subscription.cancelled",
@@ -281,21 +286,39 @@ function sanitizedPayloadSummary(payload, { providerEventId, eventType, provider
   const data = payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
     ? payload.data
     : {};
-  const organizationId = normalizeMaybeOrgId(payload.organization_id || payload.organizationId || data.organization_id || data.organizationId);
-  const amount = Number.isFinite(Number(data.amount || payload.amount)) ? Number(data.amount || payload.amount) : null;
-  const currency = safeString(data.currency || payload.currency, 16);
+  const object = data.object && typeof data.object === "object" && !Array.isArray(data.object)
+    ? data.object
+    : {};
+  const metadata = object.metadata && typeof object.metadata === "object" && !Array.isArray(object.metadata)
+    ? object.metadata
+    : {};
+  const organizationId = normalizeMaybeOrgId(
+    payload.organization_id ||
+    payload.organizationId ||
+    data.organization_id ||
+    data.organizationId ||
+    object.organization_id ||
+    object.organizationId ||
+    metadata.organization_id ||
+    metadata.organizationId
+  );
+  const amountValue = data.amount ?? payload.amount ?? object.amount_total ?? object.amount;
+  const amount = Number.isFinite(Number(amountValue)) ? Number(amountValue) : null;
+  const currency = safeString(data.currency || payload.currency || object.currency, 16);
   return {
     providerEventId,
     eventType,
     mode: providerMode,
     account: safeString(payload.account || payload.provider_account || payload.providerAccount, 64),
     organizationId,
-    hasBillingCustomerRef: Boolean(data.billing_customer_ref || data.customer || payload.customer),
+    hasBillingCustomerRef: Boolean(data.billing_customer_ref || data.customer || object.customer || payload.customer),
     hasData: Object.keys(data).length > 0,
     dataKeys: boundedKeys(data),
     amount,
     currency,
     planCode: safeString(data.plan_code || data.planCode || payload.plan_code || payload.planCode, 64),
+    creditPackId: safeString(metadata.credit_pack_id || metadata.creditPackId, 64),
+    checkoutSessionIdPresent: Boolean(object.id),
     paymentDataRedacted: true,
   };
 }
@@ -304,7 +327,12 @@ export async function normalizeBillingProviderEvent({ provider, rawBody, payload
   const providerName = normalizeProvider(provider);
   const providerEventId = normalizeProviderEventId(payload.id || payload.event_id || payload.eventId);
   const eventType = normalizeEventType(payload.type || payload.event_type || payload.eventType);
-  const providerMode = normalizeEventMode(payload.mode || payload.environment || payload.provider_mode);
+  const providerMode = normalizeEventMode(
+    payload.mode ||
+    payload.environment ||
+    payload.provider_mode ||
+    (payload.livemode === true ? "live" : null)
+  );
   const payloadHash = await sha256Hex(String(rawBody || ""));
   const summary = sanitizedPayloadSummary(payload, {
     providerEventId,
@@ -580,4 +608,76 @@ export async function getBillingProviderEvent(env, { id }) {
     includeActions: true,
     actions: actions.results || [],
   });
+}
+
+export async function updateBillingProviderEventProcessing(env, {
+  eventId: id,
+  processingStatus,
+  organizationId = null,
+  userId = null,
+  billingCustomerId = null,
+  errorCode = null,
+  errorMessage = null,
+  actionType = null,
+  actionStatus = "planned",
+  actionDryRun = false,
+  actionSummary = {},
+}) {
+  const eventIdValue = safeString(id, 64);
+  const status = safeString(processingStatus, 32);
+  if (!eventIdValue || !/^bpe_[a-f0-9]{32}$/.test(eventIdValue)) {
+    throw new BillingEventError("Billing event not found.", {
+      status: 404,
+      code: "billing_event_not_found",
+    });
+  }
+  if (!["received", "planned", "ignored", "failed"].includes(status)) {
+    throw new BillingEventError("Billing event status is invalid.", {
+      status: 400,
+      code: "invalid_billing_event_status",
+    });
+  }
+  const now = nowIso();
+  await env.DB.prepare(
+    `UPDATE billing_provider_events
+     SET processing_status = ?,
+         organization_id = COALESCE(?, organization_id),
+         user_id = COALESCE(?, user_id),
+         billing_customer_id = COALESCE(?, billing_customer_id),
+         error_code = ?,
+         error_message = ?,
+         last_processed_at = ?,
+         updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    status,
+    organizationId,
+    userId,
+    billingCustomerId,
+    errorCode,
+    errorMessage,
+    now,
+    now,
+    eventIdValue
+  ).run();
+
+  if (actionType) {
+    await env.DB.prepare(
+      `UPDATE billing_event_actions
+       SET status = ?,
+           dry_run = ?,
+           summary_json = ?,
+           updated_at = ?
+       WHERE event_id = ? AND action_type = ?`
+    ).bind(
+      actionStatus,
+      actionDryRun ? 1 : 0,
+      serializeJson(actionSummary),
+      now,
+      eventIdValue,
+      actionType
+    ).run();
+  }
+
+  return getBillingProviderEvent(env, { id: eventIdValue });
 }

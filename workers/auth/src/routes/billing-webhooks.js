@@ -14,21 +14,33 @@ import {
 } from "../lib/rate-limit.js";
 import {
   BillingEventError,
+  BILLING_WEBHOOK_STRIPE_PROVIDER,
+  BILLING_WEBHOOK_TEST_PROVIDER,
   billingEventErrorResponse,
   ingestVerifiedBillingProviderEvent,
   parseBillingWebhookPayload,
   verifySyntheticBillingWebhookRequest,
 } from "../lib/billing-events.js";
+import {
+  StripeBillingError,
+  handleVerifiedStripeWebhookEvent,
+  parseVerifiedStripeWebhookPayload,
+  stripeBillingErrorResponse,
+  verifyStripeWebhookRequest,
+} from "../lib/stripe-billing.js";
 
-async function enforceBillingWebhookRateLimit(ctx) {
+async function enforceBillingWebhookRateLimit(ctx, provider) {
+  const normalizedProvider = provider === BILLING_WEBHOOK_STRIPE_PROVIDER
+    ? BILLING_WEBHOOK_STRIPE_PROVIDER
+    : BILLING_WEBHOOK_TEST_PROVIDER;
   const result = await evaluateSharedRateLimit(
     ctx.env,
-    "billing-webhook-test-ip",
+    `billing-webhook-${normalizedProvider}-ip`,
     getClientIp(ctx.request),
     120,
     15 * 60_000,
     sensitiveRateLimitOptions({
-      component: "billing-webhook-test",
+      component: `billing-webhook-${normalizedProvider}`,
       correlationId: ctx.correlationId || null,
       requestInfo: ctx,
     })
@@ -42,6 +54,9 @@ function billingEventErrorJson(error) {
   if (error instanceof BillingEventError) {
     return json(billingEventErrorResponse(error), { status: error.status });
   }
+  if (error instanceof StripeBillingError) {
+    return json(stripeBillingErrorResponse(error), { status: error.status });
+  }
   throw error;
 }
 
@@ -52,7 +67,7 @@ export async function handleBillingWebhooks(ctx) {
   if (method !== "POST") return null;
 
   const provider = match[1];
-  const limited = await enforceBillingWebhookRateLimit(ctx);
+  const limited = await enforceBillingWebhookRateLimit(ctx, provider);
   if (limited) return limited;
 
   let rawBody;
@@ -68,6 +83,33 @@ export async function handleBillingWebhooks(ctx) {
   }
 
   try {
+    if (provider === BILLING_WEBHOOK_STRIPE_PROVIDER) {
+      const verification = await verifyStripeWebhookRequest({
+        env,
+        rawBody,
+        request,
+      });
+      const payload = parseVerifiedStripeWebhookPayload(rawBody);
+      const result = await handleVerifiedStripeWebhookEvent({
+        env,
+        rawBody,
+        payload,
+        verificationStatus: verification.verificationStatus,
+      });
+      return json(
+        {
+          ok: true,
+          duplicate: result.duplicate,
+          actionPlanned: result.actionPlanned,
+          event: result.event,
+          checkout: result.checkout,
+          creditGrant: result.creditGrant,
+          liveBillingEnabled: false,
+        },
+        { status: result.duplicate ? 200 : 202 }
+      );
+    }
+
     const verification = await verifySyntheticBillingWebhookRequest({
       env,
       provider,

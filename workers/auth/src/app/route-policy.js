@@ -10,6 +10,8 @@ const REQUIRED_CONFIG = Object.freeze({
   privateMedia: ["DB", "PRIVATE_MEDIA", "PUBLIC_RATE_LIMITER"],
   adminAi: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET"],
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
+  stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
+  stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
 });
 
 function policy(input) {
@@ -195,6 +197,12 @@ export const ROUTE_POLICIES = Object.freeze([
   }),
   safeRead("orgs.usage.read", "GET", "/api/orgs/:id/usage", "billing", {
     rateLimit: { noneReason: "Read-only usage summary requires organization admin/owner membership and is capped." },
+  }),
+  userJsonWrite("orgs.billing.checkout.credit-pack", "POST", "/api/orgs/:id/billing/checkout/credit-pack", "billing", "smallJson", "org-billing-checkout-user", {
+    config: REQUIRED_CONFIG.stripeTestCheckout,
+    audit: { event: "stripe_credit_pack_checkout_created" },
+    sensitivity: "high",
+    notes: "Stripe Testmode only. Requires owner/admin organization role, Idempotency-Key, known credit pack, and no credit grant at checkout creation.",
   }),
   policy({
     id: "password.forgot",
@@ -484,6 +492,21 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     providerSignature: "synthetic-test-only",
     notes: "Provider-neutral webhook foundation. Raw body is verified before JSON parse; live provider billing side effects are disabled.",
+  }),
+  policy({
+    id: "billing.webhooks.stripe",
+    method: "POST",
+    path: "/api/billing/webhooks/stripe",
+    auth: "anonymous",
+    csrf: "not-browser-facing",
+    body: { kind: "raw", maxBytesName: "billingWebhookRaw", contentType: "application/json" },
+    rateLimit: { id: "billing-webhook-stripe-ip", failClosed: true },
+    config: REQUIRED_CONFIG.stripeTestWebhook,
+    audit: { event: "stripe_billing_webhook_received" },
+    owner: "billing",
+    sensitivity: "high",
+    providerSignature: "stripe-testmode-only",
+    notes: "Stripe Testmode webhook foundation. Raw body is verified with Stripe-Signature before JSON parse; live-mode events and live billing side effects are disabled.",
   }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),
