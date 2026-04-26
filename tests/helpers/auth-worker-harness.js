@@ -458,6 +458,8 @@ class MockD1 {
       dataLifecycleRequests: [],
       dataLifecycleRequestItems: [],
       dataExportArchives: [],
+      organizations: [],
+      organizationMemberships: [],
       ...deepClone(seed),
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
@@ -537,6 +539,12 @@ class MockD1 {
     }
     if (this.missingTables.has('data_export_archives') && query.includes('data_export_archives')) {
       throw new Error('no such table: data_export_archives');
+    }
+    if (this.missingTables.has('organizations') && query.includes('organizations')) {
+      throw new Error('no such table: organizations');
+    }
+    if (this.missingTables.has('organization_memberships') && query.includes('organization_memberships')) {
+      throw new Error('no such table: organization_memberships');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -945,6 +953,231 @@ class MockD1 {
     if (query === 'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1') {
       const [userId] = bindings;
       return this.state.users.find((row) => row.id === userId) || null;
+    }
+
+    if (query === 'SELECT id FROM organizations WHERE slug = ? LIMIT 1') {
+      const [slug] = bindings;
+      const row = this.state.organizations.find((entry) => entry.slug === slug);
+      return row ? { id: row.id } : null;
+    }
+
+    if (query.startsWith('SELECT id, name, slug, status, created_by_user_id, create_request_hash, created_at, updated_at FROM organizations WHERE created_by_user_id = ? AND create_idempotency_key = ?')) {
+      const [userId, key] = bindings;
+      return deepClone(this.state.organizations.find((row) =>
+        row.created_by_user_id === userId && row.create_idempotency_key === key
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO organizations ( id, name, slug, status, created_by_user_id, create_idempotency_key,')) {
+      const [
+        id,
+        name,
+        slug,
+        status,
+        createdByUserId,
+        createIdempotencyKey,
+        createRequestHash,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.organizations.some((row) => row.id === id || row.slug === slug)) {
+        throw new Error('UNIQUE constraint failed: organizations');
+      }
+      this.state.organizations.push({
+        id,
+        name,
+        slug,
+        status,
+        created_by_user_id: createdByUserId,
+        create_idempotency_key: createIdempotencyKey,
+        create_request_hash: createRequestHash,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO organization_memberships ( id, organization_id, user_id, role, status, created_by_user_id,')) {
+      const [
+        id,
+        organizationId,
+        userId,
+        role,
+        status,
+        createdByUserId,
+        createIdempotencyKey,
+        createRequestHash,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.organizationMemberships.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.user_id === userId)
+      )) {
+        throw new Error('UNIQUE constraint failed: organization_memberships');
+      }
+      this.state.organizationMemberships.push({
+        id,
+        organization_id: organizationId,
+        user_id: userId,
+        role,
+        status,
+        created_by_user_id: createdByUserId,
+        create_idempotency_key: createIdempotencyKey,
+        create_request_hash: createRequestHash,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT om.id, om.organization_id, om.user_id, u.email, om.role, om.status, om.create_request_hash, om.created_at, om.updated_at FROM organization_memberships om INNER JOIN users u ON u.id = om.user_id WHERE om.organization_id = ? AND om.created_by_user_id = ?')) {
+      const [organizationId, createdByUserId, key] = bindings;
+      const row = this.state.organizationMemberships.find((entry) =>
+        entry.organization_id === organizationId &&
+        entry.created_by_user_id === createdByUserId &&
+        entry.create_idempotency_key === key
+      );
+      if (!row) return null;
+      const user = this.state.users.find((entry) => entry.id === row.user_id);
+      return { ...deepClone(row), email: user?.email || null };
+    }
+
+    if (query.startsWith('SELECT om.id, om.organization_id, om.user_id, u.email, om.role, om.status, om.created_at, om.updated_at FROM organization_memberships om INNER JOIN users u ON u.id = om.user_id INNER JOIN organizations o ON o.id = om.organization_id')) {
+      const [organizationId, userId] = bindings;
+      const org = this.state.organizations.find((entry) =>
+        entry.id === organizationId && entry.status === 'active'
+      );
+      const row = org
+        ? this.state.organizationMemberships.find((entry) =>
+          entry.organization_id === organizationId &&
+          entry.user_id === userId &&
+          entry.status === 'active'
+        )
+        : null;
+      if (!row) return null;
+      const user = this.state.users.find((entry) => entry.id === row.user_id);
+      return { ...deepClone(row), email: user?.email || null };
+    }
+
+    if (query.startsWith('SELECT o.id, o.name, o.slug, o.status, o.created_by_user_id, o.created_at, o.updated_at, om.role, (SELECT COUNT(*) FROM organization_memberships active_members')) {
+      if (query.includes('FROM organization_memberships om INNER JOIN organizations o ON o.id = om.organization_id')) {
+        const [userId, limit] = bindings;
+        const rows = this.state.organizationMemberships
+          .filter((membership) => membership.user_id === userId && membership.status === 'active')
+          .map((membership) => {
+            const org = this.state.organizations.find((entry) =>
+              entry.id === membership.organization_id && entry.status === 'active'
+            );
+            if (!org) return null;
+            return {
+              ...deepClone(org),
+              role: membership.role,
+              member_count: this.state.organizationMemberships.filter((entry) =>
+                entry.organization_id === org.id && entry.status === 'active'
+              ).length,
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+          .slice(0, Number(limit));
+        return { results: rows };
+      }
+      if (query.includes('FROM organizations o INNER JOIN organization_memberships om ON om.organization_id = o.id')) {
+        const [organizationId, userId] = bindings;
+        const membership = this.state.organizationMemberships.find((entry) =>
+          entry.organization_id === organizationId &&
+          entry.user_id === userId &&
+          entry.status === 'active'
+        );
+        const org = membership
+          ? this.state.organizations.find((entry) => entry.id === organizationId && entry.status === 'active')
+          : null;
+        if (!org) return null;
+        return {
+          ...deepClone(org),
+          role: membership.role,
+          member_count: this.state.organizationMemberships.filter((entry) =>
+            entry.organization_id === org.id && entry.status === 'active'
+          ).length,
+        };
+      }
+    }
+
+    if (query.startsWith('SELECT om.id, om.organization_id, om.user_id, u.email, om.role, om.status, om.created_at, om.updated_at FROM organization_memberships om INNER JOIN users u ON u.id = om.user_id WHERE om.organization_id = ? AND om.status =')) {
+      const [organizationId, limit] = bindings;
+      const rows = this.state.organizationMemberships
+        .filter((row) => row.organization_id === organizationId && row.status === 'active')
+        .map((row) => ({
+          ...deepClone(row),
+          email: this.state.users.find((user) => user.id === row.user_id)?.email || null,
+        }))
+        .sort((a, b) => {
+          const rank = { owner: 1, admin: 2, member: 3, viewer: 4 };
+          return (rank[a.role] || 9) - (rank[b.role] || 9)
+            || a.created_at.localeCompare(b.created_at)
+            || a.user_id.localeCompare(b.user_id);
+        })
+        .slice(0, Number(limit));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT om.id, om.organization_id, om.user_id, u.email, om.role, om.status, om.created_at, om.updated_at FROM organization_memberships om INNER JOIN users u ON u.id = om.user_id WHERE om.organization_id = ? AND om.user_id = ?')) {
+      const [organizationId, userId] = bindings;
+      const row = this.state.organizationMemberships.find((entry) =>
+        entry.organization_id === organizationId && entry.user_id === userId
+      );
+      if (!row) return null;
+      const user = this.state.users.find((entry) => entry.id === row.user_id);
+      return { ...deepClone(row), email: user?.email || null };
+    }
+
+    if (query.startsWith('SELECT o.id, o.name, o.slug, o.status, o.created_by_user_id, u.email AS created_by_email, o.created_at, o.updated_at, (SELECT COUNT(*) FROM organization_memberships active_members')) {
+      if (query.includes('WHERE o.id = ?')) {
+        const [organizationId] = bindings;
+        const org = this.state.organizations.find((entry) => entry.id === organizationId);
+        if (!org) return null;
+        const creator = this.state.users.find((entry) => entry.id === org.created_by_user_id);
+        return {
+          ...deepClone(org),
+          created_by_email: creator?.email || null,
+          member_count: this.state.organizationMemberships.filter((entry) =>
+            entry.organization_id === org.id && entry.status === 'active'
+          ).length,
+        };
+      }
+      const [limit] = bindings;
+      const rows = this.state.organizations
+        .map((org) => {
+          const creator = this.state.users.find((entry) => entry.id === org.created_by_user_id);
+          return {
+            ...deepClone(org),
+            created_by_email: creator?.email || null,
+            member_count: this.state.organizationMemberships.filter((entry) =>
+              entry.organization_id === org.id && entry.status === 'active'
+            ).length,
+          };
+        })
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+        .slice(0, Number(limit));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT om.id, om.organization_id, om.user_id, u.email, om.role, om.status, om.created_at, om.updated_at FROM organization_memberships om INNER JOIN users u ON u.id = om.user_id WHERE om.organization_id = ? ORDER BY')) {
+      const [organizationId] = bindings;
+      const rows = this.state.organizationMemberships
+        .filter((row) => row.organization_id === organizationId)
+        .map((row) => ({
+          ...deepClone(row),
+          email: this.state.users.find((user) => user.id === row.user_id)?.email || null,
+        }))
+        .sort((a, b) => {
+          const rank = { owner: 1, admin: 2, member: 3, viewer: 4 };
+          return (rank[a.role] || 9) - (rank[b.role] || 9)
+            || a.created_at.localeCompare(b.created_at)
+            || a.user_id.localeCompare(b.user_id);
+        })
+        .slice(0, 100);
+      return { results: rows };
     }
 
     if (query === 'SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users WHERE id = ? LIMIT 1') {

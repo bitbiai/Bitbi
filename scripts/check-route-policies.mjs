@@ -22,6 +22,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/admin-mfa.js",
   "workers/auth/src/routes/ai.js",
   "workers/auth/src/routes/favorites.js",
+  "workers/auth/src/routes/orgs.js",
 ];
 
 const REQUIRED_LOOKUPS = [
@@ -44,6 +45,13 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/admin/data-lifecycle/exports", "admin.data-lifecycle.exports.list"],
   ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
+  ["GET", "/api/orgs", "orgs.list"],
+  ["POST", "/api/orgs", "orgs.create"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef", "orgs.read"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/members", "orgs.members.list"],
+  ["POST", "/api/orgs/org_0123456789abcdef0123456789abcdef/members", "orgs.members.add"],
+  ["GET", "/api/admin/orgs", "admin.orgs.list"],
+  ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef", "admin.orgs.read"],
 ];
 
 function readRepoFile(relativePath) {

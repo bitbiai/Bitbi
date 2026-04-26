@@ -13,6 +13,7 @@ import { handleVerifyEmail, handleResendVerification, handleRequestReverificatio
 import { handleAdmin } from "./routes/admin.js";
 import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
+import { handleOrgs } from "./routes/orgs.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
@@ -203,6 +204,16 @@ export default {
     // Favorites
     if (pathname === "/api/favorites") {
       const result = await handleFavorites(ctx);
+      if (result) return result;
+    }
+
+    // Organizations / basic RBAC foundation
+    if (pathname === "/api/orgs") {
+      const result = await handleOrgs(ctx);
+      if (result) return result;
+    }
+    if (pathname.startsWith("/api/orgs/")) {
+      const result = await handleOrgs(ctx);
       if (result) return result;
     }
 

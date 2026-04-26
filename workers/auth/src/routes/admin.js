@@ -44,6 +44,7 @@ import {
 import { handleAdminAI } from "./admin-ai.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
+import { handleAdminOrgs } from "./admin-orgs.js";
 import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
@@ -161,6 +162,11 @@ export async function handleAdmin(ctx) {
   const dataLifecycleResult = await handleAdminDataLifecycle(ctx);
   if (dataLifecycleResult) {
     return dataLifecycleResult;
+  }
+
+  const adminOrgsResult = await handleAdminOrgs(ctx);
+  if (adminOrgsResult) {
+    return adminOrgsResult;
   }
 
   // GET /api/admin/me

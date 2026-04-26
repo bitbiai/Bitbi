@@ -1070,6 +1070,346 @@ test.describe('Phase 1-E auth route policy registry', () => {
       auth: 'admin',
       debugGate: 'ALLOW_SYNC_VIDEO_DEBUG=true',
     }));
+    expect(getRoutePolicy('POST', '/api/orgs')).toEqual(expect.objectContaining({
+      id: 'orgs.create',
+      auth: 'user',
+      csrf: 'same-origin-required',
+    }));
+    expect(getRoutePolicy('POST', '/api/orgs/org_0123456789abcdef0123456789abcdef/members')).toEqual(expect.objectContaining({
+      id: 'orgs.members.add',
+      auth: 'user',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/orgs')).toEqual(expect.objectContaining({
+      id: 'admin.orgs.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+  });
+});
+
+test.describe('Phase 2-A organization and basic RBAC foundation', () => {
+  test('authenticated user can create, list, and read an organization idempotently', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'org-owner-user', role: 'user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const sessionToken = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'Idempotency-Key': 'org-create-key-1',
+      'CF-Connecting-IP': '203.0.113.210',
+    };
+
+    const first = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Bitbi Studio' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    const firstBody = await first.json();
+    expect(first.status).toBe(201);
+    expect(firstBody.ok).toBe(true);
+    expect(firstBody.reused).toBe(false);
+    expect(firstBody.organization).toEqual(expect.objectContaining({
+      name: 'Bitbi Studio',
+      role: 'owner',
+      memberCount: 1,
+    }));
+    expect(firstBody.organization.id).toMatch(/^org_[a-f0-9]{32}$/);
+    expect(JSON.stringify(firstBody)).not.toContain('create_idempotency_key');
+
+    const second = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Bitbi Studio' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    const secondBody = await second.json();
+    expect(second.status).toBe(200);
+    expect(secondBody.reused).toBe(true);
+    expect(secondBody.organization.id).toBe(firstBody.organization.id);
+
+    const list = await worker.fetch(
+      authJsonRequest('/api/orgs', 'GET', undefined, {
+        Cookie: `bitbi_session=${sessionToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const listBody = await list.json();
+    expect(list.status).toBe(200);
+    expect(listBody.organizations).toHaveLength(1);
+    expect(listBody.organizations[0].id).toBe(firstBody.organization.id);
+
+    const detail = await worker.fetch(
+      authJsonRequest(`/api/orgs/${firstBody.organization.id}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${sessionToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const detailBody = await detail.json();
+    expect(detail.status).toBe(200);
+    expect(detailBody.organization).toEqual(expect.objectContaining({
+      id: firstBody.organization.id,
+      role: 'owner',
+    }));
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.some((call) =>
+      call.id.includes(`org-create-user:${user.id}`)
+    )).toBe(true);
+  });
+
+  test('organization create rejects foreign origins, idempotency conflicts, and unavailable limiter state', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'org-csrf-user', role: 'user' });
+    const env = createAuthTestEnv({ users: [user] });
+    const sessionToken = await seedSession(env, user.id);
+
+    const foreign = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Blocked Org' }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${sessionToken}`,
+        'Idempotency-Key': 'org-blocked-key',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreign.status).toBe(403);
+    expect(env.DB.state.organizations).toHaveLength(0);
+
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${sessionToken}`,
+      'Idempotency-Key': 'org-conflict-key',
+    };
+    const first = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Original Org' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(first.status).toBe(201);
+    const conflict = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Different Org' }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    const conflictBody = await conflict.json();
+    expect(conflict.status).toBe(409);
+    expect(conflictBody.code).toBe('idempotency_conflict');
+
+    const oversized = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'A'.repeat(40 * 1024) }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${sessionToken}`,
+        'Idempotency-Key': 'org-oversized-key',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const oversizedBody = await oversized.json();
+    expect(oversized.status).toBe(413);
+    expect(oversizedBody.error).not.toContain('A'.repeat(64));
+
+    const windowMs = 60 * 60_000;
+    const windowStartMs = Date.now() - (Date.now() % windowMs);
+    const limitedEnv = createAuthTestEnv({
+      users: [user],
+      publicRateLimitCounters: [{
+        scope: 'org-create-user',
+        limiter_key: user.id,
+        count: 10,
+        window_start_ms: windowStartMs,
+        expires_at: new Date(windowStartMs + windowMs).toISOString(),
+      }],
+    });
+    const limitedToken = await seedSession(limitedEnv, user.id);
+    const limited = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Limited Org' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${limitedToken}`,
+        'Idempotency-Key': 'org-limited-key',
+      }),
+      limitedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(limited.status).toBe(429);
+    expect(limitedEnv.DB.state.organizations).toHaveLength(0);
+
+    const failClosedEnv = createAuthTestEnv({
+      users: [user],
+      disablePublicRateLimiterBinding: true,
+    });
+    const failClosedToken = await seedSession(failClosedEnv, user.id);
+    const failClosed = await worker.fetch(
+      authJsonRequest('/api/orgs', 'POST', { name: 'Fail Closed Org' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${failClosedToken}`,
+        'Idempotency-Key': 'org-fail-closed',
+      }),
+      failClosedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(failClosed.status).toBe(503);
+    expect(failClosedEnv.DB.state.organizations).toHaveLength(0);
+  });
+
+  test('membership APIs enforce basic RBAC and organization ownership boundaries', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'org-owner-rbac', role: 'user' });
+    const member = createContractUser({ id: 'org-member-rbac', role: 'user' });
+    const outsider = createContractUser({ id: 'org-outsider-rbac', role: 'user' });
+    const orgId = 'org_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const env = createAuthTestEnv({
+      users: [owner, member, outsider],
+      organizations: [{
+        id: orgId,
+        name: 'Seed Org',
+        slug: 'seed-org',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+      organizationMemberships: [{
+        id: 'om_owner',
+        organization_id: orgId,
+        user_id: owner.id,
+        role: 'owner',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+    });
+    const ownerToken = await seedSession(env, owner.id);
+    const outsiderToken = await seedSession(env, outsider.id);
+
+    const add = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/members`, 'POST', { userId: member.id, role: 'viewer' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+        'Idempotency-Key': 'org-member-add-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const addBody = await add.json();
+    expect(add.status).toBe(201);
+    expect(addBody.membership).toEqual(expect.objectContaining({
+      organizationId: orgId,
+      userId: member.id,
+      email: member.email,
+      role: 'viewer',
+    }));
+    expect(JSON.stringify(addBody)).not.toContain('create_idempotency_key');
+
+    const outsiderDetail = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${outsiderToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(outsiderDetail.status).toBe(404);
+
+    const memberToken = await seedSession(env, member.id);
+    const forbiddenGrant = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/members`, 'POST', { userId: outsider.id, role: 'viewer' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+        'Idempotency-Key': 'org-member-add-forbidden',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(forbiddenGrant.status).toBe(403);
+  });
+
+  test('admin org inspection is admin-only, sanitized, and fail-closed on limiter outage', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('org-admin-user');
+    const member = createContractUser({ id: 'org-regular-user', role: 'user' });
+    const orgId = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const seed = {
+      users: [admin, member],
+      organizations: [{
+        id: orgId,
+        name: 'Admin Visible Org',
+        slug: 'admin-visible-org',
+        status: 'active',
+        created_by_user_id: member.id,
+        create_idempotency_key: 'hidden-key',
+        create_request_hash: 'hidden-hash',
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+      organizationMemberships: [{
+        id: 'om_admin_visible_owner',
+        organization_id: orgId,
+        user_id: member.id,
+        role: 'owner',
+        status: 'active',
+        created_by_user_id: member.id,
+        create_idempotency_key: 'hidden-key',
+        create_request_hash: 'hidden-hash',
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+    };
+    const env = createAuthTestEnv(seed);
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+
+    const nonAdmin = await worker.fetch(
+      authJsonRequest('/api/admin/orgs', 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdmin.status).toBe(403);
+
+    const list = await worker.fetch(
+      authJsonRequest('/api/admin/orgs', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const listBody = await list.json();
+    expect(list.status).toBe(200);
+    expect(listBody.organizations[0]).toEqual(expect.objectContaining({
+      id: orgId,
+      createdByEmail: member.email,
+      memberCount: 1,
+    }));
+    expect(JSON.stringify(listBody)).not.toContain('hidden-key');
+
+    const detail = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const detailBody = await detail.json();
+    expect(detail.status).toBe(200);
+    expect(detailBody.members).toHaveLength(1);
+    expect(JSON.stringify(detailBody)).not.toContain('create_idempotency_key');
+
+    const failClosedEnv = createAuthTestEnv({
+      ...seed,
+      disablePublicRateLimiterBinding: true,
+    });
+    const failClosedAdminToken = await seedSession(failClosedEnv, admin.id);
+    const failClosed = await worker.fetch(
+      authJsonRequest('/api/admin/orgs', 'GET', undefined, {
+        Cookie: `bitbi_session=${failClosedAdminToken}`,
+      }),
+      failClosedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(failClosed.status).toBe(503);
   });
 });
 

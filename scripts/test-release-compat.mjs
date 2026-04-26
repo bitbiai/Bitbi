@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0033_harden_data_export_archives.sql",
+        latest: "0034_add_organizations.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -364,11 +364,13 @@ const baseManifest = {
     ],
     delegatedExactPaths: [
       "/api/favorites",
+      "/api/orgs",
     ],
     delegatedPrefixes: [
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
+      "/api/orgs/",
     ],
     protectedMediaPrefixes: [
       "/api/thumbnails/",
@@ -462,6 +464,7 @@ const baseManifest = {
       "GET /api/admin/me",
       "GET /api/admin/users",
       "GET /api/admin/stats",
+      "GET /api/admin/orgs",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
@@ -478,6 +481,7 @@ const baseManifest = {
     ],
     patternRoutes: [
       "GET /api/admin/data-lifecycle/requests/:id",
+      "GET /api/admin/orgs/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -526,6 +530,7 @@ function createValidContext() {
           "0030_harden_ai_video_jobs_phase1b.sql",
           "0031_add_activity_search_index.sql",
           "0033_harden_data_export_archives.sql",
+          "0034_add_organizations.sql",
         ],
       },
     },
@@ -705,6 +710,8 @@ function createValidContext() {
       if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar();
       if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar();
       if (pathname === "/api/favorites") { return handleFavorites(); }
+      if (pathname === "/api/orgs") { return handleOrgs(); }
+      if (pathname.startsWith("/api/orgs/")) { return handleOrgs(); }
       if (pathname.startsWith("/api/admin/")) { return handleAdmin(); }
       if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword();
       if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset();
@@ -759,6 +766,7 @@ function createValidContext() {
       if (pathname === "/api/admin/me" && method === "GET") return handleAdminMe();
       if (pathname === "/api/admin/users" && method === "GET") return handleAdminUsers();
       if (pathname === "/api/admin/stats" && method === "GET") return handleAdminStats();
+      if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
@@ -780,6 +788,8 @@ function createValidContext() {
       if (dataLifecycleRequestExportMatch && method === "GET") return handleDataLifecycleRequestExport();
       const dataLifecycleArchiveMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/exports\\/([^/]+)$/);
       if (dataLifecycleArchiveMatch && method === "GET") return handleDataLifecycleArchive();
+      const adminOrgMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)$/);
+      if (adminOrgMatch && method === "GET") return handleAdminOrg();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();

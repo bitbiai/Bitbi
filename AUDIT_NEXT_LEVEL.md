@@ -6,19 +6,19 @@ Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
 
 Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
 
-## Current Remediation Status After Phase 1-J
+## Current Remediation Status After Phase 2-A
 
-This section is the current handoff checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 1-J.
+This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-A.
 
 Current repository state at checkpoint:
 
 - Branch: `main`
-- Latest commit observed: `a0e0b19 Phase 1-J Add export archive cleanup and safe`
-- Working tree: clean at the Phase 1-J checkpoint inspection; this handoff update modifies `AUDIT_NEXT_LEVEL.md`, `AUDIT_ACTION_PLAN.md`, and adds `PHASE1_COMPLETION_HANDOFF.md` plus `PHASE2A_ENTRYPOINT.md` until committed.
-- Latest auth D1 migration: `0033_harden_data_export_archives.sql`
+- Latest commit observed before Phase 2-A edits: `284349d Next Phase 2`
+- Working tree: Phase 2-A implementation modifies organization/RBAC code, migration, tests, release contracts, and documentation until committed.
+- Latest auth D1 migration: `0034_add_organizations.sql`
 - Latest AI Worker Durable Object migration: `v1-service-auth-replay`
-- Current aggregate validation from Phase 1-J: `npm run test:workers` PASS 313/313, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, `git diff --check` PASS.
-- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0033`, staging Worker verification, and staging data lifecycle cleanup/executor verification are complete.
+- Current aggregate validation during Phase 2-A: `npm run test:workers` PASS 317/317, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, `git diff --check` PASS.
+- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0034`, staging Worker verification, staging data lifecycle cleanup/executor verification, and staging organization-flow verification are complete.
 
 Completed remediation phases:
 
@@ -37,13 +37,14 @@ Completed remediation phases:
 | Phase 1-H | Completed | Data inventory, retention baseline, lifecycle request schema, admin planning APIs, dry-run export/delete plans. | Worker 309/309, static 155/155, release preflight passed. | Migration `0032`, legal/product policy, no irreversible deletion. | `PHASE1H_DATA_LIFECYCLE_REPORT.md` |
 | Phase 1-I | Completed | Bounded sanitized export archive generation, private `AUDIT_ARCHIVE` storage, archive authorization, deletion executor design. | Worker 311/311, static 155/155, release preflight passed. | Migration `0033`, archive generation/download staging verification. | `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` |
 | Phase 1-J | Completed | Bounded expired archive cleanup, scheduled cleanup integration, admin cleanup visibility, safe reversible-action executor pilot. | Worker 313/313, static 155/155, release preflight passed. | Live `AUDIT_ARCHIVE` cleanup verification and safe executor staging verification. | `PHASE1J_RETENTION_EXECUTOR_REPORT.md` |
+| Phase 2-A | Completed for current scope | Additive organizations/memberships schema, basic roles, org/RBAC helper, minimal user org APIs, admin org inspection, backfill plan, route-policy/release updates. | Worker 317/317, static 155/155, release preflight passed. | Migration `0034`, staging org-flow verification, and later domain-by-domain tenant migration. | `PHASE2A_ORG_RBAC_REPORT.md` |
 
 Current status estimate:
 
-- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J for the documented scope.
+- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J and Phase 2-A organization/RBAC foundation for the documented scope.
 - It is substantially safer and more operable than the original audit baseline, but it is not full enterprise SaaS maturity.
-- Organization/tenant/RBAC, billing/entitlements, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
-- The next implementation phase should start at Phase 2-A: Organization / Tenant / RBAC foundation. Use `PHASE1_COMPLETION_HANDOFF.md` and `PHASE2A_ENTRYPOINT.md` as the resume documents.
+- Existing assets remain user-owned; full tenant isolation, billing/entitlements, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
+- The next implementation phase should be chosen between domain-by-domain tenant ownership migration and billing/entitlements. Do not redo Phase 0/1/2-A foundations.
 
 ## Remediation Progress
 
@@ -63,6 +64,7 @@ Reference documents:
 - `PHASE1H_DATA_LIFECYCLE_REPORT.md` contains the Phase 1-H data lifecycle request schema, admin lifecycle APIs, export/deletion/anonymization planning behavior, validation evidence, deploy requirements, and remaining privacy-operation risks.
 - `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` contains the Phase 1-I bounded export archive generation, private R2 archive storage, archive authorization, deletion executor design, validation evidence, deploy requirements, and remaining privacy-operation risks.
 - `PHASE1J_RETENTION_EXECUTOR_REPORT.md` contains the Phase 1-J expired export archive cleanup, safe deletion/anonymization executor pilot, admin retention visibility, validation evidence, deploy requirements, and remaining privacy-operation risks.
+- `PHASE2A_ORG_RBAC_REPORT.md` contains the Phase 2-A organization/membership schema, RBAC helper, minimal user/admin org APIs, route-policy/release updates, backfill plan, validation evidence, and remaining tenant-isolation risks.
 - `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I/1-J data inventory and engineering retention-policy baseline.
 - `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I/1-J deletion/anonymization executor state model, approval gates, safe reversible-action pilot, disabled irreversible-action policy, rollback limitations, and future test plan.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
@@ -227,9 +229,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-J validation | Phase 1-J validation passed: `npm run test:workers` 313/313, `npm run test:static` 155/155, lifecycle/query/body/route/quality/operational checks, release compatibility checks, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-J files listed in `PHASE1J_RETENTION_EXECUTOR_REPORT.md` must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0033` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging. |
-| Current recommended next phase | Phase 1-J staging verification and privacy-policy decisions | Apply migrations through `0033` in staging, verify admin data lifecycle create/list/detail/plan/approve/generate-export/download/list-archives/cleanup-expired/execute-safe flows, confirm irreversible deletion remains disabled, then decide self-service privacy flow and destructive deletion policy only after product/legal approval. |
+| Merge readiness | Conditional pass after Phase 2-A validation | Phase 2-A validation passed: `npm run test:workers` 317/317, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 2-A files must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0034` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging, and Phase 2-A organization flows are verified in staging after migration `0034`. |
+| Current recommended next phase | Phase 2-B or tenant migration track | Choose either a small domain-by-domain tenant ownership migration or billing/entitlements design. Do not combine full tenant migration and billing into one broad rewrite. |
 
 ## Executive Summary
 

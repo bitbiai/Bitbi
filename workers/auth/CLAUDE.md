@@ -108,6 +108,11 @@ src/
 - `GET /api/favorites` — list saved favorites (requires auth)
 - `POST /api/favorites` — save a favorite item (requires auth)
 - `DELETE /api/favorites` — remove a favorite item (requires auth)
+- `GET /api/orgs` — list organizations for the authenticated user (requires membership)
+- `POST /api/orgs` — create an organization with owner membership (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter)
+- `GET /api/orgs/:id` — read organization detail for an active member
+- `GET /api/orgs/:id/members` — list active members for an active member
+- `POST /api/orgs/:id/members` — add a member as org owner/admin with basic role limits (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter)
 - `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
 - `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
@@ -119,6 +124,8 @@ src/
 - `POST /api/admin/users/:id/revoke-sessions` — revoke all sessions
 - `DELETE /api/admin/users/:id` — delete user
 - `GET /api/admin/stats` — aggregate admin dashboard stats
+- `GET /api/admin/orgs` — list organization metadata for admin inspection (requires admin/MFA in production, fail-closed limiter)
+- `GET /api/admin/orgs/:id` — inspect sanitized organization and member metadata (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/avatars/latest` — latest avatar uploads
 - `GET /api/admin/avatars/:userId` — serve a user's avatar
 - `GET /api/admin/activity?limit=&cursor=&search=` — signed-cursor-paginated audit log with hot-window action counts and indexed prefix search over normalized action/email/entity fields
@@ -164,7 +171,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -182,7 +189,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0033_harden_data_export_archives`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0034_add_organizations`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -203,6 +210,7 @@ Key migration-dependent behavior:
 - `0031_add_activity_search_index` — required before auth deploy if activity ingest writes and admin audit/user-activity indexed search must work immediately
 - `0032_add_data_lifecycle_requests` — required before auth deploy if admin data lifecycle export/deletion/anonymization request planning APIs must work immediately
 - `0033_harden_data_export_archives` — required before auth deploy if bounded private export archive generation/download APIs must work immediately
+- `0034_add_organizations` — required before auth deploy if Phase 2-A organization creation, membership, and admin organization inspection APIs must work immediately
 
 ## Conventions
 

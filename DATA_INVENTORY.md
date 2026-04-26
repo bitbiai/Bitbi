@@ -8,7 +8,7 @@ Scope: Phase 1-H / Phase 1-I / Phase 1-J engineering inventory for user/account/
 
 The product stores user account data, authentication state, wallet addresses, profile/avatar data, favorites, generated AI assets, admin/user activity, async video job metadata, poison-message diagnostics, and operational cleanup state in Cloudflare D1 and R2. The contact Worker sends contact form content through Resend; this repository does not currently define durable contact-message storage.
 
-Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
+Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. Phase 2-A adds organization and membership foundation tables but does not migrate existing user-owned assets into tenant ownership. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
 
 ## D1 Data Inventory
 
@@ -40,6 +40,8 @@ Phase 1-H adds request tracking tables for export/deletion/anonymization plannin
 | `data_lifecycle_requests` | `subject_user_id` | Medium/high | Request metadata yes | Retain as compliance/support evidence | Define legal retention | Added in migration `0032`. |
 | `data_lifecycle_request_items` | `request_id` | Medium/high | Yes to authorized admin/support | Retain with request | Define legal retention | Summaries must remain redacted and planning-only unless approved executor exists. |
 | `data_export_archives` | `subject_user_id` | High | Authorized admin download/reference only | Expire metadata and delete only approved `data-exports/` archive objects through bounded cleanup | 14 days for generated archives | Phase 1-I records private R2 archive metadata, SHA-256, size, manifest version, expiration, and status. Phase 1-J cleanup is prefix-scoped and does not touch audit archives or user media. |
+| `organizations` | `id`, `created_by_user_id` | Medium | Deferred; include org metadata only after export policy update | Retain/anonymize according to org ownership policy | Define after org lifecycle policy | Added in Phase 2-A as additive tenant/RBAC foundation. Existing user-owned records are not migrated to org ownership yet. |
+| `organization_memberships` | `organization_id`, `user_id` | Medium | Deferred; include user memberships only after export policy update | Remove/anonymize according to membership lifecycle policy | Define after org lifecycle policy | Added in Phase 2-A. Roles are `owner`, `admin`, `member`, `viewer`; no billing/entitlement data is stored here. |
 
 ## R2 Inventory
 
@@ -80,6 +82,7 @@ Excluded from destructive deletion until owner mapping is proven:
 - Planning is idempotent by request id and safe by default; no irreversible deletion executor is present.
 - Irreversible hard deletion of users, user media, AI asset rows, and audit records remains disabled.
 - User self-service export/delete endpoints are deferred; Phase 1-H/1-I provides admin/support APIs only.
+- Organization and membership export/delete behavior is not yet integrated into lifecycle plans; Phase 2-A only adds the schema and minimal APIs.
 
 ## Open Decisions
 
@@ -89,3 +92,4 @@ Excluded from destructive deletion until owner mapping is proven:
 - Whether historical R2 objects have complete owner-key coverage before destructive deletion execution.
 - Whether user self-service requests should require email confirmation, cooldowns, and delayed execution.
 - Whether deleted accounts should be anonymized in place, tombstoned, or recreated as separate compliance records.
+- How organization ownership, membership history, and future tenant-owned assets should be represented in export/deletion/anonymization plans.

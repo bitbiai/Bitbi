@@ -172,6 +172,21 @@ export const ROUTE_POLICIES = Object.freeze([
   safeRead("favorites.list", "GET", "/api/favorites", "favorites"),
   userJsonWrite("favorites.add", "POST", "/api/favorites", "favorites", "smallJson", "favorites-add-ip"),
   userJsonWrite("favorites.remove", "DELETE", "/api/favorites", "favorites", "smallJson", "favorites-remove-ip"),
+  safeRead("orgs.list", "GET", "/api/orgs", "organizations", {
+    rateLimit: { noneReason: "Read-only membership list scoped to the authenticated user." },
+  }),
+  userJsonWrite("orgs.create", "POST", "/api/orgs", "organizations", "smallJson", "org-create-user", {
+    audit: { event: "organization_created" },
+  }),
+  safeRead("orgs.read", "GET", "/api/orgs/:id", "organizations", {
+    rateLimit: { noneReason: "Read-only organization detail requires active membership." },
+  }),
+  safeRead("orgs.members.list", "GET", "/api/orgs/:id/members", "organizations", {
+    rateLimit: { noneReason: "Read-only member list requires active membership and is capped." },
+  }),
+  userJsonWrite("orgs.members.add", "POST", "/api/orgs/:id/members", "organizations", "smallJson", "org-member-write-user", {
+    audit: { event: "organization_member_added" },
+  }),
   policy({
     id: "password.forgot",
     method: "POST",
@@ -238,6 +253,14 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.users.sessions.revoke", "POST", "/api/admin/users/:id/revoke-sessions", "admin", null, "admin-action-ip", { audit: { event: "revoke_sessions" } }),
   adminJsonWrite("admin.users.delete", "DELETE", "/api/admin/users/:id", "admin", null, "admin-action-ip", { audit: { event: "delete_user" } }),
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
+  adminRead("admin.orgs.list", "/api/admin/orgs", "organizations", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-org-read-ip", failClosed: true },
+  }),
+  adminRead("admin.orgs.read", "/api/admin/orgs/:id", "organizations", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-org-read-ip", failClosed: true },
+  }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
   adminRead("admin.activity.read", "/api/admin/activity", "admin", {

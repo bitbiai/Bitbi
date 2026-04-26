@@ -1072,6 +1072,7 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     authAdminSource: [
       "workers/auth/src/routes/admin.js",
       "workers/auth/src/routes/admin-data-lifecycle.js",
+      "workers/auth/src/routes/admin-orgs.js",
     ].map((relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8")).join("\n"),
     authAdminMfaSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-mfa.js"),
