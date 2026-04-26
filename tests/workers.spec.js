@@ -93,6 +93,11 @@ async function loadRoutePolicyModule() {
   return import(modulePath);
 }
 
+async function loadBillingModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/billing.js')).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -1086,6 +1091,20 @@ test.describe('Phase 1-E auth route policy registry', () => {
       mfa: 'admin-production-required',
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('GET', '/api/orgs/org_0123456789abcdef0123456789abcdef/entitlements')).toEqual(expect.objectContaining({
+      id: 'orgs.entitlements.read',
+      auth: 'user',
+    }));
+    expect(getRoutePolicy('GET', '/api/orgs/org_0123456789abcdef0123456789abcdef/billing')).toEqual(expect.objectContaining({
+      id: 'orgs.billing.read',
+      auth: 'user',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/credits/grant')).toEqual(expect.objectContaining({
+      id: 'admin.orgs.credits.grant',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
   });
 });
 
@@ -1410,6 +1429,363 @@ test.describe('Phase 2-A organization and basic RBAC foundation', () => {
       createExecutionContext().execCtx
     );
     expect(failClosed.status).toBe(503);
+  });
+});
+
+test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', () => {
+  function seedOrgBillingState({ owner, member, outsider, orgId = 'org_cccccccccccccccccccccccccccccccc' }) {
+    return {
+      users: [owner, member, outsider].filter(Boolean),
+      organizations: [{
+        id: orgId,
+        name: 'Billing Org',
+        slug: 'billing-org',
+        status: 'active',
+        created_by_user_id: owner.id,
+        created_at: '2026-04-26T10:00:00.000Z',
+        updated_at: '2026-04-26T10:00:00.000Z',
+      }],
+      organizationMemberships: [
+        {
+          id: 'om_billing_owner',
+          organization_id: orgId,
+          user_id: owner.id,
+          role: 'owner',
+          status: 'active',
+          created_by_user_id: owner.id,
+          created_at: '2026-04-26T10:00:00.000Z',
+          updated_at: '2026-04-26T10:00:00.000Z',
+        },
+        member ? {
+          id: 'om_billing_member',
+          organization_id: orgId,
+          user_id: member.id,
+          role: 'member',
+          status: 'active',
+          created_by_user_id: owner.id,
+          created_at: '2026-04-26T10:01:00.000Z',
+          updated_at: '2026-04-26T10:01:00.000Z',
+        } : null,
+      ].filter(Boolean),
+    };
+  }
+
+  test('org entitlement and billing reads enforce membership and basic billing-reader roles', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'billing-owner', role: 'user' });
+    const member = createContractUser({ id: 'billing-member', role: 'user' });
+    const outsider = createContractUser({ id: 'billing-outsider', role: 'user' });
+    const orgId = 'org_cccccccccccccccccccccccccccccccc';
+    const env = createAuthTestEnv(seedOrgBillingState({ owner, member, outsider, orgId }));
+    const ownerToken = await seedSession(env, owner.id);
+    const memberToken = await seedSession(env, member.id);
+    const outsiderToken = await seedSession(env, outsider.id);
+
+    const memberEntitlements = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/entitlements`, 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const memberEntitlementsBody = await memberEntitlements.json();
+    expect(memberEntitlements.status).toBe(200);
+    expect(memberEntitlementsBody.plan).toEqual(expect.objectContaining({
+      code: 'free',
+      monthlyCreditGrant: 100,
+    }));
+    expect(memberEntitlementsBody.entitlements.some((entry) =>
+      entry.featureKey === 'ai.image.generate' && entry.enabled === true
+    )).toBe(true);
+    expect(JSON.stringify(memberEntitlementsBody)).not.toContain('provider_customer_ref');
+
+    const memberBilling = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(memberBilling.status).toBe(403);
+
+    const ownerBilling = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const ownerBillingBody = await ownerBilling.json();
+    expect(ownerBilling.status).toBe(200);
+    expect(ownerBillingBody.billing).toEqual(expect.objectContaining({
+      organizationId: orgId,
+      creditBalance: 0,
+      livePaymentProviderEnabled: false,
+    }));
+
+    const outsiderEntitlements = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/entitlements`, 'GET', undefined, {
+        Cookie: `bitbi_session=${outsiderToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(outsiderEntitlements.status).toBe(404);
+  });
+
+  test('admin billing inspection and credit grants are sanitized, idempotent, and fail closed', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('billing-platform-admin');
+    const nonAdmin = createContractUser({ id: 'billing-non-admin', role: 'user' });
+    const owner = createContractUser({ id: 'billing-admin-owner', role: 'user' });
+    const orgId = 'org_dddddddddddddddddddddddddddddddd';
+    const seed = seedOrgBillingState({ owner, member: nonAdmin, outsider: null, orgId });
+    const env = createAuthTestEnv({
+      ...seed,
+      users: [admin, nonAdmin, owner],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const plans = await worker.fetch(
+      authJsonRequest('/api/admin/billing/plans', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const plansBody = await plans.json();
+    expect(plans.status).toBe(200);
+    expect(plansBody.livePaymentProviderEnabled).toBe(false);
+    expect(plansBody.plans[0]).toEqual(expect.objectContaining({
+      code: 'free',
+    }));
+
+    const nonAdminGrant = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 25 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${nonAdminToken}`,
+        'Idempotency-Key': 'billing-grant-non-admin',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminGrant.status).toBe(403);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+
+    const grantHeaders = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${adminToken}`,
+      'Idempotency-Key': 'billing-grant-1',
+      'CF-Connecting-IP': '203.0.113.220',
+    };
+    const grant = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 25, reason: 'review credit' }, grantHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    const grantBody = await grant.json();
+    expect(grant.status).toBe(201);
+    expect(grantBody.reused).toBe(false);
+    expect(grantBody.creditBalance).toBe(25);
+    expect(grantBody.ledgerEntry).toEqual(expect.objectContaining({
+      amount: 25,
+      balanceAfter: 25,
+      entryType: 'grant',
+    }));
+    expect(JSON.stringify(grantBody)).not.toContain('idempotency_key');
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+
+    const repeated = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 25, reason: 'review credit' }, grantHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    const repeatedBody = await repeated.json();
+    expect(repeated.status).toBe(200);
+    expect(repeatedBody.reused).toBe(true);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+
+    const conflict = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 30, reason: 'review credit' }, grantHeaders),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+
+    const billing = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const billingBody = await billing.json();
+    expect(billing.status).toBe(200);
+    expect(billingBody.billing.creditBalance).toBe(25);
+    expect(JSON.stringify(billingBody)).not.toContain('provider_customer_ref');
+
+    const foreignEnv = createAuthTestEnv({
+      ...seed,
+      users: [admin, owner],
+    });
+    const foreignAdminToken = await seedSession(foreignEnv, admin.id);
+    const foreign = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 10 }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${foreignAdminToken}`,
+        'Idempotency-Key': 'billing-foreign-1',
+      }),
+      foreignEnv,
+      createExecutionContext().execCtx
+    );
+    expect(foreign.status).toBe(403);
+    expect(foreignEnv.DB.state.creditLedger).toHaveLength(0);
+
+    const oversized = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { reason: 'A'.repeat(40 * 1024), amount: 10 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'billing-oversized-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(oversized.status).toBe(413);
+
+    const windowMs = 15 * 60_000;
+    const windowStartMs = Date.now() - (Date.now() % windowMs);
+    const limitedEnv = createAuthTestEnv({
+      ...seed,
+      users: [admin, owner],
+      publicRateLimitCounters: [{
+        scope: 'admin-billing-write-ip',
+        limiter_key: '203.0.113.221',
+        count: 30,
+        window_start_ms: windowStartMs,
+        expires_at: new Date(windowStartMs + windowMs).toISOString(),
+      }],
+    });
+    const limitedAdminToken = await seedSession(limitedEnv, admin.id);
+    const limited = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 10 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${limitedAdminToken}`,
+        'Idempotency-Key': 'billing-limited-1',
+        'CF-Connecting-IP': '203.0.113.221',
+      }),
+      limitedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(limited.status).toBe(429);
+    expect(limitedEnv.DB.state.creditLedger).toHaveLength(0);
+
+    const failClosedEnv = createAuthTestEnv({
+      ...seed,
+      users: [admin, owner],
+      disablePublicRateLimiterBinding: true,
+    });
+    const failClosedAdminToken = await seedSession(failClosedEnv, admin.id);
+    const failClosed = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 10 }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${failClosedAdminToken}`,
+        'Idempotency-Key': 'billing-fail-closed-1',
+      }),
+      failClosedEnv,
+      createExecutionContext().execCtx
+    );
+    expect(failClosed.status).toBe(503);
+    expect(failClosedEnv.DB.state.creditLedger).toHaveLength(0);
+  });
+
+  test('credit consumption helper is idempotent and prevents negative balances', async () => {
+    const {
+      assertOrganizationHasCredits,
+      consumeOrganizationCredits,
+      grantOrganizationCredits,
+    } = await loadBillingModule();
+    const owner = createContractUser({ id: 'billing-helper-owner', role: 'user' });
+    const orgId = 'org_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const env = createAuthTestEnv(seedOrgBillingState({ owner, member: null, outsider: null, orgId }));
+
+    await expect(assertOrganizationHasCredits(env, {
+      organizationId: orgId,
+      credits: 1,
+    })).rejects.toMatchObject({ code: 'insufficient_credits' });
+
+    const grant = await grantOrganizationCredits({
+      env,
+      organizationId: orgId,
+      amount: 5,
+      createdByUserId: owner.id,
+      idempotencyKey: 'helper-grant-1',
+    });
+    expect(grant.creditBalance).toBe(5);
+
+    const consume = await consumeOrganizationCredits({
+      env,
+      organizationId: orgId,
+      userId: owner.id,
+      featureKey: 'ai.image.generate',
+      quantity: 1,
+      credits: 3,
+      idempotencyKey: 'helper-consume-1',
+    });
+    expect(consume.reused).toBe(false);
+    expect(consume.creditBalance).toBe(2);
+    expect(consume.usageEvent).toEqual(expect.objectContaining({
+      featureKey: 'ai.image.generate',
+      creditsDelta: -3,
+    }));
+
+    const repeat = await consumeOrganizationCredits({
+      env,
+      organizationId: orgId,
+      userId: owner.id,
+      featureKey: 'ai.image.generate',
+      quantity: 1,
+      credits: 3,
+      idempotencyKey: 'helper-consume-1',
+    });
+    expect(repeat.reused).toBe(true);
+    expect(repeat.creditBalance).toBe(2);
+    expect(env.DB.state.usageEvents).toHaveLength(1);
+
+    await expect(consumeOrganizationCredits({
+      env,
+      organizationId: orgId,
+      userId: owner.id,
+      featureKey: 'ai.image.generate',
+      quantity: 1,
+      credits: 4,
+      idempotencyKey: 'helper-consume-2',
+    })).rejects.toMatchObject({ code: 'insufficient_credits' });
+    expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(2);
+    expect(env.DB.state.creditLedger.every((row) => row.balance_after >= 0)).toBe(true);
+
+    const disabledEnv = createAuthTestEnv({
+      ...seedOrgBillingState({ owner, member: null, outsider: null, orgId }),
+      entitlements: [
+        { id: 'ent_disabled_image', plan_id: 'plan_free', feature_key: 'ai.image.generate', enabled: 0, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: nowIso(), updated_at: nowIso() },
+      ],
+    });
+    await grantOrganizationCredits({
+      env: disabledEnv,
+      organizationId: orgId,
+      amount: 5,
+      createdByUserId: owner.id,
+      idempotencyKey: 'helper-disabled-grant-1',
+    });
+    await expect(consumeOrganizationCredits({
+      env: disabledEnv,
+      organizationId: orgId,
+      userId: owner.id,
+      featureKey: 'ai.image.generate',
+      quantity: 1,
+      credits: 1,
+      idempotencyKey: 'helper-disabled-consume-1',
+    })).rejects.toMatchObject({ code: 'feature_not_entitled' });
   });
 });
 

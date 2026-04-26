@@ -187,6 +187,15 @@ export const ROUTE_POLICIES = Object.freeze([
   userJsonWrite("orgs.members.add", "POST", "/api/orgs/:id/members", "organizations", "smallJson", "org-member-write-user", {
     audit: { event: "organization_member_added" },
   }),
+  safeRead("orgs.entitlements.read", "GET", "/api/orgs/:id/entitlements", "billing", {
+    rateLimit: { noneReason: "Read-only entitlement summary requires active organization membership." },
+  }),
+  safeRead("orgs.billing.read", "GET", "/api/orgs/:id/billing", "billing", {
+    rateLimit: { noneReason: "Read-only billing summary requires organization admin/owner membership." },
+  }),
+  safeRead("orgs.usage.read", "GET", "/api/orgs/:id/usage", "billing", {
+    rateLimit: { noneReason: "Read-only usage summary requires organization admin/owner membership and is capped." },
+  }),
   policy({
     id: "password.forgot",
     method: "POST",
@@ -260,6 +269,18 @@ export const ROUTE_POLICIES = Object.freeze([
   adminRead("admin.orgs.read", "/api/admin/orgs/:id", "organizations", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-org-read-ip", failClosed: true },
+  }),
+  adminRead("admin.billing.plans.list", "/api/admin/billing/plans", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+  }),
+  adminRead("admin.orgs.billing.read", "/api/admin/orgs/:id/billing", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.orgs.credits.grant", "POST", "/api/admin/orgs/:id/credits/grant", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "organization_credit_granted" },
   }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),

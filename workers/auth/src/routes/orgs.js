@@ -7,6 +7,14 @@ import {
 import { enforceSensitiveUserRateLimit } from "../lib/sensitive-write-limit.js";
 import { logUserActivity } from "../lib/activity.js";
 import {
+  BillingError,
+  billingErrorResponse,
+  getOrganizationBillingState,
+  listOrganizationUsage,
+  requireBillingReader,
+  resolveEffectiveEntitlements,
+} from "../lib/billing.js";
+import {
   OrgRbacError,
   addOrganizationMember,
   createOrganization,
@@ -37,6 +45,9 @@ function idempotencyKeyOrResponse(request) {
 function orgErrorResponse(error) {
   if (error instanceof OrgRbacError) {
     return json(orgRbacErrorResponse(error), { status: error.status });
+  }
+  if (error instanceof BillingError) {
+    return json(billingErrorResponse(error), { status: error.status });
   }
   throw error;
 }
@@ -174,6 +185,56 @@ export async function handleOrgs(ctx) {
   // route-policy: orgs.members.add
   if (memberMatch && method === "POST") {
     return handleAddOrganizationMember(ctx, session, memberMatch[1]);
+  }
+
+  const entitlementMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/entitlements$/);
+  if (entitlementMatch && method === "GET") {
+    try {
+      await getOrganizationForUser(env, {
+        organizationId: entitlementMatch[1],
+        userId: session.user.id,
+      });
+      const entitlements = await resolveEffectiveEntitlements(env, {
+        organizationId: entitlementMatch[1],
+      });
+      return json({ ok: true, ...entitlements });
+    } catch (error) {
+      return orgErrorResponse(error);
+    }
+  }
+
+  const billingMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing$/);
+  if (billingMatch && method === "GET") {
+    try {
+      await requireBillingReader(env, {
+        organizationId: billingMatch[1],
+        userId: session.user.id,
+      });
+      const billing = await getOrganizationBillingState(env, {
+        organizationId: billingMatch[1],
+      });
+      return json({ ok: true, billing });
+    } catch (error) {
+      return orgErrorResponse(error);
+    }
+  }
+
+  const usageMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/usage$/);
+  if (usageMatch && method === "GET") {
+    try {
+      await requireBillingReader(env, {
+        organizationId: usageMatch[1],
+        userId: session.user.id,
+      });
+      const usage = await listOrganizationUsage(env, {
+        organizationId: usageMatch[1],
+        userId: session.user.id,
+        limit: url.searchParams.get("limit"),
+      });
+      return json({ ok: true, usage });
+    } catch (error) {
+      return orgErrorResponse(error);
+    }
   }
 
   const orgMatch = pathname.match(/^\/api\/orgs\/([^/]+)$/);

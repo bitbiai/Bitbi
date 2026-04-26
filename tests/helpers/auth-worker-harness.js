@@ -46,6 +46,25 @@ function normalizeAiImageRow(row = {}) {
   };
 }
 
+function latestCreditLedgerEntry(rows, organizationId) {
+  let latest = null;
+  let latestIndex = -1;
+  for (const [index, row] of (rows || []).entries()) {
+    if (row.organization_id !== organizationId) continue;
+    if (!latest) {
+      latest = row;
+      latestIndex = index;
+      continue;
+    }
+    const createdCompare = String(row.created_at || "").localeCompare(String(latest.created_at || ""));
+    if (createdCompare > 0 || (createdCompare === 0 && index > latestIndex)) {
+      latest = row;
+      latestIndex = index;
+    }
+  }
+  return latest;
+}
+
 function listAiImageKeys(row) {
   return Array.from(new Set([row?.r2_key, row?.thumb_key, row?.medium_key].filter(Boolean)));
 }
@@ -460,6 +479,30 @@ class MockD1 {
       dataExportArchives: [],
       organizations: [],
       organizationMemberships: [],
+      plans: [{
+        id: 'plan_free',
+        code: 'free',
+        name: 'Free',
+        status: 'active',
+        billing_interval: 'none',
+        monthly_credit_grant: 100,
+        metadata_json: '{}',
+        created_at: '2026-04-26T00:00:00.000Z',
+        updated_at: '2026-04-26T00:00:00.000Z',
+      }],
+      organizationSubscriptions: [],
+      entitlements: [
+        { id: 'ent_free_ai_text_generate', plan_id: 'plan_free', feature_key: 'ai.text.generate', enabled: 1, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_ai_image_generate', plan_id: 'plan_free', feature_key: 'ai.image.generate', enabled: 1, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_ai_video_generate', plan_id: 'plan_free', feature_key: 'ai.video.generate', enabled: 1, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_ai_storage_private', plan_id: 'plan_free', feature_key: 'ai.storage.private', enabled: 1, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_org_members_max', plan_id: 'plan_free', feature_key: 'org.members.max', enabled: 1, value_kind: 'number', value_numeric: 5, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_credits_monthly', plan_id: 'plan_free', feature_key: 'credits.monthly', enabled: 1, value_kind: 'number', value_numeric: 100, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_credits_balance_max', plan_id: 'plan_free', feature_key: 'credits.balance.max', enabled: 1, value_kind: 'number', value_numeric: 1000, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+      ],
+      billingCustomers: [],
+      creditLedger: [],
+      usageEvents: [],
       ...deepClone(seed),
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
@@ -545,6 +588,21 @@ class MockD1 {
     }
     if (this.missingTables.has('organization_memberships') && query.includes('organization_memberships')) {
       throw new Error('no such table: organization_memberships');
+    }
+    if (this.missingTables.has('plans') && query.includes('plans')) {
+      throw new Error('no such table: plans');
+    }
+    if (this.missingTables.has('organization_subscriptions') && query.includes('organization_subscriptions')) {
+      throw new Error('no such table: organization_subscriptions');
+    }
+    if (this.missingTables.has('entitlements') && query.includes('entitlements')) {
+      throw new Error('no such table: entitlements');
+    }
+    if (this.missingTables.has('credit_ledger') && query.includes('credit_ledger')) {
+      throw new Error('no such table: credit_ledger');
+    }
+    if (this.missingTables.has('usage_events') && query.includes('usage_events')) {
+      throw new Error('no such table: usage_events');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -961,6 +1019,14 @@ class MockD1 {
       return row ? { id: row.id } : null;
     }
 
+    if (query === "SELECT id FROM organizations WHERE id = ? AND status = 'active' LIMIT 1") {
+      const [organizationId] = bindings;
+      const row = this.state.organizations.find((entry) =>
+        entry.id === organizationId && entry.status === 'active'
+      );
+      return row ? { id: row.id } : null;
+    }
+
     if (query.startsWith('SELECT id, name, slug, status, created_by_user_id, create_request_hash, created_at, updated_at FROM organizations WHERE created_by_user_id = ? AND create_idempotency_key = ?')) {
       const [userId, key] = bindings;
       return deepClone(this.state.organizations.find((row) =>
@@ -1178,6 +1244,226 @@ class MockD1 {
         })
         .slice(0, 100);
       return { results: rows };
+    }
+
+    if (query === "SELECT id, code, name, status, billing_interval, monthly_credit_grant, created_at, updated_at FROM plans WHERE code = ? AND status = 'active' LIMIT 1") {
+      const [code] = bindings;
+      return deepClone(this.state.plans.find((row) => row.code === code && row.status === 'active') || null);
+    }
+
+    if (query.startsWith('SELECT id, organization_id, plan_id, status, source, provider, current_period_start, current_period_end, cancel_at, created_at, updated_at FROM organization_subscriptions WHERE organization_id = ?')) {
+      const [organizationId] = bindings;
+      return deepClone(this.state.organizationSubscriptions
+        .filter((row) => row.organization_id === organizationId && row.status === 'active')
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0] || null);
+    }
+
+    if (query === 'SELECT id, code, name, status, billing_interval, monthly_credit_grant, created_at, updated_at FROM plans WHERE id = ? LIMIT 1') {
+      const [planId] = bindings;
+      return deepClone(this.state.plans.find((row) => row.id === planId) || null);
+    }
+
+    if (query.startsWith('SELECT id, plan_id, feature_key, enabled, value_kind, value_numeric, value_text, created_at, updated_at FROM entitlements WHERE plan_id = ?')) {
+      const [planId] = bindings;
+      return {
+        results: deepClone(this.state.entitlements
+          .filter((row) => row.plan_id === planId)
+          .sort((a, b) => a.feature_key.localeCompare(b.feature_key))),
+      };
+    }
+
+    if (query.startsWith('SELECT balance_after FROM credit_ledger WHERE organization_id = ?')) {
+      const [organizationId] = bindings;
+      const latest = latestCreditLedgerEntry(this.state.creditLedger, organizationId);
+      return latest ? { balance_after: latest.balance_after } : null;
+    }
+
+    if (query.startsWith('SELECT id, organization_id, amount, balance_after, entry_type, feature_key, source, request_hash, created_by_user_id, created_at FROM credit_ledger WHERE organization_id = ? AND idempotency_key = ?')) {
+      const [organizationId, idempotencyKey] = bindings;
+      return deepClone(this.state.creditLedger.find((row) =>
+        row.organization_id === organizationId && row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, request_hash, status, created_at FROM usage_events WHERE organization_id = ? AND idempotency_key = ?')) {
+      const [organizationId, idempotencyKey] = bindings;
+      return deepClone(this.state.usageEvents.find((row) =>
+        row.organization_id === organizationId && row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) VALUES')) {
+      const [
+        id,
+        organizationId,
+        amount,
+        balanceAfter,
+        entryType,
+        featureKey,
+        source,
+        idempotencyKey,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        metadataJson,
+      ] = bindings;
+      if (this.state.creditLedger.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: credit_ledger');
+      }
+      this.state.creditLedger.push({
+        id,
+        organization_id: organizationId,
+        amount,
+        balance_after: balanceAfter,
+        entry_type: entryType,
+        feature_key: featureKey,
+        source,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')) {
+      const [
+        id,
+        organizationId,
+        amount,
+        creditAmount,
+        entryType,
+        featureKey,
+        source,
+        idempotencyKey,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        metadataJson,
+        lookupOrganizationId,
+        requiredCredits,
+      ] = bindings;
+      const latest = latestCreditLedgerEntry(this.state.creditLedger, lookupOrganizationId);
+      const currentBalance = Number(latest?.balance_after || 0);
+      if (currentBalance < Number(requiredCredits)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      if (this.state.creditLedger.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: credit_ledger');
+      }
+      this.state.creditLedger.push({
+        id,
+        organization_id: organizationId,
+        amount,
+        balance_after: currentBalance - Number(creditAmount),
+        entry_type: entryType,
+        feature_key: featureKey,
+        source,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO usage_events ( id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json ) VALUES')) {
+      const [
+        id,
+        organizationId,
+        userId,
+        featureKey,
+        quantity,
+        creditsDelta,
+        creditLedgerId,
+        idempotencyKey,
+        requestHash,
+        status,
+        createdAt,
+        metadataJson,
+      ] = bindings;
+      if (this.state.usageEvents.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: usage_events');
+      }
+      this.state.usageEvents.push({
+        id,
+        organization_id: organizationId,
+        user_id: userId,
+        feature_key: featureKey,
+        quantity,
+        credits_delta: creditsDelta,
+        credit_ledger_id: creditLedgerId,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        status,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO usage_events ( id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json ) SELECT')) {
+      const [
+        id,
+        organizationId,
+        userId,
+        featureKey,
+        quantity,
+        creditsDelta,
+        creditLedgerId,
+        idempotencyKey,
+        requestHash,
+        status,
+        createdAt,
+        metadataJson,
+        lookupCreditLedgerId,
+      ] = bindings;
+      if (!this.state.creditLedger.some((row) => row.id === lookupCreditLedgerId)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      if (this.state.usageEvents.some((row) =>
+        row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: usage_events');
+      }
+      this.state.usageEvents.push({
+        id,
+        organization_id: organizationId,
+        user_id: userId,
+        feature_key: featureKey,
+        quantity,
+        credits_delta: creditsDelta,
+        credit_ledger_id: creditLedgerId,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        status,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, status, created_at FROM usage_events WHERE organization_id = ?')) {
+      const [organizationId, limit] = bindings;
+      const rows = this.state.usageEvents
+        .filter((row) => row.organization_id === organizationId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+        .slice(0, Number(limit));
+      return { results: deepClone(rows) };
+    }
+
+    if (query === 'SELECT id, code, name, status, billing_interval, monthly_credit_grant, created_at, updated_at FROM plans ORDER BY code ASC') {
+      return {
+        results: deepClone(this.state.plans.sort((a, b) => a.code.localeCompare(b.code))),
+      };
     }
 
     if (query === 'SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users WHERE id = ? LIMIT 1') {

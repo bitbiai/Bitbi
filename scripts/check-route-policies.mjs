@@ -17,6 +17,7 @@ const METHOD_COMPARISON = /\bmethod\s*===\s*["'](POST|PUT|PATCH|DELETE)["']/;
 const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
   "workers/auth/src/routes/admin.js",
+  "workers/auth/src/routes/admin-billing.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
   "workers/auth/src/routes/admin-ai.js",
   "workers/auth/src/routes/admin-mfa.js",
@@ -50,8 +51,14 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef", "orgs.read"],
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/members", "orgs.members.list"],
   ["POST", "/api/orgs/org_0123456789abcdef0123456789abcdef/members", "orgs.members.add"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/entitlements", "orgs.entitlements.read"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/billing", "orgs.billing.read"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/usage", "orgs.usage.read"],
   ["GET", "/api/admin/orgs", "admin.orgs.list"],
   ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef", "admin.orgs.read"],
+  ["GET", "/api/admin/billing/plans", "admin.billing.plans.list"],
+  ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/billing", "admin.orgs.billing.read"],
+  ["POST", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef/credits/grant", "admin.orgs.credits.grant"],
 ];
 
 function readRepoFile(relativePath) {

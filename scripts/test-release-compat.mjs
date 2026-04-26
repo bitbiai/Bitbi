@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0034_add_organizations.sql",
+        latest: "0035_add_billing_entitlements.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -465,6 +465,7 @@ const baseManifest = {
       "GET /api/admin/users",
       "GET /api/admin/stats",
       "GET /api/admin/orgs",
+      "GET /api/admin/billing/plans",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
@@ -482,6 +483,8 @@ const baseManifest = {
     patternRoutes: [
       "GET /api/admin/data-lifecycle/requests/:id",
       "GET /api/admin/orgs/:id",
+      "GET /api/admin/orgs/:id/billing",
+      "POST /api/admin/orgs/:id/credits/grant",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
       "POST /api/admin/data-lifecycle/requests/:id/generate-export",
@@ -531,6 +534,7 @@ function createValidContext() {
           "0031_add_activity_search_index.sql",
           "0033_harden_data_export_archives.sql",
           "0034_add_organizations.sql",
+          "0035_add_billing_entitlements.sql",
         ],
       },
     },
@@ -767,6 +771,7 @@ function createValidContext() {
       if (pathname === "/api/admin/users" && method === "GET") return handleAdminUsers();
       if (pathname === "/api/admin/stats" && method === "GET") return handleAdminStats();
       if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
+      if (pathname === "/api/admin/billing/plans" && method === "GET") return handleAdminBillingPlans();
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
@@ -790,6 +795,10 @@ function createValidContext() {
       if (dataLifecycleArchiveMatch && method === "GET") return handleDataLifecycleArchive();
       const adminOrgMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)$/);
       if (adminOrgMatch && method === "GET") return handleAdminOrg();
+      const adminOrgBillingMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/billing$/);
+      if (adminOrgBillingMatch && method === "GET") return handleAdminOrgBilling();
+      const adminOrgCreditGrantMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/credits\\/grant$/);
+      if (adminOrgCreditGrantMatch && method === "POST") return handleAdminOrgCreditGrant();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();

@@ -1071,6 +1071,7 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     authAiSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/routes/ai.js"), "utf8"),
     authAdminSource: [
       "workers/auth/src/routes/admin.js",
+      "workers/auth/src/routes/admin-billing.js",
       "workers/auth/src/routes/admin-data-lifecycle.js",
       "workers/auth/src/routes/admin-orgs.js",
     ].map((relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8")).join("\n"),

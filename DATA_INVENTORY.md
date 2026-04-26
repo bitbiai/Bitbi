@@ -8,7 +8,7 @@ Scope: Phase 1-H / Phase 1-I / Phase 1-J engineering inventory for user/account/
 
 The product stores user account data, authentication state, wallet addresses, profile/avatar data, favorites, generated AI assets, admin/user activity, async video job metadata, poison-message diagnostics, and operational cleanup state in Cloudflare D1 and R2. The contact Worker sends contact form content through Resend; this repository does not currently define durable contact-message storage.
 
-Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. Phase 2-A adds organization and membership foundation tables but does not migrate existing user-owned assets into tenant ownership. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
+Phase 1-H adds request tracking tables for export/deletion/anonymization planning. Phase 1-I adds bounded JSON export archive generation into private R2 for approved export plans. Phase 1-J adds bounded cleanup for expired export archive objects and a safe executor pilot for reversible auth-state cleanup. Phase 2-A adds organization and membership foundation tables but does not migrate existing user-owned assets into tenant ownership. Phase 2-B adds billing/plan/entitlement/credit ledger foundation tables without enabling a live payment provider. The current lifecycle system does not execute irreversible deletion by default and does not inline binary R2 media into exports.
 
 ## D1 Data Inventory
 
@@ -42,6 +42,12 @@ Phase 1-H adds request tracking tables for export/deletion/anonymization plannin
 | `data_export_archives` | `subject_user_id` | High | Authorized admin download/reference only | Expire metadata and delete only approved `data-exports/` archive objects through bounded cleanup | 14 days for generated archives | Phase 1-I records private R2 archive metadata, SHA-256, size, manifest version, expiration, and status. Phase 1-J cleanup is prefix-scoped and does not touch audit archives or user media. |
 | `organizations` | `id`, `created_by_user_id` | Medium | Deferred; include org metadata only after export policy update | Retain/anonymize according to org ownership policy | Define after org lifecycle policy | Added in Phase 2-A as additive tenant/RBAC foundation. Existing user-owned records are not migrated to org ownership yet. |
 | `organization_memberships` | `organization_id`, `user_id` | Medium | Deferred; include user memberships only after export policy update | Remove/anonymize according to membership lifecycle policy | Define after org lifecycle policy | Added in Phase 2-A. Roles are `owner`, `admin`, `member`, `viewer`; no billing/entitlement data is stored here. |
+| `plans` | plan id/code | None/low | No user export by default | Retain while referenced by subscriptions/ledger | Product/billing policy | Added in Phase 2-B. Contains plan metadata only; no prices or live provider data. |
+| `organization_subscriptions` | `organization_id` | Medium | Deferred; include only after org/billing export policy update | Retain/anonymize according to org billing policy | Define after billing policy | Phase 2-B placeholder for future paid plans; no live provider integration is enabled. |
+| `entitlements` | `plan_id`, feature key | None/low | No user export by default | Retain with plan | Product/billing policy | Phase 2-B feature limits/flags for future enforcement. |
+| `billing_customers` | `organization_id`, provider reference | Medium | No user export by default until provider policy is defined | Retain/anonymize according to billing/legal policy | Define before payment provider integration | Placeholder mapping table only; must not contain payment secrets. |
+| `credit_ledger` | `organization_id`, `created_by_user_id` | Medium | Deferred; summarize only after billing export policy update | Retain for auditability; anonymize actor fields only with approved policy | Billing/audit retention required | Phase 2-B records credit grants/consumption and running balances. |
+| `usage_events` | `organization_id`, `user_id` | Medium | Deferred; summarize only after billing export policy update | Retain/anonymize according to usage/billing policy | Billing/cost retention required | Phase 2-B records idempotent feature usage events; no raw prompts or request bodies. |
 
 ## R2 Inventory
 
@@ -82,7 +88,7 @@ Excluded from destructive deletion until owner mapping is proven:
 - Planning is idempotent by request id and safe by default; no irreversible deletion executor is present.
 - Irreversible hard deletion of users, user media, AI asset rows, and audit records remains disabled.
 - User self-service export/delete endpoints are deferred; Phase 1-H/1-I provides admin/support APIs only.
-- Organization and membership export/delete behavior is not yet integrated into lifecycle plans; Phase 2-A only adds the schema and minimal APIs.
+- Organization, membership, billing, entitlement, credit ledger, and usage-event export/delete behavior is not yet integrated into lifecycle plans; Phase 2-A/2-B only add schema, helpers, and minimal APIs.
 
 ## Open Decisions
 
@@ -93,3 +99,4 @@ Excluded from destructive deletion until owner mapping is proven:
 - Whether user self-service requests should require email confirmation, cooldowns, and delayed execution.
 - Whether deleted accounts should be anonymized in place, tombstoned, or recreated as separate compliance records.
 - How organization ownership, membership history, and future tenant-owned assets should be represented in export/deletion/anonymization plans.
+- How organization billing history, provider customer mappings, credit ledger entries, and usage events should be represented in export/deletion/anonymization plans before a live payment provider is added.

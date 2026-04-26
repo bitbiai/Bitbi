@@ -42,6 +42,7 @@ import {
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { handleAdminAI } from "./admin-ai.js";
+import { handleAdminBilling } from "./admin-billing.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
 import { handleAdminOrgs } from "./admin-orgs.js";
@@ -162,6 +163,11 @@ export async function handleAdmin(ctx) {
   const dataLifecycleResult = await handleAdminDataLifecycle(ctx);
   if (dataLifecycleResult) {
     return dataLifecycleResult;
+  }
+
+  const adminBillingResult = await handleAdminBilling(ctx);
+  if (adminBillingResult) {
+    return adminBillingResult;
   }
 
   const adminOrgsResult = await handleAdminOrgs(ctx);

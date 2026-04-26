@@ -6,19 +6,19 @@ Scope: repository-wide audit of `/Users/btc2020/Bitbi/Bitbi`.
 
 Constraint honored: no application code was changed. This report is based on local repository inspection and safe validation commands only.
 
-## Current Remediation Status After Phase 2-A
+## Current Remediation Status After Phase 2-B
 
-This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-A.
+This section is the current implementation checkpoint. The original audit findings, risk ratings, score estimates, and command output below remain a historical pre-remediation baseline from 2026-04-24. They are intentionally preserved and must not be read as the current state after Phase 0-A through Phase 2-B.
 
 Current repository state at checkpoint:
 
 - Branch: `main`
-- Latest commit observed before Phase 2-A edits: `284349d Next Phase 2`
-- Working tree: Phase 2-A implementation modifies organization/RBAC code, migration, tests, release contracts, and documentation until committed.
-- Latest auth D1 migration: `0034_add_organizations.sql`
+- Latest commit observed before Phase 2-B edits: `ea8759a Phase 2-A`
+- Working tree: Phase 2-B implementation modifies billing/entitlement code, migration, tests, release contracts, and documentation until committed.
+- Latest auth D1 migration: `0035_add_billing_entitlements.sql`
 - Latest AI Worker Durable Object migration: `v1-service-auth-replay`
-- Current aggregate validation during Phase 2-A: `npm run test:workers` PASS 317/317, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, `git diff --check` PASS.
-- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0034`, staging Worker verification, staging data lifecycle cleanup/executor verification, and staging organization-flow verification are complete.
+- Current aggregate validation during Phase 2-B: `npm run test:workers` PASS 320/320, `npm run test:static` PASS 155/155, `npm run release:preflight` PASS, and `git diff --check` PASS after the ledger ordering fix.
+- Production deploy status: blocked until live Cloudflare secret/binding/resource validation, auth migrations through `0035`, staging Worker verification, staging data lifecycle cleanup/executor verification, staging organization-flow verification, and staging billing/entitlement/credit verification are complete.
 
 Completed remediation phases:
 
@@ -38,13 +38,14 @@ Completed remediation phases:
 | Phase 1-I | Completed | Bounded sanitized export archive generation, private `AUDIT_ARCHIVE` storage, archive authorization, deletion executor design. | Worker 311/311, static 155/155, release preflight passed. | Migration `0033`, archive generation/download staging verification. | `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` |
 | Phase 1-J | Completed | Bounded expired archive cleanup, scheduled cleanup integration, admin cleanup visibility, safe reversible-action executor pilot. | Worker 313/313, static 155/155, release preflight passed. | Live `AUDIT_ARCHIVE` cleanup verification and safe executor staging verification. | `PHASE1J_RETENTION_EXECUTOR_REPORT.md` |
 | Phase 2-A | Completed for current scope | Additive organizations/memberships schema, basic roles, org/RBAC helper, minimal user org APIs, admin org inspection, backfill plan, route-policy/release updates. | Worker 317/317, static 155/155, release preflight passed. | Migration `0034`, staging org-flow verification, and later domain-by-domain tenant migration. | `PHASE2A_ORG_RBAC_REPORT.md` |
+| Phase 2-B | Completed for current scope | Additive plans/subscriptions/entitlements/credit-ledger/usage schema, billing helper, org billing/entitlement reads, admin plan/org billing inspection, admin credit grants, route-policy/release updates. | Worker 320/320, static 155/155, release preflight passed after ledger ordering fix. | Migration `0035`, staging billing/entitlement/credit verification, later AI route wiring, and future payment-provider integration. | `PHASE2B_BILLING_ENTITLEMENTS_REPORT.md` |
 
 Current status estimate:
 
-- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J and Phase 2-A organization/RBAC foundation for the documented scope.
+- The repository has completed the Phase 0/1 hardening roadmap through Phase 1-J, Phase 2-A organization/RBAC foundation, and Phase 2-B billing/entitlement foundation for the documented scope.
 - It is substantially safer and more operable than the original audit baseline, but it is not full enterprise SaaS maturity.
-- Existing assets remain user-owned; full tenant isolation, billing/entitlements, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
-- The next implementation phase should be chosen between domain-by-domain tenant ownership migration and billing/entitlements. Do not redo Phase 0/1/2-A foundations.
+- Existing assets remain user-owned; full tenant isolation, live payment-provider integration, AI route credit enforcement, full IaC/dashboard drift enforcement, full type/lint migration, full user self-service privacy flows, irreversible deletion execution, formal load budgets, and live SLO/alert evidence remain open.
+- The next implementation phase should be chosen between low-risk entitlement/credit enforcement wiring, payment-provider integration design, and domain-by-domain tenant ownership migration. Do not redo Phase 0/1/2-A/2-B foundations.
 
 ## Remediation Progress
 
@@ -65,6 +66,7 @@ Reference documents:
 - `PHASE1I_EXPORT_DELETE_EXECUTOR_REPORT.md` contains the Phase 1-I bounded export archive generation, private R2 archive storage, archive authorization, deletion executor design, validation evidence, deploy requirements, and remaining privacy-operation risks.
 - `PHASE1J_RETENTION_EXECUTOR_REPORT.md` contains the Phase 1-J expired export archive cleanup, safe deletion/anonymization executor pilot, admin retention visibility, validation evidence, deploy requirements, and remaining privacy-operation risks.
 - `PHASE2A_ORG_RBAC_REPORT.md` contains the Phase 2-A organization/membership schema, RBAC helper, minimal user/admin org APIs, route-policy/release updates, backfill plan, validation evidence, and remaining tenant-isolation risks.
+- `PHASE2B_BILLING_ENTITLEMENTS_REPORT.md` contains the Phase 2-B plan/entitlement/credit-ledger schema, billing helper, org/admin billing APIs, route-policy/release updates, validation evidence, deploy requirements, and remaining monetization risks.
 - `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H/1-I/1-J data inventory and engineering retention-policy baseline.
 - `docs/DATA_DELETION_EXECUTOR_DESIGN.md` contains the Phase 1-I/1-J deletion/anonymization executor state model, approval gates, safe reversible-action pilot, disabled irreversible-action policy, rollback limitations, and future test plan.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
@@ -187,6 +189,21 @@ Phase 1-J completed summary:
 - Kept irreversible hard deletion, R2 media deletion, audit-log deletion, primary identity anonymization, and user self-service delete disabled by default.
 - Added route policies, release compatibility updates, lifecycle static guards, Worker tests, and documentation updates for Phase 1-J.
 
+Phase 2-A completed summary:
+
+- Added D1 migration `0034_add_organizations.sql` for organizations and memberships.
+- Added `workers/auth/src/lib/orgs.js`, `workers/auth/src/routes/orgs.js`, and `workers/auth/src/routes/admin-orgs.js` for basic organization roles, membership checks, user org APIs, and admin org inspection.
+- Added idempotent organization creation, member add/list, role enforcement, cross-org denial, fail-closed limiter behavior, route-policy coverage, release compatibility updates, and Worker tests.
+- Preserved existing user-owned assets and documented that Phase 2-A is an additive foundation rather than full tenant isolation.
+
+Phase 2-B completed summary:
+
+- Added D1 migration `0035_add_billing_entitlements.sql` for plans, organization subscriptions, entitlements, future billing-customer mappings, credit ledger entries, and usage events.
+- Added `workers/auth/src/lib/billing.js` for default free plan resolution, entitlement checks, credit balance checks, idempotent credit grants, and idempotent credit consumption without negative balances.
+- Added organization billing/entitlement/usage read APIs and admin plan/org billing/credit grant APIs with route-policy coverage, fail-closed admin limiters, same-origin mutation protection, byte-limited JSON parsing, and idempotency.
+- Updated release compatibility, route-policy checks, Worker harness/tests, data inventory, retention policy, and auth Worker operational documentation.
+- No live payment provider, checkout, invoice, webhook, pricing, or production billing activation is enabled.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -216,6 +233,7 @@ Findings reduced but not fully resolved:
 | Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
 | Scan-prone admin audit/activity search and raw activity cursors | Reduced | `0031_add_activity_search_index.sql`, `workers/auth/src/lib/activity-search.js`, updated `workers/auth/src/routes/admin.js`, and `scripts/check-admin-activity-query-shape.mjs` replace raw metadata search and raw cursors with indexed projection search and signed cursors for the admin audit/activity endpoints. |
 | Compliance-grade data lifecycle | Reduced | `0032_add_data_lifecycle_requests.sql`, `0033_harden_data_export_archives.sql`, `workers/auth/src/lib/data-lifecycle.js`, `workers/auth/src/lib/data-export-archive.js`, `workers/auth/src/lib/data-export-cleanup.js`, `workers/auth/src/routes/admin-data-lifecycle.js`, `DATA_INVENTORY.md`, `docs/DATA_RETENTION_POLICY.md`, and `docs/DATA_DELETION_EXECUTOR_DESIGN.md` add admin/support planning foundations, bounded export archive generation, private archive metadata, bounded expired archive cleanup, safe reversible-action execution, deletion executor design, and retention documentation. User self-service, contact processor workflow, legal policy approval, irreversible deletion execution, and historical R2 owner backfill remain open. |
+| Billing/plans/entitlements foundation | Reduced | `0035_add_billing_entitlements.sql`, `workers/auth/src/lib/billing.js`, `workers/auth/src/routes/orgs.js`, `workers/auth/src/routes/admin-billing.js`, route-policy/release updates, and Worker tests add default free plan resolution, org billing/entitlement reads, admin plan/org billing inspection, idempotent credit grants, and idempotent credit consumption helpers. Live payment provider integration and broad route-level credit enforcement remain open. |
 
 Findings still open:
 
@@ -223,15 +241,15 @@ Findings still open:
 - Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates, and Phase 1-E added route policy guardrails for high-risk auth-worker route review.
 - Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
-- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, user self-service privacy flows, irreversible deletion execution, full observability/SLOs, and load/performance budgets remain open or deferred.
+- Historical audit/activity backfill, non-video queue schemas/DLQ, full tenant isolation, live payment-provider integration, AI route credit enforcement, user self-service privacy flows, irreversible deletion execution, full observability/SLOs, and load/performance budgets remain open or deferred.
 
 Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 2-A validation | Phase 2-A validation passed: `npm run test:workers` 317/317, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 2-A files must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0034` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging, and Phase 2-A organization flows are verified in staging after migration `0034`. |
-| Current recommended next phase | Phase 2-B or tenant migration track | Choose either a small domain-by-domain tenant ownership migration or billing/entitlements design. Do not combine full tenant migration and billing into one broad rewrite. |
+| Merge readiness | Pass after Phase 2-B validation | Phase 2-B validation passed: `npm run test:workers` 320/320, `npm run test:static` 155/155, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 2-B files must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0035` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, `USER_IMAGES`, and `AUDIT_ARCHIVE` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, Phase 1-H/1-I/1-J data lifecycle planning/archive generation/archive cleanup/safe executor behavior is verified in staging, Phase 2-A organization flows are verified in staging after migration `0034`, and Phase 2-B billing/entitlement/credit flows are verified in staging after migration `0035`. |
+| Current recommended next phase | Phase 2-C or tenant migration track | Choose one narrow track: wire low-risk AI route families to entitlements/credits, design payment-provider integration, or continue domain-by-domain tenant ownership migration. Do not combine all three into one broad rewrite. |
 
 ## Executive Summary
 
