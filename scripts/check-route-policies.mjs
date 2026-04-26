@@ -17,6 +17,7 @@ const METHOD_COMPARISON = /\bmethod\s*===\s*["'](POST|PUT|PATCH|DELETE)["']/;
 const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
   "workers/auth/src/routes/admin.js",
+  "workers/auth/src/routes/admin-data-lifecycle.js",
   "workers/auth/src/routes/admin-ai.js",
   "workers/auth/src/routes/admin-mfa.js",
   "workers/auth/src/routes/ai.js",
@@ -32,6 +33,11 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/admin/ai/video-jobs/job-123", "admin.ai.video-jobs.status"],
   ["GET", "/api/admin/ai/video-jobs/job-123/output", "admin.ai.video-jobs.output"],
   ["POST", "/api/admin/ai/test-video", "admin.ai.test-video-debug"],
+  ["GET", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.list"],
+  ["POST", "/api/admin/data-lifecycle/requests", "admin.data-lifecycle.requests.create"],
+  ["GET", "/api/admin/data-lifecycle/requests/dlr_123", "admin.data-lifecycle.requests.read"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/plan", "admin.data-lifecycle.requests.plan"],
+  ["POST", "/api/admin/data-lifecycle/requests/dlr_123/approve", "admin.data-lifecycle.requests.approve"],
 ];
 
 function readRepoFile(relativePath) {

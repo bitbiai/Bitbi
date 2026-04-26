@@ -21,6 +21,8 @@ Reference documents:
 - `PHASE1E_ROUTE_POLICY_REPORT.md` contains the Phase 1-E auth-worker route policy registry, coverage guard, CI/preflight integration, validation evidence, and remaining route-policy migration risks.
 - `PHASE1F_OPERATIONAL_READINESS_REPORT.md` contains the Phase 1-F health/readiness, live-check, SLO, runbook, backup/restore drill, queue/backlog, validation, and remaining operational-readiness evidence.
 - `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` contains the Phase 1-G indexed audit/activity search projection, signed activity cursor behavior, query-shape guard, validation evidence, migration requirements, and remaining historical-backfill risks.
+- `PHASE1H_DATA_LIFECYCLE_REPORT.md` contains the Phase 1-H data lifecycle request schema, admin lifecycle APIs, export/deletion/anonymization planning behavior, validation evidence, deploy requirements, and remaining privacy-operation risks.
+- `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` contain the Phase 1-H data inventory and engineering retention-policy baseline.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -113,6 +115,15 @@ Phase 1-G completed summary:
 - Added `scripts/check-admin-activity-query-shape.mjs` plus CI/preflight integration to block raw metadata search, raw activity cursors, and unbounded admin action count regressions.
 - `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` documents the baseline inventory, migration, search behavior change, backfill strategy, validation, deploy requirements, and remaining risks.
 
+Phase 1-H completed summary:
+
+- Added `DATA_INVENTORY.md` and `docs/DATA_RETENTION_POLICY.md` to document D1/R2/contact data classes, exportability, deletion/anonymization behavior, and open legal/product decisions.
+- Added D1 migration `0032_add_data_lifecycle_requests.sql` for `data_lifecycle_requests`, `data_lifecycle_request_items`, and `data_export_archives`.
+- Added `workers/auth/src/lib/data-lifecycle.js` and `workers/auth/src/routes/admin-data-lifecycle.js` for admin-only lifecycle request create/list/detail/plan/approve APIs.
+- Added export planning that records sanitized D1 summaries and R2 references while excluding password hashes, session/token hashes, MFA secrets/recovery codes, service signatures, and provider credentials.
+- Added deletion/anonymization planning that is dry-run by default, records revoke/delete/anonymize/retain actions, and blocks only-active-admin deletion/anonymization.
+- Added route policies, release compatibility updates, lifecycle static guardrails, CI/preflight wiring, Worker tests, and auth Worker operational documentation for the new lifecycle routes.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -141,6 +152,7 @@ Findings reduced but not fully resolved:
 | Route security policy scattered across handlers | Reduced | `workers/auth/src/app/route-policy.js`, `scripts/check-route-policies.mjs`, source route-policy markers, CI/preflight integration, and `tests/workers.spec.js` now provide explicit high-risk auth-worker route metadata and coverage checks. |
 | Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
 | Scan-prone admin audit/activity search and raw activity cursors | Reduced | `0031_add_activity_search_index.sql`, `workers/auth/src/lib/activity-search.js`, updated `workers/auth/src/routes/admin.js`, and `scripts/check-admin-activity-query-shape.mjs` replace raw metadata search and raw cursors with indexed projection search and signed cursors for the admin audit/activity endpoints. |
+| Compliance-grade data lifecycle | Reduced | `0032_add_data_lifecycle_requests.sql`, `workers/auth/src/lib/data-lifecycle.js`, `workers/auth/src/routes/admin-data-lifecycle.js`, `DATA_INVENTORY.md`, and `docs/DATA_RETENTION_POLICY.md` add admin/support planning foundations for export, deletion/anonymization, and retention. Export archive generation, user self-service, and irreversible deletion execution remain open. |
 
 Findings still open:
 
@@ -148,15 +160,15 @@ Findings still open:
 - Full lint/typecheck/checkJs and safe DOM remediation remain incomplete; Phase 1-C added low-risk baseline gates, and Phase 1-E added route policy guardrails for high-risk auth-worker route review.
 - Legacy `SESSION_SECRET` fallback remains enabled until operators provision new secrets, deploy Phase 1-D safely, verify compatibility, and explicitly disable fallback after the migration window.
 - Large admin/frontend/test modules remain monolithic.
-- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, compliance data lifecycle, full observability/SLOs, and load/performance budgets remain open or deferred.
+- Historical audit/activity backfill, non-video queue schemas/DLQ, organization/team/tenant model, billing/entitlements, data lifecycle execution/user self-service/export archives, full observability/SLOs, and load/performance budgets remain open or deferred.
 
 Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-G validation | Phase 1-G validation passed: `npm run test:workers` 306/306, `npm run test:static` 155/155, query-shape guard, route-policy/body-parser/quality/operational checks, release compatibility checks, `npm run release:preflight`, and root package audit. All changed/new Phase 1-G files listed in `PHASE1G_AUDIT_SEARCH_SCALABILITY_REPORT.md` must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0031` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and historical search/backfill expectations are settled. |
-| Current recommended next phase | Phase 1-G staging verification / Phase 2 planning | Apply migration `0031` in staging, verify indexed activity search and signed cursors, decide historical backfill requirements, then continue live staging checks, alert setup, restore drill, dashboard/IaC drift checks, and broader SaaS platform work. |
+| Merge readiness | Conditional pass after Phase 1-H validation | Phase 1-H validation passed: `npm run test:workers` 309/309, `npm run test:static` 155/155, lifecycle/query/body/route/quality/operational checks, release compatibility checks, `npm run release:preflight`, `npm ls --depth=0`, `npm audit --audit-level=low`, and `git diff --check`. All changed/new Phase 1-H files listed in `PHASE1H_DATA_LIFECYCLE_REPORT.md` must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0032` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, Phase 1-G activity projection writes/search are verified in staging, and Phase 1-H data lifecycle planning is verified in staging. |
+| Current recommended next phase | Phase 1-H staging verification / Phase 1-I planning | Apply migration `0032` in staging, verify admin data lifecycle create/list/detail/plan/approve flows, confirm no destructive execution occurs, then design export archive generation and safe deletion execution. |
 
 ## Executive Summary
 

@@ -14987,6 +14987,416 @@ test.describe('Worker routes', () => {
     expect(missingSecretRes.status).toBe(503);
   });
 
+  test('admin data lifecycle export planning is idempotent, redacted, and subject-scoped', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-admin');
+    const subject = createContractUser({ id: 'lifecycle-subject', role: 'user', email: 'subject@example.com' });
+    const other = createContractUser({ id: 'lifecycle-other', role: 'user', email: 'other@example.com' });
+    const env = createAuthTestEnv({
+      users: [admin, subject, other],
+      profiles: [{
+        user_id: subject.id,
+        display_name: 'Subject Profile',
+        bio: 'Exportable bio',
+        website: 'https://example.com',
+        youtube_url: '',
+        has_avatar: 1,
+        avatar_updated_at: '2026-04-20T10:00:00.000Z',
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+      }],
+      linkedWallets: [{
+        id: 'wallet-subject',
+        user_id: subject.id,
+        address_normalized: '0xabc0000000000000000000000000000000000000',
+        address_display: '0xAbC0000000000000000000000000000000000000',
+        chain_id: 1,
+        is_primary: 1,
+        linked_at: '2026-04-20T11:00:00.000Z',
+        last_login_at: null,
+        created_at: '2026-04-20T11:00:00.000Z',
+        updated_at: '2026-04-20T11:00:00.000Z',
+      }],
+      favorites: [{
+        id: 1,
+        user_id: subject.id,
+        item_type: 'gallery',
+        item_id: 'little-monster-01',
+        title: 'Little Monster',
+        thumb_url: '/thumb.webp',
+        created_at: '2026-04-20T12:00:00.000Z',
+      }],
+      aiFolders: [{
+        id: 'folder-subject',
+        user_id: subject.id,
+        name: 'Subject Folder',
+        slug: 'subject-folder',
+        status: 'active',
+        created_at: '2026-04-20T12:10:00.000Z',
+      }],
+      aiImages: [
+        {
+          id: 'img-subject',
+          user_id: subject.id,
+          folder_id: 'folder-subject',
+          r2_key: 'users/lifecycle-subject/folders/subject/img.png',
+          prompt: 'subject prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 1,
+          visibility: 'private',
+          created_at: '2026-04-20T12:20:00.000Z',
+          thumb_key: 'users/lifecycle-subject/derivatives/v1/img/thumb.webp',
+          medium_key: 'users/lifecycle-subject/derivatives/v1/img/medium.webp',
+        },
+        {
+          id: 'img-other',
+          user_id: other.id,
+          folder_id: null,
+          r2_key: 'users/lifecycle-other/folders/other/img.png',
+          prompt: 'other prompt',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 2,
+          created_at: '2026-04-20T12:21:00.000Z',
+        },
+      ],
+      aiTextAssets: [{
+        id: 'txt-subject',
+        user_id: subject.id,
+        folder_id: 'folder-subject',
+        r2_key: 'users/lifecycle-subject/text/txt.txt',
+        title: 'Subject Text',
+        file_name: 'subject.txt',
+        source_module: 'text',
+        mime_type: 'text/plain; charset=utf-8',
+        size_bytes: 42,
+        preview_text: 'safe preview',
+        metadata_json: JSON.stringify({ unsafe_token: 'must-not-export' }),
+        created_at: '2026-04-20T12:30:00.000Z',
+      }],
+      aiVideoJobs: [{
+        id: 'vid-subject',
+        user_id: subject.id,
+        scope: 'admin',
+        status: 'succeeded',
+        provider: 'pixverse',
+        model: 'pixverse/v6',
+        prompt: 'video prompt',
+        output_r2_key: 'users/lifecycle-subject/video-jobs/vid-subject/output.mp4',
+        poster_r2_key: 'users/lifecycle-subject/video-jobs/vid-subject/poster.webp',
+        created_at: '2026-04-20T12:40:00.000Z',
+        completed_at: '2026-04-20T12:45:00.000Z',
+      }],
+      userActivityLog: [{
+        id: 'activity-subject',
+        user_id: subject.id,
+        action: 'login',
+        meta_json: JSON.stringify({ token_hash: 'must-not-export' }),
+        ip_address: '203.0.113.10',
+        created_at: '2026-04-20T13:00:00.000Z',
+      }],
+      passwordResetTokens: [{
+        id: 'reset-secret',
+        user_id: subject.id,
+        token_hash: 'reset-token-hash-must-not-export',
+        expires_at: '2026-04-20T14:00:00.000Z',
+        used_at: null,
+        created_at: '2026-04-20T13:10:00.000Z',
+      }],
+    });
+    const token = await seedSession(env, admin.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'Idempotency-Key': 'dl-export-subject-1',
+    };
+
+    const createRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+        reason: 'Support export request',
+        dryRun: false,
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+    expect(createBody).toMatchObject({
+      ok: true,
+      request: {
+        type: 'export',
+        subjectUserId: subject.id,
+        status: 'submitted',
+        dryRun: true,
+      },
+    });
+
+    const repeatRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+        reason: 'Support export request',
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeatRes.status).toBe(200);
+    expect((await repeatRes.json()).request.id).toBe(createBody.request.id);
+
+    const conflictRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+        reason: 'Different request',
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflictRes.status).toBe(409);
+
+    const planRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(planRes.status).toBe(200);
+    const planBody = await planRes.json();
+    expect(planBody.request.status).toBe('planned');
+    expect(planBody.items.some((entry) => entry.resourceType === 'ai_image' && entry.resourceId === 'img-subject')).toBe(true);
+    expect(planBody.items.some((entry) => entry.r2Key === 'users/lifecycle-subject/folders/subject/img.png')).toBe(true);
+    expect(planBody.items.some((entry) => entry.resourceId === 'img-other')).toBe(false);
+
+    const serialized = JSON.stringify(planBody);
+    expect(serialized).not.toContain('reset-token-hash-must-not-export');
+    expect(serialized).not.toContain('must-not-export');
+    expect(serialized).not.toContain('token_hash');
+    expect(serialized).not.toContain('password_hash');
+
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    expect((await listRes.json()).requests.map((row) => row.id)).toContain(createBody.request.id);
+  });
+
+  test('admin data lifecycle deletion planning is dry-run only and blocks the only active admin', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-delete-admin');
+    const member = createContractUser({ id: 'lifecycle-delete-member', role: 'user', email: 'delete@example.com' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      profiles: [{
+        user_id: member.id,
+        display_name: 'Delete Subject',
+        bio: '',
+        website: '',
+        youtube_url: '',
+        has_avatar: 1,
+        avatar_updated_at: '2026-04-20T10:00:00.000Z',
+        created_at: '2026-04-20T09:00:00.000Z',
+        updated_at: '2026-04-20T10:00:00.000Z',
+      }],
+      sessions: [{
+        id: 'member-session',
+        user_id: member.id,
+        token_hash: 'session-hash-must-not-return',
+        created_at: '2026-04-20T10:00:00.000Z',
+        expires_at: '2026-05-20T10:00:00.000Z',
+        last_seen_at: '2026-04-20T10:00:00.000Z',
+      }],
+      emailVerificationTokens: [{
+        id: 'verify-token',
+        user_id: member.id,
+        token_hash: 'verify-hash-must-not-return',
+        expires_at: '2026-05-20T10:00:00.000Z',
+        used_at: null,
+        created_at: '2026-04-20T10:00:00.000Z',
+      }],
+      aiImages: [{
+        id: 'delete-img',
+        user_id: member.id,
+        folder_id: null,
+        r2_key: 'users/lifecycle-delete-member/folders/unsorted/delete-img.png',
+        prompt: 'delete me',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 3,
+        created_at: '2026-04-20T12:00:00.000Z',
+      }],
+      adminAuditLog: [{
+        id: 'audit-delete-member',
+        admin_user_id: admin.id,
+        action: 'change_status',
+        target_user_id: member.id,
+        meta_json: JSON.stringify({ target_email: member.email }),
+        created_at: '2026-04-20T13:00:00.000Z',
+      }],
+    });
+    const token = await seedSession(env, admin.id);
+
+    const createDeleteRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'delete',
+        subjectUserId: member.id,
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-delete-member-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(createDeleteRes.status).toBe(201);
+    const createDeleteBody = await createDeleteRes.json();
+    expect(createDeleteBody.request.dryRun).toBe(true);
+
+    const planDeleteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(planDeleteRes.status).toBe(200);
+    const planDeleteBody = await planDeleteRes.json();
+    expect(planDeleteBody.blocked).toBe(false);
+    expect(planDeleteBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ resourceType: 'session', action: 'revoke' }),
+      expect.objectContaining({ resourceType: 'admin_audit_log', action: 'retain_or_anonymize' }),
+      expect.objectContaining({ resourceType: 'r2_object', action: 'delete_planned' }),
+    ]));
+    expect(env.DB.state.sessions.some((row) => row.user_id === member.id)).toBe(true);
+    expect(env.DB.state.aiImages.some((row) => row.user_id === member.id)).toBe(true);
+
+    const approveRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createDeleteBody.request.id}/approve`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'dl-approve-member-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(approveRes.status).toBe(200);
+    expect((await approveRes.json()).request.status).toBe('approved');
+
+    const onlyAdminEnv = createAuthTestEnv({ users: [createAdminUser('only-lifecycle-admin')] });
+    const onlyAdminToken = await seedSession(onlyAdminEnv, 'only-lifecycle-admin');
+    const createAdminDeleteRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'delete',
+        subjectUserId: 'only-lifecycle-admin',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${onlyAdminToken}`,
+        'Idempotency-Key': 'dl-delete-only-admin-1',
+      }),
+      onlyAdminEnv,
+      createExecutionContext().execCtx
+    );
+    const createAdminDeleteBody = await createAdminDeleteRes.json();
+    const planAdminDeleteRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createAdminDeleteBody.request.id}/plan`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${onlyAdminToken}`,
+      }),
+      onlyAdminEnv,
+      createExecutionContext().execCtx
+    );
+    const planAdminDeleteBody = await planAdminDeleteRes.json();
+    expect(planAdminDeleteBody.request.status).toBe('blocked');
+    expect(planAdminDeleteBody.items.some((entry) => entry.status === 'blocked')).toBe(true);
+
+    const approveBlockedRes = await authWorker.fetch(
+      authJsonRequest(`/api/admin/data-lifecycle/requests/${createAdminDeleteBody.request.id}/approve`, 'POST', {}, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${onlyAdminToken}`,
+        'Idempotency-Key': 'dl-approve-only-admin-1',
+      }),
+      onlyAdminEnv,
+      createExecutionContext().execCtx
+    );
+    expect(approveBlockedRes.status).toBe(409);
+  });
+
+  test('admin data lifecycle APIs enforce admin, CSRF, idempotency, and fail-closed limiter behavior', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('lifecycle-security-admin');
+    const nonAdmin = createContractUser({ id: 'lifecycle-security-user', role: 'user' });
+    const subject = createContractUser({ id: 'lifecycle-security-subject', role: 'user' });
+    const env = createAuthTestEnv({ users: [admin, nonAdmin, subject] });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const missingIdemRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingIdemRes.status).toBe(428);
+
+    const nonAdminRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${nonAdminToken}`,
+        'Idempotency-Key': 'dl-non-admin-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(nonAdminRes.status).toBe(403);
+
+    const foreignOriginRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'POST', {
+        type: 'export',
+        subjectUserId: subject.id,
+      }, {
+        Origin: 'https://evil.example',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'dl-foreign-origin-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foreignOriginRes.status).toBe(403);
+    expect(env.DB.state.dataLifecycleRequests).toHaveLength(0);
+
+    const noLimiterEnv = createAuthTestEnv({
+      users: [admin, subject],
+      publicRateLimiterFailWith: new Error('rate-limit unavailable'),
+    });
+    const noLimiterToken = await seedSession(noLimiterEnv, admin.id);
+    const noLimiterRes = await authWorker.fetch(
+      authJsonRequest('/api/admin/data-lifecycle/requests', 'GET', undefined, {
+        Cookie: `bitbi_session=${noLimiterToken}`,
+      }),
+      noLimiterEnv,
+      createExecutionContext().execCtx
+    );
+    expect(noLimiterRes.status).toBe(503);
+  });
+
   test('AI folder delete keeps durable cleanup entries when inline blob deletion fails for mixed assets', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

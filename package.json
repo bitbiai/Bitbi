@@ -21,6 +21,7 @@
     "check:toolchain": "node scripts/check-toolchain.mjs",
     "check:worker-body-parsers": "node scripts/check-worker-body-parsers.mjs",
     "check:admin-activity-query-shape": "node scripts/check-admin-activity-query-shape.mjs",
+    "check:data-lifecycle": "node scripts/check-data-lifecycle-policy.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:dom-sinks": "node scripts/check-dom-sinks.mjs",
     "check:route-policies": "node scripts/check-route-policies.mjs",

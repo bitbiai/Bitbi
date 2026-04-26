@@ -111,12 +111,14 @@ function createContext() {
       "PHASE1B_REMEDIATION_REPORT.md",
       "PHASE1_OBSERVABILITY_BASELINE.md",
       "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+      "DATA_INVENTORY.md",
     ],
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "AUDIT_NEXT_LEVEL.md",
+    "DATA_INVENTORY.md",
     "PHASE0B_REMEDIATION_REPORT.md",
     "PHASE0_REMEDIATION_REPORT.md",
     "PHASE1A_REMEDIATION_REPORT.md",
@@ -237,6 +239,7 @@ function createContext() {
       { command: "npm run validate:cloudflare-prereqs", cwd: null, execute: true },
       { command: "npm run check:worker-body-parsers", cwd: null, execute: true },
       { command: "npm run check:admin-activity-query-shape", cwd: null, execute: true },
+      { command: "npm run check:data-lifecycle", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {
         command: "npx wrangler d1 migrations apply bitbi-auth-db --remote",

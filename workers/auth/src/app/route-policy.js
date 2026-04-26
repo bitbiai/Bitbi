@@ -248,6 +248,26 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PAGINATION_SIGNING_SECRET"],
     rateLimit: { noneReason: "Read-only admin user-activity search uses signed keyset cursors and bounded indexed query shapes." },
   }),
+  adminRead("admin.data-lifecycle.requests.list", "/api/admin/data-lifecycle/requests", "privacy", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.data-lifecycle.requests.create", "POST", "/api/admin/data-lifecycle/requests", "privacy", "adminJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_created" },
+  }),
+  adminRead("admin.data-lifecycle.requests.read", "/api/admin/data-lifecycle/requests/:id", "privacy", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-data-lifecycle-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.data-lifecycle.requests.plan", "POST", "/api/admin/data-lifecycle/requests/:id/plan", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_planned" },
+  }),
+  adminJsonWrite("admin.data-lifecycle.requests.approve", "POST", "/api/admin/data-lifecycle/requests/:id/approve", "privacy", "smallJson", "admin-data-lifecycle-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "data_lifecycle_request_approved" },
+  }),
 
   adminRead("admin.mfa.status", "/api/admin/mfa/status", "admin-mfa", {
     mfa: "admin-bootstrap-allowed",

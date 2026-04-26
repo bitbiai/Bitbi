@@ -123,6 +123,11 @@ src/
 - `GET /api/admin/avatars/:userId` — serve a user's avatar
 - `GET /api/admin/activity?limit=&cursor=&search=` — signed-cursor-paginated audit log with hot-window action counts and indexed prefix search over normalized action/email/entity fields
 - `GET /api/admin/user-activity?limit=&cursor=&search=` — signed-cursor-paginated user activity log with indexed prefix search over normalized action/email/entity fields
+- `GET /api/admin/data-lifecycle/requests` — list admin-created data export/deletion/anonymization requests (requires admin)
+- `POST /api/admin/data-lifecycle/requests` — create a data lifecycle request with `Idempotency-Key` (requires admin; Phase 1-H planning only)
+- `GET /api/admin/data-lifecycle/requests/:id` — inspect sanitized request details and plan items (requires admin)
+- `POST /api/admin/data-lifecycle/requests/:id/plan` — build an idempotent export/deletion/anonymization plan without destructive execution (requires admin)
+- `POST /api/admin/data-lifecycle/requests/:id/approve` — approve a planned request; execution remains deferred (requires admin)
 - `GET /api/admin/ai/models` — list AI lab presets and allowlisted models (requires admin)
 - `POST /api/admin/ai/test-text` — proxy a text-generation test into `workers/ai` (requires admin)
 - `POST /api/admin/ai/test-image` — proxy an image-generation test into `workers/ai` (requires admin)
@@ -153,7 +158,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -171,7 +176,7 @@ src/
 
 **Secret** `AI_SERVICE_AUTH_SECRET` — required for HMAC signing of auth-worker requests to `workers/ai`. This value must exactly match the `AI_SERVICE_AUTH_SECRET` provisioned on `workers/ai`; do not deploy Phase 0-A to production until both Worker environments have the matching secret. Missing or short values fail closed and block internal AI access.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0031_add_activity_search_index`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0032_add_data_lifecycle_requests`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -190,6 +195,7 @@ Key migration-dependent behavior:
 - `0029_add_ai_video_jobs` — required before auth deploy if async admin video job creation/status/queue processing must work immediately
 - `0030_harden_ai_video_jobs_phase1b` — required before auth deploy if queue-safe video task polling, R2 output/poster metadata, and video poison-message persistence must work immediately
 - `0031_add_activity_search_index` — required before auth deploy if activity ingest writes and admin audit/user-activity indexed search must work immediately
+- `0032_add_data_lifecycle_requests` — required before auth deploy if admin data lifecycle export/deletion/anonymization request planning APIs must work immediately
 
 ## Conventions
 

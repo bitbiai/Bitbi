@@ -927,6 +927,12 @@ function validateAdminAuthCompatibility(manifest, context) {
     "Admin auth literal route contract",
     issues
   );
+  compareExactStringSets(
+    contract.patternRoutes || [],
+    extractPatternMethodRoutes(context.authAdminSource || ""),
+    "Admin auth pattern route contract",
+    issues
+  );
 
   compareExactStringSets(
     contract.staticAuthApiPaths || [],
@@ -1063,10 +1069,10 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     authApiSource: fs.readFileSync(path.join(repoRoot, "js/shared/auth-api.js"), "utf8"),
     authIndexSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/index.js"), "utf8"),
     authAiSource: fs.readFileSync(path.join(repoRoot, "workers/auth/src/routes/ai.js"), "utf8"),
-    authAdminSource: fs.readFileSync(
-      path.join(repoRoot, "workers/auth/src/routes/admin.js"),
-      "utf8"
-    ),
+    authAdminSource: [
+      "workers/auth/src/routes/admin.js",
+      "workers/auth/src/routes/admin-data-lifecycle.js",
+    ].map((relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8")).join("\n"),
     authAdminMfaSource: fs.readFileSync(
       path.join(repoRoot, "workers/auth/src/routes/admin-mfa.js"),
       "utf8"

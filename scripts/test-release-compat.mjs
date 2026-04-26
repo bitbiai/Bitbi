@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0031_add_activity_search_index.sql",
+        latest: "0032_add_data_lifecycle_requests.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -465,12 +465,19 @@ const baseManifest = {
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",
+      "GET /api/admin/data-lifecycle/requests",
+      "POST /api/admin/data-lifecycle/requests",
       "GET /api/admin/mfa/status",
       "POST /api/admin/mfa/setup",
       "POST /api/admin/mfa/enable",
       "POST /api/admin/mfa/verify",
       "POST /api/admin/mfa/disable",
       "POST /api/admin/mfa/recovery-codes/regenerate",
+    ],
+    patternRoutes: [
+      "GET /api/admin/data-lifecycle/requests/:id",
+      "POST /api/admin/data-lifecycle/requests/:id/plan",
+      "POST /api/admin/data-lifecycle/requests/:id/approve",
     ],
     staticAuthApiPaths: [
       "/admin/mfa/status",
@@ -512,6 +519,7 @@ function createValidContext() {
           "0029_add_ai_video_jobs.sql",
           "0030_harden_ai_video_jobs_phase1b.sql",
           "0031_add_activity_search_index.sql",
+          "0032_add_data_lifecycle_requests.sql",
         ],
       },
     },
@@ -748,6 +756,14 @@ function createValidContext() {
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();
       if (pathname === "/api/admin/user-activity" && method === "GET") return handleAdminUserActivity();
+      if (pathname === "/api/admin/data-lifecycle/requests" && method === "GET") return handleDataLifecycleRequests();
+      if (pathname === "/api/admin/data-lifecycle/requests" && method === "POST") return handleCreateDataLifecycleRequest();
+      const dataLifecycleDetailMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)$/);
+      if (dataLifecycleDetailMatch && method === "GET") return handleDataLifecycleRequest();
+      const dataLifecyclePlanMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/plan$/);
+      if (dataLifecyclePlanMatch && method === "POST") return handleDataLifecyclePlan();
+      const dataLifecycleApproveMatch = pathname.match(/^\\/api\\/admin\\/data-lifecycle\\/requests\\/([^/]+)\\/approve$/);
+      if (dataLifecycleApproveMatch && method === "POST") return handleDataLifecycleApprove();
     `,
     authAdminMfaSource: `
       if (pathname === "/api/admin/mfa/status" && method === "GET") return handleAdminMfaStatus();
@@ -811,6 +827,9 @@ function createValidContext() {
       - run: npm run check:live-health
       - run: npm run check:live-security-headers
       - run: npm run check:js
+      - run: npm run check:worker-body-parsers
+      - run: npm run check:admin-activity-query-shape
+      - run: npm run check:data-lifecycle
       - run: npm run test:release-compat
       - run: npm run test:release-plan
       - run: npm run test:asset-version
@@ -969,6 +988,18 @@ function createValidContext() {
     issues.some((issue) =>
       issue.includes("Admin auth literal route contract") &&
       issue.includes("POST /api/admin/mfa/verify")
+    )
+  );
+}
+
+{
+  const context = createValidContext();
+  context.manifest.adminAuthRoutes.patternRoutes = [];
+  const issues = validateReleaseCompatibility(context);
+  assert(
+    issues.some((issue) =>
+      issue.includes("Admin auth pattern route contract") &&
+      issue.includes("POST /api/admin/data-lifecycle/requests/:id/approve")
     )
   );
 }

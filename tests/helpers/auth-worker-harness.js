@@ -455,6 +455,9 @@ class MockD1 {
       aiDailyQuotaUsage: [],
       userActivityLog: [],
       r2CleanupQueue: [],
+      dataLifecycleRequests: [],
+      dataLifecycleRequestItems: [],
+      dataExportArchives: [],
       ...deepClone(seed),
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
@@ -525,6 +528,15 @@ class MockD1 {
     }
     if (this.missingTables.has('activity_search_index') && query.includes('activity_search_index')) {
       throw new Error('no such table: activity_search_index');
+    }
+    if (this.missingTables.has('data_lifecycle_requests') && query.includes('data_lifecycle_requests')) {
+      throw new Error('no such table: data_lifecycle_requests');
+    }
+    if (this.missingTables.has('data_lifecycle_request_items') && query.includes('data_lifecycle_request_items')) {
+      throw new Error('no such table: data_lifecycle_request_items');
+    }
+    if (this.missingTables.has('data_export_archives') && query.includes('data_export_archives')) {
+      throw new Error('no such table: data_export_archives');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -935,6 +947,196 @@ class MockD1 {
       return this.state.users.find((row) => row.id === userId) || null;
     }
 
+    if (query === 'SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users WHERE id = ? LIMIT 1') {
+      const [userId] = bindings;
+      const row = this.state.users.find((entry) => entry.id === userId);
+      if (!row) return null;
+      return {
+        id: row.id,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at ?? null,
+        email_verified_at: row.email_verified_at ?? null,
+        verification_method: row.verification_method ?? null,
+      };
+    }
+
+    if (query === "SELECT COUNT(*) AS cnt FROM users WHERE role = 'admin' AND status = 'active'") {
+      return {
+        cnt: this.state.users.filter((row) => row.role === 'admin' && row.status === 'active').length,
+      };
+    }
+
+    if (query.startsWith('INSERT INTO data_lifecycle_requests ( id, type, subject_user_id, requested_by_user_id, requested_by_admin_id,')) {
+      const [
+        id,
+        type,
+        subjectUserId,
+        requestedByUserId,
+        requestedByAdminId,
+        status,
+        reason,
+        approvalRequired,
+        approvedByAdminId,
+        approvedAt,
+        idempotencyKey,
+        requestHash,
+        dryRun,
+        createdAt,
+        updatedAt,
+        completedAt,
+        expiresAt,
+        errorCode,
+        errorMessage,
+      ] = bindings;
+      const existing = this.state.dataLifecycleRequests.find((row) =>
+        row.type === type &&
+        row.requested_by_admin_id === requestedByAdminId &&
+        row.subject_user_id === subjectUserId &&
+        row.idempotency_key === idempotencyKey
+      );
+      if (existing) {
+        throw new Error('UNIQUE constraint failed: data_lifecycle_requests.type, data_lifecycle_requests.requested_by_admin_id, data_lifecycle_requests.subject_user_id, data_lifecycle_requests.idempotency_key');
+      }
+      this.state.dataLifecycleRequests.push({
+        id,
+        type,
+        subject_user_id: subjectUserId,
+        requested_by_user_id: requestedByUserId,
+        requested_by_admin_id: requestedByAdminId,
+        status,
+        reason,
+        approval_required: approvalRequired,
+        approved_by_admin_id: approvedByAdminId,
+        approved_at: approvedAt,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        dry_run: dryRun,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+        expires_at: expiresAt,
+        error_code: errorCode,
+        error_message: errorMessage,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.includes('FROM data_lifecycle_requests') &&
+      query.includes('WHERE type = ? AND requested_by_admin_id = ? AND subject_user_id = ? AND idempotency_key = ?')
+    ) {
+      const [type, adminUserId, subjectUserId, idempotencyKey] = bindings;
+      return deepClone(this.state.dataLifecycleRequests.find((row) =>
+        row.type === type &&
+        row.requested_by_admin_id === adminUserId &&
+        row.subject_user_id === subjectUserId &&
+        row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (
+      query.includes('FROM data_lifecycle_requests') &&
+      query.includes('WHERE id = ?') &&
+      query.includes('LIMIT 1')
+    ) {
+      const [requestId] = bindings;
+      return deepClone(this.state.dataLifecycleRequests.find((row) => row.id === requestId) || null);
+    }
+
+    if (
+      query.includes('FROM data_lifecycle_requests') &&
+      query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
+    ) {
+      const [limit] = bindings;
+      const rows = this.state.dataLifecycleRequests
+        .slice()
+        .sort((a, b) => (
+          String(b.created_at || '').localeCompare(String(a.created_at || ''))
+          || String(b.id || '').localeCompare(String(a.id || ''))
+        ))
+        .slice(0, Number(limit) || 50);
+      return { results: deepClone(rows) };
+    }
+
+    if (query === 'UPDATE data_lifecycle_requests SET status = ?, updated_at = ? WHERE id = ?') {
+      const [status, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = status;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE data_lifecycle_requests SET status = 'approved', approved_by_admin_id = ?, approved_at = ?, updated_at = ? WHERE id = ?") {
+      const [adminUserId, approvedAt, updatedAt, requestId] = bindings;
+      const row = this.state.dataLifecycleRequests.find((entry) => entry.id === requestId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'approved';
+      row.approved_by_admin_id = adminUserId;
+      row.approved_at = approvedAt;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO data_lifecycle_request_items ( id, request_id, resource_type, resource_id, table_name, r2_bucket, r2_key,')) {
+      const [
+        id,
+        requestId,
+        resourceType,
+        resourceId,
+        tableName,
+        r2Bucket,
+        r2Key,
+        action,
+        status,
+        summaryJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      const existing = this.state.dataLifecycleRequestItems.find((row) => row.id === id);
+      if (existing) return { success: true, meta: { changes: 0 } };
+      this.state.dataLifecycleRequestItems.push({
+        id,
+        request_id: requestId,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        table_name: tableName,
+        r2_bucket: r2Bucket,
+        r2_key: r2Key,
+        action,
+        status,
+        summary_json: summaryJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (
+      query.includes('FROM data_lifecycle_request_items') &&
+      query.includes('WHERE request_id = ?') &&
+      query.includes('ORDER BY created_at ASC, id ASC')
+    ) {
+      const [requestId] = bindings;
+      const rows = this.state.dataLifecycleRequestItems
+        .filter((row) => row.request_id === requestId)
+        .slice()
+        .sort((a, b) => (
+          String(a.created_at || '').localeCompare(String(b.created_at || ''))
+          || String(a.id || '').localeCompare(String(b.id || ''))
+        ));
+      return { results: deepClone(rows) };
+    }
+
+    if (query === "SELECT id FROM data_lifecycle_request_items WHERE request_id = ? AND status = 'blocked' LIMIT 1") {
+      const [requestId] = bindings;
+      const row = this.state.dataLifecycleRequestItems.find((entry) => entry.request_id === requestId && entry.status === 'blocked');
+      return row ? { id: row.id } : null;
+    }
+
     if (
       query.startsWith('SELECT id, email, role, status, created_at, updated_at, email_verified_at, verification_method FROM users')
       && query.includes('ORDER BY created_at DESC, id DESC LIMIT ?')
@@ -1095,6 +1297,26 @@ class MockD1 {
       return this.state.linkedWallets.find((row) => row.user_id === userId) || null;
     }
 
+    if (query === 'SELECT id, address_display, address_normalized, chain_id, is_primary, linked_at, last_login_at, created_at, updated_at FROM linked_wallets WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.linkedWallets
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          id: row.id,
+          address_display: row.address_display,
+          address_normalized: row.address_normalized,
+          chain_id: row.chain_id,
+          is_primary: row.is_primary,
+          linked_at: row.linked_at,
+          last_login_at: row.last_login_at ?? null,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        }));
+      return { results: rows };
+    }
+
     if (query === 'SELECT id, user_id, address_normalized, address_display, chain_id, is_primary, linked_at, last_login_at, created_at, updated_at FROM linked_wallets WHERE address_normalized = ? LIMIT 1') {
       const [addressNormalized] = bindings;
       return this.state.linkedWallets.find((row) => row.address_normalized === addressNormalized) || null;
@@ -1228,6 +1450,11 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT user_id, display_name, bio, website, youtube_url, has_avatar, avatar_updated_at, created_at, updated_at FROM profiles WHERE user_id = ? LIMIT 1') {
+      const [userId] = bindings;
+      return deepClone(this.state.profiles.find((row) => row.user_id === userId) || null);
+    }
+
     if (query.startsWith('INSERT INTO profiles (user_id, display_name, bio, website, youtube_url, created_at, updated_at) VALUES')) {
       const [userId, displayName, bio, website, youtubeUrl, createdAt, updatedAt] = bindings;
       const existing = this.state.profiles.find((row) => row.user_id === userId);
@@ -1289,6 +1516,21 @@ class MockD1 {
       return {
         c: this.state.favorites.filter((row) => row.user_id === userId).length,
       };
+    }
+
+    if (query === 'SELECT item_type, item_id, title, created_at FROM favorites WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.favorites
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          item_type: row.item_type,
+          item_id: row.item_id,
+          title: row.title ?? null,
+          created_at: row.created_at ?? null,
+        }));
+      return { results: rows };
     }
 
     if (query === 'INSERT OR IGNORE INTO favorites (user_id, item_type, item_id, title, thumb_url) VALUES (?, ?, ?, ?, ?)') {
@@ -1362,6 +1604,22 @@ class MockD1 {
           }
           return base;
         });
+      return { results: rows };
+    }
+
+    if (query === 'SELECT id, name, slug, status, created_at FROM ai_folders WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.aiFolders
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          status: row.status ?? 'active',
+          created_at: row.created_at,
+        }));
       return { results: rows };
     }
 
@@ -2169,6 +2427,29 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query === 'SELECT id, folder_id, r2_key, prompt, model, steps, seed, visibility, published_at, created_at, thumb_key, medium_key FROM ai_images WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.aiImages
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          id: row.id,
+          folder_id: row.folder_id ?? null,
+          r2_key: row.r2_key,
+          prompt: row.prompt,
+          model: row.model,
+          steps: row.steps,
+          seed: row.seed,
+          visibility: row.visibility,
+          published_at: row.published_at ?? null,
+          created_at: row.created_at,
+          thumb_key: row.thumb_key ?? null,
+          medium_key: row.medium_key ?? null,
+        }));
+      return { results: rows };
+    }
+
     if (query.startsWith('SELECT id, folder_id, prompt, model, steps, seed, created_at') && query.includes('FROM ai_images WHERE user_id = ?')) {
       let index = 0;
       const userId = bindings[index++];
@@ -2438,6 +2719,28 @@ class MockD1 {
         has_avatar: profile?.has_avatar ?? null,
         avatar_updated_at: profile?.avatar_updated_at ?? null,
       };
+    }
+
+    if (query === 'SELECT id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, poster_r2_key FROM ai_text_assets WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.aiTextAssets
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          id: row.id,
+          folder_id: row.folder_id ?? null,
+          r2_key: row.r2_key,
+          title: row.title,
+          file_name: row.file_name,
+          source_module: row.source_module,
+          mime_type: row.mime_type,
+          size_bytes: row.size_bytes,
+          preview_text: row.preview_text ?? '',
+          created_at: row.created_at,
+          poster_r2_key: row.poster_r2_key ?? null,
+        }));
+      return { results: rows };
     }
 
     if (query.includes('SELECT id, folder_id, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at') && query.includes('FROM ai_text_assets WHERE user_id = ?')) {
@@ -3476,6 +3779,28 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === 'SELECT id, scope, status, provider, model, prompt, output_r2_key, poster_r2_key, created_at, completed_at, error_code FROM ai_video_jobs WHERE user_id = ? ORDER BY created_at DESC') {
+      const [userId] = bindings;
+      const rows = this.state.aiVideoJobs
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .map((row) => ({
+          id: row.id,
+          scope: row.scope,
+          status: row.status,
+          provider: row.provider,
+          model: row.model,
+          prompt: row.prompt ?? null,
+          output_r2_key: row.output_r2_key ?? null,
+          poster_r2_key: row.poster_r2_key ?? null,
+          created_at: row.created_at,
+          completed_at: row.completed_at ?? null,
+          error_code: row.error_code ?? null,
+        }));
+      return { results: rows };
+    }
+
     if (query.startsWith('SELECT id, user_id, scope, status, provider, model, prompt, input_json, request_hash, provider_task_id, idempotency_key, attempt_count, max_attempts, next_attempt_at, locked_until, output_r2_key, output_url') && query.endsWith('FROM ai_video_jobs WHERE user_id = ? AND scope = ? AND idempotency_key = ?')) {
       const [userId, scope, idempotencyKey] = bindings;
       return deepClone(this.state.aiVideoJobs.find((row) => row.user_id === userId && row.scope === scope && row.idempotency_key === idempotencyKey) || null);
@@ -3702,6 +4027,64 @@ class MockD1 {
         changes += 1;
       }
       return { success: true, meta: { changes } };
+    }
+
+    if (query === 'SELECT id, action, created_at FROM user_activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT 100') {
+      const [userId] = bindings;
+      const rows = this.state.userActivityLog
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 100)
+        .map((row) => ({ id: row.id, action: row.action, created_at: row.created_at }));
+      return { results: rows };
+    }
+
+    if (query === 'SELECT id, day_start, status, created_at, consumed_at FROM ai_daily_quota_usage WHERE user_id = ? ORDER BY created_at DESC LIMIT 100') {
+      const [userId] = bindings;
+      const rows = this.state.aiDailyQuotaUsage
+        .filter((row) => row.user_id === userId)
+        .slice()
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 100)
+        .map((row) => ({
+          id: row.id,
+          day_start: row.day_start,
+          status: row.status,
+          created_at: row.created_at,
+          consumed_at: row.consumed_at ?? null,
+        }));
+      return { results: rows };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.sessions.filter((row) => row.user_id === userId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM password_reset_tokens WHERE user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.passwordResetTokens.filter((row) => row.user_id === userId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM email_verification_tokens WHERE user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.emailVerificationTokens.filter((row) => row.user_id === userId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM siwe_challenges WHERE user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.siweChallenges.filter((row) => row.user_id === userId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM admin_mfa_credentials WHERE admin_user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.adminMfaCredentials.filter((row) => row.admin_user_id === userId).length };
+    }
+
+    if (query === 'SELECT COUNT(*) AS cnt FROM admin_audit_log WHERE target_user_id = ?') {
+      const [userId] = bindings;
+      return { cnt: this.state.adminAuditLog.filter((row) => row.target_user_id === userId).length };
     }
 
     throw new Error(`Unsupported query in test harness: ${query}`);

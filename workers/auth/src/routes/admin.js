@@ -42,6 +42,7 @@ import {
   resolvePaginationLimit,
 } from "../lib/pagination.js";
 import { handleAdminAI } from "./admin-ai.js";
+import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
 import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
@@ -155,6 +156,11 @@ export async function handleAdmin(ctx) {
   const adminAiResult = await handleAdminAI(ctx);
   if (adminAiResult) {
     return adminAiResult;
+  }
+
+  const dataLifecycleResult = await handleAdminDataLifecycle(ctx);
+  if (dataLifecycleResult) {
+    return dataLifecycleResult;
   }
 
   // GET /api/admin/me
