@@ -954,6 +954,10 @@ function validateWorkflowCompatibility(context) {
     "npm run check:secrets",
     "npm run check:dom-sinks",
     "npm run check:route-policies",
+    "npm run test:operational-readiness",
+    "npm run check:operational-readiness",
+    "npm run check:live-health",
+    "npm run check:live-security-headers",
     "npm run check:js",
   ]) {
     if (!includesRouteLiteral(workflowSource, command)) {

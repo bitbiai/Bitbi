@@ -1,8 +1,16 @@
 # Phase 1 Observability Baseline
 
-Date: 2026-04-25
+Date: 2026-04-26
 
-Scope: observability baseline for Phase 1-A and Phase 1-B async admin AI video jobs. This is not a full SLO/alerting program.
+Scope: observability baseline for Phase 1-A through Phase 1-F. The original focus was async admin AI video jobs; Phase 1-F adds broader event taxonomy, SLO/alert candidates, runbooks, health probes, and live-check scripts. This is still not proof that Cloudflare dashboards or alert rules are configured.
+
+Related Phase 1-F operational documents:
+
+- `docs/OBSERVABILITY_EVENTS.md`
+- `docs/SLO_ALERT_BASELINE.md`
+- `docs/BACKUP_RESTORE_DRILL.md`
+- `docs/runbooks/`
+- `PHASE1F_OPERATIONAL_READINESS_REPORT.md`
 
 ## Logged Events
 
@@ -84,7 +92,9 @@ Cloudflare dashboard or log analytics should track:
 
 ## Current Limitations
 
-- Logs are present, but dashboards, alert rules, runbooks, and SLO burn-rate alerting are not repo-enforced.
+- Logs and runbooks are present, but Cloudflare dashboards, alert rules, and SLO burn-rate alerting are not repo-enforced.
 - Phase 1-C adds admin-only APIs for poison-message and failed-job inspection, but there is no full browser UI for browsing job timelines or poison-message records.
 - Queue processing uses short provider task create/poll routes for the async path, but the legacy synchronous compatibility route still exists behind `ALLOW_SYNC_VIDEO_DEBUG=true` and should be retired after staging verification.
 - Cloudflare dashboards and alerts must still be configured outside this document or added through future repo-controlled IaC/drift checks.
+- Phase 1-F live health/header checks skip by default in normal CI; they must be run with `--require-live` and explicit URLs for staging/production evidence.
+- Backup/restore procedures are documented but not proven until a staging drill is executed and recorded.

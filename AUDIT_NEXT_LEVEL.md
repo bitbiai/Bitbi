@@ -19,6 +19,7 @@ Reference documents:
 - `PHASE1C_REMEDIATION_REPORT.md` contains the Phase 1-C sync-route restriction, admin poison/failed-job inspection, quality-gate, validation, and deploy-readiness evidence.
 - `PHASE1D_SECRET_ROTATION_REPORT.md` contains the Phase 1-D purpose-specific security secret inventory, dual-read/single-write compatibility behavior, validation evidence, rollout plan, and rollback guidance.
 - `PHASE1E_ROUTE_POLICY_REPORT.md` contains the Phase 1-E auth-worker route policy registry, coverage guard, CI/preflight integration, validation evidence, and remaining route-policy migration risks.
+- `PHASE1F_OPERATIONAL_READINESS_REPORT.md` contains the Phase 1-F health/readiness, live-check, SLO, runbook, backup/restore drill, queue/backlog, validation, and remaining operational-readiness evidence.
 - `PHASE1_OBSERVABILITY_BASELINE.md` contains the initial async video job observability baseline.
 - `AUDIT_ACTION_PLAN.md` tracks the top 20 findings in original priority order with current status, evidence, remaining risk, and next action.
 
@@ -92,6 +93,15 @@ Phase 1-E completed summary:
 - Integrated `npm run check:route-policies` into package scripts, release planning, release compatibility workflow checks, CI, targeted JS syntax checks, and Worker tests.
 - `PHASE1E_ROUTE_POLICY_REPORT.md` documents route inventory coverage, deferred routes, registry design, checks, validation, and remaining central-enforcement risks.
 
+Phase 1-F completed summary:
+
+- Added public-safe liveness probes for the AI and contact Workers: `GET /health` in `workers/ai/src/index.js` and `workers/contact/src/index.js`.
+- Added skipped-by-default live checks: `scripts/check-live-health.mjs` and `scripts/check-live-security-headers.mjs`, with `--require-live` for staging/production evidence.
+- Added repo-owned operational readiness checks through `scripts/check-operational-readiness.mjs` and `scripts/test-operational-readiness.mjs`.
+- Added `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md`, `docs/BACKUP_RESTORE_DRILL.md`, and service/failure-mode runbooks under `docs/runbooks/`.
+- Integrated the operational readiness checks into package scripts, release planning, release compatibility workflow checks, CI, and targeted JS syntax checks.
+- `PHASE1F_OPERATIONAL_READINESS_REPORT.md` documents the inventory, health/readiness behavior, scripts, runbooks, SLO/alert baseline, validation evidence, and remaining live-verification gaps.
+
 Findings resolved:
 
 | Original finding | Current status | Evidence |
@@ -118,6 +128,7 @@ Findings reduced but not fully resolved:
 | Synchronous AI video provider polling | Reduced | The default admin UI and async queue path no longer call the old long synchronous provider route. Phase 1-C default-disables `/api/admin/ai/test-video` unless `ALLOW_SYNC_VIDEO_DEBUG=true`, but the route still exists for controlled admin/debug fallback. |
 | Purpose-specific security secrets | Reduced | Phase 1-D separates new session, pagination, admin MFA encryption/proof/recovery, and AI save-reference material from `SESSION_SECRET`; legacy fallback remains during the migration window. |
 | Route security policy scattered across handlers | Reduced | `workers/auth/src/app/route-policy.js`, `scripts/check-route-policies.mjs`, source route-policy markers, CI/preflight integration, and `tests/workers.spec.js` now provide explicit high-risk auth-worker route metadata and coverage checks. |
+| Missing operational runbooks/SLO baseline | Reduced | `docs/SLO_ALERT_BASELINE.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/BACKUP_RESTORE_DRILL.md`, `docs/runbooks/*`, and `PHASE1F_OPERATIONAL_READINESS_REPORT.md` define repo-owned operational expectations and incident procedures, but Cloudflare alerts and restore drills remain unproven. |
 
 Findings still open:
 
@@ -131,9 +142,9 @@ Current merge/deploy status:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-E validation | Phase 1-E validation passed: `npm run test:workers` 301/301, `npm run test:static` 155/155, `npm run check:route-policies`, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-E files listed in `PHASE1E_ROUTE_POLICY_REPORT.md`, including untracked files, must be committed together. |
-| Production deploy readiness | Blocked | Do not deploy until all new `workers/auth` purpose-specific secrets are provisioned, legacy `SESSION_SECRET` remains present while fallback is enabled, matching `AI_SERVICE_AUTH_SECRET` exists in both Workers, `SERVICE_AUTH_REPLAY` is deployed, auth migrations `0028`-`0030` are applied, `bitbi-ai-video-jobs` and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, and staging verification passes. |
-| Current recommended next phase | Phase 1-F / Phase 2 planning | Provision and verify Phase 1-D secrets in staging, define the fallback-disable window, stabilize route-policy metadata, then continue IaC/drift/security gates and broader SaaS platform work. |
+| Merge readiness | Conditional pass after Phase 1-F validation | Phase 1-F validation passed: `npm run test:workers` 303/303, `npm run test:static` 155/155, operational readiness checks, `npm run release:preflight`, and `git diff --check`. All changed/new Phase 1-F files listed in `PHASE1F_OPERATIONAL_READINESS_REPORT.md`, including untracked files, must be committed together. |
+| Production deploy readiness | Blocked | Do not deploy until all required Worker secrets/bindings are live-verified, auth migrations `0028`-`0030` are applied, `SERVICE_AUTH_REPLAY`, `bitbi-ai-video-jobs`, and `USER_IMAGES` are verified, `VIDU_API_KEY` is provisioned if Vidu async jobs are enabled, `ALLOW_SYNC_VIDEO_DEBUG` is absent/false unless explicitly approved, live health/header checks run with `--require-live`, dashboard-managed WAF/header/RUM/alert controls are verified, and staging verification passes. |
+| Current recommended next phase | Phase 1-G / Phase 2 planning | Run live staging checks, configure/verify Cloudflare alerts, execute a staging restore drill, add dashboard/IaC drift checks, then continue broader SaaS platform work. |
 
 ## Executive Summary
 

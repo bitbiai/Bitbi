@@ -49,6 +49,17 @@ function protectionsUnavailableResponse(origin) {
     });
 }
 
+function healthResponse() {
+    return new Response(JSON.stringify({ ok: true, service: 'bitbi-contact', status: 'ok' }), {
+        status: 200,
+        headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+        },
+    });
+}
+
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
@@ -56,6 +67,10 @@ export default {
         const correlationId = getCorrelationId(request);
         const requestInfo = { request, pathname, method: request.method };
         const origin = request.headers.get('Origin') || '';
+
+        if (pathname === '/health' && request.method === 'GET') {
+            return healthResponse();
+        }
 
         if (request.method === 'OPTIONS') {
             return new Response(null, { status: 204, headers: corsHeaders(origin) });

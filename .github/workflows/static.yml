@@ -56,6 +56,14 @@ jobs:
         run: npm run check:dom-sinks
       - name: Check auth route policy coverage
         run: npm run check:route-policies
+      - name: Test operational readiness checks
+        run: npm run test:operational-readiness
+      - name: Check operational readiness docs
+        run: npm run check:operational-readiness
+      - name: Run live health check in skipped mode
+        run: npm run check:live-health
+      - name: Run live security header check in skipped mode
+        run: npm run check:live-security-headers
       - name: Check targeted JavaScript syntax
         run: npm run check:js
       - name: Run release compatibility tests

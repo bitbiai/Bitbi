@@ -1068,6 +1068,44 @@ test.describe('Phase 1-E auth route policy registry', () => {
   });
 });
 
+test.describe('Phase 1-F worker health endpoints', () => {
+  test('AI worker exposes a public-safe health endpoint without requiring internal service auth', async () => {
+    const aiWorker = await loadWorker('workers/ai/src/index.js');
+    const response = await aiWorker.fetch(
+      new Request('https://bitbi-ai.internal/health'),
+      {},
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(body).toMatchObject({ ok: true, service: 'bitbi-ai', status: 'ok' });
+    expect(serialized).not.toContain('AI_SERVICE_AUTH_SECRET');
+    expect(serialized).not.toContain('SERVICE_AUTH_REPLAY');
+  });
+
+  test('contact worker exposes a public-safe health endpoint without contact secrets', async () => {
+    const contactWorker = await loadWorker('workers/contact/src/index.js');
+    const response = await contactWorker.fetch(
+      new Request('https://contact.bitbi.ai/health'),
+      {},
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(body).toMatchObject({ ok: true, service: 'bitbi-contact', status: 'ok' });
+    expect(serialized).not.toContain('RESEND_API_KEY');
+    expect(serialized).not.toContain('PUBLIC_RATE_LIMITER');
+  });
+});
+
 test.describe('Wallet SIWE routes', () => {
   const walletPrivateKey = '0x59c6995e998f97a5a0044966f094538e2d7d7b6c8f4f7f22e9f11d8932ff9d14';
   const otherWalletPrivateKey = '0x8b3a350cf5c34c9194ca3a545d5cb4d0a27f9a9f1d3d3b5c9b5f6a6d7b8c9d10';

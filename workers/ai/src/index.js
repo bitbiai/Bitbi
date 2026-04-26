@@ -24,6 +24,21 @@ import { recordServiceAuthNonce } from "./lib/service-auth-replay.js";
 import { isRequestBodyError } from "../../../js/shared/request-body.mjs";
 export { AiServiceAuthReplayDurableObject } from "./lib/service-auth-replay-do.js";
 
+function healthResponse() {
+  return new Response(JSON.stringify({
+    ok: true,
+    service: "bitbi-ai",
+    status: "ok",
+  }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -31,6 +46,10 @@ export default {
     const method = request.method;
     const ctx = { request, env, url, pathname, method, correlationId: getCorrelationId(request) };
     let response = null;
+
+    if (pathname === "/health" && method === "GET") {
+      return withCorrelationId(healthResponse(), ctx.correlationId);
+    }
 
     if (pathname.startsWith("/internal/ai/")) {
       try {

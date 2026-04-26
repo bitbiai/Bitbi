@@ -2,7 +2,7 @@
 
 Date: 2026-04-24
 
-Last updated: 2026-04-25 after Phase 0-A, Phase 0-A+, Phase 0-B, Phase 1-A, Phase 1-B, Phase 1-C, Phase 1-D purpose-specific secret hardening, and Phase 1-E route policy registry hardening.
+Last updated: 2026-04-26 after Phase 0-A, Phase 0-A+, Phase 0-B, Phase 1-A, Phase 1-B, Phase 1-C, Phase 1-D purpose-specific secret hardening, Phase 1-E route policy registry hardening, and Phase 1-F operational readiness foundations.
 
 Scope: top 20 highest-impact fixes for `/Users/btc2020/Bitbi/Bitbi`, preserved in exact original priority order. This file is now a status-tracked action plan. Historical audit findings are not deleted; each item records current status, evidence, remaining risk, and the next action.
 
@@ -17,6 +17,7 @@ Source documents:
 - `PHASE1C_REMEDIATION_REPORT.md`
 - `PHASE1D_SECRET_ROTATION_REPORT.md`
 - `PHASE1E_ROUTE_POLICY_REPORT.md`
+- `PHASE1F_OPERATIONAL_READINESS_REPORT.md`
 - `PHASE1_OBSERVABILITY_BASELINE.md`
 - Current git status and diff as of this update
 - Phase 0-A/0-A+/0-B changed application, config, CI, and test files
@@ -25,11 +26,11 @@ Source documents:
 
 | Area | Status | Evidence | Remaining risk | Next action |
 | --- | --- | --- | --- | --- |
-| Merge readiness | Conditional pass after Phase 1-E validation | `npm run test:workers` PASS 301/301, `npm run test:static` PASS 155/155, `npm run check:route-policies` PASS for 88 registered policies, `npm run test:release-compat` PASS, `npm run test:release-plan` PASS, `npm run test:cloudflare-prereqs` PASS, `npm run validate:cloudflare-prereqs` PASS repo config / production BLOCKED, quality gates PASS, `npm run build:static` PASS, `npm run release:preflight` PASS, and `git diff --check` PASS. | A partial commit would break route-policy coverage, CI/release preflight integration, purpose-specific secret validation, legacy compatibility, release prerequisite checks, or documentation accuracy. Production deploy still requires live Cloudflare verification and secret provisioning. | Track and commit every Phase 1-E file listed in `PHASE1E_ROUTE_POLICY_REPORT.md`, including untracked `PHASE1E_ROUTE_POLICY_REPORT.md`, `scripts/check-route-policies.mjs`, and `workers/auth/src/app/route-policy.js`. |
+| Merge readiness | Conditional pass after Phase 1-F validation | `npm run test:workers` PASS 303/303, `npm run test:static` PASS 155/155, `npm run test:release-compat` PASS, `npm run test:release-plan` PASS, `npm run test:cloudflare-prereqs` PASS, `npm run validate:cloudflare-prereqs` PASS repo config / production BLOCKED, operational checks PASS/skipped as designed, `npm run build:static` PASS, `npm run release:preflight` PASS, and `git diff --check` PASS. | A partial commit would break health probes, operational readiness checks, CI/release preflight integration, route-policy checks, purpose-specific secret validation, release prerequisites, or documentation accuracy. Production deploy still requires live Cloudflare verification and secret provisioning. | Track and commit every Phase 1-F file listed in `PHASE1F_OPERATIONAL_READINESS_REPORT.md`. |
 | Production deploy readiness | Blocked | Repo config now declares `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy compatibility `SESSION_SECRET`, `AI_SERVICE_AUTH_SECRET`, `SERVICE_AUTH_REPLAY`, auth migrations through `0030`, `AI_VIDEO_JOBS_QUEUE`, and the existing `USER_IMAGES` R2 binding. `ALLOW_SYNC_VIDEO_DEBUG` must remain absent/false unless a controlled emergency debug rollback is approved. | Live Cloudflare secrets/bindings/queues/R2/D1 migrations were not verified by this implementation pass. Missing new auth secrets fail closed; wrong new secrets can break sessions, MFA, cursors, or save references; missing legacy fallback can break pre-Phase 1-D material before expiry/migration. | Provision/verify all new auth purpose secrets, keep `SESSION_SECRET` present while fallback is enabled, verify matching `AI_SERVICE_AUTH_SECRET`, deploy `SERVICE_AUTH_REPLAY`, apply migrations `0028`-`0030`, verify `USER_IMAGES` and `bitbi-ai-video-jobs`, provision `VIDU_API_KEY` if Vidu async jobs are enabled, keep `ALLOW_SYNC_VIDEO_DEBUG` disabled, and run staging verification before production. |
-| Phase 0-A/0-A+/0-B/1-A/1-B/1-C/1-D/1-E security posture | Reduced immediate risk | HMAC service auth, nonce replay protection, fail-closed limiters, body-size limits, durable MFA failed-attempt state, config validation, async admin video jobs, queue-safe provider task create/poll, R2 output ingest, poison-message persistence, default-disabled sync video debug route, admin poison/failed-job inspection APIs, quality-gate scripts/tests, purpose-specific auth secrets, and high-risk auth-worker route policy registry/checks are present. | This is not full SaaS maturity. Legacy `SESSION_SECRET` fallback remains during migration, MFA ciphertexts lack key IDs/lazy re-encryption, the sync video compatibility route still exists behind an explicit debug flag, route policy is metadata/checking rather than full centralized enforcement, dashboard controls are not fully repo-enforced, and tenant/billing/compliance/SLO work remains open. | Complete Cloudflare staging verification, provision Phase 1-D secrets, define the legacy fallback-disable date, keep `ALLOW_SYNC_VIDEO_DEBUG` disabled by default, keep route-policy checks blocking, and continue broader SaaS platform gaps. |
+| Phase 0-A through 1-F security/operations posture | Reduced immediate risk | HMAC service auth, nonce replay protection, fail-closed limiters, body-size limits, durable MFA failed-attempt state, config validation, async admin video jobs, queue-safe provider task create/poll, R2 output ingest, poison-message persistence, default-disabled sync video debug route, admin poison/failed-job inspection APIs, quality-gate scripts/tests, purpose-specific auth secrets, high-risk auth-worker route policy registry/checks, public-safe AI/contact health probes, operational readiness checks, SLO/event docs, backup/restore plan, and incident runbooks are present. | This is not full SaaS maturity. Legacy `SESSION_SECRET` fallback remains during migration, MFA ciphertexts lack key IDs/lazy re-encryption, route policy is metadata/checking rather than full centralized enforcement, live checks skip by default in CI, dashboard controls/alerts are not repo-enforced, restore drills are not executed, and tenant/billing/compliance/load-testing work remains open. | Complete Cloudflare staging verification, run live health/header checks with `--require-live`, execute a staging restore drill, add alert/drift automation, and continue broader SaaS platform gaps. |
 
-Current Phase 1-E files that must be included before merge are listed in `PHASE1E_ROUTE_POLICY_REPORT.md`. A partial commit would break route-policy coverage, CI/preflight integration, release prerequisite checks, or documentation accuracy.
+Current Phase 1-F files that must be included before merge are listed in `PHASE1F_OPERATIONAL_READINESS_REPORT.md`. A partial commit would break health probes, operational readiness checks, CI/preflight integration, release prerequisite checks, or documentation accuracy.
 
 ## Status Legend
 
@@ -54,7 +55,7 @@ Current Phase 1-E files that must be included before merge are listed in `PHASE1
 | 6 | Add fail-closed Worker config validation | Reduced | `workers/auth/src/lib/config.js` validates auth critical config including `SESSION_HASH_SECRET`, `PAGINATION_SIGNING_SECRET`, `ADMIN_MFA_ENCRYPTION_KEY`, `ADMIN_MFA_PROOF_SECRET`, `ADMIN_MFA_RECOVERY_HASH_SECRET`, `AI_SAVE_REFERENCE_SIGNING_SECRET`, legacy `SESSION_SECRET` while fallback is enabled, `DB`, and `AI_SERVICE_AUTH_SECRET` where needed. `workers/ai/src/lib/config.js` validates `AI_SERVICE_AUTH_SECRET` and `SERVICE_AUTH_REPLAY`. `scripts/validate-cloudflare-deploy-prereqs.mjs` validates repo config for critical secrets/bindings and marks production blocked when live validation is skipped. | Live Cloudflare config was not verified. Static headers, WAF, RUM, and some dashboard-managed resources are still not fully repo-enforced. Legacy fallback remains until operators disable it. | Provision all Phase 1-D secrets, run `npm run validate:cloudflare-prereqs -- --live` in staging where credentials are available, then add IaC/live drift checks in Phase 1. |
 | 7 | Replace synchronous AI video polling with async jobs | Reduced | Phase 1-B makes the admin UI default to `/api/admin/ai/video-jobs`, requires `Idempotency-Key`, moves queue processing to `/internal/ai/video-task/create` and `/internal/ai/video-task/poll`, ingests completed video/poster output into `USER_IMAGES`, and returns protected output routes. Phase 1-C makes `/api/admin/ai/test-video` default-disabled unless `ALLOW_SYNC_VIDEO_DEBUG=true`. `tests/workers.spec.js` and `tests/auth-admin.spec.js` cover default async UI, no default sync route call, debug route gating, duplicate queue messages, R2 ingest, and protected status/output behavior. | The legacy sync route still exists behind an explicit debug flag for emergency rollback. Full provider-specific production behavior still needs staging validation. | Keep `ALLOW_SYNC_VIDEO_DEBUG` disabled in production; retire the compatibility route after a confidence window. |
 | 8 | Add request body size limited parsers | Resolved for Phase 0-B scope | `js/shared/request-body.mjs` adds content-length and streaming limits. `workers/auth/src/lib/request.js`, `workers/contact/src/index.js`, and `workers/ai/src/lib/validate.js` use limited parsers. Prioritized auth/admin/MFA/profile/favorites/avatar/wallet/AI/contact/internal AI routes now enforce route-specific caps. `tests/workers.spec.js` covers oversized header, oversized stream, malformed JSON, wrong content type, avatar multipart, AI save, and contact body failures. | This is byte-limit hardening, not full schema validation or a complete SaaS abuse/cost platform. Large save routes intentionally still allow MB-scale payloads. | Keep body limits under test; add schema validation and cost-aware payload policies in Phase 1. |
-| 9 | Move Cloudflare dashboard controls into IaC or drift checks | Reduced | `scripts/validate-cloudflare-deploy-prereqs.mjs` validates repo declarations for required secrets including the Phase 1-D purpose-specific auth secrets, `SERVICE_AUTH_REPLAY`, migration `v1-service-auth-replay`, and critical auth bindings. `.github/workflows/static.yml` runs the prereq tests/validation. | Live resource verification is optional and was not run locally. WAF/static headers/RUM remain dashboard-managed and not repo-enforced. | Before deploy, run live/staging verification. Phase 1: move dashboard controls to IaC or add Cloudflare API drift checks. |
+| 9 | Move Cloudflare dashboard controls into IaC or drift checks | Reduced | `scripts/validate-cloudflare-deploy-prereqs.mjs` validates repo declarations for required secrets including the Phase 1-D purpose-specific auth secrets, `SERVICE_AUTH_REPLAY`, migration `v1-service-auth-replay`, and critical auth bindings. Phase 1-F adds skipped-by-default live health/header checks in `scripts/check-live-health.mjs` and `scripts/check-live-security-headers.mjs`, plus operational docs/runbooks. `.github/workflows/static.yml` runs the repo-side prereq and operational checks. | Live resource verification is optional and was not run locally. WAF/static headers/RUM and alert rules remain dashboard-managed and not repo-enforced. | Before deploy, run live/staging verification with `--require-live`. Phase 1-G/2: move dashboard controls and alerts to IaC or add Cloudflare API drift checks. |
 | 10 | Add CI security gates | Reduced | `.github/workflows/static.yml` includes root/worker installs/audits, Cloudflare prereq tests/validation, body-parser guard, route-policy guard, toolchain check, scanner tests, secret scan, DOM sink baseline, and targeted JS syntax check. `scripts/lib/release-plan.mjs` includes the stable gates in `release:preflight`. | CodeQL/SAST, dependency review, SBOM, license checks, and provider-side secret scanning are still missing as repo-defined blocking gates. Route policy is currently metadata/coverage checking, not full centralized enforcement. | Add CodeQL/Semgrep, dependency review, SBOM, and license policy once the lightweight gates remain stable; extend route-policy registry to remaining Workers/routes. |
 | 11 | Add lint/typecheck/checkJs and safe DOM rules | Reduced | Phase 1-C adds `.nvmrc`, `package.json` engines, `scripts/check-js.mjs`, `scripts/check-dom-sinks.mjs`, `config/dom-sink-baseline.json`, `scripts/check-secrets.mjs`, `scripts/check-toolchain.mjs`, and `scripts/test-quality-gates.mjs`. Phase 1-E adds syntax coverage for the route-policy script/module and a dedicated route-policy guard. Preflight/CI now run stable gates. | This is not a full TypeScript/checkJs or semantic lint migration. The DOM gate is a count baseline, so legacy sinks still require incremental remediation. | Add ESLint/Biome or TypeScript `checkJs` in report mode, then enforce on selected directories and changed files. |
 | 12 | Split the largest admin/frontend modules | Deferred to Phase 1 | Phase 0-A/0-A+ intentionally avoided broad frontend refactors. The large admin and wallet/frontend modules remain outside the hardening scope. | Large modules remain difficult to review and regression-test surgically. | Phase 1: extract pure helpers first, add tests, then split admin AI, wallet, and asset browser modules by domain. |
@@ -63,16 +64,16 @@ Current Phase 1-E files that must be included before merge are listed in `PHASE1
 | 15 | Introduce organization/team/tenant schema | Deferred to Phase 1 | No org/team/tenant schema was added. Current auth/media/AI flows remain user-centric by design for this hardening sprint. | B2B SaaS tenant isolation and enterprise account modeling remain absent. | Phase 1: design organizations, memberships, scoped roles, org-owned assets, and migration/backfill strategy. |
 | 16 | Add billing, plans, entitlements, and quota enforcement | Deferred to Phase 1 | Phase 0-A/0-A+ did not introduce billing or subscription models. Existing AI quotas remain product-specific limits rather than plan entitlements. | Monetization, plan limits, webhook idempotency, and cost governance remain incomplete. | Phase 1: select billing provider, design webhook idempotency, create entitlement tables, and map current AI limits to plans. |
 | 17 | Add data export/deletion and retention jobs | Deferred to Phase 1 | No compliance-grade export/deletion workflow was added. Existing cleanup jobs do not constitute user data lifecycle tooling. | GDPR/compliance readiness, support operations, and user data deletion/export remain incomplete. | Phase 1: inventory PII/assets, define retention policy, implement export jobs, then deletion with recovery-safe grace period. |
-| 18 | Add observability, SLOs, and alert definitions | Reduced | Phase 1-B expands async video lifecycle events for provider task creation, polling, ingest success/failure, retry scheduling, poison recording, and duplicate/no-op behavior. Phase 1-C adds safe sync-debug warning events and admin inspection APIs for poison/failed video jobs. `PHASE1_OBSERVABILITY_BASELINE.md` now includes queue/R2/poison/sync-debug indicators. | Dashboards, alert rules, runbooks, and SLO burn-rate alerts are still not repo-enforced. Coverage is strongest for async video jobs, not the whole SaaS surface. | Phase 1-E/Phase 2: define concrete Cloudflare dashboards/alerts and incident runbooks for auth, AI, media, contact, queues, and rate-limit degradation. |
+| 18 | Add observability, SLOs, and alert definitions | Reduced | Phase 1-B expands async video lifecycle events for provider task creation, polling, ingest success/failure, retry scheduling, poison recording, and duplicate/no-op behavior. Phase 1-C adds safe sync-debug warning events and admin inspection APIs for poison/failed video jobs. Phase 1-F adds `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md`, `docs/BACKUP_RESTORE_DRILL.md`, required incident runbooks under `docs/runbooks/`, public-safe AI/contact health endpoints, and operational readiness checks. | Cloudflare dashboards, alert rules, burn-rate alerts, restore-drill evidence, and load baselines are still not repo-enforced or live-proven. | Configure/verify Cloudflare alerts from the SLO baseline, execute a staging restore drill, and add dashboard/IaC drift checks. |
 | 19 | Add load/performance and frontend budget tests | Deferred to Phase 1 | No k6/Artillery/Lighthouse/WebPageTest budgets were added. Phase 0 validation focused on static, Worker, release, dependency, and build checks. | Capacity limits and frontend performance regressions remain unmeasured. | Phase 1: add API load tests for auth/admin/activity/AI/media and frontend budgets for homepage/account/admin. |
 | 20 | Pin runtime/toolchain versions consistently | Resolved for Node/npm baseline | Phase 1-C adds `.nvmrc` with Node 20, `package.json`/`package-lock.json` engines for Node 20/npm 10+, and `scripts/check-toolchain.mjs`. `.github/workflows/static.yml` continues to use Node 20 and now runs the toolchain check. | This does not pin every transitive tool binary outside npm, and local developers can still ignore engines unless they opt into enforcement. | Keep `check:toolchain` blocking; consider Volta/asdf or stricter engine enforcement only after team agreement. |
 
 ## Immediate Pre-Deploy / Phase 1 Backlog
 
-These are the highest-priority follow-ups after Phase 1-E and before broader Phase 1 SaaS work:
+These are the highest-priority follow-ups after Phase 1-F and before broader Phase 1 SaaS work:
 
 1. Keep validation green; re-run `npm run release:preflight` after any further application/config/test changes.
-2. Commit all Phase 1-E files together.
+2. Commit all Phase 1-F files together, including operational docs, runbooks, scripts, tests, and Worker health changes.
 3. Provision and verify the six new `workers/auth` purpose-specific secrets without printing values.
 4. Keep legacy `SESSION_SECRET` present while `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK` remains enabled.
 5. Provision and verify matching `AI_SERVICE_AUTH_SECRET` in both `workers/auth` and `workers/ai`.
@@ -85,6 +86,10 @@ These are the highest-priority follow-ups after Phase 1-E and before broader Pha
 12. Provision `VIDU_API_KEY` in `workers/ai` if Vidu Q3 Pro async jobs are enabled.
 13. Define the date and criteria for disabling `ALLOW_LEGACY_SECURITY_SECRET_FALLBACK`.
 14. Keep `npm run check:route-policies` blocking and extend route policy coverage after one stable release.
+15. Run `npm run check:live-health -- --require-live` with staging/production Worker URLs.
+16. Run `npm run check:live-security-headers -- --require-live` with the staging/production static URL.
+17. Configure Cloudflare alerts from `docs/SLO_ALERT_BASELINE.md` or document dashboard evidence.
+18. Execute and record a staging D1/R2 restore drill.
 
 ## Production Deploy Blockers
 
@@ -115,11 +120,13 @@ Do not deploy Phase 0-A/0-A+/0-B/1-A/1-B/1-C/1-D to production until all of thes
 - Staging verifies async admin video job create/status/queue processing before exposing it beyond controlled admin use.
 - Staging verifies admin MFA failed-attempt lockout and reset-on-success behavior.
 - Staging verifies new session creation, legacy session fallback/upgrade, admin MFA legacy decrypt/proof/recovery fallback, pagination cursor compatibility, and generated-image save-reference compatibility.
+- Staging verifies `GET /api/health`, AI `GET /health`, and contact `GET /health` through `npm run check:live-health -- --require-live` with explicit URLs.
+- Staging verifies live static security headers through `npm run check:live-security-headers -- --require-live` or records manual dashboard evidence for dashboard-managed headers.
 - `npm run release:preflight` passes for the final commit set.
 
 ## Validation Evidence Snapshot
 
-The latest Phase 1-E validation evidence is recorded in `PHASE1E_ROUTE_POLICY_REPORT.md`. Relevant results from this update:
+The latest Phase 1-F validation evidence is recorded in `PHASE1F_OPERATIONAL_READINESS_REPORT.md`. Relevant results from this update:
 
 | Command/check | Result | What it proves |
 | --- | --- | --- |
@@ -128,25 +135,31 @@ The latest Phase 1-E validation evidence is recorded in `PHASE1E_ROUTE_POLICY_RE
 | `npm run check:secrets` | PASS | No obvious committed secret patterns found. |
 | `npm run check:dom-sinks` | PASS | No new unreviewed DOM sinks above baseline. |
 | `npm run check:route-policies` | PASS | 88 registered high-risk auth-worker route policies validate and mutating dispatch markers are covered. |
+| `npm run test:operational-readiness` | PASS | New operational readiness helper tests pass. |
+| `npm run check:operational-readiness` | PASS | Required operational docs and runbooks exist. |
+| `npm run check:live-health` | PASS, SKIPPED | No live URL configured in normal CI; skipped mode is explicit and non-flaky. |
+| `npm run check:live-security-headers` | PASS, SKIPPED | No live URL configured in normal CI; skipped mode is explicit and non-flaky. |
 | `npm run check:js` | PASS | Targeted syntax checks pass for scripts and high-risk/new JS modules. |
 | `npm run check:worker-body-parsers` | PASS | Worker body parser guard remains green. |
-| `npm run test:workers` | PASS, 301/301 | Worker route/security regressions pass, including the Phase 1-E route policy registry test. |
-| `npm run test:static` | PASS, 155/155 | Static/admin UI suite remains green; Phase 1-E made no frontend behavior changes. |
-| `npm run test:release-compat` | PASS | Release compatibility contract now requires the route-policy CI workflow check. |
-| `npm run test:release-plan` | PASS | Release planner includes the stable route-policy guard in preflight recommendations. |
+| `npm run test:workers` | PASS, 303/303 | Worker route/security regressions pass, including Phase 1-F AI/contact health endpoint tests. |
+| `npm run test:static` | PASS, 155/155 | Static/admin UI suite remains green; Phase 1-F made no frontend behavior changes. |
+| `npm run test:release-compat` | PASS | Release compatibility contract now requires the operational CI workflow checks. |
+| `npm run test:release-plan` | PASS | Release planner includes the stable operational readiness and skipped-live checks in preflight recommendations. |
 | `npm run test:cloudflare-prereqs` | PASS | Cloudflare prereq validator covers present/missing config, live validation states, and `AI_VIDEO_JOBS_QUEUE`. |
 | `npm run validate:cloudflare-prereqs` | PASS for repo config; production blocked | Repo config is valid, live Cloudflare validation was skipped, and production deploy is correctly not marked ready. |
 | `npm run validate:release` | PASS | Release compatibility configuration validates. |
+| `npm run test:asset-version` | PASS | Asset version tests remain green. |
+| `npm run validate:asset-version` | PASS | Asset version validation remains green. |
 | `npm run build:static` | PASS | Static build succeeds. |
-| `npm run release:preflight` | PASS | Aggregated preflight passed after Phase 1-E changes, including route-policy guard, quality gates, release compatibility, Cloudflare prereq repo validation, body-parser guard, Worker tests, and release plan. |
+| `npm run release:preflight` | PASS | Aggregated preflight passed after Phase 1-F changes, including operational readiness checks, skipped-live checks, release compatibility, Cloudflare prereq repo validation, body-parser guard, Worker tests, and release plan. |
 | `git diff --check` | PASS | No whitespace errors in the final diff. |
 
-Checks not performed in the Phase 1-E implementation pass:
+Checks not performed in the Phase 1-F implementation pass:
 
 - Live Cloudflare secret/binding verification.
+- Live health/header checks with `--require-live`, because no staging/production URLs were configured in this local run.
 - Production deploy.
 - `npm run release:apply`.
 - Remote D1 migrations.
-- `npm run test:asset-version` and `npm run validate:asset-version`, because no asset-version/static asset source behavior changed and `npm run release:preflight` did not select static deploy checks for this Worker/validation-oriented diff.
 - Root/Worker package install/audit checks, because package dependencies and lockfiles did not change.
 - Markdown lint, because no repo markdown lint script is defined.
