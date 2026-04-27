@@ -2,6 +2,8 @@
 
 Date: 2026-04-26
 
+Last corrective update: 2026-04-27
+
 ## Executive Summary
 
 The Admin Control Plane phase adds a frontend-only operating surface inside the existing `admin/index.html` admin area. It surfaces implemented Phase 0 through Phase 2-J capabilities through existing sanitized admin APIs, preserves existing admin sections, and avoids backend rewrites, new dependencies, migrations, live billing activation, or production-affecting changes.
@@ -14,6 +16,21 @@ This phase does not prove production readiness. It makes the implemented backend
 - Reused existing admin APIs where they exist.
 - Added no backend APIs, migrations, bindings, secrets, dependencies, live payment activation, frontend framework, or production deployment.
 - Preserved existing Users, Content, Media, AI Lab, Access, and Activity admin sections.
+
+## Corrective Polish And Data Accuracy Pass
+
+The 2026-04-27 corrective pass fixed rendering defects found during manual review and audited the data/status copy for every new section.
+
+- Fixed card grids that could collapse into cramped columns on desktop/laptop widths.
+- Fixed control-plane detail rows where labels such as `Scope`, `Required checks`, `Secrets`, and `Live verification` could wrap vertically letter-by-letter.
+- Fixed badge/title layout so status badges wrap within card headers instead of overlapping titles or descriptions.
+- Preserved table readability by keeping dense data inside horizontal scrollers without causing document-level mobile overflow.
+- Changed ambiguous status badges from broad `Available`/`Green locally` language to narrower `API available`, `Run before merge`, `Review required`, `Production blocked`, and `Testmode only` labels.
+- Clarified that security/readiness cards are repo/static checklist state unless backed by an actual admin API response.
+- Expanded frontend sanitization filtering for summary fields containing secret/token/password/hash/signature/raw/payload/request-fingerprint/idempotency/R2 key/MFA/recovery/webhook/Stripe/service-auth/payment-method/card-like names.
+- Added duplicate-submit guards for manual credit grant and AI usage cleanup actions.
+- Kept AI cleanup dry-run as the default and expanded cleanup result counts to distinguish expired attempts, released reservations, replay metadata cleanup, replay object eligibility/deletion, skips, and failures.
+- Added no backend APIs, migrations, route-policy entries, live billing controls, or production-affecting behavior.
 
 ## Admin Sections Added
 
@@ -47,30 +64,37 @@ This phase does not prove production readiness. It makes the implemented backend
 
 ## Files Changed
 
+Corrective pass files changed:
+
 - `admin/index.html`
 - `css/admin/admin.css`
-- `js/pages/admin/main.js`
 - `js/pages/admin/control-plane.js`
-- `js/shared/auth-api.js`
-- `config/release-compat.json`
-- `scripts/check-js.mjs`
-- `scripts/lib/release-plan.mjs`
-- `scripts/test-release-compat.mjs`
 - `tests/auth-admin.spec.js`
 - `AUDIT_ACTION_PLAN.md`
 - `AUDIT_NEXT_LEVEL.md`
 - `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`
+
+The original Admin Control Plane phase also touched admin integration/release-check files, but this corrective pass made no backend API, route-policy, release compatibility, migration, or dependency changes.
 
 ## Tests Added/Updated
 
 - Added admin static/Playwright coverage for:
   - command center rendering
   - new nav sections and routing
+  - dashboard card minimum width on desktop
+  - security detail labels not collapsing into vertical one-letter columns
+  - badge/title non-overlap in dashboard cards
+  - tablet admin nav reachability
+  - mobile document-level overflow prevention with control-plane tables
   - organization list/detail
   - billing plans/org billing/manual credit grant idempotency header
+  - credit grant reason required before side effects
   - sanitized Stripe/Testmode billing event detail
   - AI usage attempt detail and cleanup dry-run
+  - 503 fail-closed backend states rendering as unavailable instead of fake success
   - lifecycle request/archive read-only surfaces
+  - absence of irreversible lifecycle delete/execute controls
+  - absence of live billing/Stripe activation controls
   - video poison/failed-job operations visibility
   - readiness/settings boundaries
   - unavailable backend capability state
@@ -89,9 +113,10 @@ Initial baseline before edits:
 Validation after implementation:
 
 - `npm run check:js`: passed
+- `npx playwright test tests/auth-admin.spec.js -g "Admin Control Plane"`: passed, 4 tests after the corrective pass
 - `npm run check:route-policies`: passed
 - `npm run test:workers`: passed, 346 tests
-- `npm run test:static`: passed, 157 tests
+- `npm run test:static`: passed, 159 tests
 - `npm run test:release-compat`: passed
 - `npm run test:release-plan`: passed
 - `npm run test:cloudflare-prereqs`: passed
@@ -105,7 +130,6 @@ Validation after implementation:
 - `npm run build:static`: passed
 - `npm run release:preflight`: passed
 - `git diff --check`: passed
-- `npx playwright test tests/auth-admin.spec.js -g "Admin Control Plane"`: passed, 2 tests
 
 Notes:
 
@@ -148,8 +172,8 @@ Blocked. This admin UI does not prove production readiness. Production remains b
 
 ## Next Recommended Actions
 
-1. Complete the full validation suite and update this report with final command results.
-2. Perform a focused pre-merge review of `admin/index.html`, `js/pages/admin/control-plane.js`, `js/shared/auth-api.js`, `css/admin/admin.css`, and `tests/auth-admin.spec.js`.
-3. Stage with backend migrations through `0038` and verify every enabled admin section against real staging data.
-4. Add backend dry-run support before exposing any more lifecycle cleanup/destructive-like actions in the UI.
+1. Perform a focused pre-merge review of `admin/index.html`, `js/pages/admin/control-plane.js`, `css/admin/admin.css`, and `tests/auth-admin.spec.js`.
+2. Stage with backend migrations through `0038` and verify every enabled admin section against real staging data.
+3. Add backend dry-run support before exposing any more lifecycle cleanup/destructive-like actions in the UI.
+4. Verify the manual credit grant and AI cleanup controls with staging admin MFA, same-origin, idempotency, and limiter behavior.
 5. Decide the next roadmap track: Stripe live-readiness hardening, video AI entitlement wiring, or tenant ownership migration.

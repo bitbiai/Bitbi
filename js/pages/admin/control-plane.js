@@ -55,6 +55,8 @@ const STATUS_VARIANTS = {
     expired: 'disabled',
 };
 
+const SENSITIVE_KEY_PATTERN = /secret|token|password|hash|signature|raw|payload|request_?fingerprint|idempotency|r2_?key|private_?key|mfa|recovery|webhook_?secret|stripe_?secret|service_?auth|card|payment_?method|credential|authorization|cookie|session/i;
+
 function byId(id) {
     return document.getElementById(id);
 }
@@ -65,6 +67,10 @@ function clear(node) {
 
 function appendText(parent, text) {
     parent.appendChild(document.createTextNode(text == null || text === '' ? '-' : String(text)));
+}
+
+function notReported(value) {
+    return value == null || value === '' ? 'Not reported' : value;
 }
 
 function el(tag, className, text) {
@@ -91,6 +97,19 @@ function shortId(value) {
     return `${text.slice(0, 10)}...${text.slice(-6)}`;
 }
 
+function isSensitiveKey(key) {
+    return SENSITIVE_KEY_PATTERN.test(String(key || ''));
+}
+
+function safeSummaryValue(value) {
+    if (value == null || value === '') return 'Not reported';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'Not reported';
+    if (Array.isArray(value)) return `[${value.length} items]`;
+    if (typeof value === 'object') return '[object summary]';
+    return String(value);
+}
+
 function createIdempotencyKey(prefix) {
     const bytes = new Uint8Array(12);
     crypto.getRandomValues(bytes);
@@ -112,6 +131,21 @@ function apiUnavailableMessage(response, fallback) {
     if (response.status === 503) return 'Backend dependency is unavailable or fail-closed.';
     if (response.status === 401 || response.status === 403) return 'Admin access or MFA is required.';
     return response.error || fallback;
+}
+
+function capabilityStatus(response) {
+    if (response?.ok) return { label: 'API available', variant: 'active' };
+    if (response?.status === 404) return { label: 'Unavailable', variant: 'legacy' };
+    if (response?.status === 429) return { label: 'Rate limited', variant: 'disabled' };
+    if (response?.status === 503) return { label: 'Fail-closed', variant: 'disabled' };
+    if (response?.status === 401 || response?.status === 403) return { label: 'Admin gated', variant: 'disabled' };
+    return { label: 'Unknown', variant: 'legacy' };
+}
+
+function setSubmitting(button, submitting) {
+    if (!button) return;
+    button.disabled = !!submitting;
+    button.dataset.busy = submitting ? 'true' : 'false';
 }
 
 function renderUnavailable(container, response, fallback = 'This capability is unavailable.') {
@@ -163,9 +197,12 @@ function addCell(tr, value) {
 
 function renderJsonSummary(value) {
     if (!value || typeof value !== 'object') return '-';
-    const safeEntries = Object.entries(value).filter(([key]) => !/secret|signature|raw|payload|hash|token|card/i.test(key));
+    const safeEntries = Object.entries(value).filter(([key]) => !isSensitiveKey(key));
     if (safeEntries.length === 0) return '-';
-    return safeEntries.map(([key, val]) => `${key}: ${typeof val === 'object' ? '[object]' : String(val)}`).join(', ');
+    return safeEntries
+        .slice(0, 10)
+        .map(([key, val]) => `${key}: ${safeSummaryValue(val)}`)
+        .join(', ');
 }
 
 function renderCards(container, cards) {
@@ -192,11 +229,12 @@ function renderCards(container, cards) {
 
 async function capabilityProbe(label, call) {
     const result = await call();
+    const status = capabilityStatus(result);
     return {
         label,
         ok: result.ok,
-        status: result.ok ? 'Available' : apiUnavailableMessage(result, 'Unavailable'),
-        variant: result.ok ? 'active' : (result.status === 404 ? 'legacy' : 'disabled'),
+        status: status.label,
+        variant: status.variant,
     };
 }
 
@@ -233,13 +271,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Organizations / RBAC',
                 badge: { label: probes[0].status, variant: probes[0].variant },
-                copy: 'Inspect organizations, active memberships, roles, and tenant-readiness boundaries.',
+                copy: 'Inspect organizations, active memberships, roles, and tenant-readiness boundaries when the admin API responds. This is not live tenant isolation proof.',
                 href: '#orgs',
             },
             {
                 title: 'Billing / Credits',
                 badge: { label: probes[1].status, variant: probes[1].variant },
-                copy: 'Review plan entitlements, org credit balances, and perform confirmed manual credit grants.',
+                copy: 'Review plan entitlements, org credit balances, and perform confirmed manual credit grants. Live payment activation remains disabled.',
                 href: '#billing',
             },
             {
@@ -257,7 +295,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Data Lifecycle',
                 badge: { label: probes[4].status, variant: probes[4].variant },
-                copy: 'Inspect export/deletion/anonymization requests and private export archive metadata. Irreversible deletion remains disabled.',
+                copy: 'Inspect export/deletion/anonymization requests and private export archive metadata. Irreversible deletion remains unavailable in this UI.',
                 href: '#lifecycle',
             },
             {
@@ -275,7 +313,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         renderCards(container, [
             {
                 title: 'Route Policy Registry',
-                badge: { label: '121 policies', variant: 'active' },
+                badge: { label: 'Repo checked', variant: 'active' },
                 copy: 'High-risk auth-worker routes are registered and checked by npm run check:route-policies.',
                 meta: [['Scope', 'Review/CI metadata, not a live dashboard signal']],
             },
@@ -301,7 +339,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 title: 'Production Readiness',
                 badge: { label: 'Blocked', variant: 'disabled' },
                 copy: 'This UI reflects repo/runtime API state. It does not prove live Cloudflare resources, migrations, WAF, headers, or Stripe endpoint readiness.',
-                meta: [['Required', 'Staging verification and live prereq validation']],
+                meta: [['Required checks', 'Staging verification and live prereq validation']],
             },
         ]);
     }
@@ -358,9 +396,9 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         detail.appendChild(el('h3', 'admin-section-title', org.name || 'Organization Detail'));
         detail.appendChild(detailRows([
             ['Organization ID', shortId(org.id)],
-            ['Status', org.status || '-'],
-            ['Slug', org.slug || '-'],
-            ['Created by', org.createdByEmail || '-'],
+            ['Status', notReported(org.status)],
+            ['Slug', notReported(org.slug)],
+            ['Created by', notReported(org.createdByEmail)],
             ['Created', formatDate(org.createdAt || org.created_at)],
         ]));
         const members = Array.isArray(res.data?.members) ? res.data.members : [];
@@ -440,15 +478,16 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (entitlements.length > 0) {
             const chips = el('div', 'admin-control-chip-row');
             for (const ent of entitlements.slice(0, 16)) {
-                const feature = ent.featureKey || ent.feature_key || ent.feature || ent[0];
-                chips.appendChild(badge(feature, 'user'));
-            }
+            const feature = ent.featureKey || ent.feature_key || ent.feature || ent[0];
+            if (feature && !isSensitiveKey(feature)) chips.appendChild(badge(feature, 'user'));
+        }
             detail.appendChild(chips);
         }
     }
 
     async function handleCreditGrant(event) {
         event.preventDefault();
+        const submitButton = event.submitter;
         const orgId = byId('creditGrantOrgId')?.value.trim();
         const amount = Number(byId('creditGrantAmount')?.value);
         const reason = byId('creditGrantReason')?.value.trim();
@@ -461,17 +500,22 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
         const idempotencyKey = createIdempotencyKey('admin-credit-grant');
         setState('creditGrantResult', 'Submitting credit grant...');
-        const res = await apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey });
-        if (!res.ok) {
-            setState('creditGrantResult', apiUnavailableMessage(res, 'Credit grant failed.'), 'error');
-            notify('Credit grant failed.', 'error');
-            return;
+        setSubmitting(submitButton, true);
+        try {
+            const res = await apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey });
+            if (!res.ok) {
+                setState('creditGrantResult', apiUnavailableMessage(res, 'Credit grant failed.'), 'error');
+                notify('Credit grant failed.', 'error');
+                return;
+            }
+            const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
+            setState('creditGrantResult', `Credit grant recorded. Balance after: ${balance}.`, 'success');
+            notify('Credit grant recorded.', 'success');
+            byId('orgBillingId').value = orgId;
+            loadOrgBilling(orgId);
+        } finally {
+            setSubmitting(submitButton, false);
         }
-        const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
-        setState('creditGrantResult', `Credit grant recorded. Balance after: ${balance}.`, 'success');
-        notify('Credit grant recorded.', 'success');
-        byId('orgBillingId').value = orgId;
-        loadOrgBilling(orgId);
     }
 
     async function loadBillingEvents() {
@@ -618,30 +662,37 @@ export function createAdminControlPlane({ showToast, formatDate }) {
 
     async function handleAiCleanup(event) {
         event.preventDefault();
+        const submitButton = event.submitter;
         const limit = Math.max(1, Math.min(Number(byId('aiCleanupLimit')?.value) || 10, 50));
         const dryRun = !byId('aiCleanupExecute')?.checked;
         if (!dryRun && !confirm('Execute expired AI usage cleanup? This releases stale reservations and may delete only eligible expired temporary replay objects.')) {
             return;
         }
         setState('aiCleanupResult', dryRun ? 'Running cleanup dry-run...' : 'Executing cleanup...');
-        const res = await apiAdminAiCleanupUsageAttempts({
-            limit,
-            dryRun,
-            idempotencyKey: createIdempotencyKey('ai-usage-cleanup'),
-        });
-        if (!res.ok) {
-            setState('aiCleanupResult', apiUnavailableMessage(res, 'AI usage cleanup failed.'), 'error');
-            notify('AI usage cleanup failed.', 'error');
-            return;
+        setSubmitting(submitButton, true);
+        try {
+            const res = await apiAdminAiCleanupUsageAttempts({
+                limit,
+                dryRun,
+                idempotencyKey: createIdempotencyKey('ai-usage-cleanup'),
+            });
+            if (!res.ok) {
+                setState('aiCleanupResult', apiUnavailableMessage(res, 'AI usage cleanup failed.'), 'error');
+                notify('AI usage cleanup failed.', 'error');
+                return;
+            }
+            const cleanup = res.data?.cleanup || {};
+            const failed = Number(cleanup.failedCount ?? cleanup.replayObjectFailedCount ?? 0);
+            setState(
+                'aiCleanupResult',
+                `Mode ${cleanup.dryRun === false ? 'execute' : 'dry-run'}; scanned ${cleanup.scannedCount ?? 0}; expired ${cleanup.expiredCount ?? 0}; reservations released ${cleanup.reservationsReleasedCount ?? 0}; replay metadata cleared ${cleanup.replayObjectMetadataClearedCount ?? cleanup.replayMetadataExpiredCount ?? 0}; replay objects eligible ${cleanup.replayObjectsEligibleCount ?? 0}; replay objects deleted ${cleanup.replayObjectsDeletedCount ?? 0}; skipped ${cleanup.skippedCount ?? 0}; failed ${failed}.`,
+                failed > 0 ? 'error' : 'success',
+            );
+            notify(dryRun ? 'AI usage cleanup dry-run completed.' : 'AI usage cleanup executed.', 'success');
+            loadAiAttempts();
+        } finally {
+            setSubmitting(submitButton, false);
         }
-        const cleanup = res.data?.cleanup || {};
-        setState(
-            'aiCleanupResult',
-            `Scanned ${cleanup.scannedCount ?? 0}; expired ${cleanup.expiredCount ?? 0}; reservations released ${cleanup.reservationsReleasedCount ?? 0}; replay objects deleted ${cleanup.replayObjectsDeletedCount ?? 0}; failed ${cleanup.failedCount ?? 0}.`,
-            cleanup.failedCount > 0 ? 'error' : 'success',
-        );
-        notify(dryRun ? 'AI usage cleanup dry-run completed.' : 'AI usage cleanup executed.', 'success');
-        loadAiAttempts();
     }
 
     async function loadLifecycle() {
@@ -759,9 +810,10 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         for (const item of items) {
             const name = item.id || item.jobId || item.job_id || item.messageId || 'item';
             const summary = preferredKeys
+                .filter((key) => !isSensitiveKey(key))
                 .map((key) => item[key] ?? item[key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)])
                 .filter(Boolean)
-                .map(String)
+                .map(safeSummaryValue)
                 .join(' | ');
             list.appendChild(row(shortId(name), summary || renderJsonSummary(item)));
         }
@@ -774,8 +826,8 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         renderCards(container, [
             {
                 title: 'Release Preflight',
-                badge: { label: 'Green locally', variant: 'active' },
-                copy: 'The committed baseline passed release preflight before this UI phase. Re-run after every control-plane change.',
+                badge: { label: 'Run before merge', variant: 'legacy' },
+                copy: 'This control plane reports the repo checklist only. Re-run release preflight after every admin UI change before merge.',
                 meta: [['Command', 'npm run release:preflight']],
             },
             {

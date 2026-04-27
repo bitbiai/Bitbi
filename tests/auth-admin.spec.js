@@ -4781,9 +4781,12 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#orgBillingDetail')).toContainText('Credit balance');
     await expect(page.locator('#orgBillingDetail')).toContainText('125');
 
-    page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#creditGrantOrgId').fill('org_control_1234567890');
     await page.locator('#creditGrantAmount').fill('50');
+    await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
+    expect(captures.creditGrantRequests).toHaveLength(0);
+
+    page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#creditGrantReason').fill('Support adjustment for control-plane test');
     await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
     await expect(page.locator('#creditGrantResult')).toContainText('Credit grant recorded');
@@ -4808,7 +4811,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#aiAttemptDetail')).toContainText('/api/ai/generate-text');
     await expect(page.locator('#aiAttemptDetail')).not.toContainText('should-not-render');
     await page.locator('#aiCleanupForm').getByRole('button', { name: 'Run Cleanup' }).click();
-    await expect(page.locator('#aiCleanupResult')).toContainText('Scanned 3');
+    await expect(page.locator('#aiCleanupResult')).toContainText('scanned 3');
     expect(captures.aiCleanupRequests).toHaveLength(1);
     expect(captures.aiCleanupRequests[0].idempotencyKey).toMatch(/^ai-usage-cleanup-/);
     expect(captures.aiCleanupRequests[0].body.dry_run).toBe(true);
@@ -4816,6 +4819,7 @@ test.describe('Admin Control Plane', () => {
     await page.locator('a.admin-nav__link[data-section="lifecycle"]').click();
     await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');
     await expect(page.locator('#sectionLifecycle')).toContainText('execute-only rather than dry-run');
+    await expect(page.locator('#sectionLifecycle').getByRole('button', { name: /delete|execute/i })).toHaveCount(0);
 
     await page.locator('a.admin-nav__link[data-section="operations"]').click();
     await expect(page.locator('#sectionOperations')).toContainText('max_attempts');
@@ -4827,6 +4831,7 @@ test.describe('Admin Control Plane', () => {
 
     await page.locator('a.admin-nav__link[data-section="settings"]').click();
     await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
+    await expect(page.getByRole('button', { name: /enable live|activate live|customer portal|checkout/i })).toHaveCount(0);
 
     const renderedText = await page.locator('#adminPanel').innerText();
     expect(renderedText).not.toContain('whsec_');
@@ -4834,6 +4839,66 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('keeps control-plane cards, badges, nav, and tables legible across viewports', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin/index.html');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(7);
+
+    const dashboardCardWidths = await page.locator('#controlPlaneCapabilityGrid .admin-control-card').evaluateAll((cards) =>
+      cards.map((card) => Math.round(card.getBoundingClientRect().width)),
+    );
+    expect(Math.min(...dashboardCardWidths)).toBeGreaterThan(300);
+
+    const dashboardBadgeOverlaps = await page.locator('#controlPlaneCapabilityGrid .admin-control-card__top').evaluateAll((headers) =>
+      headers.filter((header) => {
+        const title = header.querySelector('.admin-section-title');
+        const badge = header.querySelector('.badge');
+        if (!title || !badge) return false;
+        const a = title.getBoundingClientRect();
+        const b = badge.getBoundingClientRect();
+        return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      }).length,
+    );
+    expect(dashboardBadgeOverlaps).toBe(0);
+
+    await page.locator('a.admin-nav__link[data-section="security"]').click();
+    await expect(page.locator('#sectionSecurity')).toBeVisible();
+    const securityLabelMetrics = await page.locator('#sectionSecurity .admin-inventory__name').evaluateAll((labels) =>
+      labels.map((label) => ({
+        text: label.textContent.trim(),
+        width: Math.round(label.getBoundingClientRect().width),
+        height: Math.round(label.getBoundingClientRect().height),
+      })),
+    );
+    for (const metric of securityLabelMetrics.filter((item) => item.text.length >= 5)) {
+      expect(metric.width).toBeGreaterThan(45);
+      expect(metric.height).toBeLessThan(40);
+    }
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto('/admin/index.html#readiness');
+    await expect(page.locator('#sectionReadiness')).toBeVisible({ timeout: 10_000 });
+    const readinessNav = page.locator('a.admin-nav__link[data-section="readiness"]');
+    await readinessNav.scrollIntoViewIfNeeded();
+    await expect(readinessNav).toBeVisible();
+    await readinessNav.click();
+    await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/admin/index.html#orgs');
+    await expect(page.locator('#sectionOrgs')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#orgsList .admin-table-wrap')).toBeVisible();
+    const mobileHasDocumentOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(mobileHasDocumentOverflow).toBe(false);
   });
 
   test('shows unavailable states when a backend capability is absent', async ({
@@ -4851,6 +4916,24 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionOrgs')).toBeVisible();
     await expect(page.locator('#orgsList')).toContainText('Capability unavailable');
+  });
+
+  test('renders fail-closed backend states without fake success', async ({
+    page,
+  }) => {
+    await page.route('**/api/admin/ai/usage-attempts?*', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Limiter backend unavailable' }, 503);
+    });
+    await page.route('**/api/admin/ai/usage-attempts', async (route) => {
+      await fulfillJson(route, { ok: false, error: 'Limiter backend unavailable' }, 503);
+    });
+
+    const response = await page.goto('/admin/index.html#ai-usage');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionAiUsage')).toBeVisible();
+    await expect(page.locator('#aiAttemptsList')).toContainText('Backend dependency is unavailable or fail-closed');
+    await expect(page.locator('#aiAttemptsList')).not.toContainText('Showing 1 sanitized attempts');
   });
 });
 

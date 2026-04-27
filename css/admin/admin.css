@@ -36,6 +36,8 @@
         margin-inline: auto;
         padding: var(--space-2) var(--space-4);
         overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scroll-padding-inline: var(--space-4);
         scrollbar-width: none;
         -ms-overflow-style: none;
     }
@@ -57,6 +59,7 @@
         border-radius: var(--radius-sm);
         transition: color 0.2s var(--ease-default), background 0.2s var(--ease-default);
         white-space: nowrap;
+        min-inline-size: max-content;
     }
 
     .admin-nav__link:hover {
@@ -384,14 +387,8 @@
     /* ── Shell Grid (scaffold sections) ── */
     .admin-shell-grid {
         display: grid;
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
         gap: var(--space-5);
-    }
-
-    @media (min-width: 640px) {
-        .admin-shell-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
     }
 
     .admin-shell {
@@ -403,6 +400,8 @@
         color: rgba(255, 255, 255, 0.4);
         line-height: 1.6;
         margin-block-end: var(--space-5);
+        overflow-wrap: normal;
+        word-break: normal;
     }
 
     .admin-shell__empty {
@@ -485,7 +484,7 @@
     }
 
     .admin-control-hero__badges {
-        max-inline-size: 18rem;
+        max-inline-size: 26rem;
     }
 
     .admin-control-grid,
@@ -496,19 +495,7 @@
     }
 
     .admin-control-grid {
-        grid-template-columns: 1fr;
-    }
-
-    @media (min-width: 760px) {
-        .admin-control-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @media (min-width: 1120px) {
-        .admin-control-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
     }
 
     .admin-control-card,
@@ -523,12 +510,14 @@
     .admin-control-mini-card,
     .admin-control-detail {
         min-width: 0;
+        overflow: hidden;
     }
 
     .admin-control-card__top,
     .admin-control-card-head,
     .admin-control-toolbar {
         display: flex;
+        flex-wrap: wrap;
         align-items: flex-start;
         justify-content: space-between;
         gap: var(--space-4);
@@ -537,7 +526,18 @@
     .admin-control-card__top .admin-section-title,
     .admin-control-card-head .admin-section-title,
     .admin-control-toolbar .admin-section-title {
+        min-inline-size: min(100%, 12rem);
+        flex: 1 1 14rem;
         margin-block-end: var(--space-2);
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    .admin-control-card__top > .badge,
+    .admin-control-card-head > .badge,
+    .admin-control-toolbar__badges {
+        flex: 0 1 auto;
+        max-inline-size: 100%;
     }
 
     .admin-control-toolbar {
@@ -575,6 +575,44 @@
         margin-block-start: var(--space-4);
     }
 
+    .admin-control-card .admin-inventory,
+    .admin-control-mini-card .admin-inventory,
+    .admin-control-detail .admin-inventory,
+    .admin-shell .admin-inventory {
+        gap: var(--space-2);
+    }
+
+    .admin-control-card .admin-inventory__row,
+    .admin-control-mini-card .admin-inventory__row,
+    .admin-control-detail .admin-inventory__row,
+    .admin-shell .admin-inventory__row {
+        display: grid;
+        grid-template-columns: minmax(7.5rem, max-content) minmax(0, 1fr);
+        align-items: start;
+        gap: var(--space-3);
+    }
+
+    .admin-control-card .admin-inventory__name,
+    .admin-control-mini-card .admin-inventory__name,
+    .admin-control-detail .admin-inventory__name,
+    .admin-shell .admin-inventory__name {
+        min-inline-size: 0;
+        overflow-wrap: normal;
+        word-break: normal;
+        white-space: normal;
+    }
+
+    .admin-control-card .admin-inventory__meta,
+    .admin-control-mini-card .admin-inventory__meta,
+    .admin-control-detail .admin-inventory__meta,
+    .admin-shell .admin-inventory__meta {
+        min-inline-size: 0;
+        overflow-wrap: break-word;
+        word-break: normal;
+        text-align: start;
+        white-space: normal;
+    }
+
     .admin-ai__field--inline {
         display: inline-flex;
         flex-direction: row;
@@ -602,6 +640,13 @@
         .admin-control-card-head {
             flex-direction: column;
             align-items: stretch;
+        }
+
+        .admin-control-card .admin-inventory__row,
+        .admin-control-mini-card .admin-inventory__row,
+        .admin-control-detail .admin-inventory__row,
+        .admin-shell .admin-inventory__row {
+            grid-template-columns: 1fr;
         }
 
         .admin-control-hero,
@@ -2246,10 +2291,12 @@
     .admin-table-wrap {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+        max-inline-size: 100%;
     }
 
     .admin-table {
         width: 100%;
+        min-inline-size: 42rem;
         border-collapse: collapse;
         font-size: 13px;
     }
@@ -2272,6 +2319,8 @@
         color: rgba(255, 255, 255, 0.65);
         border-block-end: var(--border-faint);
         vertical-align: middle;
+        overflow-wrap: normal;
+        word-break: normal;
     }
 
     .admin-table tbody tr:hover td {
@@ -2280,7 +2329,9 @@
 
     /* ── Badges ── */
     .badge {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         padding: 2px var(--space-2);
         font-family: var(--font-mono);
         font-size: 10px;
@@ -2289,6 +2340,11 @@
         letter-spacing: 0.06em;
         border-radius: var(--radius-full);
         line-height: 1.6;
+        max-inline-size: 100%;
+        white-space: normal;
+        overflow-wrap: normal;
+        word-break: normal;
+        text-align: center;
     }
 
     .badge--admin {
@@ -2706,9 +2762,14 @@
             width: 100%;
         }
 
-        /* Hide desktop table, show mobile section */
-        .admin-table-wrap {
+        /* Hide the legacy users desktop table, but keep control-plane tables
+           available inside their own horizontal scrollers. */
+        #sectionUsers .admin-table-wrap {
             display: none;
+        }
+
+        .admin-section:not(#sectionUsers) .admin-table-wrap {
+            display: block;
         }
 
         .admin-mobile-section {

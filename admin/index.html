@@ -205,7 +205,7 @@
                         <p class="admin-control-hero__copy">Security, SaaS, billing, AI, data lifecycle, and operational foundations are surfaced from existing admin APIs. Live production readiness remains a staging/deployment task.</p>
                     </div>
                     <div class="admin-control-hero__badges" aria-label="Control plane status">
-                        <span class="badge badge--active">Merge-ready baseline</span>
+                        <span class="badge badge--legacy">Review required</span>
                         <span class="badge badge--legacy">Staging verification required</span>
                         <span class="badge badge--disabled">Production blocked</span>
                         <span class="badge badge--user">Testmode only</span>
@@ -344,15 +344,15 @@
                         <form id="creditGrantForm" class="admin-control-form">
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">Organization ID</span>
-                                <input id="creditGrantOrgId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_...">
+                                <input id="creditGrantOrgId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_..." required>
                             </label>
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">Credits</span>
-                                <input id="creditGrantAmount" class="admin-ai__input" type="number" min="1" max="100000" step="1" placeholder="100">
+                                <input id="creditGrantAmount" class="admin-ai__input" type="number" min="1" max="100000" step="1" placeholder="100" required>
                             </label>
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">Reason</span>
-                                <textarea id="creditGrantReason" class="admin-ai__textarea" rows="3" maxlength="500" placeholder="Support adjustment, incident compensation, test credit pack reconciliation..."></textarea>
+                                <textarea id="creditGrantReason" class="admin-ai__textarea" rows="3" maxlength="500" placeholder="Support adjustment, incident compensation, test credit pack reconciliation..." required></textarea>
                             </label>
                             <button type="submit" class="admin-ai__run">Grant Credits</button>
                         </form>
