@@ -206,9 +206,9 @@ src/
 
 **Secret** `BILLING_WEBHOOK_TEST_SECRET` — optional Phase 2-I synthetic billing webhook verification secret for `POST /api/billing/webhooks/test`. If missing or too short, the route fails closed. This is not a live provider secret and does not enable production payment processing.
 
-**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_WEBHOOK_SECRET` verifies `POST /api/billing/webhooks/stripe`; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS. Missing config makes Stripe routes fail closed and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
+**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_WEBHOOK_SECRET` verifies `POST /api/billing/webhooks/stripe`; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0038_add_stripe_credit_pack_checkout`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0039_raise_credit_balance_cap_for_pricing_packs`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -234,6 +234,7 @@ Key migration-dependent behavior:
 - `0036_add_ai_usage_attempts` — required before auth deploy if Phase 2-D org-scoped image-generation retry safety, credit reservations, result replay, Phase 2-E usage-attempt cleanup/admin inspection, Phase 2-F replay object cleanup, and Phase 2-H org-scoped text generation replay must work immediately
 - `0037_add_billing_event_ingestion` — required before auth deploy if Phase 2-I synthetic billing webhook ingestion and admin billing-event inspection must work immediately
 - `0038_add_stripe_credit_pack_checkout` — required before auth deploy if Phase 2-J Stripe Testmode credit-pack checkout session tracking and verified checkout credit grants must work immediately
+- `0039_raise_credit_balance_cap_for_pricing_packs` — required before exposing the admin-only Pricing page credit packs, otherwise 5000/10000-credit Testmode webhook grants can exceed the original Phase 2-B free-plan balance cap and fail closed
 
 ## Conventions
 

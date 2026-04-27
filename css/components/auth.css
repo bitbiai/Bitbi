@@ -263,6 +263,7 @@
     }
 
     .auth-nav__mobile-admin,
+    .auth-nav__mobile-pricing,
     .auth-nav__mobile-profile {
         display: inline-flex;
         align-items: center;
@@ -274,6 +275,7 @@
     }
 
     .auth-nav__mobile-admin:hover,
+    .auth-nav__mobile-pricing:hover,
     .auth-nav__mobile-profile:hover {
         color: var(--color-cyan);
     }

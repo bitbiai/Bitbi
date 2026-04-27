@@ -1429,8 +1429,8 @@ async function mockAdminControlPlane(page, captures = {}) {
         userId: 'user_owner',
         receivedAt: '2026-04-20T10:00:00.000Z',
         payloadSummary: {
-          credit_pack_id: 'credits_100',
-          credits: 100,
+          credit_pack_id: 'credits_5000',
+          credits: 5000,
           raw_payload: 'should-not-render',
           payload_hash: 'internal-hash',
         },
@@ -1455,7 +1455,7 @@ async function mockAdminControlPlane(page, captures = {}) {
             status: 'completed',
             dryRun: false,
             summary: {
-              credits: 100,
+              credits: 5000,
               secret_value: 'hidden',
               stripe_signature: 'hidden',
             },
@@ -2105,6 +2105,81 @@ async function mockAuthenticatedHeader(page, {
   });
 }
 
+async function mockPricingAccount(page, {
+  role = 'admin',
+  email = 'pricing-admin@bitbi.ai',
+  organizations = [
+    {
+      id: 'org_pricing_1234567890abcdef1234567890ab',
+      name: 'Pricing Test Org',
+      slug: 'pricing-test-org',
+      role: 'owner',
+      status: 'active',
+    },
+  ],
+  billing = {
+    organizationId: 'org_pricing_1234567890abcdef1234567890ab',
+    creditBalance: 1250,
+    plan: { code: 'free', name: 'Free' },
+  },
+  checkoutUrl = 'https://checkout.stripe.com/c/pay/cs_test_pricing_5000',
+  checkoutRequests = [],
+} = {}) {
+  await page.route('**/api/me', async (route) => {
+    await fulfillJson(route, {
+      loggedIn: true,
+      user: {
+        id: `${role}-pricing-user`,
+        email,
+        role,
+        display_name: role === 'admin' ? 'Pricing Admin' : 'Pricing Member',
+        has_avatar: false,
+        avatar_url: null,
+      },
+    });
+  });
+
+  await page.route('**/api/orgs?*', async (route) => {
+    await fulfillJson(route, { ok: true, organizations });
+  });
+  await page.route('**/api/orgs', async (route) => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, { ok: true, organizations });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/orgs/*/billing', async (route) => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, { ok: true, billing });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/orgs/*/billing/checkout/credit-pack', async (route) => {
+    checkoutRequests.push({
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      url: route.request().url(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      checkout_url: checkoutUrl,
+      session_id: 'cs_test_pricing_5000',
+      mode: 'test',
+      credit_pack: {
+        id: route.request().postDataJSON().pack_id,
+        credits: route.request().postDataJSON().pack_id === 'credits_10000' ? 10000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'credits_10000' ? 8900 : 4900,
+        currency: 'eur',
+      },
+    }, 201);
+  });
+
+  return { checkoutRequests };
+}
+
 // ---------------------------------------------------------------------------
 // Auth modal
 // ---------------------------------------------------------------------------
@@ -2739,6 +2814,97 @@ test.describe('Global header auth identity', () => {
     await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe('Pricing credit-pack rollout', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('shows the Pricing header link only for authenticated admins', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.goto('/');
+    await expect(page.locator('.auth-nav__pricing-link')).toHaveCount(0);
+
+    await page.unroute('**/api/me');
+    await mockAuthenticatedHeader(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
+    await page.goto('/');
+    await expect(page.locator('.auth-nav__pricing-link')).toHaveCount(0);
+
+    await page.unroute('**/api/me');
+    await mockAuthenticatedHeader(page, { role: 'admin', email: 'admin-pricing@bitbi.ai' });
+    await page.goto('/');
+    const pricingLink = page.locator('.site-nav__links .auth-nav__pricing-link');
+    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
+    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
+    await expect
+      .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Pricing', 'Gallery', 'Video', 'Sound Lab', 'Profile', 'Admin']);
+  });
+
+  test('keeps direct Pricing access admin-gated', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.goto('/pricing.html');
+    await expect(page.locator('[data-pricing-access="denied"]')).toContainText('Admin access required');
+    await expect(page.locator('.pricing-card')).toHaveCount(0);
+
+    await page.unroute('**/api/me');
+    await mockPricingAccount(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
+    await page.goto('/pricing.html');
+    await expect(page.locator('[data-pricing-access="denied"]')).toContainText('admin-only');
+    await expect(page.locator('.pricing-card')).toHaveCount(0);
+  });
+
+  test('renders exactly the Free, 5000 Credits, and 10000 Credits options for admins', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockPricingAccount(page);
+    const response = await page.goto('/pricing.html');
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('Free');
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('10 free image generations per UTC day');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('Buy 5000 Credits');
+    await expect(page.locator('.pricing-card').nth(2)).toContainText('Buy 10000 Credits');
+    await expect(page.locator('#pricingOrgSelect')).toHaveValue('org_pricing_1234567890abcdef1234567890ab');
+    await expect(page.locator('#pricingBillingState')).toContainText('Current balance: 1,250 credits');
+    await expect(page.getByText('Internal/Test rollout')).toBeVisible();
+
+    const layoutMetrics = await page.locator('.pricing-card').evaluateAll((cards) => cards.map((card) => ({
+      width: card.getBoundingClientRect().width,
+      scrollWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+    })));
+    expect(layoutMetrics.every((entry) => entry.width >= 280)).toBe(true);
+    expect(layoutMetrics.every((entry) => entry.scrollWidth <= entry.viewportWidth + 1)).toBe(true);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(mobileOverflow).toBeLessThanOrEqual(1);
+  });
+
+  test('creates Testmode checkout from paid pack CTAs and renders return states', async ({ page }) => {
+    const { checkoutRequests } = await mockPricingAccount(page, {
+      checkoutUrl: '/pricing?checkout=success',
+    });
+    await page.goto('/pricing.html');
+
+    await page.locator('[data-checkout-pack="credits_5000"]').click();
+    await expect(page).toHaveURL(/\/pricing\?checkout=success$/);
+    await expect(page.locator('.pricing-return--success')).toContainText('Checkout returned successfully');
+    expect(checkoutRequests).toHaveLength(1);
+    expect(checkoutRequests[0].body).toEqual({ pack_id: 'credits_5000' });
+    expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing:credits_5000:org_pricing_/);
+
+    await page.goto('/pricing?checkout=cancel');
+    await expect(page.locator('.pricing-return--cancel')).toContainText('Checkout cancelled');
   });
 });
 
@@ -4617,6 +4783,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-account')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity-label')).toHaveText('mobile-header@example.com');
+    await expect(page.locator('.auth-nav__mobile-pricing')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-admin')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-logout')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
@@ -4626,6 +4793,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     );
     expect(mobileAccountOrder).toEqual([
       'auth-nav__mobile-identity',
+      'auth-nav__mobile-pricing',
       'auth-nav__mobile-admin',
       'auth-nav__mobile-logout',
     ]);

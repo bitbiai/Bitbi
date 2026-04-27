@@ -94,6 +94,8 @@ function renderDesktop() {
     const navLinks = document.querySelector('.site-nav__links');
     const oldAdminLink = navLinks?.querySelector('.auth-nav__admin-link');
     if (oldAdminLink) oldAdminLink.remove();
+    const oldPricingLink = navLinks?.querySelector('.auth-nav__pricing-link');
+    if (oldPricingLink) oldPricingLink.remove();
     const oldProfileLink = navLinks?.querySelector('.auth-nav__profile-link');
     if (oldProfileLink) oldProfileLink.remove();
 
@@ -132,8 +134,14 @@ function renderDesktop() {
             navLinks.appendChild(profileLink);
         }
 
-        // Admin link — only for admin role
+        // Controlled rollout links — only for admin role
         if (user?.role === 'admin' && navLinks) {
+            const pricingLink = document.createElement('a');
+            pricingLink.href = '/pricing.html';
+            pricingLink.className = 'site-nav__link nav-link auth-nav__pricing-link';
+            pricingLink.textContent = 'Pricing';
+            navLinks.insertBefore(pricingLink, navLinks.firstElementChild || null);
+
             const adminLink = document.createElement('a');
             adminLink.href = '/admin/';
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
@@ -183,6 +191,15 @@ function renderMobile() {
                 return link;
             })()
             : null;
+        const pricingLink = user?.role === 'admin'
+            ? (() => {
+                const link = document.createElement('a');
+                link.href = '/pricing.html';
+                link.className = 'auth-nav__mobile-pricing';
+                link.textContent = 'Pricing';
+                return link;
+            })()
+            : null;
 
         if (hasAvatar(user)) {
             const accountWrap = document.createElement('div');
@@ -201,6 +218,7 @@ function renderMobile() {
             identityLink.appendChild(label);
 
             accountWrap.appendChild(identityLink);
+            if (pricingLink) accountWrap.appendChild(pricingLink);
             if (adminLink) accountWrap.appendChild(adminLink);
             accountWrap.appendChild(logout);
             authContainer.appendChild(accountWrap);
@@ -218,6 +236,7 @@ function renderMobile() {
             profileLink.textContent = 'Profile';
             actionsWrap.appendChild(profileLink);
 
+            if (pricingLink) actionsWrap.appendChild(pricingLink);
             if (adminLink) actionsWrap.appendChild(adminLink);
             actionsWrap.appendChild(logout);
             authContainer.appendChild(actionsWrap);

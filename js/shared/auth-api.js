@@ -528,6 +528,27 @@ export function apiAdminAiSaveTextAsset(payload, options) {
     return request('POST', '/admin/ai/save-text-asset', payload, options);
 }
 
+/* ── Organizations / Billing ── */
+
+export function apiListOrganizations({ limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/orgs${qs}`);
+}
+
+export function apiOrganizationBilling(orgId) {
+    return request('GET', `/orgs/${encodeURIComponent(orgId)}/billing`);
+}
+
+export function apiCreateCreditPackCheckout(orgId, { packId, idempotencyKey }) {
+    return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/credit-pack`, {
+        pack_id: packId,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 /* ── Favorites ── */
 
 export function apiGetFavorites() {

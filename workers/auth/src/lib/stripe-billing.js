@@ -22,31 +22,22 @@ const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 
 export const STRIPE_CREDIT_PACKS = Object.freeze([
   Object.freeze({
-    id: "credits_100",
-    name: "100 Credit Test Pack",
-    credits: 100,
-    amountCents: 900,
+    id: "credits_5000",
+    name: "5000 Credit Pack",
+    credits: 5000,
+    amountCents: 4900,
     currency: "eur",
     active: true,
-    sortOrder: 100,
+    sortOrder: 5000,
   }),
   Object.freeze({
-    id: "credits_500",
-    name: "500 Credit Test Pack",
-    credits: 500,
-    amountCents: 3900,
+    id: "credits_10000",
+    name: "10000 Credit Pack",
+    credits: 10000,
+    amountCents: 8900,
     currency: "eur",
     active: true,
-    sortOrder: 500,
-  }),
-  Object.freeze({
-    id: "credits_1000",
-    name: "1000 Credit Test Pack",
-    credits: 1000,
-    amountCents: 6900,
-    currency: "eur",
-    active: true,
-    sortOrder: 1000,
+    sortOrder: 10000,
   }),
 ]);
 

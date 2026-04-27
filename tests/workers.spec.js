@@ -2273,13 +2273,13 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
           payment_status: sessionOverrides.payment_status || 'paid',
           payment_intent: sessionOverrides.payment_intent || 'pi_test_phase2j_01',
           customer: sessionOverrides.customer || 'cus_test_phase2j_01',
-          amount_total: sessionOverrides.amount_total ?? 900,
+          amount_total: sessionOverrides.amount_total ?? 4900,
           currency: sessionOverrides.currency || 'eur',
           metadata: {
             organization_id: ORG_ID,
             user_id: 'phase2j-owner',
-            credit_pack_id: 'credits_100',
-            credits: '100',
+            credit_pack_id: 'credits_5000',
+            credits: '5000',
             internal_checkout_session_id: sessionOverrides.internal_checkout_session_id || 'bcs_1234567890abcdef1234567890abcdef',
             ...(sessionOverrides.metadata || {}),
           },
@@ -2336,7 +2336,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     const outsiderToken = await seedSession(env, outsider.id);
 
     const unauthenticated = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         'Idempotency-Key': 'phase2j-checkout-unauthenticated',
       }),
@@ -2351,7 +2351,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       [outsiderToken, 404, 'outsider'],
     ]) {
       const denied = await worker.fetch(
-        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
           'Idempotency-Key': `phase2j-checkout-denied-${suffix}`,
@@ -2368,7 +2368,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       'Idempotency-Key': 'phase2j-checkout-idempotent',
     };
     const first = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, headers),
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, headers),
       env,
       createExecutionContext().execCtx
     );
@@ -2383,9 +2383,9 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       livePaymentProviderEnabled: false,
     }));
     expect(firstBody.credit_pack).toEqual(expect.objectContaining({
-      id: 'credits_100',
-      credits: 100,
-      amountCents: 900,
+      id: 'credits_5000',
+      credits: 5000,
+      amountCents: 4900,
       currency: 'eur',
     }));
     expect(JSON.stringify(firstBody)).not.toContain(STRIPE_TEST_SECRET);
@@ -2398,7 +2398,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(env.DB.state.creditLedger).toHaveLength(0);
 
     const repeat = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, headers),
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, headers),
       env,
       createExecutionContext().execCtx
     );
@@ -2409,7 +2409,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(calls).toHaveLength(1);
 
     const conflict = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_500' }, headers),
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_10000' }, headers),
       env,
       createExecutionContext().execCtx
     );
@@ -2417,7 +2417,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(calls).toHaveLength(1);
 
     const adminCreate = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_500' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_10000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${adminToken}`,
         'Idempotency-Key': 'phase2j-admin-checkout',
@@ -2440,7 +2440,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     const token = await seedSession(env, owner.id);
 
     const noKey = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
       }),
@@ -2461,7 +2461,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(unknownPack.status).toBe(400);
 
     const foreign = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://evil.example',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'phase2j-foreign',
@@ -2473,7 +2473,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(env.DB.state.billingCheckoutSessions).toHaveLength(0);
 
     const oversized = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100', padding: 'x'.repeat(40 * 1024) }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000', padding: 'x'.repeat(40 * 1024) }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'phase2j-oversized',
@@ -2499,7 +2499,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
     const limitedToken = await seedSession(limitedEnv, owner.id);
     const limited = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${limitedToken}`,
         'Idempotency-Key': 'phase2j-limited',
@@ -2516,7 +2516,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
     const noLimiterToken = await seedSession(noLimiterEnv, owner.id);
     const noLimiter = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${noLimiterToken}`,
         'Idempotency-Key': 'phase2j-no-limiter',
@@ -2533,7 +2533,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
     const missingConfigToken = await seedSession(missingConfigEnv, owner.id);
     const missingConfig = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${missingConfigToken}`,
         'Idempotency-Key': 'phase2j-missing-config',
@@ -2550,7 +2550,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
     const liveModeToken = await seedSession(liveModeEnv, owner.id);
     const liveMode = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${liveModeToken}`,
         'Idempotency-Key': 'phase2j-live-mode',
@@ -2567,7 +2567,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
     const providerFailToken = await seedSession(providerFailEnv, owner.id);
     const providerFail = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${providerFailToken}`,
         'Idempotency-Key': 'phase2j-provider-fail',
@@ -2598,7 +2598,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     const adminToken = await seedSession(env, admin.id);
 
     const checkout = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_100' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${ownerToken}`,
         'Idempotency-Key': 'phase2j-valid-checkout',
@@ -2641,8 +2641,8 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     }));
     expect(acceptedBody.creditGrant).toEqual(expect.objectContaining({
       organizationId: ORG_ID,
-      creditsGranted: 100,
-      balanceAfter: 100,
+      creditsGranted: 5000,
+      balanceAfter: 5000,
       reused: false,
     }));
     expect(acceptedBody.checkout).toEqual(expect.objectContaining({
@@ -2658,9 +2658,9 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(env.DB.state.billingCheckoutSessions[0].status).toBe('completed');
     expect(env.DB.state.creditLedger).toHaveLength(1);
     expect(env.DB.state.creditLedger[0]).toEqual(expect.objectContaining({
-      amount: 100,
+      amount: 5000,
       source: 'stripe_test_checkout',
-      balance_after: 100,
+      balance_after: 5000,
     }));
     expect(env.DB.state.usageEvents).toHaveLength(0);
     expect(env.DB.state.organizationSubscriptions).toHaveLength(0);
@@ -2815,7 +2815,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(env.DB.state.creditLedger).toHaveLength(0);
 
     for (const badPayload of [
-      stripeCompletedPayload({ id: 'evt_phase2j_bad_pack', session: { metadata: { credit_pack_id: 'credits_500' } } }),
+      stripeCompletedPayload({ id: 'evt_phase2j_bad_pack', session: { metadata: { credit_pack_id: 'credits_10000' } } }),
       stripeCompletedPayload({ id: 'evt_phase2j_bad_amount', session: { amount_total: 901 } }),
       stripeCompletedPayload({ id: 'evt_phase2j_unpaid', session: { payment_status: 'unpaid' } }),
       stripeCompletedPayload({ id: 'evt_phase2j_missing_org', session: { metadata: { organization_id: '' } } }),

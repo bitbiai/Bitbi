@@ -524,7 +524,7 @@ class MockD1 {
         { id: 'ent_free_ai_storage_private', plan_id: 'plan_free', feature_key: 'ai.storage.private', enabled: 1, value_kind: 'boolean', value_numeric: null, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
         { id: 'ent_free_org_members_max', plan_id: 'plan_free', feature_key: 'org.members.max', enabled: 1, value_kind: 'number', value_numeric: 5, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
         { id: 'ent_free_credits_monthly', plan_id: 'plan_free', feature_key: 'credits.monthly', enabled: 1, value_kind: 'number', value_numeric: 100, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
-        { id: 'ent_free_credits_balance_max', plan_id: 'plan_free', feature_key: 'credits.balance.max', enabled: 1, value_kind: 'number', value_numeric: 1000, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-26T00:00:00.000Z' },
+        { id: 'ent_free_credits_balance_max', plan_id: 'plan_free', feature_key: 'credits.balance.max', enabled: 1, value_kind: 'number', value_numeric: 100000, value_text: null, created_at: '2026-04-26T00:00:00.000Z', updated_at: '2026-04-27T00:00:00.000Z' },
       ],
       billingCustomers: [],
       billingProviderEvents: [],

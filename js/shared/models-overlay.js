@@ -9,15 +9,28 @@ import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 
 const MODEL_GROUPS = [
+    { task: 'text', category: 'TEXT GENERATION', side: 'left' },
     { task: 'image', category: 'IMAGE GENERATION', side: 'left' },
     { task: 'music', category: 'MUSIC GENERATION', side: 'right' },
     { task: 'video', category: 'VIDEO GENERATION', side: 'right' },
 ];
 
+const MEMBER_CREDIT_TEXT_MODEL_IDS = new Set([
+    '@cf/meta/llama-3.1-8b-instruct-fast',
+]);
+
 const USER_LIVE_MODELS = {
     image: AI_IMAGE_MODELS,
+    text: [],
     music: [],
     video: [],
+};
+
+const STATUS_LABELS = {
+    included: 'Included',
+    live: 'Live',
+    'requires-credits': 'Requires credits',
+    'coming-soon': 'Coming soon',
 };
 
 function buildModelCatalog() {
@@ -41,16 +54,19 @@ function buildModelCatalog() {
                 entries.push({
                     name: model.label || adminModel?.label || model.id,
                     vendor: adminModel?.vendor || '',
-                    availability: 'live',
+                    availability: task === 'image' ? 'included' : 'live',
                 });
             }
 
             for (const model of adminModels) {
                 if (!model?.id || liveIds.has(model.id)) continue;
+                const availability = task === 'text' && MEMBER_CREDIT_TEXT_MODEL_IDS.has(model.id)
+                    ? 'requires-credits'
+                    : 'coming-soon';
                 entries.push({
                     name: model.label || model.id,
                     vendor: model.vendor || '',
-                    availability: 'coming-soon',
+                    availability,
                 });
             }
 
@@ -127,7 +143,7 @@ function buildOverlay() {
 
             const status = document.createElement('span');
             status.className = `models-overlay__status models-overlay__status--${model.availability}`;
-            status.textContent = model.availability === 'live' ? 'Live' : 'Coming soon';
+            status.textContent = STATUS_LABELS[model.availability] || 'Coming soon';
 
             li.appendChild(name);
             meta.appendChild(vendor);

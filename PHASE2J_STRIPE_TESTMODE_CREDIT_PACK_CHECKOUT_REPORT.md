@@ -11,7 +11,7 @@ This phase does not activate live payments. It does not add subscriptions, invoi
 ## Scope
 
 - Added a testmode-only Stripe provider adapter using `fetch`; no Stripe SDK or dependency was added.
-- Added a fixed test credit-pack catalog: `credits_100`, `credits_500`, and `credits_1000`.
+- Added a fixed test credit-pack catalog that now exposes the product-facing Testmode packs `credits_5000` and `credits_10000`.
 - Added owner/admin org checkout creation for credit packs.
 - Added Stripe Testmode webhook verification and processing for `checkout.session.completed`.
 - Added idempotent checkout/session/event/ledger behavior.
@@ -49,11 +49,14 @@ Server-side Testmode catalog:
 
 | Pack | Credits | Amount | Currency | Notes |
 | --- | ---: | ---: | --- | --- |
-| `credits_100` | 100 | 900 cents | `eur` | Testmode placeholder |
-| `credits_500` | 500 | 3900 cents | `eur` | Testmode placeholder |
-| `credits_1000` | 1000 | 6900 cents | `eur` | Testmode placeholder |
+| `credits_5000` | 5000 | 4900 cents | `eur` | Product-facing Testmode pack |
+| `credits_10000` | 10000 | 8900 cents | `eur` | Product-facing Testmode pack |
 
 These are not final production prices. Webhook processing validates credits, amount, currency, mode, metadata, session id, and paid status against the server-side catalog before granting credits.
+
+The earlier Phase 2-J `credits_100`, `credits_500`, and `credits_1000` placeholder packs were replaced for the pricing rollout instead of being exposed publicly in parallel. Existing checkout/session idempotency and webhook exact-once behavior remain unchanged.
+
+The Pricing / Credit Purchase rollout also adds migration `0039_raise_credit_balance_cap_for_pricing_packs.sql` so these larger Testmode packs can be granted without exceeding the original Phase 2-B free-plan balance cap.
 
 ## Checkout Creation Behavior
 

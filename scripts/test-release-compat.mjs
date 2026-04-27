@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0038_add_stripe_credit_pack_checkout.sql",
+        latest: "0039_raise_credit_balance_cap_for_pricing_packs.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -602,6 +602,7 @@ function createValidContext() {
           "0036_add_ai_usage_attempts.sql",
           "0037_add_billing_event_ingestion.sql",
           "0038_add_stripe_credit_pack_checkout.sql",
+          "0039_raise_credit_balance_cap_for_pricing_packs.sql",
         ],
       },
     },
