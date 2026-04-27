@@ -2542,6 +2542,37 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(missingConfig.status).toBe(503);
+    const missingConfigBody = await missingConfig.json();
+    expect(missingConfigBody).toEqual(expect.objectContaining({
+      code: 'stripe_secret_unavailable',
+      config_names: ['STRIPE_SECRET_KEY'],
+      missing_config_names: ['STRIPE_SECRET_KEY'],
+    }));
+    expect(JSON.stringify(missingConfigBody)).not.toContain(STRIPE_TEST_SECRET);
+
+    const missingModeEnv = createAuthTestEnv({
+      ...baseSeed,
+      STRIPE_MODE: '',
+      fetch: mockStripeCheckoutFetch({ calls: [] }),
+    });
+    const missingModeToken = await seedSession(missingModeEnv, owner.id);
+    const missingMode = await worker.fetch(
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${missingModeToken}`,
+        'Idempotency-Key': 'phase2j-missing-mode',
+      }),
+      missingModeEnv,
+      createExecutionContext().execCtx
+    );
+    expect(missingMode.status).toBe(503);
+    const missingModeBody = await missingMode.json();
+    expect(missingModeBody).toEqual(expect.objectContaining({
+      code: 'stripe_testmode_unavailable',
+      config_names: ['STRIPE_MODE'],
+      missing_config_names: ['STRIPE_MODE'],
+    }));
+    expect(JSON.stringify(missingModeBody)).not.toContain(STRIPE_TEST_SECRET);
 
     const liveModeEnv = createAuthTestEnv({
       ...baseSeed,
@@ -2559,6 +2590,35 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(liveMode.status).toBe(403);
+    const liveModeBody = await liveMode.json();
+    expect(liveModeBody).toEqual(expect.objectContaining({
+      code: 'stripe_live_mode_disabled',
+      config_names: ['STRIPE_MODE'],
+    }));
+    expect(liveModeBody.missing_config_names).toBeUndefined();
+
+    const missingSuccessUrlEnv = createAuthTestEnv({
+      ...baseSeed,
+      STRIPE_CHECKOUT_SUCCESS_URL: '',
+      fetch: mockStripeCheckoutFetch({ calls: [] }),
+    });
+    const missingSuccessUrlToken = await seedSession(missingSuccessUrlEnv, owner.id);
+    const missingSuccessUrl = await worker.fetch(
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${missingSuccessUrlToken}`,
+        'Idempotency-Key': 'phase2j-missing-success-url',
+      }),
+      missingSuccessUrlEnv,
+      createExecutionContext().execCtx
+    );
+    expect(missingSuccessUrl.status).toBe(503);
+    const missingSuccessUrlBody = await missingSuccessUrl.json();
+    expect(missingSuccessUrlBody).toEqual(expect.objectContaining({
+      code: 'stripe_checkout_url_unavailable',
+      config_names: ['STRIPE_CHECKOUT_SUCCESS_URL'],
+      missing_config_names: ['STRIPE_CHECKOUT_SUCCESS_URL'],
+    }));
 
     const providerCalls = [];
     const providerFailEnv = createAuthTestEnv({
@@ -2761,6 +2821,13 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(missingSecret.status).toBe(503);
+    const missingSecretBody = await missingSecret.json();
+    expect(missingSecretBody).toEqual(expect.objectContaining({
+      code: 'stripe_webhook_secret_unavailable',
+      config_names: ['STRIPE_WEBHOOK_SECRET'],
+      missing_config_names: ['STRIPE_WEBHOOK_SECRET'],
+    }));
+    expect(JSON.stringify(missingSecretBody)).not.toContain(STRIPE_WEBHOOK_SECRET);
 
     const malformedRaw = '{not valid stripe json';
     const malformed = await worker.fetch(

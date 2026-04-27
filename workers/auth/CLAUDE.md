@@ -206,7 +206,30 @@ src/
 
 **Secret** `BILLING_WEBHOOK_TEST_SECRET` — optional Phase 2-I synthetic billing webhook verification secret for `POST /api/billing/webhooks/test`. If missing or too short, the route fails closed. This is not a live provider secret and does not enable production payment processing.
 
-**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_WEBHOOK_SECRET` verifies `POST /api/billing/webhooks/stripe`; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
+**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS for checkout creation. `STRIPE_WEBHOOK_SECRET` is required only for `POST /api/billing/webhooks/stripe` verification and is not required to create Checkout Sessions. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed with safe variable-name diagnostics and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
+
+Local `workers/auth/.dev.vars` example for Stripe Testmode checkout/webhook testing:
+
+```dotenv
+STRIPE_MODE=test
+STRIPE_SECRET_KEY=sk_test_REPLACE_WITH_TESTMODE_KEY
+STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_TESTMODE_ENDPOINT_SECRET
+STRIPE_CHECKOUT_SUCCESS_URL=https://bitbi.ai/pricing.html?checkout=success
+STRIPE_CHECKOUT_CANCEL_URL=https://bitbi.ai/pricing.html?checkout=cancel
+```
+
+Staging setup commands, using placeholder values only:
+
+```bash
+cd workers/auth
+printf '%s' 'sk_test_REPLACE_WITH_TESTMODE_KEY' | npx wrangler secret put STRIPE_SECRET_KEY
+printf '%s' 'whsec_REPLACE_WITH_TESTMODE_ENDPOINT_SECRET' | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put STRIPE_MODE
+npx wrangler secret put STRIPE_CHECKOUT_SUCCESS_URL
+npx wrangler secret put STRIPE_CHECKOUT_CANCEL_URL
+```
+
+For the three non-secret values above, enter `test`, `https://bitbi.ai/pricing.html?checkout=success`, and `https://bitbi.ai/pricing.html?checkout=cancel` when prompted, or configure equivalent staging HTTPS URLs.
 
 Migrations in `migrations/` are numbered sequentially from `0001_init` through `0039_raise_credit_balance_cap_for_pricing_packs`.
 

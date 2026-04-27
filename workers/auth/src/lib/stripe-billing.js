@@ -42,20 +42,42 @@ export const STRIPE_CREDIT_PACKS = Object.freeze([
 ]);
 
 export class StripeBillingError extends Error {
-  constructor(message, { status = 400, code = "stripe_billing_error" } = {}) {
+  constructor(message, {
+    status = 400,
+    code = "stripe_billing_error",
+    configNames = [],
+    missingConfigNames = [],
+  } = {}) {
     super(message);
     this.name = "StripeBillingError";
     this.status = status;
     this.code = code;
+    this.configNames = normalizeConfigNames(configNames);
+    this.missingConfigNames = normalizeConfigNames(missingConfigNames);
   }
 }
 
 export function stripeBillingErrorResponse(error) {
-  return {
+  const body = {
     ok: false,
     error: error.message || "Stripe billing request failed.",
     code: error.code || "stripe_billing_error",
   };
+  if (error.configNames?.length) body.config_names = error.configNames;
+  if (error.missingConfigNames?.length) body.missing_config_names = error.missingConfigNames;
+  return body;
+}
+
+function normalizeConfigNames(names) {
+  const seen = new Set();
+  const normalized = [];
+  for (const name of Array.isArray(names) ? names : []) {
+    const value = String(name || "").trim();
+    if (!/^[A-Z][A-Z0-9_]{1,127}$/.test(value) || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
 }
 
 function checkoutSessionId() {
@@ -74,12 +96,15 @@ function normalizeStripeMode(env) {
     throw new StripeBillingError("Stripe Testmode is not configured.", {
       status: 503,
       code: "stripe_testmode_unavailable",
+      configNames: ["STRIPE_MODE"],
+      missingConfigNames: ["STRIPE_MODE"],
     });
   }
   if (mode !== STRIPE_MODE_TEST) {
     throw new StripeBillingError("Live Stripe billing is disabled.", {
       status: 403,
       code: "stripe_live_mode_disabled",
+      configNames: ["STRIPE_MODE"],
     });
   }
   return mode;
@@ -91,18 +116,22 @@ function normalizeStripeSecretKey(env) {
     throw new StripeBillingError("Stripe Testmode secret key is not configured.", {
       status: 503,
       code: "stripe_secret_unavailable",
+      configNames: ["STRIPE_SECRET_KEY"],
+      missingConfigNames: ["STRIPE_SECRET_KEY"],
     });
   }
   if (key.startsWith("sk_live_")) {
     throw new StripeBillingError("Live Stripe keys are disabled.", {
       status: 403,
       code: "stripe_live_mode_disabled",
+      configNames: ["STRIPE_SECRET_KEY"],
     });
   }
   if (!key.startsWith("sk_test_")) {
     throw new StripeBillingError("Stripe Testmode secret key is invalid.", {
       status: 503,
       code: "stripe_secret_unavailable",
+      configNames: ["STRIPE_SECRET_KEY"],
     });
   }
   return key;
@@ -114,23 +143,28 @@ function normalizeStripeWebhookSecret(env) {
     throw new StripeBillingError("Stripe webhook verification is not configured.", {
       status: 503,
       code: "stripe_webhook_secret_unavailable",
+      configNames: ["STRIPE_WEBHOOK_SECRET"],
+      missingConfigNames: ["STRIPE_WEBHOOK_SECRET"],
     });
   }
   if (!secret.startsWith("whsec_") || secret.length < 16) {
     throw new StripeBillingError("Stripe webhook verification is not configured.", {
       status: 503,
       code: "stripe_webhook_secret_unavailable",
+      configNames: ["STRIPE_WEBHOOK_SECRET"],
     });
   }
   return secret;
 }
 
-function normalizeHttpsUrl(value, fieldName) {
+function normalizeHttpsUrl(value, fieldName, configName) {
   const text = safeString(value, 2048);
   if (!text) {
     throw new StripeBillingError(`${fieldName} is not configured.`, {
       status: 503,
       code: "stripe_checkout_url_unavailable",
+      configNames: [configName],
+      missingConfigNames: [configName],
     });
   }
   try {
@@ -141,6 +175,7 @@ function normalizeHttpsUrl(value, fieldName) {
     throw new StripeBillingError(`${fieldName} must be an HTTPS URL.`, {
       status: 503,
       code: "stripe_checkout_url_unavailable",
+      configNames: [configName],
     });
   }
 }
@@ -149,8 +184,16 @@ function getStripeCheckoutConfig(env) {
   return {
     mode: normalizeStripeMode(env),
     secretKey: normalizeStripeSecretKey(env),
-    successUrl: normalizeHttpsUrl(env?.STRIPE_CHECKOUT_SUCCESS_URL, "Stripe checkout success URL"),
-    cancelUrl: normalizeHttpsUrl(env?.STRIPE_CHECKOUT_CANCEL_URL, "Stripe checkout cancel URL"),
+    successUrl: normalizeHttpsUrl(
+      env?.STRIPE_CHECKOUT_SUCCESS_URL,
+      "Stripe checkout success URL",
+      "STRIPE_CHECKOUT_SUCCESS_URL"
+    ),
+    cancelUrl: normalizeHttpsUrl(
+      env?.STRIPE_CHECKOUT_CANCEL_URL,
+      "Stripe checkout cancel URL",
+      "STRIPE_CHECKOUT_CANCEL_URL"
+    ),
   };
 }
 
