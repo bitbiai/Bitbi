@@ -2,6 +2,8 @@
 
 Date: 2026-04-26
 
+> Historical entrypoint: Phase 2-A is complete and this file is preserved as implementation evidence. Do not use it as the current restart point. For current next-step guidance after Phase 2-J, Admin Control Plane, Pricing / Credit Purchase, and Stripe Testmode config-diagnostics work, read `CURRENT_IMPLEMENTATION_HANDOFF.md` and `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`.
+
 Mission: implement the Organization / Tenant / RBAC foundation without redoing Phase 0 or Phase 1 hardening work.
 
 ## Source Documents To Read First

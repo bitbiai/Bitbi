@@ -112,18 +112,22 @@ function createContext() {
       "PHASE1_OBSERVABILITY_BASELINE.md",
       "AI_VIDEO_ASYNC_JOB_DESIGN.md",
       "DATA_INVENTORY.md",
+      "CURRENT_IMPLEMENTATION_HANDOFF.md",
+      "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
     ],
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "AUDIT_NEXT_LEVEL.md",
+    "CURRENT_IMPLEMENTATION_HANDOFF.md",
     "DATA_INVENTORY.md",
     "PHASE0B_REMEDIATION_REPORT.md",
     "PHASE0_REMEDIATION_REPORT.md",
     "PHASE1A_REMEDIATION_REPORT.md",
     "PHASE1B_REMEDIATION_REPORT.md",
     "PHASE1_OBSERVABILITY_BASELINE.md",
+    "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
     "tests/workers.spec.js",
   ]);
   assert.equal(plan.isNoop, true);

@@ -2,6 +2,8 @@
 
 Date: 2026-04-26
 
+> Historical handoff: this file was the pause/resume checkpoint after Phase 1-J and is intentionally preserved as Phase 1 evidence. It is no longer the current implementation entrypoint. For the current repository state after Phase 2-J, Admin Control Plane, Pricing / Credit Purchase, and Stripe Testmode config-diagnostics work, read `CURRENT_IMPLEMENTATION_HANDOFF.md` and `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`.
+
 Purpose: pause/resume checkpoint after Phase 1-J. This document is the operational handoff for future Codex sessions and human reviewers. It is not a production deploy approval.
 
 ## Executive Summary
