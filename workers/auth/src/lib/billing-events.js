@@ -216,9 +216,10 @@ function safeString(value, maxLength = MAX_SUMMARY_STRING_LENGTH) {
   return text.slice(0, maxLength);
 }
 
-function normalizeEventMode(value) {
+function normalizeEventMode(value, { allowLive = false } = {}) {
   const mode = String(value || "test").trim().toLowerCase();
   if (mode === LIVE_MODE) {
+    if (allowLive) return mode;
     throw new BillingEventError("Live billing events are not enabled.", {
       status: 403,
       code: "billing_webhook_live_mode_disabled",
@@ -323,7 +324,7 @@ function sanitizedPayloadSummary(payload, { providerEventId, eventType, provider
   };
 }
 
-export async function normalizeBillingProviderEvent({ provider, rawBody, payload }) {
+export async function normalizeBillingProviderEvent({ provider, rawBody, payload, allowLive = false }) {
   const providerName = normalizeProvider(provider);
   const providerEventId = normalizeProviderEventId(payload.id || payload.event_id || payload.eventId);
   const eventType = normalizeEventType(payload.type || payload.event_type || payload.eventType);
@@ -331,7 +332,8 @@ export async function normalizeBillingProviderEvent({ provider, rawBody, payload
     payload.mode ||
     payload.environment ||
     payload.provider_mode ||
-    (payload.livemode === true ? "live" : null)
+    (payload.livemode === true ? "live" : null),
+    { allowLive }
   );
   const payloadHash = await sha256Hex(String(rawBody || ""));
   const summary = sanitizedPayloadSummary(payload, {
@@ -418,8 +420,9 @@ export async function ingestVerifiedBillingProviderEvent({
   payload,
   verificationStatus = "verified_test_signature",
   receivedAt = nowIso(),
+  allowLive = false,
 }) {
-  const normalized = await normalizeBillingProviderEvent({ provider, rawBody, payload });
+  const normalized = await normalizeBillingProviderEvent({ provider, rawBody, payload, allowLive });
   const existing = await env.DB.prepare(
     `SELECT id, provider, provider_event_id, provider_account, provider_mode,
             event_type, event_created_at, received_at, processing_status,

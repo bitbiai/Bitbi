@@ -15,17 +15,17 @@ The repository now has a substantially improved SaaS foundation:
 - Data lifecycle: data inventory, retention baseline, lifecycle request schema, admin planning APIs, bounded export archive generation/download, expired archive cleanup, and a safe reversible-action executor pilot with irreversible deletion disabled by default.
 - SaaS foundations: organizations, memberships, basic RBAC, billing plans, entitlements, credit ledger, usage events, org-scoped AI image/text credit enforcement, usage attempts/reservations/replay, usage-attempt cleanup/admin inspection, replay-object cleanup, provider-neutral billing event ingestion, Stripe Testmode checkout/session tracking, verified Testmode checkout credit grants, server-side platform-admin-only Testmode checkout lockdown, admin-only Pricing page, and Admin Control Plane.
 
-The repository is not full enterprise SaaS maturity. Production deploy remains blocked until migrations through `0039`, live Cloudflare secret/binding/resource verification, Stripe Testmode configuration, explicit `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` canary enablement when needed, checkout/webhook verification, org/billing/AI/lifecycle/admin/pricing verification, and live health/security-header evidence are complete. Live Stripe, live checkout, subscriptions, invoices, customer portal, Stripe Tax, Stripe Connect, production-trusted live webhooks, full tenant-owned asset migration, full Cloudflare IaC/drift control, legal-approved privacy workflows, formal load budgets, and compliance certification remain incomplete.
+The repository is not full enterprise SaaS maturity. Production deploy remains blocked until migrations through `0040`, live Cloudflare secret/binding/resource verification, Stripe Testmode configuration, explicit `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` canary enablement when needed, live Stripe credit-pack configuration with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` only during a bounded canary window, checkout/webhook verification, org/billing/AI/lifecycle/admin/pricing/Credits verification, and live health/security-header evidence are complete. Phase 2-L adds narrow live one-time credit packs for platform admins and active organization owners, but public live billing, subscriptions, invoices, customer portal, Stripe Tax, Stripe Connect, refund/chargeback automation, full tenant-owned asset migration, full Cloudflare IaC/drift control, legal-approved privacy workflows, formal load budgets, and compliance certification remain incomplete.
 
 ## 2. Current Branch / Commit / Working Tree Status
 
 | Item | Current value |
 | --- | --- |
 | Branch | `main` |
-| Latest commit observed before Phase 2-K work | `2ef7496 status` |
+| Latest commit observed before Phase 2-L work | `41377c4 str` |
 | Recent relevant commits | `9cba90e Add admin-gated pricing page for credit packs`, `7b684e7 fix`, `7e7d61f fix`, `2ef7496 status` |
 | Working tree at Phase 2-K start | Clean |
-| Current update scope | Runtime hardening plus documentation for Phase 2-K Admin-only Stripe Testmode Lockdown |
+| Current update scope | Runtime hardening plus documentation for Phase 2-L Live Stripe Credit Packs and Credits Dashboard |
 | Baseline validation before edits | `npm run release:preflight` passed on 2026-04-28 |
 
 ## 3. Current Maturity Assessment
@@ -35,11 +35,11 @@ The repository is not full enterprise SaaS maturity. Production deploy remains b
 | Overall SaaS readiness | Substantially improved SaaS foundation, but not full enterprise SaaS maturity. |
 | Security readiness | Stronger than original baseline for auth, service auth, replay, rate limits, body parsing, admin MFA, route policy, and secrets. Still requires live secret parity, live Cloudflare checks, legacy fallback retirement, and broader SAST/SBOM/license gates. |
 | Operational readiness | Repo-owned runbooks/SLO/event/backup docs and checks exist. Live alerting, restore drill evidence, dashboard drift enforcement, and production incident evidence are still missing. |
-| Billing readiness | Credit-ledger, entitlements, usage events, provider-neutral events, and Stripe Testmode credit-pack checkout foundation exist. Checkout creation is now server-side platform-admin-only and disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`. Not live billing. No subscriptions, invoices, customer portal, tax, live checkout, or production payment processing. |
+| Billing readiness | Credit-ledger, entitlements, usage events, provider-neutral events, Stripe Testmode credit-pack checkout, and narrow live one-time credit-pack checkout foundations exist. Testmode checkout is server-side platform-admin-only and disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`. Live credit-pack checkout is limited to platform admins and active org owners and disabled unless `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`. No public billing, subscriptions, invoices, customer portal, tax, refund/chargeback automation, or full production payment processing. |
 | Tenant readiness | Organization/membership/RBAC foundation exists. Existing assets are still largely user-owned, not fully tenant-owned. Full tenant isolation is not complete. |
 | Privacy/compliance readiness | Admin/support lifecycle planning, export archives, cleanup, and reversible executor pilot exist. User self-service, legal-approved retention, contact processor workflow, irreversible deletion, and compliance certification remain incomplete. |
 | Production readiness | Blocked until staging/live verification and migration/secret/resource prerequisites are complete. |
-| Live billing readiness | Blocked. Live Stripe is intentionally disabled. |
+| Live billing readiness | Narrow live one-time credit-pack checkout exists behind a disabled-by-default operator flag. Full live billing readiness remains blocked. |
 
 ## 4. Phase-By-Phase Timeline
 
@@ -69,6 +69,7 @@ The repository is not full enterprise SaaS maturity. Production deploy remains b
 | Phase 2-I | Completed for current scope | Provider-neutral billing event ingestion. | `0037_add_billing_event_ingestion.sql`, `billing-events.js`, `/api/billing/webhooks/test`. | Report records Worker 342/342 and full validation. | Staging synthetic webhook verification; no live provider enabled. |
 | Phase 2-J | Completed for current scope | Stripe Testmode credit-pack checkout and verified webhook credit grants. | `0038_add_stripe_credit_pack_checkout.sql`, `stripe-billing.js`, `/api/orgs/:id/billing/checkout/credit-pack`, `/api/billing/webhooks/stripe`. | Report records Worker 346/346, static 155/155, preflight pass. | Staging Stripe Testmode config/webhook/checkout verification. |
 | Phase 2-K | Completed for current scope | Lock down Stripe Testmode checkout creation to platform admins and require explicit operator enablement. | `stripe-billing.js`, `routes/orgs.js`, route policy, release compat, Worker tests, `PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md`. | Targeted Phase 2-J/2-K Worker tests and `check:js` passed during implementation; full validation required before merge. | Verify platform-admin-only checkout, disabled flag failure, admin-created checkout grant, non-admin checkout no-credit, and no live billing side effects. |
+| Phase 2-L | Completed for current scope | Add narrow live one-time credit packs and gated Credits dashboard for platform admins and active org owners. | `0040_add_live_stripe_credit_pack_scope.sql`, `stripe-billing.js`, `routes/orgs.js`, `billing-webhooks.js`, `/account/credits.html`, `js/pages/credits/main.js`. | Baseline preflight, `check:js`, route-policy check, Worker 352/352, and focused Credits static tests passed during implementation; full validation required before merge. | Apply migration `0040`; verify live config disabled-by-default behavior, live checkout authorization, live webhook signature, exactly-once credit grant, role-revocation no-credit paths, and no public pricing exposure. |
 | Admin Control Plane | Completed for current scope | Frontend admin operating surface over existing APIs. | `admin/index.html`, `js/pages/admin/control-plane.js`, `css/admin/admin.css`. | Report records Worker 346/346, static 159/159, preflight pass after corrective pass. | Staging verification against real APIs. |
 | Pricing / Credit Packs | Completed for current scope | Admin-only pricing page and Testmode checkout UX. | `pricing.html`, `js/pages/pricing/main.js`, `css/pages/pricing.css`, `0039_raise_credit_balance_cap_for_pricing_packs.sql`. | Report records Worker 346/346, static 163/163, preflight pass. | Staging checkout/return/model-status verification and Stripe Testmode config. |
 | Pricing asset-reference fix | Completed | Fix root-absolute asset references in `pricing.html`. | `pricing.html`. | Committed as `7b684e7 fix`; asset/static/build/preflight checks were requested and fixed. | None beyond standard staging static verification. |
@@ -132,6 +133,7 @@ Implemented:
 - Migration `0035` adds plans, subscriptions, entitlements, billing customers, credit ledger, and usage events.
 - Free plan and entitlement seed exists, including `ai.text.generate`, `ai.image.generate`, `ai.video.generate`, private storage, member max, monthly credits, and balance cap.
 - Migration `0039` raises the free-plan `credits.balance.max` to support 5000/10000-credit Testmode pack grants.
+- Migration `0040` adds checkout authorization/payment-state fields needed for live credit-pack reconciliation and grant authorization.
 - `billing.js` resolves org billing state, checks entitlements/credits, grants/consumes credits idempotently, and prevents negative balances.
 - Admin credit grant route exists and is surfaced in the Admin Control Plane with confirmation, reason, and generated idempotency key.
 
@@ -161,9 +163,30 @@ Implemented:
 
 Not complete:
 
-- Live Stripe is not enabled.
-- Checkout is not production-ready.
+- Public live Stripe checkout is not enabled.
+- Testmode checkout is not production-ready.
 - Subscriptions, invoices, customer portal, Stripe Tax, Connect, and production-trusted live webhooks are not implemented.
+
+## 10A. Live Stripe Credit-Pack Status
+
+Implemented:
+
+- Live checkout route: `POST /api/orgs/:id/billing/checkout/live-credit-pack`.
+- Live webhook route: `POST /api/billing/webhooks/stripe/live`.
+- Credits dashboard route: `GET /api/orgs/:id/billing/credits-dashboard`.
+- Credits page: `/account/credits.html`.
+- Allowed live buyers: platform/global admins and active owners of the target organization.
+- Denied live buyers: unauthenticated users, normal users, org admins unless also platform admins, members, viewers, and owners of other organizations.
+- Fixed live packs: `live_credits_5000` for 5,000 credits at 1.00 EUR, and `live_credits_10000` for 10,000 credits at 1.50 EUR.
+- Live checkout is disabled unless `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`.
+- Live webhook uses `STRIPE_LIVE_WEBHOOK_SECRET` and accepts only live events.
+- Credit grants require a persisted live checkout row and revalidate authorization scope at webhook time.
+
+Not complete:
+
+- No public pricing rollout.
+- No subscriptions, invoices, customer portal, Stripe Tax, coupons, Connect, refund/chargeback automation, or final billing operations process.
+- Staging/live verification was not performed by Codex.
 
 ## 11. AI Usage Credit Enforcement Status
 
@@ -261,15 +284,15 @@ Not complete:
 
 ## 16. Current Migrations And Required Deployment Order
 
-Latest auth D1 migration: `0039_raise_credit_balance_cap_for_pricing_packs.sql`.
+Latest auth D1 migration: `0040_add_live_stripe_credit_pack_scope.sql`.
 
 Required auth migration order before staging auth Worker behavior that depends on these phases:
 
-1. Apply all auth migrations through `0039`.
+1. Apply all auth migrations through `0040`.
 2. Deploy AI Worker with matching `AI_SERVICE_AUTH_SECRET` and `SERVICE_AUTH_REPLAY` Durable Object migration `v1-service-auth-replay`.
 3. Deploy auth Worker with required D1/R2/Queue/service/DO bindings.
 4. Deploy contact Worker with required `RESEND_API_KEY` and limiter DO.
-5. Deploy static site, including Admin Control Plane and admin-only Pricing page.
+5. Deploy static site, including Admin Control Plane, admin-only Pricing page, and gated Credits dashboard.
 
 Do not apply remote migrations from Codex. Operators must apply and verify in staging/production.
 
@@ -284,10 +307,10 @@ Key implemented route groups:
 - Organization routes: `/api/orgs`, `/api/orgs/:id`, members, entitlements, billing, usage, and credit-pack checkout.
 - Admin organization and billing routes.
 - Data lifecycle admin routes for requests, plans, archives, cleanup, export, and execute-safe.
-- Billing webhook routes: `/api/billing/webhooks/test` and `/api/billing/webhooks/stripe`.
+- Billing webhook routes: `/api/billing/webhooks/test`, `/api/billing/webhooks/stripe`, and `/api/billing/webhooks/stripe/live`.
 - Health routes for Workers.
 
-Route policy guard currently validates 121 registered auth-worker route policies.
+Route policy guard currently validates the registered auth-worker route policies, including Phase 2-L live checkout, live webhook, and Credits dashboard routes.
 
 ## 18. Current Validation Evidence
 
@@ -296,31 +319,19 @@ Baseline before documentation edits:
 - `git status --short`: clean.
 - `npm run release:preflight`: passed.
 
-Documentation reconciliation validation:
+Latest Phase 2-L targeted validation:
 
-- `git diff --check`: passed.
 - `npm run check:js`: passed.
-- `npm run test:release-compat`: passed.
-- `npm run test:release-plan`: passed.
-- `npm run validate:release`: passed.
-- `npm run test:cloudflare-prereqs`: passed.
-- `npm run validate:cloudflare-prereqs`: passed for repo config; live validation skipped; production deploy blocked.
-- `npm run check:route-policies`: passed for 121 registered auth-worker route policies.
-- `npm run check:worker-body-parsers`: passed.
-- `npm run check:data-lifecycle`: passed.
-- `npm run check:admin-activity-query-shape`: passed.
-- `npm run test:operational-readiness`: passed.
-- `npm run check:operational-readiness`: passed.
-- `npm run test:workers`: passed, 346/346.
-- `npm run test:static`: passed, 163/163.
-- `npm run test:asset-version`: passed.
-- `npm run validate:asset-version`: passed.
-- `npm run build:static`: passed.
-- `npm run release:preflight`: passed after adding minimal release-plan classification for the two new documentation files.
+- `npm run check:route-policies`: passed.
+- `npm run test:workers`: passed, 352/352.
+- `npx playwright test -c playwright.config.js tests/auth-admin.spec.js -g "Credits dashboard live credit packs"`: passed, 3/3.
+
+Full Phase 2-L validation remains required before merge.
 
 Latest report evidence:
 
 - Pricing report records `npm run test:workers` 346 passed and `npm run test:static` 163 passed.
+- Phase 2-L targeted validation records `npm run test:workers` 352 passed and focused Credits static tests 3 passed; full validation must pass before merge.
 - Admin Control Plane report records `npm run test:workers` 346 passed and `npm run test:static` 159 passed for that phase.
 - Stripe diagnostics corrective pass records `npm run test:workers`, `npm run test:release-compat`, `npm run test:cloudflare-prereqs`, `npm run validate:cloudflare-prereqs`, `npm run release:preflight`, and `git diff --check` passing.
 
@@ -328,12 +339,13 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 
 ## 19. Current Production Blockers
 
-- Apply auth migrations through `0039`.
+- Apply auth migrations through `0040`.
 - Provision and verify required auth/AI/contact secrets without printing values.
 - Verify matching `AI_SERVICE_AUTH_SECRET` in auth and AI Workers.
 - Deploy/verify `SERVICE_AUTH_REPLAY` Durable Object and migration.
 - Verify D1/R2/Queue/service bindings, including `USER_IMAGES`, `AUDIT_ARCHIVE`, `AI_LAB`, `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`, and `AI_VIDEO_JOBS_QUEUE`.
-- Configure Stripe Testmode only: `STRIPE_MODE=test`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`.
+- Configure Stripe Testmode only for Testmode flows: `STRIPE_MODE=test`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`.
+- Configure live Stripe only for the Phase 2-L canary with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` initially, `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET`, `STRIPE_LIVE_CHECKOUT_SUCCESS_URL`, and `STRIPE_LIVE_CHECKOUT_CANCEL_URL`.
 - Keep `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` absent/false except during an explicitly approved admin-only Testmode canary window.
 - Verify Stripe Testmode checkout and webhook endpoint in staging.
 - Verify Admin Control Plane and Pricing in staging with real APIs.
@@ -357,6 +369,7 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 - Org-scoped text generation success, replay, entitlement denial, provider failure, billing failure.
 - Synthetic billing webhook valid/invalid/duplicate/mismatch behavior.
 - Stripe Testmode platform-admin-only checkout creation, disabled flag failure, webhook signature verification, exact-once credit grant, duplicate/mismatch/no-credit failures, and non-admin-created checkout no-credit behavior.
+- Phase 2-L live checkout platform-admin/org-owner authorization, live flag/config failure modes, live webhook signature verification, exact-once credit grant, duplicate/mismatch/no-credit failures, org-owner/admin revocation no-credit behavior, and Credits dashboard display.
 - Pricing page header visibility, direct access denial, org selector, checkout redirect, success/cancel states, model labels.
 - Admin Control Plane sections, sanitized details, unavailable/fail-closed states, action safety.
 - Live health and static security headers with `--require-live`.
@@ -364,8 +377,8 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 ## 21. Remaining Risks And Gaps
 
 - No full tenant-owned asset migration.
-- No public/live billing readiness.
-- No subscriptions, invoices, customer portal, tax, coupons, Connect, or live checkout.
+- No public/full live billing readiness.
+- No subscriptions, invoices, customer portal, tax, coupons, Connect, refund/chargeback automation, or public checkout.
 - Video/music member usage is not credit-enforced.
 - User self-service privacy flows remain deferred.
 - Irreversible deletion is disabled and not legal-approved.
@@ -377,8 +390,8 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 
 ## 22. Recommended Next Phases
 
-1. Staging verification and deployment evidence phase: apply migrations through `0039` in staging, configure Testmode Stripe, enable `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` only for a canary window, verify all Phase 0 through Pricing/Phase 2-K flows, run live health/header checks, and document results.
-2. Stripe Testmode hardening to live-readiness design: keep live disabled while designing subscriptions/invoices/customer portal/tax/legal terms and webhook side-effect policy.
+1. Staging verification and deployment evidence phase: apply migrations through `0040` in staging, configure Testmode Stripe, configure live Stripe with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` initially, enable canary flags only for bounded windows, verify all Phase 0 through Pricing/Phase 2-L flows, run live health/header checks, and document results.
+2. Billing operations hardening: keep public billing disabled while designing refund/chargeback/manual-review policy, subscriptions/invoices/customer portal/tax/legal terms, and webhook side-effect policy.
 3. Tenant-owned asset migration phase: add nullable organization ownership to one low-risk domain, backfill safely, and prove dual-read behavior.
 4. Video AI entitlement wiring phase: wire a member-safe async video route to org entitlements/credits without touching admin debug/lab flows.
 5. Operational maturity phase: Cloudflare IaC/drift checks, alerts, restore drills, load budgets, and incident evidence.
@@ -399,6 +412,7 @@ Do not start all tracks at once.
 - Provider-neutral billing event ingestion.
 - Stripe Testmode checkout foundation.
 - Phase 2-K platform-admin-only checkout lockdown and explicit Testmode checkout kill switch.
+- Phase 2-L narrow live credit-pack checkout and Credits dashboard foundation.
 - Admin Control Plane and admin-only Pricing page.
 
 Only revisit these if a focused regression is found.
@@ -407,19 +421,20 @@ Only revisit these if a focused regression is found.
 
 Nothing should be deployed from Codex. For staging, operators should deploy:
 
-- Auth migrations through `0039`.
+- Auth migrations through `0040`.
 - AI Worker with service-auth replay binding/migration.
 - Auth Worker with all D1/R2/Queue/service/DO bindings and secrets.
 - Contact Worker with contact secret and limiter binding.
-- Static site including Admin Control Plane and Pricing assets.
+- Static site including Admin Control Plane, Pricing assets, and Credits dashboard assets.
 
 Production should not be deployed until staging evidence is recorded and live/manual Cloudflare verification is complete.
 
 ## 25. Rollback Considerations
 
-- Migrations `0034` through `0039` are additive/forward-only; do not attempt destructive rollback. Disable routes/UI instead if a problem occurs.
+- Migrations `0034` through `0040` are additive/forward-only; do not attempt destructive rollback. Disable routes/UI instead if a problem occurs.
 - Pricing page rollback can remove/hide `pricing.html`, pricing JS/CSS, and header links while leaving migrations and backend foundation idle.
 - Stripe Testmode checkout can fail closed by setting/removing `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` or by removing Stripe Testmode config from the environment.
+- Live credit-pack checkout can fail closed by setting/removing `ENABLE_LIVE_STRIPE_CREDIT_PACKS` or by removing live Stripe checkout config from the environment.
 - Admin Control Plane rollback is static/frontend only.
 - AI usage attempt/replay behavior is tied to migration `0036`; if disabling paid org-scoped AI paths, preserve legacy no-org image behavior and avoid deleting ledger/usage/attempt rows.
 
@@ -427,7 +442,7 @@ Production should not be deployed until staging evidence is recorded and live/ma
 
 - Start with `CURRENT_IMPLEMENTATION_HANDOFF.md`, this report, `AUDIT_NEXT_LEVEL.md`, `AUDIT_ACTION_PLAN.md`, `DATA_INVENTORY.md`, and `docs/DATA_RETENTION_POLICY.md`.
 - Confirm `git status --short` is clean before implementing new phases.
-- Confirm latest auth migration is `0039_raise_credit_balance_cap_for_pricing_packs.sql`.
+- Confirm latest auth migration is `0040_add_live_stripe_credit_pack_scope.sql`.
 - Run `npm run release:preflight` before feature work if practical.
 - Do not claim production readiness, live billing, full tenant isolation, or legal compliance.
 - Do not run deploys, remote migrations, live Stripe setup, real production webhook tests, or Cloudflare dashboard mutations.

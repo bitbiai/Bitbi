@@ -27,7 +27,9 @@ import {
 } from "../lib/orgs.js";
 import {
   StripeBillingError,
+  createStripeLiveCreditPackCheckout,
   createStripeCreditPackCheckout,
+  getOrganizationCreditsDashboard,
   stripeBillingErrorResponse,
 } from "../lib/stripe-billing.js";
 
@@ -209,6 +211,99 @@ async function handleCreateCreditPackCheckout(ctx, organizationId) {
   }
 }
 
+async function requireActiveOrganizationForBilling(env, organizationId) {
+  const organization = await env.DB.prepare(
+    "SELECT id FROM organizations WHERE id = ? AND status = 'active' LIMIT 1"
+  ).bind(organizationId).first();
+  if (!organization) {
+    throw new OrgRbacError("Organization access denied.", {
+      status: 404,
+      code: "organization_not_found",
+    });
+  }
+  return organization;
+}
+
+async function resolveLiveCreditAccess(ctx, session, organizationId) {
+  await requireActiveOrganizationForBilling(ctx.env, organizationId);
+  if (session.user.role === "admin") {
+    return { scope: "platform_admin" };
+  }
+  await requireOrgRole(ctx.env, {
+    organizationId,
+    userId: session.user.id,
+    minRole: "owner",
+  });
+  return { scope: "org_owner" };
+}
+
+async function handleCreateLiveCreditPackCheckout(ctx, session, organizationId) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "org-billing-live-checkout-user",
+    userId: session.user.id,
+    maxRequests: 10,
+    windowMs: 15 * 60_000,
+    component: "org-billing-live-checkout",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.smallJson,
+  });
+  if (parsed.response) return parsed.response;
+
+  try {
+    const access = await resolveLiveCreditAccess(ctx, session, organizationId);
+    const result = await createStripeLiveCreditPackCheckout({
+      env: ctx.env,
+      organizationId,
+      userId: session.user.id,
+      packId: parsed.body?.pack_id || parsed.body?.packId,
+      idempotencyKey: idempotency.key,
+      authorizationScope: access.scope,
+    });
+    if (!result.reused) {
+      await logOrgActivity(ctx, session.user.id, "stripe_live_credit_pack_checkout_created", {
+        organization_id: result.checkout.organizationId,
+        credit_pack_id: result.creditPack.id,
+        credits: result.creditPack.credits,
+        authorization_scope: access.scope,
+      });
+    }
+    return json({
+      ok: true,
+      reused: result.reused,
+      checkout_url: result.checkout.checkoutUrl,
+      session_id: result.checkout.sessionId,
+      mode: result.checkout.providerMode,
+      authorization_scope: result.checkout.authorizationScope,
+      credit_pack: result.creditPack,
+      livePaymentProviderEnabled: true,
+    }, { status: result.reused ? 200 : 201 });
+  } catch (error) {
+    return orgErrorResponse(error);
+  }
+}
+
+async function handleCreditsDashboard(ctx, session, organizationId) {
+  try {
+    const access = await resolveLiveCreditAccess(ctx, session, organizationId);
+    const dashboard = await getOrganizationCreditsDashboard({
+      env: ctx.env,
+      organizationId,
+      accessScope: access.scope,
+      includeConfigNames: access.scope === "platform_admin",
+      limit: ctx.url.searchParams.get("limit"),
+    });
+    return json({ ok: true, dashboard });
+  } catch (error) {
+    return orgErrorResponse(error);
+  }
+}
+
 export async function handleOrgs(ctx) {
   const { request, env, pathname, method, url } = ctx;
   if (pathname !== "/api/orgs" && !pathname.startsWith("/api/orgs/")) {
@@ -290,6 +385,17 @@ export async function handleOrgs(ctx) {
   // route-policy: orgs.billing.checkout.credit-pack
   if (checkoutMatch && method === "POST") {
     return handleCreateCreditPackCheckout(ctx, checkoutMatch[1]);
+  }
+
+  const liveCheckoutMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing\/checkout\/live-credit-pack$/);
+  // route-policy: orgs.billing.checkout.live-credit-pack
+  if (liveCheckoutMatch && method === "POST") {
+    return handleCreateLiveCreditPackCheckout(ctx, session, liveCheckoutMatch[1]);
+  }
+
+  const creditsDashboardMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing\/credits-dashboard$/);
+  if (creditsDashboardMatch && method === "GET") {
+    return handleCreditsDashboard(ctx, session, creditsDashboardMatch[1]);
   }
 
   const usageMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/usage$/);

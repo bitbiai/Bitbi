@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0039_raise_credit_balance_cap_for_pricing_packs.sql",
+        "latest": "0040_add_live_stripe_credit_pack_scope.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -321,6 +321,51 @@
         "summary": "Optional Phase 2-J HTTPS cancel URL used only by Stripe Testmode Checkout Session creation."
       },
       {
+        "id": "auth-enable-live-stripe-credit-packs-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
+        "requiredForRelease": false,
+        "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        "summary": "Optional Phase 2-L operator-controlled live credit-pack kill switch. Live checkout creation is disabled unless this value is exactly true; unrelated routes and verified Testmode behavior remain deployable with it absent."
+      },
+      {
+        "id": "auth-stripe-live-secret-key",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_SECRET_KEY",
+        "requiredForRelease": false,
+        "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        "summary": "Optional Phase 2-L live Stripe secret key. Required only when ENABLE_LIVE_STRIPE_CREDIT_PACKS=true; Testmode keys are rejected."
+      },
+      {
+        "id": "auth-stripe-live-webhook-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_WEBHOOK_SECRET",
+        "requiredForRelease": false,
+        "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        "summary": "Optional Phase 2-L live Stripe webhook endpoint secret. Required only for POST /api/billing/webhooks/stripe/live."
+      },
+      {
+        "id": "auth-stripe-live-checkout-success-url-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
+        "requiredForRelease": false,
+        "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        "summary": "Optional Phase 2-L HTTPS success URL used only by live Stripe credit-pack Checkout Session creation."
+      },
+      {
+        "id": "auth-stripe-live-checkout-cancel-url-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
+        "requiredForRelease": false,
+        "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        "summary": "Optional Phase 2-L HTTPS cancel URL used only by live Stripe credit-pack Checkout Session creation."
+      },
+      {
         "id": "ai-service-auth-secret",
         "kind": "secret",
         "worker": "ai",
@@ -444,7 +489,8 @@
       "POST /api/resend-verification",
       "POST /api/request-reverification",
       "POST /api/billing/webhooks/test",
-      "POST /api/billing/webhooks/stripe"
+      "POST /api/billing/webhooks/stripe",
+      "POST /api/billing/webhooks/stripe/live"
     ],
     "delegatedExactPaths": [
       "/api/favorites",

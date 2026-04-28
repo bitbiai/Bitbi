@@ -1851,6 +1851,7 @@ async function mockAuthenticatedProfile(page, {
   role = 'user',
   email = `${role}@bitbi.ai`,
   displayName = role === 'admin' ? 'Admin User' : 'Member User',
+  organizations = [],
   hasAvatar = false,
   favoritesPayload = [],
   folderPayload = { folders: [], counts: {}, unfolderedCount: 0 },
@@ -1912,6 +1913,25 @@ async function mockAuthenticatedProfile(page, {
           created_at: '2026-04-01T10:00:00.000Z',
         },
       }),
+    });
+  });
+
+  await page.route('**/api/orgs?*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, organizations }),
+    });
+  });
+  await page.route('**/api/orgs', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, organizations }),
     });
   });
 
@@ -2172,6 +2192,110 @@ async function mockPricingAccount(page, {
         id: route.request().postDataJSON().pack_id,
         credits: route.request().postDataJSON().pack_id === 'credits_10000' ? 10000 : 5000,
         amountCents: route.request().postDataJSON().pack_id === 'credits_10000' ? 8900 : 4900,
+        currency: 'eur',
+      },
+    }, 201);
+  });
+
+  return { checkoutRequests };
+}
+
+async function mockCreditsAccount(page, {
+  role = 'user',
+  email = 'credits-owner@bitbi.ai',
+  organizations = [
+    {
+      id: 'org_credits_1234567890abcdef123456789',
+      name: 'Credits Org',
+      slug: 'credits-org',
+      role: 'owner',
+      status: 'active',
+    },
+  ],
+  dashboard = null,
+  checkoutRequests = [],
+  checkoutUrl = 'https://checkout.stripe.com/c/pay/cs_live_credits_5000',
+} = {}) {
+  const defaultDashboard = dashboard || {
+    organization: {
+      id: organizations[0]?.id || 'org_credits_1234567890abcdef123456789',
+      name: organizations[0]?.name || 'Credits Org',
+      accessScope: role === 'admin' ? 'platform_admin' : 'org_owner',
+    },
+    balance: {
+      current: 5000,
+      available: 5000,
+      reserved: 0,
+      lifetimePurchasedLive: 5000,
+      lifetimeManualGrants: 0,
+      lifetimeConsumed: 0,
+    },
+    liveCheckout: {
+      enabled: true,
+      configured: true,
+      mode: 'live',
+      configNames: role === 'admin' ? ['ENABLE_LIVE_STRIPE_CREDIT_PACKS'] : undefined,
+    },
+    packs: [
+      { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 100, currency: 'eur', displayPrice: '1,00 €' },
+      { id: 'live_credits_10000', name: '10000 Credit Pack', credits: 10000, amountCents: 150, currency: 'eur', displayPrice: '1,50 €' },
+    ],
+    purchaseHistory: [],
+    recentLedger: [],
+  };
+
+  await page.route('**/api/me', async (route) => {
+    await fulfillJson(route, {
+      loggedIn: true,
+      user: {
+        id: `${role}-credits-user`,
+        email,
+        role,
+        display_name: role === 'admin' ? 'Credits Admin' : 'Credits Owner',
+        has_avatar: false,
+        avatar_url: null,
+      },
+    });
+  });
+
+  await page.route('**/api/admin/orgs?*', async (route) => {
+    if (role !== 'admin') {
+      await fulfillJson(route, { ok: false, error: 'Admin privileges required.' }, 403);
+      return;
+    }
+    await fulfillJson(route, { ok: true, organizations });
+  });
+
+  await page.route('**/api/orgs?*', async (route) => {
+    await fulfillJson(route, { ok: true, organizations });
+  });
+  await page.route('**/api/orgs', async (route) => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, { ok: true, organizations });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/orgs/*/billing/credits-dashboard*', async (route) => {
+    await fulfillJson(route, { ok: true, dashboard: defaultDashboard });
+  });
+  await page.route('**/api/orgs/*/billing/checkout/live-credit-pack', async (route) => {
+    checkoutRequests.push({
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      url: route.request().url(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      checkout_url: checkoutUrl,
+      session_id: 'cs_live_credits_5000',
+      mode: 'live',
+      authorization_scope: role === 'admin' ? 'platform_admin' : 'org_owner',
+      credit_pack: {
+        id: route.request().postDataJSON().pack_id,
+        credits: route.request().postDataJSON().pack_id === 'live_credits_10000' ? 10000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'live_credits_10000' ? 150 : 100,
         currency: 'eur',
       },
     }, 201);
@@ -2905,6 +3029,73 @@ test.describe('Pricing credit-pack rollout', () => {
 
     await page.goto('/pricing?checkout=cancel');
     await expect(page.locator('.pricing-return--cancel')).toContainText('Checkout cancelled');
+  });
+});
+
+test.describe('Credits dashboard live credit packs', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('keeps direct Credits access gated for unauthenticated users and organization admins', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.goto('/account/credits.html');
+    await expect(page.locator('#creditsDenied')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
+
+    await page.unroute('**/api/me');
+    await mockCreditsAccount(page, {
+      role: 'user',
+      email: 'org-admin-credits@bitbi.ai',
+      organizations: [{
+        id: 'org_credits_admin_1234567890abcdef12',
+        name: 'Admin Only Org',
+        slug: 'admin-only-org',
+        role: 'admin',
+        status: 'active',
+      }],
+    });
+    await page.goto('/account/credits.html');
+    await expect(page.locator('#creditsDenied')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
+  });
+
+  test('renders owner credits dashboard, live packs, and safe checkout initiation', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const { checkoutRequests } = await mockCreditsAccount(page, {
+      checkoutUrl: '/account/credits?checkout=success',
+    });
+    const response = await page.goto('/account/credits.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsOrgName')).toContainText('Credits Org');
+    await expect(page.locator('#creditsAccessScope')).toContainText('organization owner');
+    await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
+    await expect(page.locator('.credits-pack').nth(0)).toContainText('1,00 €');
+    await expect(page.locator('.credits-pack').nth(1)).toContainText('1,50 €');
+
+    const cardWidths = await page.locator('.credits-pack').evaluateAll((cards) =>
+      cards.map((card) => card.getBoundingClientRect().width)
+    );
+    expect(cardWidths.every((width) => width >= 240)).toBe(true);
+
+    await page.locator('[data-checkout-pack="live_credits_5000"]').click();
+    await expect(page).toHaveURL(/\/account\/credits(?:\.html)?\?checkout=success$/);
+    expect(checkoutRequests).toHaveLength(1);
+    expect(checkoutRequests[0].body).toEqual({ pack_id: 'live_credits_5000' });
+    expect(checkoutRequests[0].idempotencyKey).toMatch(/^credits-live:org_credits_/);
+  });
+
+  test('renders cancel state and has no mobile document overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockCreditsAccount(page);
+    await page.goto('/account/credits?checkout=cancel');
+    await expect(page.locator('#creditsReturnState')).toContainText('Checkout was cancelled');
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 });
 
@@ -4687,6 +4878,8 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'false');
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
+    await expect(page.locator('#profileCreditsCard')).toBeHidden();
+    await expect(page.locator('#profileCreditsLink')).toBeHidden();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
 
     await page.goto('/account/profile.html#ai-lab');
@@ -4837,12 +5030,14 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileStudioCard')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio', 'AI Lab']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio', 'AI Lab']);
 
     const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
       (node) => node.scrollWidth > node.clientWidth + 1,
     );
     expect(tabBarOverflow).toBe(false);
+    const tabBarHeight = await page.locator('#profileTabBar').evaluate((node) => node.getBoundingClientRect().height);
+    expect(tabBarHeight).toBeLessThanOrEqual(90);
 
     await page.locator('#profileMobileAiLabLink').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
@@ -4883,6 +5078,33 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileAiLabView')).toBeHidden();
     await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+  });
+
+  test('organization owner mobile profile shows Credits below Wallet without exposing AI Lab', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      organizations: [{
+        id: 'org_profile_owner_1234567890abcdef12',
+        name: 'Owner Profile Org',
+        slug: 'owner-profile-org',
+        role: 'owner',
+        status: 'active',
+      }],
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileCreditsLink')).toBeVisible();
+    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+
+    const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
+      (node) => node.scrollWidth > node.clientWidth + 1,
+    );
+    expect(tabBarOverflow).toBe(false);
   });
 });
 

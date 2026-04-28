@@ -12,6 +12,8 @@ const REQUIRED_CONFIG = Object.freeze({
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
   stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
+  stripeLiveCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_CREDIT_PACKS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_CHECKOUT_SUCCESS_URL", "STRIPE_LIVE_CHECKOUT_CANCEL_URL"],
+  stripeLiveWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_WEBHOOK_SECRET"],
 });
 
 function policy(input) {
@@ -203,6 +205,17 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "stripe_credit_pack_checkout_created" },
     sensitivity: "high",
     notes: "Stripe Testmode only. Requires platform admin, owner/admin organization role, ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true, Idempotency-Key, known credit pack, and no credit grant at checkout creation. Not public billing and not org-owner/member checkout.",
+  }),
+  userJsonWrite("orgs.billing.checkout.live-credit-pack", "POST", "/api/orgs/:id/billing/checkout/live-credit-pack", "billing", "smallJson", "org-billing-live-checkout-user", {
+    config: REQUIRED_CONFIG.stripeLiveCheckout,
+    audit: { event: "stripe_live_credit_pack_checkout_created" },
+    sensitivity: "high",
+    notes: "Live Stripe one-time credit-pack checkout. Requires platform admin or active organization owner only; organization admin/member/viewer access is denied. Requires ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Idempotency-Key, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
+  }),
+  safeRead("orgs.billing.credits-dashboard.read", "GET", "/api/orgs/:id/billing/credits-dashboard", "billing", {
+    sensitivity: "high",
+    rateLimit: { noneReason: "Read-only credits dashboard requires platform admin or active organization owner and returns sanitized billing data only." },
+    notes: "Organization credits dashboard for platform admins and active organization owners only; organization admins, members, viewers, and non-members are denied.",
   }),
   policy({
     id: "password.forgot",
@@ -507,6 +520,21 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     providerSignature: "stripe-testmode-only",
     notes: "Stripe Testmode webhook foundation. Raw body is verified with Stripe-Signature before JSON parse; live-mode events and live billing side effects are disabled. Credit grants require an existing checkout session created by an active platform admin.",
+  }),
+  policy({
+    id: "billing.webhooks.stripe.live",
+    method: "POST",
+    path: "/api/billing/webhooks/stripe/live",
+    auth: "anonymous",
+    csrf: "not-browser-facing",
+    body: { kind: "raw", maxBytesName: "billingWebhookRaw", contentType: "application/json" },
+    rateLimit: { id: "billing-webhook-stripe-live-ip", failClosed: true },
+    config: REQUIRED_CONFIG.stripeLiveWebhook,
+    audit: { event: "stripe_live_billing_webhook_received" },
+    owner: "billing",
+    sensitivity: "high",
+    providerSignature: "stripe-live-only",
+    notes: "Live Stripe webhook for one-time credit packs only. Raw body is verified with STRIPE_LIVE_WEBHOOK_SECRET before JSON parse; Testmode events are rejected. Credit grants require an existing live checkout session created by a current platform admin or active organization owner.",
   }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),

@@ -8,7 +8,7 @@ This phase adds a controlled, admin-only Pricing page for the current Stripe Tes
 
 Phase 2-K supersedes the original backend access boundary described in this report: checkout creation is now server-side platform-admin-only, also requires the signed-in platform admin to be an active owner/admin of the selected organization, and is disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`.
 
-This is not a public pricing rollout. The header link is visible only to authenticated admins, direct page access is frontend admin-gated, and live Stripe remains disabled. No subscriptions, invoices, customer portal, live checkout, production webhooks, or production billing activation were added.
+This is not a public pricing rollout. The header link is visible only to authenticated admins, direct page access is frontend admin-gated, and this page still targets the Phase 2-K Testmode checkout route. Phase 2-L adds a separate gated `/account/credits.html` live one-time credit-pack dashboard for platform admins and active organization owners; it does not make `/pricing.html` public and does not add subscriptions, invoices, customer portal, Stripe Tax, coupons, Connect, or full production billing readiness.
 
 ## Scope
 
@@ -25,6 +25,8 @@ This is not a public pricing rollout. The header link is visible only to authent
 The Pricing experience is available only to authenticated admins while the Stripe integration remains Testmode-only. This keeps discoverability controlled until staging validates checkout creation, webhook verification, exactly-once credit grants, and no live billing side effects.
 
 The page itself is also gated. Anonymous and non-admin users who open `/pricing.html` directly see an access-denied state, not pricing cards or checkout controls.
+
+Live credit-pack purchasing is intentionally not exposed through `/pricing.html`; eligible platform admins and organization owners use `/account/credits.html`.
 
 ## Pricing Route And Header Integration
 

@@ -541,8 +541,23 @@ export function apiOrganizationBilling(orgId) {
     return request('GET', `/orgs/${encodeURIComponent(orgId)}/billing`);
 }
 
+export function apiOrganizationCreditsDashboard(orgId, { limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/orgs/${encodeURIComponent(orgId)}/billing/credits-dashboard${qs}`);
+}
+
 export function apiCreateCreditPackCheckout(orgId, { packId, idempotencyKey }) {
     return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/credit-pack`, {
+        pack_id: packId,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiCreateLiveCreditPackCheckout(orgId, { packId, idempotencyKey }) {
+    return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/live-credit-pack`, {
         pack_id: packId,
     }, {
         headers: { 'Idempotency-Key': idempotencyKey },

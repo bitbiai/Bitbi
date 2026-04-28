@@ -26,6 +26,7 @@ import {
     apiDeleteAvatar,
     apiGetFavorites,
     apiGetProfile,
+    apiListOrganizations,
     apiLogout,
     apiRemoveFavorite,
     apiRequestReverification,
@@ -73,9 +74,11 @@ const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
+const $profileCreditsLink = document.getElementById('profileCreditsLink');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 const $walletCard     = document.getElementById('profileWalletCard');
+const $creditsCard    = document.getElementById('profileCreditsCard');
 const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
 const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
 const $aiLabToast     = document.getElementById('profileAiLabToast');
@@ -227,6 +230,35 @@ $profileWalletWorkspaceBtn?.addEventListener('click', () => {
 $walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
 });
+
+let creditsEligibilitySeq = 0;
+
+function setCreditsNavVisible(visible) {
+    if ($profileCreditsLink) $profileCreditsLink.hidden = !visible;
+    if ($creditsCard) $creditsCard.hidden = !visible;
+    if ($studioStack) $studioStack.dataset.hasCredits = visible ? 'true' : 'false';
+}
+
+async function syncCreditsEligibility(account) {
+    const seq = ++creditsEligibilitySeq;
+    setCreditsNavVisible(false);
+    if (!account?.id) return;
+    if (account.role === 'admin') {
+        setCreditsNavVisible(true);
+        return;
+    }
+    try {
+        const res = await apiListOrganizations({ limit: 100 });
+        if (seq !== creditsEligibilitySeq) return;
+        const organizations = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+        const canUseCredits = res.ok && organizations.some((org) =>
+            org?.status === 'active' && org?.role === 'owner'
+        );
+        setCreditsNavVisible(canUseCredits);
+    } catch {
+        if (seq === creditsEligibilitySeq) setCreditsNavVisible(false);
+    }
+}
 
 window.addEventListener('hashchange', syncAiLabView);
 
@@ -836,6 +868,7 @@ function renderProfile(profile, account) {
     if ($mobileAiLabLink) {
         $mobileAiLabLink.hidden = !isAdmin;
     }
+    syncCreditsEligibility(account);
     syncAiLabView();
 
     // Summary card

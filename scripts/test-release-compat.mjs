@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0039_raise_credit_balance_cap_for_pricing_packs.sql",
+        latest: "0040_add_live_stripe_credit_pack_scope.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -302,6 +302,51 @@ const baseManifest = {
         summary: "Optional HTTPS cancel URL for Stripe Testmode checkout sessions.",
       },
       {
+        id: "auth-enable-live-stripe-credit-packs-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
+        requiredForRelease: false,
+        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        summary: "Optional live Stripe credit-pack kill switch; absent or non-true keeps live checkout creation fail-closed.",
+      },
+      {
+        id: "auth-stripe-live-secret-key",
+        kind: "secret",
+        worker: "auth",
+        name: "STRIPE_LIVE_SECRET_KEY",
+        requiredForRelease: false,
+        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        summary: "Optional live Stripe secret key for Phase 2-L live credit-pack checkout.",
+      },
+      {
+        id: "auth-stripe-live-webhook-secret",
+        kind: "secret",
+        worker: "auth",
+        name: "STRIPE_LIVE_WEBHOOK_SECRET",
+        requiredForRelease: false,
+        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        summary: "Optional live Stripe webhook secret for Phase 2-L live credit-pack webhooks.",
+      },
+      {
+        id: "auth-stripe-live-checkout-success-url-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
+        requiredForRelease: false,
+        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        summary: "Optional HTTPS success URL for live Stripe credit-pack checkout sessions.",
+      },
+      {
+        id: "auth-stripe-live-checkout-cancel-url-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
+        requiredForRelease: false,
+        documentation: "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
+        summary: "Optional HTTPS cancel URL for live Stripe credit-pack checkout sessions.",
+      },
+      {
         id: "ai-service-auth-secret",
         kind: "secret",
         worker: "ai",
@@ -426,6 +471,7 @@ const baseManifest = {
       "POST /api/request-reverification",
       "POST /api/billing/webhooks/test",
       "POST /api/billing/webhooks/stripe",
+      "POST /api/billing/webhooks/stripe/live",
     ],
     delegatedExactPaths: [
       "/api/favorites",
@@ -588,6 +634,7 @@ function createValidContext() {
     "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
     "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
     "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
+    "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);
@@ -613,6 +660,7 @@ function createValidContext() {
           "0037_add_billing_event_ingestion.sql",
           "0038_add_stripe_credit_pack_checkout.sql",
           "0039_raise_credit_balance_cap_for_pricing_packs.sql",
+          "0040_add_live_stripe_credit_pack_scope.sql",
         ],
       },
     },
@@ -797,6 +845,7 @@ function createValidContext() {
       if (pathname.startsWith("/api/orgs/")) { return handleOrgs(); }
       if (pathname === "/api/billing/webhooks/test" && method === "POST") return handleBillingWebhooks();
       if (pathname === "/api/billing/webhooks/stripe" && method === "POST") return handleBillingWebhooks();
+      if (pathname === "/api/billing/webhooks/stripe/live" && method === "POST") return handleBillingWebhooks();
       if (pathname.startsWith("/api/admin/")) { return handleAdmin(); }
       if (pathname === "/api/forgot-password" && method === "POST") return handleForgotPassword();
       if (pathname === "/api/reset-password/validate" && method === "GET") return handleValidateReset();

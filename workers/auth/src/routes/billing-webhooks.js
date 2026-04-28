@@ -23,14 +23,18 @@ import {
 } from "../lib/billing-events.js";
 import {
   StripeBillingError,
+  handleVerifiedStripeLiveWebhookEvent,
   handleVerifiedStripeWebhookEvent,
   parseVerifiedStripeWebhookPayload,
   stripeBillingErrorResponse,
+  verifyStripeLiveWebhookRequest,
   verifyStripeWebhookRequest,
 } from "../lib/stripe-billing.js";
 
 async function enforceBillingWebhookRateLimit(ctx, provider) {
-  const normalizedProvider = provider === BILLING_WEBHOOK_STRIPE_PROVIDER
+  const normalizedProvider = provider === "stripe-live"
+    ? "stripe-live"
+    : provider === BILLING_WEBHOOK_STRIPE_PROVIDER
     ? BILLING_WEBHOOK_STRIPE_PROVIDER
     : BILLING_WEBHOOK_TEST_PROVIDER;
   const result = await evaluateSharedRateLimit(
@@ -62,7 +66,8 @@ function billingEventErrorJson(error) {
 
 export async function handleBillingWebhooks(ctx) {
   const { request, env, pathname, method } = ctx;
-  const match = pathname.match(/^\/api\/billing\/webhooks\/([^/]+)$/);
+  const liveStripeMatch = pathname === "/api/billing/webhooks/stripe/live";
+  const match = liveStripeMatch ? ["", "stripe-live"] : pathname.match(/^\/api\/billing\/webhooks\/([^/]+)$/);
   if (!match) return null;
   if (method !== "POST") return null;
 
@@ -83,6 +88,33 @@ export async function handleBillingWebhooks(ctx) {
   }
 
   try {
+    if (liveStripeMatch) {
+      const verification = await verifyStripeLiveWebhookRequest({
+        env,
+        rawBody,
+        request,
+      });
+      const payload = parseVerifiedStripeWebhookPayload(rawBody);
+      const result = await handleVerifiedStripeLiveWebhookEvent({
+        env,
+        rawBody,
+        payload,
+        verificationStatus: verification.verificationStatus,
+      });
+      return json(
+        {
+          ok: true,
+          duplicate: result.duplicate,
+          actionPlanned: result.actionPlanned,
+          event: result.event,
+          checkout: result.checkout,
+          creditGrant: result.creditGrant,
+          liveBillingEnabled: true,
+        },
+        { status: result.duplicate ? 200 : 202 }
+      );
+    }
+
     if (provider === BILLING_WEBHOOK_STRIPE_PROVIDER) {
       const verification = await verifyStripeWebhookRequest({
         env,

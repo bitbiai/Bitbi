@@ -83,7 +83,8 @@ function requiresTrustedRequestContext(pathname, method) {
   }
   if (
     (pathname === "/api/billing/webhooks/test" ||
-      pathname === "/api/billing/webhooks/stripe") &&
+      pathname === "/api/billing/webhooks/stripe" ||
+      pathname === "/api/billing/webhooks/stripe/live") &&
     String(method || "").toUpperCase() === "POST"
   ) {
     return false;
@@ -250,6 +251,11 @@ export default {
     }
     // route-policy: billing.webhooks.stripe
     if (pathname === "/api/billing/webhooks/stripe" && method === "POST") {
+      const result = await handleBillingWebhooks(ctx);
+      if (result) return result;
+    }
+    // route-policy: billing.webhooks.stripe.live
+    if (pathname === "/api/billing/webhooks/stripe/live" && method === "POST") {
       const result = await handleBillingWebhooks(ctx);
       if (result) return result;
     }

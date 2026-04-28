@@ -102,6 +102,7 @@ src/
 - `POST /api/request-reverification` — legacy users request real email verification (requires auth)
 - `POST /api/billing/webhooks/test` — synthetic test-only billing event ingestion route with raw-body HMAC verification, byte limit, and fail-closed limiter; no browser CSRF and no live billing side effects
 - `POST /api/billing/webhooks/stripe` — Stripe Testmode-only billing webhook route with raw-body `Stripe-Signature` verification, byte limit, and fail-closed limiter; no browser CSRF, no live-mode side effects, no subscriptions/invoices/customer portal
+- `POST /api/billing/webhooks/stripe/live` — live Stripe one-time credit-pack webhook route with separate raw-body `Stripe-Signature` verification using `STRIPE_LIVE_WEBHOOK_SECRET`; accepts only live checkout events and grants credits only for persisted live checkout rows created by a currently authorized platform admin or active org owner
 - `GET /api/profile` — user profile data (requires auth)
 - `PATCH /api/profile` — update profile fields (requires auth)
 - `GET /api/profile/avatar` — user's avatar image from R2, or 404 (requires auth)
@@ -119,6 +120,8 @@ src/
 - `GET /api/orgs/:id/billing` — read organization billing/credit summary for an org owner/admin
 - `GET /api/orgs/:id/usage` — read recent organization usage events for an org owner/admin
 - `POST /api/orgs/:id/billing/checkout/credit-pack` — create a Stripe Testmode Checkout Session for a fixed server-side credit pack as an active platform admin who is also an org owner/admin (requires auth/admin session, production admin MFA where applicable, same-origin, `Idempotency-Key`, fail-closed limiter, and `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`); credits are granted only by verified Testmode webhook completion for admin-created persisted checkout sessions
+- `POST /api/orgs/:id/billing/checkout/live-credit-pack` — create a live Stripe one-time credit-pack Checkout Session for `live_credits_5000` or `live_credits_10000` as a platform admin or active owner of the target organization (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter, `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`, live-like Stripe secret config, and server-side role checks; organization admins are not sufficient)
+- `GET /api/orgs/:id/billing/credits-dashboard` — read sanitized Credits dashboard data for a platform admin or active organization owner, including balance summary, live fixed-pack catalog, checkout config status, recent live purchases, and recent ledger rows
 - `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
 - `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
@@ -208,6 +211,8 @@ src/
 
 **Stripe Testmode config** — optional Phase 2-J/2-K config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS for checkout creation; and `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` must be exactly `true` or checkout creation fails closed before any Stripe API call. `STRIPE_WEBHOOK_SECRET` is required only for `POST /api/billing/webhooks/stripe` verification and is not required to create Checkout Sessions. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed with safe variable-name diagnostics and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase. Verified webhook credit grants require a persisted checkout session created by an active platform admin; Stripe metadata alone is not trusted for admin authorization.
 
+**Stripe live credit-pack config** — optional Phase 2-L config for narrow live one-time credit packs. `ENABLE_LIVE_STRIPE_CREDIT_PACKS` must be exactly `true` or live checkout creation fails closed before any Stripe API call. `STRIPE_LIVE_SECRET_KEY` must be present and look live-like (`sk_live_...`) for checkout creation; `sk_test_...` is rejected. `STRIPE_LIVE_CHECKOUT_SUCCESS_URL` and `STRIPE_LIVE_CHECKOUT_CANCEL_URL` must be configured for checkout creation. `STRIPE_LIVE_WEBHOOK_SECRET` is required only for `POST /api/billing/webhooks/stripe/live`. The fixed live catalog is `live_credits_5000` (5,000 credits, 1.00 EUR) and `live_credits_10000` (10,000 credits, 1.50 EUR). Live checkout is limited to platform admins and active organization owners; organization admins, members, viewers, normal users, and unauthenticated users are denied. This does not implement public pricing, subscriptions, invoices, customer portal, Stripe Tax, coupons, Connect, or refund/chargeback automation.
+
 Local `workers/auth/.dev.vars` example for Stripe Testmode checkout/webhook testing:
 
 ```dotenv
@@ -233,7 +238,19 @@ npx wrangler secret put STRIPE_CHECKOUT_CANCEL_URL
 
 For the four non-secret values above, enter `true`, `test`, `https://bitbi.ai/pricing.html?checkout=success`, and `https://bitbi.ai/pricing.html?checkout=cancel` when prompted, or configure equivalent staging HTTPS URLs. Keep `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` absent/false except during an explicitly approved admin-only Testmode canary window.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0039_raise_credit_balance_cap_for_pricing_packs`.
+Local `workers/auth/.dev.vars` example for the gated live credit-pack canary, using placeholders only:
+
+```dotenv
+ENABLE_LIVE_STRIPE_CREDIT_PACKS=false
+STRIPE_LIVE_SECRET_KEY=sk_live_REPLACE_WITH_LIVE_KEY
+STRIPE_LIVE_WEBHOOK_SECRET=whsec_REPLACE_WITH_LIVE_ENDPOINT_SECRET
+STRIPE_LIVE_CHECKOUT_SUCCESS_URL=https://bitbi.ai/account/credits.html?checkout=success
+STRIPE_LIVE_CHECKOUT_CANCEL_URL=https://bitbi.ai/account/credits.html?checkout=cancel
+```
+
+Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during an explicitly approved, bounded operator canary.
+
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0040_add_live_stripe_credit_pack_scope`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -260,6 +277,7 @@ Key migration-dependent behavior:
 - `0037_add_billing_event_ingestion` — required before auth deploy if Phase 2-I synthetic billing webhook ingestion and admin billing-event inspection must work immediately
 - `0038_add_stripe_credit_pack_checkout` — required before auth deploy if Phase 2-J Stripe Testmode credit-pack checkout session tracking and verified checkout credit grants must work immediately
 - `0039_raise_credit_balance_cap_for_pricing_packs` — required before exposing the admin-only Pricing page credit packs, otherwise 5000/10000-credit Testmode webhook grants can exceed the original Phase 2-B free-plan balance cap and fail closed
+- `0040_add_live_stripe_credit_pack_scope` — required before auth deploy if Phase 2-L live credit-pack checkout, Credits dashboard purchase history, authorization-scope revalidation, payment-state tracking, and exactly-once live credit grants must work immediately
 
 ## Conventions
 
