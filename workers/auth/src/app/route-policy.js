@@ -10,7 +10,7 @@ const REQUIRED_CONFIG = Object.freeze({
   privateMedia: ["DB", "PRIVATE_MEDIA", "PUBLIC_RATE_LIMITER"],
   adminAi: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET"],
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
-  stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
+  stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
 });
 
@@ -198,11 +198,11 @@ export const ROUTE_POLICIES = Object.freeze([
   safeRead("orgs.usage.read", "GET", "/api/orgs/:id/usage", "billing", {
     rateLimit: { noneReason: "Read-only usage summary requires organization admin/owner membership and is capped." },
   }),
-  userJsonWrite("orgs.billing.checkout.credit-pack", "POST", "/api/orgs/:id/billing/checkout/credit-pack", "billing", "smallJson", "org-billing-checkout-user", {
+  adminJsonWrite("orgs.billing.checkout.credit-pack", "POST", "/api/orgs/:id/billing/checkout/credit-pack", "billing", "smallJson", "org-billing-checkout-user", {
     config: REQUIRED_CONFIG.stripeTestCheckout,
     audit: { event: "stripe_credit_pack_checkout_created" },
     sensitivity: "high",
-    notes: "Stripe Testmode only. Requires owner/admin organization role, Idempotency-Key, known credit pack, and no credit grant at checkout creation.",
+    notes: "Stripe Testmode only. Requires platform admin, owner/admin organization role, ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true, Idempotency-Key, known credit pack, and no credit grant at checkout creation. Not public billing and not org-owner/member checkout.",
   }),
   policy({
     id: "password.forgot",
@@ -506,7 +506,7 @@ export const ROUTE_POLICIES = Object.freeze([
     owner: "billing",
     sensitivity: "high",
     providerSignature: "stripe-testmode-only",
-    notes: "Stripe Testmode webhook foundation. Raw body is verified with Stripe-Signature before JSON parse; live-mode events and live billing side effects are disabled.",
+    notes: "Stripe Testmode webhook foundation. Raw body is verified with Stripe-Signature before JSON parse; live-mode events and live billing side effects are disabled. Credit grants require an existing checkout session created by an active platform admin.",
   }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),

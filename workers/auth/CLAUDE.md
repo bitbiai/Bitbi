@@ -118,7 +118,7 @@ src/
 - `GET /api/orgs/:id/entitlements` — read effective plan entitlements for an active organization member
 - `GET /api/orgs/:id/billing` — read organization billing/credit summary for an org owner/admin
 - `GET /api/orgs/:id/usage` — read recent organization usage events for an org owner/admin
-- `POST /api/orgs/:id/billing/checkout/credit-pack` — create a Stripe Testmode Checkout Session for a fixed server-side credit pack as org owner/admin (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter); credits are granted only by verified Testmode webhook completion
+- `POST /api/orgs/:id/billing/checkout/credit-pack` — create a Stripe Testmode Checkout Session for a fixed server-side credit pack as an active platform admin who is also an org owner/admin (requires auth/admin session, production admin MFA where applicable, same-origin, `Idempotency-Key`, fail-closed limiter, and `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`); credits are granted only by verified Testmode webhook completion for admin-created persisted checkout sessions
 - `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
 - `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
@@ -206,12 +206,13 @@ src/
 
 **Secret** `BILLING_WEBHOOK_TEST_SECRET` — optional Phase 2-I synthetic billing webhook verification secret for `POST /api/billing/webhooks/test`. If missing or too short, the route fails closed. This is not a live provider secret and does not enable production payment processing.
 
-**Stripe Testmode config** — optional Phase 2-J config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS for checkout creation. `STRIPE_WEBHOOK_SECRET` is required only for `POST /api/billing/webhooks/stripe` verification and is not required to create Checkout Sessions. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed with safe variable-name diagnostics and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase.
+**Stripe Testmode config** — optional Phase 2-J/2-K config for credit-pack checkout. `STRIPE_MODE` must be `test`; `STRIPE_SECRET_KEY` must be a Testmode key; `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must be HTTPS for checkout creation; and `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` must be exactly `true` or checkout creation fails closed before any Stripe API call. `STRIPE_WEBHOOK_SECRET` is required only for `POST /api/billing/webhooks/stripe` verification and is not required to create Checkout Sessions. The current product-facing Testmode catalog exposes `credits_5000` and `credits_10000`; older small placeholder packs are not exposed by the pricing rollout. Missing config makes Stripe routes fail closed with safe variable-name diagnostics and does not affect unrelated routes. Live-mode Stripe keys/events are rejected in this phase. Verified webhook credit grants require a persisted checkout session created by an active platform admin; Stripe metadata alone is not trusted for admin authorization.
 
 Local `workers/auth/.dev.vars` example for Stripe Testmode checkout/webhook testing:
 
 ```dotenv
 STRIPE_MODE=test
+ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true
 STRIPE_SECRET_KEY=sk_test_REPLACE_WITH_TESTMODE_KEY
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_TESTMODE_ENDPOINT_SECRET
 STRIPE_CHECKOUT_SUCCESS_URL=https://bitbi.ai/pricing.html?checkout=success
@@ -224,12 +225,13 @@ Staging setup commands, using placeholder values only:
 cd workers/auth
 printf '%s' 'sk_test_REPLACE_WITH_TESTMODE_KEY' | npx wrangler secret put STRIPE_SECRET_KEY
 printf '%s' 'whsec_REPLACE_WITH_TESTMODE_ENDPOINT_SECRET' | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put ENABLE_ADMIN_STRIPE_TEST_CHECKOUT
 npx wrangler secret put STRIPE_MODE
 npx wrangler secret put STRIPE_CHECKOUT_SUCCESS_URL
 npx wrangler secret put STRIPE_CHECKOUT_CANCEL_URL
 ```
 
-For the three non-secret values above, enter `test`, `https://bitbi.ai/pricing.html?checkout=success`, and `https://bitbi.ai/pricing.html?checkout=cancel` when prompted, or configure equivalent staging HTTPS URLs.
+For the four non-secret values above, enter `true`, `test`, `https://bitbi.ai/pricing.html?checkout=success`, and `https://bitbi.ai/pricing.html?checkout=cancel` when prompted, or configure equivalent staging HTTPS URLs. Keep `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` absent/false except during an explicitly approved admin-only Testmode canary window.
 
 Migrations in `migrations/` are numbered sequentially from `0001_init` through `0039_raise_credit_balance_cap_for_pricing_packs`.
 

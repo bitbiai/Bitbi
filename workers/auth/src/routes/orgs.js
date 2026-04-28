@@ -1,5 +1,5 @@
 import { json } from "../lib/response.js";
-import { requireUser } from "../lib/session.js";
+import { requireAdmin, requireUser } from "../lib/session.js";
 import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
@@ -151,10 +151,16 @@ async function handleAddOrganizationMember(ctx, session, organizationId) {
   }
 }
 
-async function handleCreateCreditPackCheckout(ctx, session, organizationId) {
+async function handleCreateCreditPackCheckout(ctx, organizationId) {
+  const adminSession = await requireAdmin(ctx.request, ctx.env, {
+    correlationId: ctx.correlationId || null,
+    isSecure: ctx.isSecure === true,
+  });
+  if (adminSession instanceof Response) return adminSession;
+
   const limited = await enforceSensitiveUserRateLimit(ctx, {
     scope: "org-billing-checkout-user",
-    userId: session.user.id,
+    userId: adminSession.user.id,
     maxRequests: 10,
     windowMs: 15 * 60_000,
     component: "org-billing-checkout",
@@ -172,18 +178,18 @@ async function handleCreateCreditPackCheckout(ctx, session, organizationId) {
   try {
     await requireOrgRole(ctx.env, {
       organizationId,
-      userId: session.user.id,
+      userId: adminSession.user.id,
       minRole: "admin",
     });
     const result = await createStripeCreditPackCheckout({
       env: ctx.env,
       organizationId,
-      userId: session.user.id,
+      userId: adminSession.user.id,
       packId: parsed.body?.pack_id || parsed.body?.packId,
       idempotencyKey: idempotency.key,
     });
     if (!result.reused) {
-      await logOrgActivity(ctx, session.user.id, "stripe_credit_pack_checkout_created", {
+      await logOrgActivity(ctx, adminSession.user.id, "stripe_credit_pack_checkout_created", {
         organization_id: result.checkout.organizationId,
         credit_pack_id: result.creditPack.id,
         credits: result.creditPack.credits,
@@ -283,7 +289,7 @@ export async function handleOrgs(ctx) {
   const checkoutMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing\/checkout\/credit-pack$/);
   // route-policy: orgs.billing.checkout.credit-pack
   if (checkoutMatch && method === "POST") {
-    return handleCreateCreditPackCheckout(ctx, session, checkoutMatch[1]);
+    return handleCreateCreditPackCheckout(ctx, checkoutMatch[1]);
   }
 
   const usageMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/usage$/);

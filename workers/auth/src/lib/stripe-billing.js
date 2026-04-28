@@ -110,6 +110,19 @@ function normalizeStripeMode(env) {
   return mode;
 }
 
+function normalizeAdminStripeCheckoutEnabled(env) {
+  const value = safeString(env?.ENABLE_ADMIN_STRIPE_TEST_CHECKOUT, 16);
+  if (value !== "true") {
+    throw new StripeBillingError("Admin Stripe Testmode checkout is disabled.", {
+      status: 503,
+      code: "stripe_admin_test_checkout_disabled",
+      configNames: ["ENABLE_ADMIN_STRIPE_TEST_CHECKOUT"],
+      missingConfigNames: value ? [] : ["ENABLE_ADMIN_STRIPE_TEST_CHECKOUT"],
+    });
+  }
+  return true;
+}
+
 function normalizeStripeSecretKey(env) {
   const key = safeString(env?.STRIPE_SECRET_KEY, 256);
   if (!key) {
@@ -181,6 +194,7 @@ function normalizeHttpsUrl(value, fieldName, configName) {
 }
 
 function getStripeCheckoutConfig(env) {
+  normalizeAdminStripeCheckoutEnabled(env);
   return {
     mode: normalizeStripeMode(env),
     secretKey: normalizeStripeSecretKey(env),
@@ -402,6 +416,7 @@ export async function createStripeCreditPackCheckout({
   const normalizedUserId = normalizeUserId(userId);
   const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
   const pack = getStripeCreditPack(packId);
+  const config = getStripeCheckoutConfig(env);
   const keyHash = await sha256Hex(normalizedKey);
   const requestHash = await checkoutRequestFingerprint({ organizationId: orgId, userId: normalizedUserId, pack });
   const existing = await fetchCheckoutByIdempotency(env, {
@@ -423,7 +438,6 @@ export async function createStripeCreditPackCheckout({
     };
   }
 
-  const config = getStripeCheckoutConfig(env);
   const id = checkoutSessionId();
   const stripeSession = await postStripeCheckoutSession({
     env,
@@ -710,89 +724,75 @@ async function upsertCompletedCheckoutSession({
 }) {
   const existing = await fetchCheckoutByProviderSession(env, completion.sessionId);
   const now = nowIso();
-  if (existing) {
-    if (
-      existing.organization_id !== completion.organizationId ||
-      existing.user_id !== completion.userId ||
-      existing.credit_pack_id !== completion.pack.id ||
-      Number(existing.credits) !== completion.pack.credits ||
-      Number(existing.amount_cents) !== completion.pack.amountCents ||
-      String(existing.currency).toLowerCase() !== completion.pack.currency
-    ) {
-      throw new StripeBillingError("Stripe Checkout Session does not match the stored checkout request.", {
-        status: 409,
-        code: "stripe_checkout_session_mismatch",
-      });
-    }
-    await env.DB.prepare(
-      `UPDATE billing_checkout_sessions
-       SET status = 'completed',
-           provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
-           provider_customer_id = COALESCE(?, provider_customer_id),
-           billing_event_id = COALESCE(?, billing_event_id),
-           credit_ledger_entry_id = COALESCE(?, credit_ledger_entry_id),
-           error_code = NULL,
-           error_message = NULL,
-           updated_at = ?,
-           completed_at = COALESCE(completed_at, ?)
-       WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
-    ).bind(
-      completion.paymentIntent && PAYMENT_INTENT_ID_PATTERN.test(completion.paymentIntent)
-        ? completion.paymentIntent
-        : null,
-      completion.customer,
-      billingEventId,
-      ledgerEntryId,
-      now,
-      now,
-      completion.sessionId
-    ).run();
-    return fetchCheckoutByProviderSession(env, completion.sessionId);
+  if (!existing) {
+    throw new StripeBillingError("Stripe Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
   }
-
-  const checkoutId = completion.internalCheckoutSessionId && /^bcs_[a-f0-9]{32}$/.test(completion.internalCheckoutSessionId)
-    ? completion.internalCheckoutSessionId
-    : checkoutSessionId();
+  assertCheckoutMatchesCompletion(existing, completion);
   await env.DB.prepare(
-    `INSERT INTO billing_checkout_sessions (
-       id, provider, provider_mode, provider_checkout_session_id,
-       provider_payment_intent_id, organization_id, user_id, credit_pack_id,
-       credits, amount_cents, currency, status, idempotency_key_hash,
-       request_fingerprint_hash, checkout_url, provider_customer_id,
-       billing_event_id, credit_ledger_entry_id, metadata_json,
-       created_at, updated_at, completed_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `UPDATE billing_checkout_sessions
+     SET status = 'completed',
+         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         billing_event_id = COALESCE(?, billing_event_id),
+         credit_ledger_entry_id = COALESCE(?, credit_ledger_entry_id),
+         error_code = NULL,
+         error_message = NULL,
+         updated_at = ?,
+         completed_at = COALESCE(completed_at, ?)
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
   ).bind(
-    checkoutId,
-    "stripe",
-    STRIPE_MODE_TEST,
-    completion.sessionId,
     completion.paymentIntent && PAYMENT_INTENT_ID_PATTERN.test(completion.paymentIntent)
       ? completion.paymentIntent
       : null,
-    completion.organizationId,
-    completion.userId,
-    completion.pack.id,
-    completion.pack.credits,
-    completion.pack.amountCents,
-    completion.pack.currency,
-    "completed",
-    await sha256Hex(`webhook:${completion.sessionId}`),
-    await checkoutRequestFingerprint({
-      organizationId: completion.organizationId,
-      userId: completion.userId,
-      pack: completion.pack,
-    }),
-    null,
     completion.customer,
     billingEventId,
     ledgerEntryId,
-    JSON.stringify({ phase: "2-J", createdFromWebhook: true }),
     now,
     now,
-    now
+    completion.sessionId
   ).run();
   return fetchCheckoutByProviderSession(env, completion.sessionId);
+}
+
+function assertCheckoutMatchesCompletion(checkout, completion) {
+  if (
+    checkout.organization_id !== completion.organizationId ||
+    checkout.user_id !== completion.userId ||
+    checkout.credit_pack_id !== completion.pack.id ||
+    Number(checkout.credits) !== completion.pack.credits ||
+    Number(checkout.amount_cents) !== completion.pack.amountCents ||
+    String(checkout.currency).toLowerCase() !== completion.pack.currency
+  ) {
+    throw new StripeBillingError("Stripe Checkout Session does not match the stored checkout request.", {
+      status: 409,
+      code: "stripe_checkout_session_mismatch",
+    });
+  }
+}
+
+async function requireAdminCreatedCheckoutSession(env, completion) {
+  const checkout = await fetchCheckoutByProviderSession(env, completion.sessionId);
+  if (!checkout) {
+    throw new StripeBillingError("Stripe Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
+  }
+  assertCheckoutMatchesCompletion(checkout, completion);
+
+  const creator = await env.DB.prepare(
+    "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+  ).bind(checkout.user_id).first();
+  if (creator?.role !== "admin" || creator?.status !== "active") {
+    throw new StripeBillingError("Stripe Checkout Session was not created by a platform admin.", {
+      status: 403,
+      code: "stripe_checkout_admin_scope_required",
+    });
+  }
+  return checkout;
 }
 
 export async function handleVerifiedStripeWebhookEvent({
@@ -847,26 +847,24 @@ export async function handleVerifiedStripeWebhookEvent({
   }
 
   try {
-    await upsertCompletedCheckoutSession({
-      env,
-      completion,
-      billingEventId: stored.event.id,
-      ledgerEntryId: null,
-    });
-    const grant = await grantOrganizationCredits({
-      env,
-      organizationId: completion.organizationId,
-      amount: completion.pack.credits,
-      createdByUserId: completion.userId,
-      idempotencyKey: `stripe:${stored.event.providerEventId}`,
-      source: "stripe_test_checkout",
-      reason: `credit_pack:${completion.pack.id}`,
-    });
+    const existingCheckout = await requireAdminCreatedCheckoutSession(env, completion);
+    let grant = null;
+    if (!existingCheckout.credit_ledger_entry_id) {
+      grant = await grantOrganizationCredits({
+        env,
+        organizationId: completion.organizationId,
+        amount: completion.pack.credits,
+        createdByUserId: completion.userId,
+        idempotencyKey: `stripe:${stored.event.providerEventId}`,
+        source: "stripe_test_checkout",
+        reason: `credit_pack:${completion.pack.id}`,
+      });
+    }
     const checkout = await upsertCompletedCheckoutSession({
       env,
       completion,
       billingEventId: stored.event.id,
-      ledgerEntryId: grant.ledgerEntry.id,
+      ledgerEntryId: grant?.ledgerEntry?.id || existingCheckout.credit_ledger_entry_id || null,
     });
     const event = await updateBillingProviderEventProcessing(env, {
       eventId: stored.event.id,
@@ -878,7 +876,9 @@ export async function handleVerifiedStripeWebhookEvent({
       actionDryRun: false,
       actionSummary: {
         sideEffectsEnabled: true,
-        creditGrantStatus: grant.reused ? "already_granted" : "granted",
+        creditGrantStatus: existingCheckout.credit_ledger_entry_id
+          ? "already_granted"
+          : (grant.reused ? "already_granted" : "granted"),
         creditPackId: completion.pack.id,
         credits: completion.pack.credits,
       },
@@ -889,9 +889,9 @@ export async function handleVerifiedStripeWebhookEvent({
       actionPlanned: true,
       creditGrant: {
         organizationId: completion.organizationId,
-        creditsGranted: completion.pack.credits,
-        balanceAfter: grant.creditBalance,
-        reused: grant.reused,
+        creditsGranted: existingCheckout.credit_ledger_entry_id ? 0 : completion.pack.credits,
+        balanceAfter: grant?.creditBalance ?? null,
+        reused: Boolean(existingCheckout.credit_ledger_entry_id || grant?.reused),
       },
       checkout: serializeCheckoutRow(checkout),
     };

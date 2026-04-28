@@ -1126,10 +1126,12 @@ test.describe('Phase 1-E auth route policy registry', () => {
     }));
     expect(getRoutePolicy('POST', '/api/orgs/org_0123456789abcdef0123456789abcdef/billing/checkout/credit-pack')).toEqual(expect.objectContaining({
       id: 'orgs.billing.checkout.credit-pack',
-      auth: 'user',
+      auth: 'admin',
+      mfa: 'admin-production-required',
       csrf: 'same-origin-required',
       body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
       rateLimit: expect.objectContaining({ failClosed: true }),
+      config: expect.arrayContaining(['ENABLE_ADMIN_STRIPE_TEST_CHECKOUT']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/credits/grant')).toEqual(expect.objectContaining({
       id: 'admin.orgs.credits.grant',
@@ -2207,6 +2209,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
   } = {}) {
     const createdAt = '2026-04-26T10:00:00.000Z';
     return {
+      ENABLE_ADMIN_STRIPE_TEST_CHECKOUT: 'true',
       STRIPE_MODE: 'test',
       STRIPE_SECRET_KEY: STRIPE_TEST_SECRET,
       STRIPE_WEBHOOK_SECRET,
@@ -2313,42 +2316,44 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     });
   }
 
-  test('checkout creation is org owner/admin only, idempotent, and does not grant credits', async () => {
+  test('checkout creation is platform-admin-only, idempotent, and does not grant credits', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const owner = createContractUser({ id: 'phase2j-owner', role: 'user' });
-    const admin = createContractUser({ id: 'phase2j-org-admin', role: 'user' });
+    const orgAdmin = createContractUser({ id: 'phase2j-org-admin', role: 'user' });
     const member = createContractUser({ id: 'phase2j-member', role: 'user' });
     const viewer = createContractUser({ id: 'phase2j-viewer', role: 'user' });
     const outsider = createContractUser({ id: 'phase2j-outsider', role: 'user' });
-    const calls = [];
-    const env = createAuthTestEnv(seedStripeBillingOrg({
+    const deniedCalls = [];
+    const deniedEnv = createAuthTestEnv(seedStripeBillingOrg({
       owner,
-      admin,
+      admin: orgAdmin,
       member,
       viewer,
       outsider,
-      extra: { fetch: mockStripeCheckoutFetch({ calls }) },
+      extra: { fetch: mockStripeCheckoutFetch({ calls: deniedCalls }) },
     }));
-    const ownerToken = await seedSession(env, owner.id);
-    const adminToken = await seedSession(env, admin.id);
-    const memberToken = await seedSession(env, member.id);
-    const viewerToken = await seedSession(env, viewer.id);
-    const outsiderToken = await seedSession(env, outsider.id);
+    const ownerToken = await seedSession(deniedEnv, owner.id);
+    const orgAdminToken = await seedSession(deniedEnv, orgAdmin.id);
+    const memberToken = await seedSession(deniedEnv, member.id);
+    const viewerToken = await seedSession(deniedEnv, viewer.id);
+    const outsiderToken = await seedSession(deniedEnv, outsider.id);
 
     const unauthenticated = await worker.fetch(
       authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
         Origin: 'https://bitbi.ai',
         'Idempotency-Key': 'phase2j-checkout-unauthenticated',
       }),
-      env,
+      deniedEnv,
       createExecutionContext().execCtx
     );
     expect(unauthenticated.status).toBe(401);
 
     for (const [token, expectedStatus, suffix] of [
+      [ownerToken, 403, 'owner'],
+      [orgAdminToken, 403, 'org-admin'],
       [memberToken, 403, 'member'],
       [viewerToken, 403, 'viewer'],
-      [outsiderToken, 404, 'outsider'],
+      [outsiderToken, 403, 'outsider'],
     ]) {
       const denied = await worker.fetch(
         authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
@@ -2356,15 +2361,31 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
           Cookie: `bitbi_session=${token}`,
           'Idempotency-Key': `phase2j-checkout-denied-${suffix}`,
         }),
-        env,
+        deniedEnv,
         createExecutionContext().execCtx
       );
       expect(denied.status).toBe(expectedStatus);
     }
+    expect(deniedCalls).toHaveLength(0);
+    expect(deniedEnv.DB.state.billingCheckoutSessions).toHaveLength(0);
+
+    const platformOwner = createAdminUser('phase2j-owner');
+    const platformOrgAdmin = createAdminUser('phase2j-org-admin');
+    const calls = [];
+    const env = createAuthTestEnv(seedStripeBillingOrg({
+      owner: platformOwner,
+      admin: platformOrgAdmin,
+      member,
+      viewer,
+      outsider,
+      extra: { fetch: mockStripeCheckoutFetch({ calls }) },
+    }));
+    const platformOwnerToken = await seedSession(env, platformOwner.id);
+    const platformOrgAdminToken = await seedSession(env, platformOrgAdmin.id);
 
     const headers = {
       Origin: 'https://bitbi.ai',
-      Cookie: `bitbi_session=${ownerToken}`,
+      Cookie: `bitbi_session=${platformOwnerToken}`,
       'Idempotency-Key': 'phase2j-checkout-idempotent',
     };
     const first = await worker.fetch(
@@ -2419,7 +2440,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     const adminCreate = await worker.fetch(
       authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_10000' }, {
         Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${adminToken}`,
+        Cookie: `bitbi_session=${platformOrgAdminToken}`,
         'Idempotency-Key': 'phase2j-admin-checkout',
       }),
       env,
@@ -2431,7 +2452,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
 
   test('checkout creation fails closed for invalid requests, live mode, provider errors, and route guards', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
-    const owner = createContractUser({ id: 'phase2j-owner', role: 'user' });
+    const owner = createAdminUser('phase2j-owner');
     const baseSeed = seedStripeBillingOrg({ owner });
     const env = createAuthTestEnv({
       ...baseSeed,
@@ -2525,6 +2546,47 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
       createExecutionContext().execCtx
     );
     expect(noLimiter.status).toBe(503);
+
+    for (const [flagValue, idempotencyKey, expectMissing] of [
+      [undefined, 'phase2j-disabled-missing-flag', true],
+      ['', 'phase2j-disabled-empty-flag', true],
+      ['false', 'phase2j-disabled-false-flag', false],
+    ]) {
+      const disabledCalls = [];
+      const disabledSeed = { ...baseSeed, fetch: mockStripeCheckoutFetch({ calls: disabledCalls }) };
+      if (flagValue === undefined) {
+        delete disabledSeed.ENABLE_ADMIN_STRIPE_TEST_CHECKOUT;
+      } else {
+        disabledSeed.ENABLE_ADMIN_STRIPE_TEST_CHECKOUT = flagValue;
+      }
+      const disabledEnv = createAuthTestEnv(disabledSeed);
+      const disabledToken = await seedSession(disabledEnv, owner.id);
+      const disabled = await worker.fetch(
+        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${disabledToken}`,
+          'Idempotency-Key': idempotencyKey,
+        }),
+        disabledEnv,
+        createExecutionContext().execCtx
+      );
+      expect(disabled.status).toBe(503);
+      const disabledBody = await disabled.json();
+      expect(disabledBody).toEqual(expect.objectContaining({
+        code: 'stripe_admin_test_checkout_disabled',
+        config_names: ['ENABLE_ADMIN_STRIPE_TEST_CHECKOUT'],
+      }));
+      if (expectMissing) {
+        expect(disabledBody.missing_config_names).toEqual(['ENABLE_ADMIN_STRIPE_TEST_CHECKOUT']);
+      } else {
+        expect(disabledBody.missing_config_names).toBeUndefined();
+      }
+      if (flagValue) {
+        expect(disabledBody.error).not.toContain(flagValue);
+      }
+      expect(disabledCalls).toHaveLength(0);
+      expect(disabledEnv.DB.state.billingCheckoutSessions).toHaveLength(0);
+    }
 
     const missingConfigEnv = createAuthTestEnv({
       ...baseSeed,
@@ -2644,7 +2706,7 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
 
   test('verified Stripe Testmode checkout webhook grants credits exactly once and remains sanitized', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
-    const owner = createContractUser({ id: 'phase2j-owner', role: 'user' });
+    const owner = createAdminUser('phase2j-owner');
     const admin = createAdminUser('phase2j-platform-admin');
     const calls = [];
     const env = createAuthTestEnv(seedStripeBillingOrg({
@@ -2773,6 +2835,72 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     expect(JSON.stringify(detailBody)).not.toContain(STRIPE_WEBHOOK_SECRET);
     expect(JSON.stringify(detailBody)).not.toContain('payment_method');
     expect(JSON.stringify(detailBody)).not.toContain('card');
+  });
+
+  test('Stripe webhook refuses credit grants for non-platform-admin checkout creators', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'phase2j-owner', role: 'user' });
+    const createdAt = '2026-04-26T10:00:00.000Z';
+    const env = createAuthTestEnv(seedStripeBillingOrg({
+      owner,
+      extra: {
+        billingCheckoutSessions: [{
+          id: 'bcs_1234567890abcdef1234567890abcdef',
+          provider: 'stripe',
+          provider_mode: 'test',
+          provider_checkout_session_id: 'cs_test_phase2j_non_admin',
+          provider_payment_intent_id: null,
+          organization_id: ORG_ID,
+          user_id: owner.id,
+          credit_pack_id: 'credits_5000',
+          credits: 5000,
+          amount_cents: 4900,
+          currency: 'eur',
+          status: 'created',
+          idempotency_key_hash: 'legacy_non_admin_key_hash',
+          request_fingerprint_hash: 'legacy_non_admin_request_hash',
+          checkout_url: null,
+          provider_customer_id: null,
+          billing_event_id: null,
+          credit_ledger_entry_id: null,
+          error_code: null,
+          error_message: null,
+          metadata_json: '{}',
+          created_at: createdAt,
+          updated_at: createdAt,
+          completed_at: null,
+        }],
+      },
+    }));
+    const payload = stripeCompletedPayload({
+      id: 'evt_phase2j_non_admin_checkout',
+      session: {
+        id: 'cs_test_phase2j_non_admin',
+        payment_intent: 'pi_test_phase2j_non_admin',
+        metadata: {
+          user_id: owner.id,
+          internal_checkout_session_id: 'bcs_1234567890abcdef1234567890abcdef',
+        },
+      },
+    });
+    const response = await worker.fetch(
+      await signedStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(403);
+    expect(body).toEqual(expect.objectContaining({
+      code: 'stripe_checkout_admin_scope_required',
+    }));
+    expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.billingProviderEvents).toHaveLength(1);
+    expect(env.DB.state.billingProviderEvents[0].processing_status).toBe('failed');
+    expect(env.DB.state.billingEventActions[0]).toEqual(expect.objectContaining({
+      status: 'failed',
+    }));
+    expect(env.DB.state.billingEventActions[0].summary_json).toContain('stripe_checkout_admin_scope_required');
+    expect(env.DB.state.billingCheckoutSessions[0].status).toBe('created');
   });
 
   test('Stripe webhook verification and validation fail closed before unsafe side effects', async () => {

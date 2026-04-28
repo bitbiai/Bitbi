@@ -298,7 +298,7 @@ function renderOrganizationControls(container) {
 
     const copy = document.createElement('p');
     copy.className = 'pricing-section-copy';
-    copy.textContent = 'Credit packs are organization-scoped. Only organizations where this admin is an active owner/admin can create checkout sessions.';
+    copy.textContent = 'Credit packs are organization-scoped. This controlled rollout requires a platform admin account that is also an active organization owner/admin.';
 
     const formRow = document.createElement('div');
     formRow.className = 'pricing-org__row';
@@ -336,7 +336,7 @@ function renderOrganizationControls(container) {
     billing.className = 'pricing-org__state';
     billing.textContent = state.eligibleOrganizations.length > 0
         ? 'Loading credit balance...'
-        : 'Assign this admin as organization owner/admin before creating Testmode checkout sessions.';
+        : 'Assign this platform admin as organization owner/admin before creating Testmode checkout sessions.';
 
     wrap.append(title, copy, formRow, billing);
     container.appendChild(wrap);
@@ -397,7 +397,10 @@ async function handleCheckoutClick(event) {
         setCheckoutButtonsDisabled(false);
         if (result) {
             const suffix = res.code ? ` (${res.code})` : '';
-            result.textContent = `Checkout unavailable: ${res.error || 'Request failed'}${suffix}`;
+            const operatorHint = res.code === 'stripe_admin_test_checkout_disabled'
+                ? ' Ask an operator to enable admin Stripe Testmode checkout for the canary window.'
+                : '';
+            result.textContent = `Checkout unavailable: ${res.error || 'Request failed'}${suffix}.${operatorHint}`;
         }
         return;
     }

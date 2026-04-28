@@ -294,6 +294,15 @@
         "summary": "Optional Phase 2-J Stripe mode flag. The only accepted value for checkout/webhook side effects in this phase is test."
       },
       {
+        "id": "auth-enable-admin-stripe-test-checkout-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT",
+        "requiredForRelease": false,
+        "documentation": "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
+        "summary": "Optional Phase 2-K operator-controlled kill switch. Stripe Testmode checkout creation is disabled unless this value is exactly true; unrelated routes and verified webhook processing remain deployable with it absent."
+      },
+      {
         "id": "auth-stripe-checkout-success-url-var",
         "kind": "dashboard_setting",
         "worker": "auth",

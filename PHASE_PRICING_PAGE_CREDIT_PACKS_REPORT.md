@@ -4,7 +4,9 @@ Date: 2026-04-27
 
 ## Executive Summary
 
-This phase adds a controlled, admin-only Pricing page for the current Stripe Testmode credit-pack foundation. It gives admins a product-facing way to inspect the free tier, select an eligible owner/admin organization, buy a 5000-credit or 10000-credit Testmode pack, and enter the existing Stripe Testmode Checkout flow.
+This phase adds a controlled, admin-only Pricing page for the current Stripe Testmode credit-pack foundation. It gives platform admins a product-facing way to inspect the free tier, select an eligible owner/admin organization, buy a 5000-credit or 10000-credit Testmode pack, and enter the existing Stripe Testmode Checkout flow.
+
+Phase 2-K supersedes the original backend access boundary described in this report: checkout creation is now server-side platform-admin-only, also requires the signed-in platform admin to be an active owner/admin of the selected organization, and is disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`.
 
 This is not a public pricing rollout. The header link is visible only to authenticated admins, direct page access is frontend admin-gated, and live Stripe remains disabled. No subscriptions, invoices, customer portal, live checkout, production webhooks, or production billing activation were added.
 
@@ -70,7 +72,7 @@ Checkout requirements remain enforced by the auth Worker:
 The frontend:
 
 - Loads the admin's organizations through `GET /api/orgs`.
-- Filters checkout orgs to active `owner`/`admin` memberships.
+- Filters checkout orgs to active `owner`/`admin` memberships for the signed-in platform admin.
 - Selects the only eligible org automatically when there is exactly one.
 - Shows an org selector when multiple eligible orgs exist.
 - Disables checkout when there is no eligible org.
@@ -109,7 +111,7 @@ No unsupported model was marked live or purchasable. Admin AI Lab remains admin-
 
 - Pricing link is admin-only in desktop and mobile header render paths.
 - Direct pricing route access is frontend admin-gated.
-- Checkout creation remains backend-enforced by org owner/admin RBAC.
+- Checkout creation is backend-enforced by platform admin auth/MFA policy plus org owner/admin RBAC, and remains disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`.
 - Live Stripe mode remains rejected by the backend.
 - No secret values, Stripe signatures, provider payloads, raw webhook bodies, tokens, hashes, SQL/debug metadata, or service-auth internals are rendered.
 - The page does not expose Cloudflare or Stripe configuration editing.
@@ -156,7 +158,7 @@ Merge-ready from local validation. `npm run release:preflight` is green, and no 
 
 ## Production Deploy Readiness
 
-Blocked. This page depends on the existing Phase 2-J Stripe Testmode foundation and new migration `0039_raise_credit_balance_cap_for_pricing_packs.sql`, and remains a controlled admin-only Testmode rollout. Production readiness requires staging verification of checkout creation, Stripe Testmode webhook completion, exactly-once credit grant, success/cancel return URLs, model status truthfulness, and no live billing side effects.
+Blocked. This page depends on the existing Phase 2-J/2-K Stripe Testmode foundation and migration `0039_raise_credit_balance_cap_for_pricing_packs.sql`, and remains a controlled admin-only Testmode rollout. Production readiness requires verification of platform-admin-only checkout creation, disabled kill-switch behavior, Stripe Testmode webhook completion, exactly-once credit grant, non-admin-created checkout no-credit behavior, success/cancel return URLs, model status truthfulness, and no live billing side effects.
 
 ## Staging Verification Steps
 
@@ -164,7 +166,7 @@ Blocked. This page depends on the existing Phase 2-J Stripe Testmode foundation 
 2. Configure Stripe Testmode env vars and success/cancel URLs, preferably `/pricing.html?checkout=success` and `/pricing.html?checkout=cancel`.
 3. Sign in as admin and verify the Pricing link appears in desktop/mobile headers.
 4. Verify anonymous and non-admin users cannot see the header link or pricing cards.
-5. Create a Testmode checkout session for `credits_5000` and `credits_10000`.
+5. Enable `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` only for the canary window, then create a Testmode checkout session for `credits_5000` and `credits_10000` as a platform admin who is also org owner/admin.
 6. Complete a Stripe Testmode checkout and verify webhook grants credits exactly once.
 7. Verify duplicate webhooks do not grant credits twice.
 8. Verify Models overlay labels match actual member-facing capabilities.

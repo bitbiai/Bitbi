@@ -275,6 +275,15 @@ const baseManifest = {
         summary: "Optional Stripe mode flag; Phase 2-J only supports test mode.",
       },
       {
+        id: "auth-enable-admin-stripe-test-checkout-var",
+        kind: "dashboard_setting",
+        worker: "auth",
+        name: "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT",
+        requiredForRelease: false,
+        documentation: "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
+        summary: "Optional admin-only Stripe Testmode checkout kill switch; absent or non-true keeps checkout creation fail-closed.",
+      },
+      {
         id: "auth-stripe-checkout-success-url-var",
         kind: "dashboard_setting",
         worker: "auth",
@@ -578,6 +587,7 @@ function createValidContext() {
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "PHASE2I_BILLING_EVENT_INGESTION_REPORT.md",
     "PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md",
+    "PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md",
     "docs/cloudflare-rate-limiting-wave1.md",
     "docs/privacy-compliance-audit.md",
   ]);
