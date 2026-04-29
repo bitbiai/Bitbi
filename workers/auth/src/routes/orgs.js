@@ -18,7 +18,9 @@ import {
   OrgRbacError,
   addOrganizationMember,
   createOrganization,
+  getAdminOrganization,
   getOrganizationForUser,
+  getOrgMembership,
   listOrganizationMembers,
   listUserOrganizations,
   normalizeOrgIdempotencyKey,
@@ -304,6 +306,122 @@ async function handleCreditsDashboard(ctx, session, organizationId) {
   }
 }
 
+function serializeOrganizationDashboardMember(member) {
+  return {
+    id: member.id,
+    organizationId: member.organizationId || member.organization_id,
+    userId: member.userId || member.user_id,
+    email: member.email || null,
+    role: member.role,
+    status: member.status,
+    createdAt: member.createdAt || member.created_at,
+    updatedAt: member.updatedAt || member.updated_at,
+  };
+}
+
+async function getCurrentOrganizationRole(env, { organizationId, userId }) {
+  const membership = await getOrgMembership(env, { organizationId, userId });
+  return membership?.role || null;
+}
+
+async function resolveOrganizationDashboard(ctx, session, organizationId) {
+  await requireActiveOrganizationForBilling(ctx.env, organizationId);
+
+  if (session.user.role === "admin") {
+    const adminOrg = await getAdminOrganization(ctx.env, { organizationId });
+    const organizationRole = await getCurrentOrganizationRole(ctx.env, {
+      organizationId,
+      userId: session.user.id,
+    });
+    const credits = await getOrganizationCreditsDashboard({
+      env: ctx.env,
+      organizationId,
+      accessScope: "platform_admin",
+      includeConfigNames: true,
+      limit: ctx.url.searchParams.get("limit"),
+    });
+    return {
+      access: {
+        platformAdmin: true,
+        accessScope: "platform_admin",
+        organizationRole: organizationRole || "none",
+        canUseAdminImageTests: true,
+      },
+      organization: {
+        ...credits.organization,
+        createdByUserId: adminOrg.organization.createdByUserId || null,
+        memberCount: adminOrg.organization.memberCount ?? null,
+      },
+      balance: credits.balance,
+      liveCheckout: credits.liveCheckout,
+      packs: credits.packs,
+      purchaseHistory: credits.purchaseHistory,
+      recentLedger: credits.recentLedger,
+      recentAdminImageTestDebits: credits.recentLedger.filter((entry) =>
+        entry.source === "admin_ai_image_test"
+      ),
+      members: (adminOrg.members || []).map(serializeOrganizationDashboardMember),
+      warnings: organizationRole === "owner" ? [] : [{
+        code: "platform_admin_not_org_owner",
+        message: "You are platform admin, but you are not an owner of this organization. Credits belong to the organization.",
+      }],
+    };
+  }
+
+  const membership = await requireOrgRole(ctx.env, {
+    organizationId,
+    userId: session.user.id,
+    minRole: "owner",
+  });
+  const organization = await getOrganizationForUser(ctx.env, {
+    organizationId,
+    userId: session.user.id,
+  });
+  const members = await listOrganizationMembers(ctx.env, {
+    organizationId,
+    actorUserId: session.user.id,
+    limit: 100,
+  });
+  const credits = await getOrganizationCreditsDashboard({
+    env: ctx.env,
+    organizationId,
+    accessScope: "org_owner",
+    includeConfigNames: false,
+    limit: ctx.url.searchParams.get("limit"),
+  });
+  return {
+    access: {
+      platformAdmin: false,
+      accessScope: "org_owner",
+      organizationRole: membership.role,
+      canUseAdminImageTests: false,
+    },
+    organization: {
+      ...credits.organization,
+      memberCount: organization.memberCount ?? null,
+    },
+    balance: credits.balance,
+    liveCheckout: credits.liveCheckout,
+    packs: credits.packs,
+    purchaseHistory: credits.purchaseHistory,
+    recentLedger: credits.recentLedger,
+    recentAdminImageTestDebits: credits.recentLedger.filter((entry) =>
+      entry.source === "admin_ai_image_test"
+    ),
+    members: members.map(serializeOrganizationDashboardMember),
+    warnings: [],
+  };
+}
+
+async function handleOrganizationDashboard(ctx, session, organizationId) {
+  try {
+    const dashboard = await resolveOrganizationDashboard(ctx, session, organizationId);
+    return json({ ok: true, dashboard });
+  } catch (error) {
+    return orgErrorResponse(error);
+  }
+}
+
 export async function handleOrgs(ctx) {
   const { request, env, pathname, method, url } = ctx;
   if (pathname !== "/api/orgs" && !pathname.startsWith("/api/orgs/")) {
@@ -396,6 +514,11 @@ export async function handleOrgs(ctx) {
   const creditsDashboardMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/billing\/credits-dashboard$/);
   if (creditsDashboardMatch && method === "GET") {
     return handleCreditsDashboard(ctx, session, creditsDashboardMatch[1]);
+  }
+
+  const organizationDashboardMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/organization-dashboard$/);
+  if (organizationDashboardMatch && method === "GET") {
+    return handleOrganizationDashboard(ctx, session, organizationDashboardMatch[1]);
   }
 
   const usageMatch = pathname.match(/^\/api\/orgs\/([^/]+)\/usage$/);

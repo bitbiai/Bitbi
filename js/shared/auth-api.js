@@ -548,6 +548,13 @@ export function apiOrganizationCreditsDashboard(orgId, { limit } = {}) {
     return request('GET', `/orgs/${encodeURIComponent(orgId)}/billing/credits-dashboard${qs}`);
 }
 
+export function apiOrganizationDashboard(orgId, { limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/orgs/${encodeURIComponent(orgId)}/organization-dashboard${qs}`);
+}
+
 export function apiCreateCreditPackCheckout(orgId, { packId, idempotencyKey }) {
     return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/credit-pack`, {
         pack_id: packId,

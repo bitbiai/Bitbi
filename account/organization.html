@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Organization | BITBI</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0A0A0A">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
+    <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/assets/favicons/site.webmanifest">
+    <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/account/credits.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/account/organization.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
+    <script>document.documentElement.classList.add('js-ready');</script>
+</head>
+<body>
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<header>
+<nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
+    <div class="container">
+        <div class="site-nav__bar">
+            <a href="/" class="site-nav__logo">
+                <span class="site-nav__logo-text gt-hero">BITBI</span>
+                <span class="site-nav__logo-glow" aria-hidden="true"></span>
+            </a>
+            <div class="site-nav__links">
+                <a href="/#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
+                <a href="/#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
+                <a href="/#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
+            </div>
+            <div class="site-nav__actions">
+                <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
+            </div>
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
+                <span class="site-nav__menu-bar" id="bar1"></span>
+                <span class="site-nav__menu-bar" id="bar2"></span>
+                <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
+            </button>
+        </div>
+    </div>
+</nav>
+</header>
+
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+    <div id="frozenBackdrop" class="mobile-nav__backdrop" aria-hidden="true"></div>
+    <div id="frozenRainLayer" class="mobile-nav__rain-layer" aria-hidden="true"></div>
+    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Close menu">&times;</button>
+    <div class="mobile-nav__inner">
+        <div id="mobileNavAuth" class="mobile-nav__auth"></div>
+        <nav class="mobile-nav__section" aria-label="Explore">
+            <span class="mobile-nav__label">Explore</span>
+            <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Gallery</a>
+            <a href="/#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
+            <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
+            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
+        </nav>
+    </div>
+</div>
+
+<main id="main-content" class="credits-page organization-page">
+    <section class="credits-hero organization-hero" aria-labelledby="organizationTitle">
+        <div class="credits-hero__glow credits-hero__glow--cyan" aria-hidden="true"></div>
+        <div class="credits-hero__glow credits-hero__glow--gold" aria-hidden="true"></div>
+        <p class="credits-eyebrow">Organization context</p>
+        <h1 id="organizationTitle" class="credits-title gt-gold-cyan">Organization</h1>
+        <p class="credits-subtitle">Select the organization whose credits and role context should be used by Credits and charged Admin AI image tests.</p>
+    </section>
+
+    <section class="credits-shell organization-shell" aria-label="Organization dashboard">
+        <div id="organizationLoading" class="credits-state glass glass-card">Loading organization dashboard...</div>
+        <div id="organizationDenied" class="credits-state glass glass-card" hidden>
+            <h2>Organization dashboard is not available</h2>
+            <p>Only platform admins and active organization owners can view this page.</p>
+        </div>
+        <div id="organizationError" class="credits-state credits-state--error glass glass-card" hidden></div>
+
+        <div id="organizationDashboard" hidden>
+            <div class="credits-toolbar glass glass-card">
+                <div>
+                    <p class="credits-eyebrow">Selected organization</p>
+                    <h2 id="organizationName">Not selected</h2>
+                    <p id="organizationAccess" class="credits-muted">Access scope pending.</p>
+                </div>
+                <label id="organizationPickerWrap" class="credits-picker" hidden>
+                    <span>Switch organization</span>
+                    <select id="organizationPicker"></select>
+                </label>
+            </div>
+
+            <div id="organizationWarning" class="organization-warning" hidden></div>
+            <div id="organizationSummaryGrid" class="credits-summary-grid"></div>
+
+            <section class="credits-section" aria-labelledby="organizationLedgerTitle">
+                <div class="credits-section__header">
+                    <div>
+                        <p class="credits-eyebrow">Credits</p>
+                        <h2 id="organizationLedgerTitle">Recent credit ledger</h2>
+                    </div>
+                </div>
+                <div class="credits-table-wrap">
+                    <table class="credits-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Source</th>
+                                <th>Amount</th>
+                                <th>Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="organizationLedgerBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="credits-section" aria-labelledby="organizationDebitsTitle">
+                <div class="credits-section__header">
+                    <div>
+                        <p class="credits-eyebrow">Admin AI diagnostics</p>
+                        <h2 id="organizationDebitsTitle">Recent admin image-test debits</h2>
+                    </div>
+                </div>
+                <div class="credits-table-wrap">
+                    <table class="credits-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Source</th>
+                                <th>Amount</th>
+                                <th>Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="organizationAdminDebitsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="credits-section" aria-labelledby="organizationMembersTitle">
+                <div class="credits-section__header">
+                    <div>
+                        <p class="credits-eyebrow">RBAC</p>
+                        <h2 id="organizationMembersTitle">Members</h2>
+                    </div>
+                </div>
+                <div class="credits-table-wrap">
+                    <table class="credits-table">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="organizationMembersBody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </section>
+</main>
+
+<script type="module" src="../js/pages/organization/main.js?v=__ASSET_VERSION__"></script>
+</body>
+</html>

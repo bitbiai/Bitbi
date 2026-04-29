@@ -1,0 +1,38 @@
+@layer pages {
+  .organization-page {
+    background:
+      radial-gradient(circle at 12% 20%, rgba(0, 240, 255, 0.08), transparent 28rem),
+      radial-gradient(circle at 88% 18%, rgba(255, 179, 0, 0.08), transparent 24rem),
+      var(--color-bg);
+  }
+
+  .organization-page [hidden] {
+    display: none !important;
+  }
+
+  .organization-shell {
+    padding-block-start: 0;
+  }
+
+  .organization-warning {
+    margin-block: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255, 179, 0, 0.22);
+    background: rgba(255, 179, 0, 0.08);
+    color: rgba(255, 235, 185, 0.92);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }
+
+  .organization-card .credits-card__value {
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 640px) {
+    .organization-warning {
+      padding: var(--space-4);
+    }
+  }
+}

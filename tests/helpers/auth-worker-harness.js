@@ -1898,7 +1898,10 @@ class MockD1 {
     if (query.startsWith("SELECT COALESCE(SUM(ABS(amount)), 0) AS credits")) {
       const [organizationId] = bindings;
       const credits = this.state.creditLedger
-        .filter((row) => row.organization_id === organizationId && row.entry_type === 'debit')
+        .filter((row) =>
+          row.organization_id === organizationId &&
+          (row.entry_type === 'consume' || row.entry_type === 'debit')
+        )
         .reduce((sum, row) => sum + Math.abs(Number(row.amount || 0)), 0);
       return { credits };
     }

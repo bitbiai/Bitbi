@@ -7,6 +7,11 @@ import {
     apiListOrganizations,
     apiOrganizationCreditsDashboard,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    clearActiveOrganizationId,
+    resolveActiveOrganizationId,
+    setActiveOrganizationId,
+} from '../../shared/active-organization.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('creditsLoading');
 const $denied = document.getElementById('creditsDenied');
@@ -55,6 +60,21 @@ function setDenied() {
     hide($dashboard);
     hide($error);
     show($denied);
+}
+
+function setNeedsOrganizationSelection() {
+    hide($loading);
+    hide($error);
+    hide($denied);
+    show($dashboard);
+    if ($orgName) $orgName.textContent = 'Select an organization';
+    if ($accessScope) $accessScope.textContent = 'Choose the organization whose credits you want to inspect or use for checkout.';
+    renderOrgPicker();
+    renderSummary({});
+    renderCheckoutStatus({ enabled: false, configured: false }, currentUser?.role === 'admin' ? 'platform_admin' : 'org_owner');
+    renderPacks([], false);
+    renderPurchases([]);
+    renderLedger([]);
 }
 
 function formatCredits(value) {
@@ -130,6 +150,9 @@ function renderReturnState() {
 function renderOrgPicker() {
     if (!$orgPicker || !$orgPickerWrap) return;
     $orgPicker.textContent = '';
+    if (eligibleOrganizations.length !== 1) {
+        $orgPicker.append(new Option('Select organization', ''));
+    }
     for (const org of eligibleOrganizations) {
         const option = document.createElement('option');
         option.value = org.id;
@@ -137,7 +160,7 @@ function renderOrgPicker() {
         $orgPicker.appendChild(option);
     }
     $orgPicker.value = selectedOrganizationId || '';
-    $orgPickerWrap.hidden = eligibleOrganizations.length <= 1;
+    $orgPickerWrap.hidden = eligibleOrganizations.length <= 1 && Boolean(selectedOrganizationId);
 }
 
 function summaryCard(label, value) {
@@ -345,12 +368,16 @@ async function init() {
         return setError(error?.message || 'Could not load organization access.');
     }
     if (!eligibleOrganizations.length) return setDenied();
-    selectedOrganizationId = eligibleOrganizations[0].id;
+    selectedOrganizationId = resolveActiveOrganizationId(eligibleOrganizations);
+    if (!selectedOrganizationId) return setNeedsOrganizationSelection();
     await loadDashboard();
 }
 
 $orgPicker?.addEventListener('change', async () => {
     selectedOrganizationId = $orgPicker.value;
+    if (selectedOrganizationId) setActiveOrganizationId(selectedOrganizationId);
+    else clearActiveOrganizationId();
+    if (!selectedOrganizationId) return setNeedsOrganizationSelection();
     await loadDashboard();
 });
 

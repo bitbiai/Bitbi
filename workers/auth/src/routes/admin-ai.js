@@ -157,14 +157,30 @@ function adminImageOrganizationId(body) {
   try {
     return normalizeOrgId(body?.organization_id ?? body?.organizationId);
   } catch {
-    throw new BillingError("A valid organization_id is required for charged admin image tests.", {
+    throw new BillingError("Select an organization before running this charged image test.", {
       status: 400,
       code: "organization_required",
     });
   }
 }
 
-function adminImageAttemptResponse({ usageKind, organizationId, pricing, attempt }, correlationId) {
+async function adminImageOrganizationSummary(env, organizationId) {
+  const row = await env.DB.prepare(
+    "SELECT id, name, slug, status, created_at, updated_at FROM organizations WHERE id = ? LIMIT 1"
+  ).bind(organizationId).first();
+  if (!row || row.status !== "active") {
+    throw new BillingError("Organization not found.", {
+      status: 404,
+      code: "organization_not_found",
+    });
+  }
+  return {
+    id: row.id,
+    name: row.name || row.slug || row.id,
+  };
+}
+
+function adminImageAttemptResponse({ usageKind, organizationId, organizationName = null, pricing, attempt }, correlationId) {
   if (usageKind === "completed" || usageKind === "completed_expired") {
     return withCorrelationId(json({
       ok: true,
@@ -175,10 +191,13 @@ function adminImageAttemptResponse({ usageKind, organizationId, pricing, attempt
       result: null,
       billing: {
         organization_id: organizationId,
+        organization_name: organizationName,
         feature: "ai.image.generate",
         credits_charged: 0,
         original_credits_charged: pricing.credits,
         balance_after: attempt?.balanceAfter ?? null,
+        usage_attempt_id: attempt?.id || null,
+        model_id: attempt?.resultModel || null,
         idempotent_replay: true,
         replay_available: false,
       },
@@ -192,8 +211,10 @@ function adminImageAttemptResponse({ usageKind, organizationId, pricing, attempt
       code: "ai_usage_attempt_in_progress",
       billing: {
         organization_id: organizationId,
+        organization_name: organizationName,
         feature: "ai.image.generate",
         credits_reserved: pricing.credits,
+        usage_attempt_id: attempt?.id || null,
       },
     }, { status: 409 }), correlationId);
   }
@@ -204,6 +225,7 @@ function adminImageAttemptResponse({ usageKind, organizationId, pricing, attempt
     code: "ai_usage_billing_failed",
     billing: {
       organization_id: organizationId,
+      organization_name: organizationName,
       feature: "ai.image.generate",
     },
   }, { status: 503 }), correlationId);
@@ -566,6 +588,7 @@ export async function handleAdminAI(ctx) {
       }
 
       const organizationId = adminImageOrganizationId(body);
+      const organization = await adminImageOrganizationSummary(env, organizationId);
       const clientIdempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
       const scopedIdempotencyKey = `admin-ai-image:${await sha256Hex(stableJson({
         organizationId,
@@ -600,6 +623,7 @@ export async function handleAdminAI(ctx) {
         return adminImageAttemptResponse({
           usageKind: attemptState.kind,
           organizationId,
+          organizationName: organization.name,
           pricing,
           attempt: attemptState.attempt,
         }, correlationId);
@@ -697,10 +721,16 @@ export async function handleAdminAI(ctx) {
 
       const billedResponse = await appendAdminImageBilling(response, {
         organization_id: organizationId,
+        organization_name: organization.name,
         feature: "ai.image.generate",
         operation: "admin_ai_image_test",
+        model_id: modelId,
         credits_charged: pricing.credits,
+        balance_before: debit.creditBalance + pricing.credits,
         balance_after: debit.creditBalance,
+        ledger_entry_id: debit.usageEvent?.creditLedgerId || null,
+        usage_event_id: debit.usageEvent?.id || null,
+        usage_attempt_id: attemptState.attempt.id,
         idempotent_replay: false,
       }, correlationId);
       return attachAdminImageSaveReference(billedResponse, env, result.user, correlationId, requestInfo);

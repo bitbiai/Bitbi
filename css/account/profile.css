@@ -519,6 +519,12 @@
         --profile-studio-glow: rgba(0, 240, 255, 0.18);
     }
 
+    .profile__studio-card--organization {
+        --profile-studio-accent: rgba(255, 179, 0, 0.72);
+        --profile-studio-border: rgba(255, 179, 0, 0.16);
+        --profile-studio-glow: rgba(255, 179, 0, 0.18);
+    }
+
     .profile__studio-emoji--wallet {
         background: rgba(34, 197, 94, 0.08);
         border-color: rgba(34, 197, 94, 0.12);
@@ -529,6 +535,12 @@
         background: rgba(0, 240, 255, 0.08);
         border-color: rgba(0, 240, 255, 0.12);
         filter: drop-shadow(0 0 14px rgba(0, 240, 255, 0.24));
+    }
+
+    .profile__studio-emoji--organization {
+        background: rgba(255, 179, 0, 0.08);
+        border-color: rgba(255, 179, 0, 0.12);
+        filter: drop-shadow(0 0 14px rgba(255, 179, 0, 0.24));
     }
 
     .profile__studio-emoji {
@@ -591,6 +603,25 @@
         .profile__studio-stack[data-has-credits="true"] .profile__studio-card {
             padding: var(--space-5);
         }
+
+        .profile__studio-stack[data-has-organization="true"] {
+            gap: 0.55rem;
+        }
+
+        .profile__studio-stack[data-has-organization="true"] .profile__studio-card {
+            padding: var(--space-4);
+            min-block-size: 0;
+        }
+
+        .profile__studio-stack[data-has-organization="true"] .profile__studio-emoji {
+            inline-size: 2.55rem;
+            block-size: 2.55rem;
+            font-size: 1.35rem;
+        }
+
+        .profile__studio-stack[data-has-organization="true"] .profile__studio-label {
+            font-size: 1.02rem;
+        }
     }
 
     .profile-view[hidden] {
@@ -649,11 +680,11 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0.44rem 0.95rem;
+            padding: 0.4rem 0.72rem;
             appearance: none;
             border-radius: var(--radius-full);
             font-family: var(--font-mono);
-            font-size: 0.72rem;
+            font-size: 0.68rem;
             font-weight: 500;
             color: rgba(255, 255, 255, 0.5);
             background: rgba(255, 255, 255, 0.03);
@@ -1234,10 +1265,10 @@
         }
 
         .profile-tab-btn {
-            padding: 0.44rem 0.95rem;
+            padding: 0.4rem 0.72rem;
             border-radius: var(--radius-full);
             font-family: var(--font-mono);
-            font-size: 0.72rem;
+            font-size: 0.68rem;
             font-weight: 500;
             color: rgba(255, 255, 255, 0.5);
             background: rgba(255, 255, 255, 0.03);

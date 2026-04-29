@@ -186,6 +186,8 @@ A charged BFL Admin AI image test requires `organization_id` / `organizationId`.
 
 Credits are deducted from the selected organization's existing credit balance. No personal/user-only balance is created. If organization context is missing or invalid, the request fails before provider execution and before any debit.
 
+Phase 2-N adds `/account/organization.html` and shared active organization selection so the platform admin can explicitly see/select the credit-owning organization used by `/account/credits.html` and Admin AI Lab. The selected organization is stored in frontend localStorage as a convenience only; backend authorization and billing remain authoritative.
+
 ## Charging Lifecycle
 
 Before provider execution:
@@ -205,6 +207,7 @@ On provider success:
 - One debit is finalized through `credit_ledger` / `usage_events`.
 - Source/reason is `admin_ai_image_test`.
 - Metadata is sanitized and includes model/cost/route summary, not raw prompt or provider payload.
+- The response includes safe debit diagnostics such as organization id/name, charged credits, model id, ledger/usage/attempt ids when available, idempotency status, and balance before/after.
 
 On provider failure:
 

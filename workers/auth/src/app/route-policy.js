@@ -217,6 +217,11 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Read-only credits dashboard requires platform admin or active organization owner and returns sanitized billing data only." },
     notes: "Organization credits dashboard for platform admins and active organization owners only; organization admins, members, viewers, and non-members are denied.",
   }),
+  safeRead("orgs.organization-dashboard.read", "GET", "/api/orgs/:id/organization-dashboard", "organizations", {
+    sensitivity: "high",
+    rateLimit: { noneReason: "Read-only organization dashboard requires platform admin or active organization owner and returns sanitized organization, role, balance, ledger, and member summaries." },
+    notes: "Organization context dashboard for platform admins and active organization owners only; organization admins, members, viewers, and non-members are denied. Used to align Credits and Admin AI Lab organization selection.",
+  }),
   policy({
     id: "password.forgot",
     method: "POST",

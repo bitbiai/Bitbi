@@ -1428,7 +1428,7 @@ export async function getOrganizationCreditsDashboard({
     `SELECT COALESCE(SUM(ABS(amount)), 0) AS credits
      FROM credit_ledger
      WHERE organization_id = ?
-       AND entry_type = 'debit'`
+       AND entry_type IN ('consume', 'debit')`
   ).bind(orgId).first();
   const purchaseRows = await env.DB.prepare(
     `SELECT id, provider, provider_mode, provider_checkout_session_id,

@@ -75,10 +75,12 @@ const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
 const $profileCreditsLink = document.getElementById('profileCreditsLink');
+const $profileOrganizationLink = document.getElementById('profileOrganizationLink');
 const $studioStack    = document.getElementById('profileStudioStack');
 const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 const $walletCard     = document.getElementById('profileWalletCard');
 const $creditsCard    = document.getElementById('profileCreditsCard');
+const $organizationCard = document.getElementById('profileOrganizationCard');
 const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
 const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
 const $aiLabToast     = document.getElementById('profileAiLabToast');
@@ -236,7 +238,10 @@ let creditsEligibilitySeq = 0;
 function setCreditsNavVisible(visible) {
     if ($profileCreditsLink) $profileCreditsLink.hidden = !visible;
     if ($creditsCard) $creditsCard.hidden = !visible;
+    if ($profileOrganizationLink) $profileOrganizationLink.hidden = !visible;
+    if ($organizationCard) $organizationCard.hidden = !visible;
     if ($studioStack) $studioStack.dataset.hasCredits = visible ? 'true' : 'false';
+    if ($studioStack) $studioStack.dataset.hasOrganization = visible ? 'true' : 'false';
 }
 
 async function syncCreditsEligibility(account) {

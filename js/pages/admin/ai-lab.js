@@ -45,6 +45,11 @@ import {
     getRetainedResult,
     getWarnings,
 } from './ai-lab-result-state.mjs?v=__ASSET_VERSION__';
+import {
+    clearActiveOrganizationId,
+    resolveActiveOrganizationId,
+    setActiveOrganizationId,
+} from '../../shared/active-organization.js?v=__ASSET_VERSION__';
 
 const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent', 'music', 'video'];
@@ -1793,6 +1798,11 @@ export function createAdminAiLab({ showToast } = {}) {
         return ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS[modelId] || null;
     }
 
+    function getSelectedImageOrganization() {
+        const selectedOrgId = state.forms.image.organizationId || '';
+        return state.imageBilling.organizations.find((org) => org.id === selectedOrgId) || null;
+    }
+
     function getImageRunLabel() {
         const credits = getSelectedImageCreditCost();
         if (!credits) return TASK_UI.image.idleText;
@@ -1842,16 +1852,20 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
         if (!selectedOrgId) {
-            refs.image.organizationState.textContent = `Select an organization to reserve and charge ${credits} credit${credits === 1 ? '' : 's'} on success.`;
+            refs.image.organizationState.textContent = 'Select an organization before running this charged image test.';
             return;
         }
+        const selectedOrg = getSelectedImageOrganization();
+        const prefix = selectedOrg?.name
+            ? `Selected organization: ${selectedOrg.name}. `
+            : '';
         if (typeof balance === 'number') {
             refs.image.organizationState.textContent = balance >= credits
-                ? `Selected balance: ${balance} credits. This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`
-                : `Insufficient credits: selected organization has ${balance}; this test needs ${credits}.`;
+                ? `${prefix}Selected balance: ${balance} credits. This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`
+                : `${prefix}Insufficient credits: selected organization has ${balance}; this test needs ${credits}.`;
             return;
         }
-        refs.image.organizationState.textContent = `This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`;
+        refs.image.organizationState.textContent = `${prefix}This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`;
     }
 
     function normalizeAdminOrgRows(data) {
@@ -1923,11 +1937,11 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!state.imageBilling.organizations.length) {
             state.imageBilling.error = 'No active organizations are available for charged admin image tests.';
         }
-        const current = state.forms.image.organizationId || state.imageBilling.selectedOrganizationId;
+        const current = resolveActiveOrganizationId(state.imageBilling.organizations);
         if (current && state.imageBilling.organizations.some((org) => org.id === current)) {
             state.forms.image.organizationId = current;
         } else {
-            state.forms.image.organizationId = state.imageBilling.organizations[0]?.id || '';
+            state.forms.image.organizationId = '';
         }
         state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
         populateImageOrganizationSelect();
@@ -2632,6 +2646,14 @@ export function createAdminAiLab({ showToast } = {}) {
                     ? `${imgPayload.appliedSize.width}×${imgPayload.appliedSize.height}`
                     : null,
             },
+            { label: 'Charged Org', value: response.billing?.organization_name || response.billing?.organization_id },
+            { label: 'Credits Charged', value: response.billing?.credits_charged },
+            { label: 'Balance Before', value: response.billing?.balance_before },
+            { label: 'Balance After', value: response.billing?.balance_after },
+            { label: 'Ledger Entry', value: response.billing?.ledger_entry_id },
+            { label: 'Usage Event', value: response.billing?.usage_event_id },
+            { label: 'Usage Attempt', value: response.billing?.usage_attempt_id },
+            { label: 'Idempotent Replay', value: response.billing?.idempotent_replay === true ? 'yes' : null },
         ] : []);
         renderWarnings(refs.image.warnings, response ? getWarnings(response) : []);
         renderDebug(refs.image.debug, refs.image.raw, result?.debugRaw || response);
@@ -4004,10 +4026,11 @@ export function createAdminAiLab({ showToast } = {}) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
                 state.controllers.image = null;
-                const message = 'Select an organization to charge for this BFL image test.';
+                const message = 'Select an organization before running this charged image test.';
                 setTaskErrorState('image', previous, message, 'organization_required', previous.raw);
                 setStatus(message, 'error');
                 renderImageResult();
+                syncImageBillingUi();
                 return;
             }
             if (typeof state.imageBilling.balance === 'number' && state.imageBilling.balance < requiredCredits) {
@@ -4018,6 +4041,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 setTaskErrorState('image', previous, message, 'insufficient_credits', previous.raw);
                 setStatus(message, 'error');
                 renderImageResult();
+                syncImageBillingUi();
                 return;
             }
             payload.organization_id = organizationId;
@@ -4050,6 +4074,7 @@ export function createAdminAiLab({ showToast } = {}) {
             state.imageBilling.balance = res.data.billing.balance_after;
             syncImageBillingUi();
         }
+        await loadSelectedImageOrganizationBilling();
         setStatus('Image test completed.', 'success');
         renderImageResult();
     }
@@ -4734,6 +4759,8 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.organization?.addEventListener('change', async () => {
             state.forms.image.organizationId = refs.image.organization.value;
             state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
+            if (state.forms.image.organizationId) setActiveOrganizationId(state.forms.image.organizationId);
+            else clearActiveOrganizationId();
             persistState();
             await loadSelectedImageOrganizationBilling();
         });

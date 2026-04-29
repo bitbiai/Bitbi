@@ -3733,6 +3733,130 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     );
     expect(denied.status).toBe(403);
   });
+
+  test('organization dashboard is owner-or-platform-admin only and surfaces sanitized org credit context', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'phase2n-owner', role: 'user' });
+    const platformAdmin = createAdminUser('phase2n-platform-admin');
+    const orgAdmin = createContractUser({ id: 'phase2n-org-admin', role: 'user' });
+    const member = createContractUser({ id: 'phase2n-member', role: 'user' });
+    const viewer = createContractUser({ id: 'phase2n-viewer', role: 'user' });
+    const outsider = createContractUser({ id: 'phase2n-outsider', role: 'user' });
+    const createdAt = '2026-04-29T12:00:00.000Z';
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      owner,
+      orgAdmin,
+      member,
+      viewer,
+      outsider,
+      platformAdmin,
+      extra: {
+        creditLedger: [
+          {
+            id: 'cl_phase2n_seed',
+            organization_id: ORG_ID,
+            amount: 5000,
+            balance_after: 5000,
+            entry_type: 'grant',
+            feature_key: null,
+            source: 'manual_admin_grant',
+            idempotency_key: 'redacted-seed',
+            request_hash: 'request_hash_redacted',
+            created_by_user_id: platformAdmin.id,
+            created_at: createdAt,
+            metadata_json: '{}',
+          },
+          {
+            id: 'cl_phase2n_admin_image',
+            organization_id: ORG_ID,
+            amount: -10,
+            balance_after: 4990,
+            entry_type: 'consume',
+            feature_key: 'ai.image.generate',
+            source: 'admin_ai_image_test',
+            idempotency_key: 'redacted-admin-image',
+            request_hash: 'request_fingerprint_redacted',
+            created_by_user_id: platformAdmin.id,
+            created_at: '2026-04-29T12:05:00.000Z',
+            metadata_json: JSON.stringify({ prompt: 'must not leak', provider_payload: 'must not leak' }),
+          },
+        ],
+      },
+    }));
+    const ownerToken = await seedSession(env, owner.id);
+    const platformAdminToken = await seedSession(env, platformAdmin.id);
+    const orgAdminToken = await seedSession(env, orgAdmin.id);
+    const memberToken = await seedSession(env, member.id);
+    const viewerToken = await seedSession(env, viewer.id);
+    const outsiderToken = await seedSession(env, outsider.id);
+
+    const ownerDashboard = await worker.fetch(
+      authJsonRequest(`/api/orgs/${ORG_ID}/organization-dashboard`, 'GET', undefined, {
+        Cookie: `bitbi_session=${ownerToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const ownerBody = await ownerDashboard.json();
+    expect(ownerDashboard.status).toBe(200);
+    expect(ownerBody.dashboard.access).toEqual(expect.objectContaining({
+      platformAdmin: false,
+      accessScope: 'org_owner',
+      organizationRole: 'owner',
+      canUseAdminImageTests: false,
+    }));
+    expect(ownerBody.dashboard.balance).toEqual(expect.objectContaining({
+      current: 4990,
+      available: 4990,
+      lifetimeConsumed: 10,
+    }));
+    expect(ownerBody.dashboard.recentAdminImageTestDebits).toHaveLength(1);
+    expect(ownerBody.dashboard.recentAdminImageTestDebits[0]).toEqual(expect.objectContaining({
+      id: 'cl_phase2n_admin_image',
+      amount: -10,
+      source: 'admin_ai_image_test',
+      balanceAfter: 4990,
+    }));
+    expect(ownerBody.dashboard.members.map((entry) => entry.role)).toContain('owner');
+    expect(JSON.stringify(ownerBody)).not.toContain('request_fingerprint_redacted');
+    expect(JSON.stringify(ownerBody)).not.toContain('must not leak');
+
+    const platformDashboard = await worker.fetch(
+      authJsonRequest(`/api/orgs/${ORG_ID}/organization-dashboard`, 'GET', undefined, {
+        Cookie: `bitbi_session=${platformAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const platformBody = await platformDashboard.json();
+    expect(platformDashboard.status).toBe(200);
+    expect(platformBody.dashboard.access).toEqual(expect.objectContaining({
+      platformAdmin: true,
+      accessScope: 'platform_admin',
+      organizationRole: 'none',
+      canUseAdminImageTests: true,
+    }));
+    expect(platformBody.dashboard.warnings).toContainEqual(expect.objectContaining({
+      code: 'platform_admin_not_org_owner',
+    }));
+    expect(platformBody.dashboard.liveCheckout.configNames).toContain('ENABLE_LIVE_STRIPE_CREDIT_PACKS');
+
+    for (const [token, status] of [
+      [orgAdminToken, 403],
+      [memberToken, 403],
+      [viewerToken, 403],
+      [outsiderToken, 404],
+    ]) {
+      const denied = await worker.fetch(
+        authJsonRequest(`/api/orgs/${ORG_ID}/organization-dashboard`, 'GET', undefined, {
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(status);
+    }
+  });
 });
 
 test.describe('Phase 2-M admin BFL image test pricing helper', () => {
@@ -9011,12 +9135,22 @@ test.describe('Worker routes', () => {
         }),
         billing: expect.objectContaining({
           organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          organization_name: 'Admin Image Billing Org',
           operation: 'admin_ai_image_test',
+          model_id: '@cf/black-forest-labs/flux-1-schnell',
           credits_charged: 1,
+          balance_before: 100,
           balance_after: 99,
+          ledger_entry_id: expect.any(String),
+          usage_event_id: expect.any(String),
+          usage_attempt_id: expect.any(String),
+          idempotent_replay: false,
         }),
         elapsedMs: expect.any(Number),
       }));
+      expect(JSON.stringify(body.billing)).not.toContain('A cinematic skyline');
+      expect(JSON.stringify(body.billing)).not.toContain('provider');
+      expect(JSON.stringify(body.billing)).not.toContain('secret');
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
       expect(env.DB.state.creditLedger.at(-1)).toEqual(expect.objectContaining({
         organization_id: ADMIN_AI_CHARGE_ORG_ID,
@@ -9228,6 +9362,21 @@ test.describe('Worker routes', () => {
       expect(missingOrg.status).toBe(400);
       await expect(missingOrg.json()).resolves.toEqual(expect.objectContaining({
         code: 'organization_required',
+        error: 'Select an organization before running this charged image test.',
+      }));
+
+      const wrongOrg = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'Wrong org should fail.',
+          steps: 4,
+        }, 'org_cccccccccccccccccccccccccccccccc'), adminImageChargeHeaders(authHeaders, 'admin-image-wrong-org-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(wrongOrg.status).toBe(404);
+      await expect(wrongOrg.json()).resolves.toEqual(expect.objectContaining({
+        code: 'organization_not_found',
       }));
 
       const missingKey = await authWorker.fetch(

@@ -58,6 +58,7 @@ const REQUIRED_LOOKUPS = [
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/billing", "orgs.billing.read"],
   ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/usage", "orgs.usage.read"],
   ["POST", "/api/orgs/org_0123456789abcdef0123456789abcdef/billing/checkout/credit-pack", "orgs.billing.checkout.credit-pack"],
+  ["GET", "/api/orgs/org_0123456789abcdef0123456789abcdef/organization-dashboard", "orgs.organization-dashboard.read"],
   ["GET", "/api/admin/orgs", "admin.orgs.list"],
   ["GET", "/api/admin/orgs/org_0123456789abcdef0123456789abcdef", "admin.orgs.read"],
   ["GET", "/api/admin/billing/plans", "admin.billing.plans.list"],

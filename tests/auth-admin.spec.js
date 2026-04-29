@@ -501,6 +501,7 @@ async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
+  const imageTestRequests = captures.imageTestRequests || [];
   const generatedImageSaveReference = captures.generateSaveReference || 'admin-generated-save-reference';
   const saveImageHandler = typeof captures.saveImageHandler === 'function'
     ? captures.saveImageHandler
@@ -557,6 +558,15 @@ async function mockAdminAiLab(page, captures = {}) {
         },
       ],
     },
+  );
+  const adminOrganizations = captures.adminOrganizations || [{
+    id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    name: 'Admin Image Billing Org',
+    slug: 'admin-image-billing-org',
+    status: 'active',
+  }];
+  const adminOrgBilling = captures.adminOrgBilling || Object.fromEntries(
+    adminOrganizations.map((org) => [org.id, { organizationId: org.id, creditBalance: 100 }]),
   );
 
   await page.route('**/api/admin/me', async (route) => {
@@ -657,26 +667,28 @@ async function mockAdminAiLab(page, captures = {}) {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          organizations: [{
-            id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-            name: 'Admin Image Billing Org',
-            slug: 'admin-image-billing-org',
-            status: 'active',
-          }],
+          organizations: adminOrganizations,
         }),
       });
       return;
     }
-    if (url.pathname === '/api/admin/orgs/org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/billing') {
+    const billingMatch = url.pathname.match(/^\/api\/admin\/orgs\/([^/]+)\/billing$/);
+    if (billingMatch) {
+      const billing = adminOrgBilling[billingMatch[1]];
+      if (!billing) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Organization not found.' }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          billing: {
-            organizationId: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-            creditBalance: 100,
-          },
+          billing,
         }),
       });
       return;
@@ -686,6 +698,7 @@ async function mockAdminAiLab(page, captures = {}) {
 
   await page.route('**/api/admin/ai/test-image', async (route) => {
     const body = route.request().postDataJSON();
+    imageTestRequests.push(body);
     const idempotencyKey = route.request().headers()['idempotency-key'];
     if (
       ['@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b', undefined].includes(body.model) &&
@@ -697,7 +710,9 @@ async function mockAdminAiLab(page, captures = {}) {
         body: JSON.stringify({
           ok: false,
           code: body.organization_id ? 'idempotency_key_required' : 'organization_required',
-          error: 'Charged admin image tests require organization context and idempotency.',
+          error: body.organization_id
+            ? 'Charged admin image tests require organization context and idempotency.'
+            : 'Select an organization before running this charged image test.',
         }),
       });
       return;
@@ -733,8 +748,14 @@ async function mockAdminAiLab(page, captures = {}) {
         },
         billing: body.organization_id ? {
           organization_id: body.organization_id,
+          organization_name: adminOrganizations.find((org) => org.id === body.organization_id)?.name || null,
           credits_charged: selectedModel.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 10 : 1,
+          balance_before: 100,
           balance_after: selectedModel.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 90 : 99,
+          ledger_entry_id: 'cl_admin_image_mock',
+          usage_event_id: 'ue_admin_image_mock',
+          usage_attempt_id: 'aua_admin_image_mock',
+          idempotent_replay: false,
         } : undefined,
         elapsedMs: 456,
         warnings: body.model && body.model !== '@cf/black-forest-labs/flux-1-schnell'
@@ -2269,6 +2290,7 @@ async function mockCreditsAccount(page, {
     },
   ],
   dashboard = null,
+  organizationDashboard = null,
   checkoutRequests = [],
   checkoutUrl = 'https://checkout.stripe.com/c/pay/cs_live_credits_5000',
 } = {}) {
@@ -2298,6 +2320,38 @@ async function mockCreditsAccount(page, {
     ],
     purchaseHistory: [],
     recentLedger: [],
+  };
+  const defaultOrganizationDashboard = organizationDashboard || {
+    ...defaultDashboard,
+    access: {
+      platformAdmin: role === 'admin',
+      accessScope: role === 'admin' ? 'platform_admin' : 'org_owner',
+      organizationRole: role === 'admin' ? 'none' : 'owner',
+      canUseAdminImageTests: role === 'admin',
+    },
+    recentAdminImageTestDebits: [{
+      id: 'cl_admin_image_mock',
+      amount: -1,
+      balanceAfter: 4999,
+      entryType: 'consume',
+      featureKey: 'ai.image.generate',
+      source: 'admin_ai_image_test',
+      createdByUserId: `${role}-credits-user`,
+      createdAt: '2026-04-29T12:00:00.000Z',
+    }],
+    members: [{
+      id: 'om_org_owner_mock',
+      userId: `${role}-credits-user`,
+      email,
+      role: role === 'admin' ? 'owner' : 'owner',
+      status: 'active',
+      createdAt: '2026-04-28T10:00:00.000Z',
+      updatedAt: '2026-04-28T10:00:00.000Z',
+    }],
+    warnings: role === 'admin' ? [{
+      code: 'platform_admin_not_org_owner',
+      message: 'You are platform admin, but you are not an owner of this organization. Credits belong to the organization.',
+    }] : [],
   };
 
   await page.route('**/api/me', async (route) => {
@@ -2334,6 +2388,9 @@ async function mockCreditsAccount(page, {
   });
   await page.route('**/api/orgs/*/billing/credits-dashboard*', async (route) => {
     await fulfillJson(route, { ok: true, dashboard: defaultDashboard });
+  });
+  await page.route('**/api/orgs/*/organization-dashboard*', async (route) => {
+    await fulfillJson(route, { ok: true, dashboard: defaultOrganizationDashboard });
   });
   await page.route('**/api/orgs/*/billing/checkout/live-credit-pack', async (route) => {
     checkoutRequests.push({
@@ -3152,6 +3209,128 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
+  });
+
+  test('renders Organization dashboard for eligible owner and auto-selects the only owned org', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      organizations: [{
+        id: 'org_bitbi_owner_1234567890abcdef1234',
+        name: 'BITBI',
+        slug: 'bitbi',
+        role: 'owner',
+        status: 'active',
+      }],
+      dashboard: {
+        organization: {
+          id: 'org_bitbi_owner_1234567890abcdef1234',
+          name: 'BITBI',
+          accessScope: 'org_owner',
+        },
+        balance: {
+          current: 5000,
+          available: 5000,
+          reserved: 0,
+          lifetimePurchasedLive: 5000,
+          lifetimeManualGrants: 0,
+          lifetimeConsumed: 1,
+        },
+        liveCheckout: { enabled: true, configured: true, mode: 'live' },
+        packs: [],
+        purchaseHistory: [],
+        recentLedger: [{
+          id: 'cl_seed',
+          amount: 5000,
+          balanceAfter: 5000,
+          entryType: 'grant',
+          source: 'stripe_live_checkout',
+          createdAt: '2026-04-29T10:00:00.000Z',
+        }],
+      },
+      organizationDashboard: {
+        organization: {
+          id: 'org_bitbi_owner_1234567890abcdef1234',
+          name: 'BITBI',
+          accessScope: 'org_owner',
+        },
+        access: {
+          platformAdmin: false,
+          accessScope: 'org_owner',
+          organizationRole: 'owner',
+          canUseAdminImageTests: false,
+        },
+        balance: {
+          current: 5000,
+          available: 5000,
+          reserved: 0,
+          lifetimePurchasedLive: 5000,
+          lifetimeManualGrants: 0,
+          lifetimeConsumed: 1,
+        },
+        liveCheckout: { enabled: true, configured: true, mode: 'live' },
+        packs: [],
+        purchaseHistory: [],
+        recentLedger: [{
+          id: 'cl_seed',
+          amount: 5000,
+          balanceAfter: 5000,
+          entryType: 'grant',
+          source: 'stripe_live_checkout',
+          createdAt: '2026-04-29T10:00:00.000Z',
+        }],
+        recentAdminImageTestDebits: [{
+          id: 'cl_admin_image',
+          amount: -1,
+          balanceAfter: 4999,
+          entryType: 'consume',
+          source: 'admin_ai_image_test',
+          createdAt: '2026-04-29T10:05:00.000Z',
+        }],
+        members: [{
+          id: 'om_bitbi_owner',
+          userId: 'user-credits-user',
+          email: 'credits-owner@bitbi.ai',
+          role: 'owner',
+          status: 'active',
+          createdAt: '2026-04-28T10:00:00.000Z',
+        }],
+        warnings: [],
+      },
+    });
+    const response = await page.goto('/account/organization.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#organizationDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#organizationName')).toHaveText('BITBI');
+    await expect(page.locator('#organizationAccess')).toContainText('Organization role: owner');
+    await expect(page.locator('#organizationSummaryGrid')).toContainText('5,000 credits');
+    await expect(page.locator('#organizationAdminDebitsBody')).toContainText('admin_ai_image_test');
+    await expect(page.locator('#organizationPickerWrap')).toBeHidden();
+  });
+
+  test('Organization page shows a selector for platform admins with multiple eligible organizations', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      role: 'admin',
+      email: 'admin@bitbi.ai',
+      organizations: [
+        {
+          id: 'org_admin_select_1234567890abcdef123',
+          name: 'BITBI',
+          slug: 'bitbi',
+          status: 'active',
+        },
+        {
+          id: 'org_admin_select_abcdef1234567890ab',
+          name: 'Second Org',
+          slug: 'second-org',
+          status: 'active',
+        },
+      ],
+    });
+    await page.goto('/account/organization.html');
+    await expect(page.locator('#organizationDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#organizationName')).toHaveText('Select an organization');
+    await expect(page.locator('#organizationPickerWrap')).toBeVisible();
+    await page.selectOption('#organizationPicker', 'org_admin_select_1234567890abcdef123');
+    await expect(page.locator('#organizationName')).toContainText('BITBI');
   });
 });
 
@@ -5086,7 +5265,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileStudioCard')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
     await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio', 'AI Lab']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Organization', 'Studio', 'AI Lab']);
 
     const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
       (node) => node.scrollWidth > node.clientWidth + 1,
@@ -5155,7 +5334,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#profileCreditsLink')).toBeVisible();
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+    await expect(page.locator('#profileOrganizationLink')).toBeVisible();
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Organization', 'Studio']);
 
     const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
       (node) => node.scrollWidth > node.clientWidth + 1,
@@ -5538,6 +5718,7 @@ test.describe('Admin AI Lab', () => {
 
     await expect(page.locator('#aiImageRun')).toHaveText('Run image test · 1 credit');
     await expect(page.locator('#aiImageOrganization')).toBeVisible();
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: Admin Image Billing Org');
     await expect(page.locator('#aiImageOrganizationState')).toContainText('charges 1 credit');
 
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-klein-9b');
@@ -5546,6 +5727,46 @@ test.describe('Admin AI Lab', () => {
 
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await expect(page.locator('#aiImageRun')).toHaveText('Run Image Test');
+  });
+
+  test('blocks charged admin image tests until a platform admin selects an organization', async ({ page }) => {
+    const imageTestRequests = [];
+    await page.unroute('**/api/admin/orgs**');
+    await page.unroute('**/api/admin/ai/test-image');
+    await mockAdminAiLab(page, {
+      imageTestRequests,
+      adminOrganizations: [
+        {
+          id: 'org_11111111111111111111111111111111',
+          name: 'First Billing Org',
+          slug: 'first-billing-org',
+          status: 'active',
+        },
+        {
+          id: 'org_22222222222222222222222222222222',
+          name: 'Second Billing Org',
+          slug: 'second-billing-org',
+          status: 'active',
+        },
+      ],
+    });
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await clickAiLabMode(page, 'image');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Select an organization before running this charged image test.');
+
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('Select an organization before running this charged image test.');
+    expect(imageTestRequests).toHaveLength(0);
+
+    await page.selectOption('#aiImageOrganization', 'org_11111111111111111111111111111111');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('Selected organization: First Billing Org');
+    await page.locator('#aiImageRun').click();
+    await expect(page.locator('#aiImageState')).toContainText('Image response ready.');
+    expect(imageTestRequests).toHaveLength(1);
+    expect(imageTestRequests[0].organization_id).toBe('org_11111111111111111111111111111111');
+    await expect(page.locator('#aiImageMeta')).toContainText('Charged Org');
+    await expect(page.locator('#aiImageMeta')).toContainText('First Billing Org');
   });
 
   test('Music AI card validates, posts the expected payload, and renders success plus error states beside Live Agent', async ({
