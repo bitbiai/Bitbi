@@ -13,6 +13,8 @@ import {
     apiAdminAiTestMusic,
     apiAdminAiTestText,
     apiAdminAiTestVideo,
+    apiAdminOrganizationBilling,
+    apiAdminOrganizations,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     ADMIN_AI_DEFAULT_COMPARE_MODELS,
@@ -48,6 +50,16 @@ const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent', 'music', 'video'];
 const HISTORY_LIMIT = 6;
 const ADMIN_AI_UI_VERSION = '__ASSET_VERSION__';
+const ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID = '@cf/black-forest-labs/flux-1-schnell';
+const ADMIN_IMAGE_TEST_FLUX_2_KLEIN_MODEL_IDS = [
+    '@cf/black-forest-labs/flux-2-klein-9b',
+    'black-forest-labs/flux-2-klein-9b',
+];
+const ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS = {
+    [ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID]: 1,
+    '@cf/black-forest-labs/flux-2-klein-9b': 10,
+    'black-forest-labs/flux-2-klein-9b': 10,
+};
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: 20_000,
     image: 180_000,
@@ -124,6 +136,7 @@ const DEFAULT_FORMS = {
         seed: '',
         guidance: '',
         referenceImages: [],
+        organizationId: '',
     },
     embeddings: {
         preset: ADMIN_AI_DEFAULT_PRESETS.embeddings,
@@ -659,6 +672,13 @@ function getModelLabel(catalog, task, modelId) {
     return model ? `${model.label} (${model.id})` : modelId;
 }
 
+function generateAdminImageIdempotencyKey() {
+    const random = globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `admin-image-${random}`;
+}
+
 export function createAdminAiLab({ showToast } = {}) {
     const root = document.getElementById('sectionAiLab');
     if (!root) {
@@ -733,6 +753,13 @@ export function createAdminAiLab({ showToast } = {}) {
             stateTone: 'neutral',
             stateMessage: 'Ready to save.',
             note: '',
+        },
+        imageBilling: {
+            status: 'idle',
+            organizations: [],
+            selectedOrganizationId: persisted?.forms?.image?.organizationId || '',
+            balance: null,
+            error: '',
         },
     };
 
@@ -813,6 +840,8 @@ export function createAdminAiLab({ showToast } = {}) {
             guidanceField: document.getElementById('aiImageGuidanceField'),
             guidance: document.getElementById('aiImageGuidance'),
             guidanceHint: document.getElementById('aiImageGuidanceHint'),
+            organization: document.getElementById('aiImageOrganization'),
+            organizationState: document.getElementById('aiImageOrganizationState'),
             refSection: document.getElementById('aiImageRefSection'),
             refGrid: document.getElementById('aiImageRefGrid'),
             refCount: document.getElementById('aiImageRefCount'),
@@ -1208,10 +1237,13 @@ export function createAdminAiLab({ showToast } = {}) {
         const buttonRefs = refs[task];
         if (!buttonRefs?.run || !buttonRefs?.cancel) return;
         buttonRefs.run.disabled = !!isBusy;
-        buttonRefs.run.textContent = isBusy ? busyText : idleText;
+        buttonRefs.run.textContent = isBusy ? busyText : (task === 'image' ? getImageRunLabel() : idleText);
         buttonRefs.cancel.disabled = !isBusy;
         if (task === 'music') {
             syncMusicFieldState();
+        }
+        if (task === 'image') {
+            syncImageBillingUi();
         }
     }
 
@@ -1749,6 +1781,160 @@ export function createAdminAiLab({ showToast } = {}) {
         return model.capabilities;
     }
 
+    function getSelectedImageModelIdForBilling() {
+        if (state.forms.image.model) return state.forms.image.model;
+        const presetName = state.forms.image.preset || ADMIN_AI_DEFAULT_PRESETS.image;
+        const preset = getCatalogPresets(state.catalog.data, 'image').find((entry) => entry.name === presetName);
+        return preset?.model || ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID;
+    }
+
+    function getSelectedImageCreditCost() {
+        const modelId = getSelectedImageModelIdForBilling();
+        return ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS[modelId] || null;
+    }
+
+    function getImageRunLabel() {
+        const credits = getSelectedImageCreditCost();
+        if (!credits) return TASK_UI.image.idleText;
+        return `Run image test · ${credits} credit${credits === 1 ? '' : 's'}`;
+    }
+
+    function populateImageOrganizationSelect() {
+        if (!refs.image.organization) return;
+        const current = state.forms.image.organizationId || state.imageBilling.selectedOrganizationId || '';
+        refs.image.organization.replaceChildren();
+        if (state.imageBilling.status === 'loading') {
+            refs.image.organization.append(new Option('Loading organizations...', ''));
+            refs.image.organization.value = '';
+            return;
+        }
+        refs.image.organization.append(new Option('Select organization', ''));
+        state.imageBilling.organizations.forEach((org) => {
+            refs.image.organization.append(new Option(org.name || org.id, org.id));
+        });
+        if (current && state.imageBilling.organizations.some((org) => org.id === current)) {
+            refs.image.organization.value = current;
+        } else {
+            refs.image.organization.value = '';
+        }
+    }
+
+    function syncImageBillingUi() {
+        const credits = getSelectedImageCreditCost();
+        const isBusy = state.results.image?.status === 'loading';
+        if (refs.image.run && !isBusy) refs.image.run.textContent = getImageRunLabel();
+        if (!refs.image.organization || !refs.image.organizationState) return;
+
+        refs.image.organization.disabled = isBusy || state.imageBilling.status === 'loading';
+        const selectedOrgId = state.forms.image.organizationId || '';
+        const balance = state.imageBilling.balance;
+
+        if (state.imageBilling.status === 'loading') {
+            refs.image.organizationState.textContent = 'Loading organizations for charged BFL image tests...';
+            return;
+        }
+        if (state.imageBilling.status === 'error') {
+            refs.image.organizationState.textContent = state.imageBilling.error || 'Organization billing is unavailable.';
+            return;
+        }
+        if (!credits) {
+            refs.image.organizationState.textContent = 'No admin image-test credit charge for this model in Phase 2-M.';
+            return;
+        }
+        if (!selectedOrgId) {
+            refs.image.organizationState.textContent = `Select an organization to reserve and charge ${credits} credit${credits === 1 ? '' : 's'} on success.`;
+            return;
+        }
+        if (typeof balance === 'number') {
+            refs.image.organizationState.textContent = balance >= credits
+                ? `Selected balance: ${balance} credits. This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`
+                : `Insufficient credits: selected organization has ${balance}; this test needs ${credits}.`;
+            return;
+        }
+        refs.image.organizationState.textContent = `This test charges ${credits} credit${credits === 1 ? '' : 's'} after provider success.`;
+    }
+
+    function normalizeAdminOrgRows(data) {
+        const rows = Array.isArray(data?.organizations)
+            ? data.organizations
+            : Array.isArray(data?.orgs)
+                ? data.orgs
+                : Array.isArray(data?.items)
+                    ? data.items
+                    : [];
+        return rows
+            .map((org) => ({
+                id: String(org?.id || org?.organizationId || '').trim(),
+                name: String(org?.name || org?.slug || org?.id || '').trim(),
+            }))
+            .filter((org) => /^org_[a-f0-9]{32}$/.test(org.id));
+    }
+
+    function extractCreditBalance(data) {
+        const candidates = [
+            data?.billing?.creditBalance,
+            data?.creditBalance,
+            data?.state?.creditBalance,
+            data?.organization?.creditBalance,
+        ];
+        for (const value of candidates) {
+            const number = Number(value);
+            if (Number.isFinite(number)) return number;
+        }
+        return null;
+    }
+
+    async function loadSelectedImageOrganizationBilling() {
+        const orgId = state.forms.image.organizationId || '';
+        state.imageBilling.balance = null;
+        if (!orgId) {
+            syncImageBillingUi();
+            return;
+        }
+        const res = await apiAdminOrganizationBilling(orgId);
+        if (!res.ok) {
+            state.imageBilling.balance = null;
+            state.imageBilling.error = res.error || 'Organization billing is unavailable.';
+            syncImageBillingUi();
+            return;
+        }
+        state.imageBilling.error = '';
+        state.imageBilling.balance = extractCreditBalance(res.data);
+        syncImageBillingUi();
+    }
+
+    async function loadImageBillingOrganizations() {
+        if (state.imageBilling.status === 'loading') return;
+        state.imageBilling.status = 'loading';
+        state.imageBilling.error = '';
+        populateImageOrganizationSelect();
+        syncImageBillingUi();
+        const res = await apiAdminOrganizations({ limit: 100 });
+        if (!res.ok) {
+            state.imageBilling.status = 'error';
+            state.imageBilling.error = res.error || 'Organization list is unavailable.';
+            state.imageBilling.organizations = [];
+            populateImageOrganizationSelect();
+            syncImageBillingUi();
+            return;
+        }
+        state.imageBilling.organizations = normalizeAdminOrgRows(res.data);
+        state.imageBilling.status = state.imageBilling.organizations.length ? 'ready' : 'error';
+        if (!state.imageBilling.organizations.length) {
+            state.imageBilling.error = 'No active organizations are available for charged admin image tests.';
+        }
+        const current = state.forms.image.organizationId || state.imageBilling.selectedOrganizationId;
+        if (current && state.imageBilling.organizations.some((org) => org.id === current)) {
+            state.forms.image.organizationId = current;
+        } else {
+            state.forms.image.organizationId = state.imageBilling.organizations[0]?.id || '';
+        }
+        state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
+        populateImageOrganizationSelect();
+        persistState();
+        await loadSelectedImageOrganizationBilling();
+    }
+
     function setFieldDisabled(fieldEl, inputEl, isDisabled, hintEl, hintText) {
         if (fieldEl) {
             fieldEl.classList.toggle('admin-ai__field--disabled', isDisabled);
@@ -1817,6 +2003,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const maxRef = caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages;
         refs.image.refCount.textContent = `${state.forms.image.referenceImages.length} / ${maxRef}`;
         updateRefSlots();
+        syncImageBillingUi();
     }
 
     function updateImagePromptMode() {
@@ -2135,6 +2322,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.steps.value = state.forms.image.steps;
         refs.image.seed.value = state.forms.image.seed;
         refs.image.guidance.value = state.forms.image.guidance;
+        if (refs.image.organization) {
+            populateImageOrganizationSelect();
+            refs.image.organization.value = state.forms.image.organizationId || '';
+        }
 
         refs.embeddings.input.value = state.forms.embeddings.input;
 
@@ -3580,6 +3771,7 @@ export function createAdminAiLab({ showToast } = {}) {
         renderVideoResult();
         renderCompareResult();
         renderSaveModal();
+        syncImageBillingUi();
     }
 
     function setCatalogButtonsDisabled(isDisabled) {
@@ -3598,6 +3790,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         refs.compare.run.disabled = noCatalog || state.results.compare?.status === 'loading';
         refs.compare.cancel.disabled = state.results.compare?.status !== 'loading';
+        syncImageBillingUi();
         syncMusicFieldState();
         syncVideoFieldState();
     }
@@ -3803,8 +3996,38 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
+        const requiredCredits = getSelectedImageCreditCost();
+        const requestOptions = { signal: controller.signal };
+        if (requiredCredits) {
+            const organizationId = state.forms.image.organizationId || '';
+            if (!organizationId) {
+                setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
+                clearTaskTimer('image', controller);
+                state.controllers.image = null;
+                const message = 'Select an organization to charge for this BFL image test.';
+                setTaskErrorState('image', previous, message, 'organization_required', previous.raw);
+                setStatus(message, 'error');
+                renderImageResult();
+                return;
+            }
+            if (typeof state.imageBilling.balance === 'number' && state.imageBilling.balance < requiredCredits) {
+                setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
+                clearTaskTimer('image', controller);
+                state.controllers.image = null;
+                const message = `Selected organization has ${state.imageBilling.balance} credits; this image test needs ${requiredCredits}.`;
+                setTaskErrorState('image', previous, message, 'insufficient_credits', previous.raw);
+                setStatus(message, 'error');
+                renderImageResult();
+                return;
+            }
+            payload.organization_id = organizationId;
+            requestOptions.headers = {
+                'Idempotency-Key': generateAdminImageIdempotencyKey(),
+            };
+        }
+
         const res = await apiAdminAiTestImage(payload, {
-            signal: controller.signal,
+            ...requestOptions,
         });
         if (seq !== state.requestSeq.image) return;
         if (state.controllers.image === controller) {
@@ -3823,6 +4046,10 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         setTaskSuccessState('image', res.data, getApiCode(res));
+        if (typeof res.data?.billing?.balance_after === 'number') {
+            state.imageBilling.balance = res.data.billing.balance_after;
+            syncImageBillingUi();
+        }
         setStatus('Image test completed.', 'success');
         renderImageResult();
     }
@@ -4492,6 +4719,24 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.model.addEventListener('change', () => {
             updateImageCapabilityControls();
         });
+        refs.image.preset.addEventListener('change', () => {
+            syncImageBillingUi();
+        });
+        refs.image.width.addEventListener('input', () => {
+            syncImageBillingUi();
+        });
+        refs.image.height.addEventListener('input', () => {
+            syncImageBillingUi();
+        });
+        refs.image.steps.addEventListener('input', () => {
+            syncImageBillingUi();
+        });
+        refs.image.organization?.addEventListener('change', async () => {
+            state.forms.image.organizationId = refs.image.organization.value;
+            state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
+            persistState();
+            await loadSelectedImageOrganizationBilling();
+        });
 
         refs.image.promptMode.addEventListener('change', () => {
             state.forms.image.promptMode = refs.image.promptMode.value;
@@ -4730,6 +4975,7 @@ export function createAdminAiLab({ showToast } = {}) {
             liveAgentUpdateSystemCount();
             syncLiveAgentSaveButton();
             renderAll();
+            loadImageBillingOrganizations();
         },
 
         show() {
@@ -4739,6 +4985,9 @@ export function createAdminAiLab({ showToast } = {}) {
                 refreshCatalog();
             } else {
                 renderAll();
+            }
+            if (state.imageBilling.status === 'idle') {
+                loadImageBillingOrganizations();
             }
         },
     };

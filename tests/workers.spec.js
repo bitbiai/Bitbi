@@ -108,6 +108,13 @@ async function loadStripeBillingModule() {
   return import(modulePath);
 }
 
+async function loadAdminImageCreditPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/admin-ai-image-credit-pricing.js')
+  ).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -414,6 +421,58 @@ async function createAdminAiContractHarness(options = {}) {
     user,
     gatewayGetLogCalls,
     aiLabRequests,
+  };
+}
+
+const ADMIN_AI_CHARGE_ORG_ID = 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+function seedAdminImageChargeOrg(env, {
+  orgId = ADMIN_AI_CHARGE_ORG_ID,
+  creditBalance = 100,
+  createdByUserId = 'admin-ai-user',
+} = {}) {
+  const createdAt = '2026-04-29T09:00:00.000Z';
+  if (!env.DB.state.organizations.some((row) => row.id === orgId)) {
+    env.DB.state.organizations.push({
+      id: orgId,
+      name: 'Admin Image Billing Org',
+      slug: 'admin-image-billing-org',
+      status: 'active',
+      created_by_user_id: createdByUserId,
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
+  }
+  if (creditBalance > 0 && !env.DB.state.creditLedger.some((row) => row.id === `cl_admin_image_seed_${orgId}`)) {
+    env.DB.state.creditLedger.push({
+      id: `cl_admin_image_seed_${orgId}`,
+      organization_id: orgId,
+      amount: creditBalance,
+      balance_after: creditBalance,
+      entry_type: 'grant',
+      feature_key: null,
+      source: 'test_admin_image_seed',
+      idempotency_key: `admin-image-seed-${orgId}`,
+      request_hash: 'seed',
+      created_by_user_id: createdByUserId,
+      created_at: createdAt,
+      metadata_json: '{}',
+    });
+  }
+  return orgId;
+}
+
+function adminImageChargePayload(payload, orgId = ADMIN_AI_CHARGE_ORG_ID) {
+  return {
+    ...payload,
+    organization_id: orgId,
+  };
+}
+
+function adminImageChargeHeaders(authHeaders, key = 'admin-image-charge-key') {
+  return {
+    ...authHeaders,
+    'Idempotency-Key': key,
   };
 }
 
@@ -3142,7 +3201,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           payment_status: sessionOverrides.payment_status || 'paid',
           payment_intent: sessionOverrides.payment_intent || 'pi_live_phase2l_01',
           customer: sessionOverrides.customer || 'cus_live_phase2l_01',
-          amount_total: sessionOverrides.amount_total ?? 100,
+          amount_total: sessionOverrides.amount_total ?? 999,
           currency: sessionOverrides.currency || 'eur',
           metadata: {
             organization_id: ORG_ID,
@@ -3260,12 +3319,12 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(ownerBody.credit_pack).toEqual(expect.objectContaining({
       id: 'live_credits_5000',
       credits: 5000,
-      amountCents: 100,
+      amountCents: 999,
       currency: 'eur',
     }));
     expect(calls).toHaveLength(1);
     expect(calls[0].init.headers.Authorization).toBe(`Bearer ${STRIPE_LIVE_SECRET}`);
-    expect(calls[0].form['line_items[0][price_data][unit_amount]']).toBe('100');
+    expect(calls[0].form['line_items[0][price_data][unit_amount]']).toBe('999');
     expect(calls[0].form['payment_method_types[0]']).toBe('card');
     expect(calls[0].form['metadata[authorization_scope]']).toBe('org_owner');
     expect(JSON.stringify(ownerBody)).not.toContain(STRIPE_LIVE_SECRET);
@@ -3286,7 +3345,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(1);
 
     const conflict = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_10000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.owner}`,
         'Idempotency-Key': 'phase2l-owner-live-5000',
@@ -3298,10 +3357,10 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(1);
 
     const adminCheckout = await worker.fetch(
-      authJsonRequest(`/api/orgs/${OTHER_ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_10000' }, {
+      authJsonRequest(`/api/orgs/${OTHER_ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.platformAdmin}`,
-        'Idempotency-Key': 'phase2l-platform-live-10000',
+        'Idempotency-Key': 'phase2l-platform-live-12000',
       }),
       env,
       createExecutionContext().execCtx
@@ -3310,12 +3369,12 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(adminCheckout.status).toBe(201);
     expect(adminBody.authorization_scope).toBe('platform_admin');
     expect(adminBody.credit_pack).toEqual(expect.objectContaining({
-      id: 'live_credits_10000',
-      credits: 10000,
-      amountCents: 150,
+      id: 'live_credits_12000',
+      credits: 12000,
+      amountCents: 1999,
     }));
     expect(calls).toHaveLength(2);
-    expect(calls[1].form['line_items[0][price_data][unit_amount]']).toBe('150');
+    expect(calls[1].form['line_items[0][price_data][unit_amount]']).toBe('1999');
   });
 
   test('live checkout fails closed for disabled config, missing live keys, test keys, and unsupported packs', async () => {
@@ -3371,6 +3430,18 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       createExecutionContext().execCtx
     );
     expect(unknownPack.status).toBe(400);
+    expect(unknownCalls).toHaveLength(0);
+
+    const retiredPack = await worker.fetch(
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_10000' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'phase2m-retired-live-pack',
+      }),
+      unknownEnv,
+      createExecutionContext().execCtx
+    );
+    expect(retiredPack.status).toBe(400);
     expect(unknownCalls).toHaveLength(0);
   });
 
@@ -3458,7 +3529,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           data: {
             object: {
               ...payload.data.object,
-              amount_total: 150,
+              amount_total: 1999,
             },
           },
         },
@@ -3486,7 +3557,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           user_id: owner.id,
           credit_pack_id: 'live_credits_5000',
           credits: 5000,
-          amount_cents: 100,
+          amount_cents: 999,
           currency: 'eur',
           status: 'created',
           idempotency_key_hash: 'phase2l_stale_owner_key',
@@ -3593,7 +3664,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           user_id: owner.id,
           credit_pack_id: 'live_credits_5000',
           credits: 5000,
-          amount_cents: 100,
+          amount_cents: 999,
           currency: 'eur',
           status: 'completed',
           idempotency_key_hash: 'hash_redacted',
@@ -3635,7 +3706,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       available: 5000,
       lifetimePurchasedLive: 5000,
     }));
-    expect(ownerBody.dashboard.packs.map((pack) => pack.id)).toEqual(['live_credits_5000', 'live_credits_10000']);
+    expect(ownerBody.dashboard.packs.map((pack) => pack.id)).toEqual(['live_credits_5000', 'live_credits_12000']);
     expect(ownerBody.dashboard.liveCheckout.missingConfigNames).toBeUndefined();
     expect(JSON.stringify(ownerBody)).not.toContain('fingerprint_redacted');
     expect(JSON.stringify(ownerBody)).not.toContain('hash_redacted');
@@ -3661,6 +3732,64 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       createExecutionContext().execCtx
     );
     expect(denied.status).toBe(403);
+  });
+});
+
+test.describe('Phase 2-M admin BFL image test pricing helper', () => {
+  test('calculates bounded admin image-test credit costs for chargeable BFL models', async () => {
+    const {
+      calculateAdminImageTestCreditCost,
+    } = await loadAdminImageCreditPricingModule();
+
+    expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
+      width: 1024,
+      height: 1024,
+      steps: 4,
+    }).credits).toBe(1);
+    expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
+      width: 1024,
+      height: 1024,
+      steps: 8,
+    }).credits).toBe(1);
+    expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
+      width: 1024,
+      height: 1024,
+    }).credits).toBe(10);
+    expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
+      width: 2048,
+      height: 1024,
+    }).credits).toBe(12);
+    expect(calculateAdminImageTestCreditCost('black-forest-labs/flux-2-klein-9b', {
+      width: 2048,
+      height: 2048,
+    }).credits).toBe(14);
+    expect(calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-dev', {
+      width: 1024,
+      height: 1024,
+    })).toBeNull();
+  });
+
+  test('ignores client-supplied costs and clamps unsafe params so they cannot lower charges', async () => {
+    const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
+    const baseline = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
+      width: 1024,
+      height: 1024,
+    });
+    const unsafe = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
+      width: -100,
+      height: Number.NaN,
+      credits: 0,
+      creditCost: 0,
+    });
+    const schnell = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
+      width: 1024,
+      height: 1024,
+      steps: -100,
+      credits: 0,
+    });
+
+    expect(unsafe.credits).toBe(baseline.credits);
+    expect(schnell.credits).toBe(1);
   });
 });
 
@@ -8845,16 +8974,17 @@ test.describe('Worker routes', () => {
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
       const { decodeAiGeneratedSaveReference } = await loadAiGeneratedSaveReferenceModule();
+      seedAdminImageChargeOrg(env);
 
       const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
           preset: 'image_fast',
           prompt: 'A cinematic skyline.',
           width: 1024,
           height: 1024,
           steps: 4,
           seed: 12345,
-        }, authHeaders),
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-contract-key')),
         env,
         createExecutionContext().execCtx
       );
@@ -8879,7 +9009,20 @@ test.describe('Worker routes', () => {
           promptMode: 'standard',
           referenceImageCount: 0,
         }),
+        billing: expect.objectContaining({
+          organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          operation: 'admin_ai_image_test',
+          credits_charged: 1,
+          balance_after: 99,
+        }),
         elapsedMs: expect.any(Number),
+      }));
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+      expect(env.DB.state.creditLedger.at(-1)).toEqual(expect.objectContaining({
+        organization_id: ADMIN_AI_CHARGE_ORG_ID,
+        amount: -1,
+        balance_after: 99,
+        source: 'admin_ai_image_test',
       }));
       expect(body.result).toHaveProperty('requestedSize');
       expect(body.result).toHaveProperty('appliedSize');
@@ -8891,16 +9034,17 @@ test.describe('Worker routes', () => {
 
     test('admin AI image save references can be consumed by the existing save endpoint without re-uploading imageData', async () => {
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      seedAdminImageChargeOrg(env);
 
       const generateRes = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
           preset: 'image_fast',
           prompt: 'Admin save by reference',
           width: 1024,
           height: 1024,
           steps: 4,
           seed: 12345,
-        }, authHeaders),
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-save-ref-key')),
         env,
         createExecutionContext().execCtx
       );
@@ -8941,6 +9085,7 @@ test.describe('Worker routes', () => {
         user: createAdminUser('admin-image-owner'),
       });
       const attackerEnv = ownerHarness.env;
+      seedAdminImageChargeOrg(attackerEnv, { createdByUserId: 'admin-image-owner' });
       attackerEnv.DB.state.users.push(createAdminUser('admin-image-attacker'));
       const attackerToken = await seedSession(attackerEnv, 'admin-image-attacker');
       const attackerHeaders = {
@@ -8950,14 +9095,14 @@ test.describe('Worker routes', () => {
       };
 
       const generateRes = await ownerHarness.authWorker.fetch(
-        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
           preset: 'image_fast',
           prompt: 'Cross-admin misuse check',
           width: 1024,
           height: 1024,
           steps: 4,
           seed: 12345,
-        }, ownerHarness.authHeaders),
+        }), adminImageChargeHeaders(ownerHarness.authHeaders, 'admin-image-cross-account-key')),
         attackerEnv,
         createExecutionContext().execCtx
       );
@@ -8996,9 +9141,10 @@ test.describe('Worker routes', () => {
           return { image: ONE_PIXEL_PNG_DATA_URI };
         },
       });
+      seedAdminImageChargeOrg(env);
 
       const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
           preset: 'image_fast',
           model: '@cf/black-forest-labs/flux-2-klein-9b',
           prompt: 'Admin Klein image experiment.',
@@ -9006,7 +9152,7 @@ test.describe('Worker routes', () => {
           height: 1024,
           steps: 6,
           seed: 12345,
-        }, authHeaders),
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-klein-key')),
         env,
         createExecutionContext().execCtx
       );
@@ -9029,6 +9175,17 @@ test.describe('Worker routes', () => {
           requestedSize: { width: 1024, height: 1024 },
           appliedSize: { width: 1024, height: 1024 },
         }),
+        billing: expect.objectContaining({
+          organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          credits_charged: 10,
+          balance_after: 90,
+        }),
+      }));
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+      expect(env.DB.state.creditLedger.at(-1)).toEqual(expect.objectContaining({
+        source: 'admin_ai_image_test',
+        amount: -10,
+        balance_after: 90,
       }));
       expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-klein-9b');
       expect(capturedPayload).toEqual(expect.objectContaining({
@@ -9047,6 +9204,208 @@ test.describe('Worker routes', () => {
         width: '1024',
         height: '1024',
       });
+    });
+
+    test('charged BFL admin image tests require organization context and idempotency before provider execution', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env);
+
+      const missingOrg = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'No org should fail.',
+          steps: 4,
+        }, adminImageChargeHeaders(authHeaders, 'admin-image-missing-org-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingOrg.status).toBe(400);
+      await expect(missingOrg.json()).resolves.toEqual(expect.objectContaining({
+        code: 'organization_required',
+      }));
+
+      const missingKey = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'No key should fail.',
+          steps: 4,
+        }), authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingKey.status).toBe(428);
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    });
+
+    test('charged BFL admin image tests deny non-platform admins even with organization ownership', async () => {
+      let providerCalls = 0;
+      const ownerUser = createContractUser({ id: 'admin-image-org-owner-user', role: 'user' });
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        user: ownerUser,
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env, { createdByUserId: ownerUser.id });
+      env.DB.state.organizationMemberships.push({
+        id: 'om_admin_image_owner_user',
+        organization_id: ADMIN_AI_CHARGE_ORG_ID,
+        user_id: ownerUser.id,
+        role: 'owner',
+        status: 'active',
+        created_by_user_id: ownerUser.id,
+        created_at: '2026-04-29T09:00:00.000Z',
+        updated_at: '2026-04-29T09:00:00.000Z',
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'Org owner but not platform admin.',
+          steps: 4,
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-non-admin-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    });
+
+    test('charged BFL admin image tests fail before provider execution when credits are insufficient', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 1 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-2-klein-9b',
+          prompt: 'Not enough credits.',
+          width: 1024,
+          height: 1024,
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-insufficient-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(402);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        code: 'insufficient_credits',
+      }));
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    });
+
+    test('charged BFL admin image tests are idempotent and reject conflicting bodies', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env);
+      const headers = adminImageChargeHeaders(authHeaders, 'admin-image-idempotent-key');
+      const payload = adminImageChargePayload({
+        model: '@cf/black-forest-labs/flux-1-schnell',
+        prompt: 'Idempotent charge.',
+        width: 1024,
+        height: 1024,
+        steps: 4,
+      });
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(200);
+
+      const repeat = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(repeat.status).toBe(200);
+      const repeatBody = await repeat.json();
+      expect(repeatBody.billing).toEqual(expect.objectContaining({
+        credits_charged: 0,
+        original_credits_charged: 1,
+        idempotent_replay: true,
+        replay_available: false,
+      }));
+
+      const conflict = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          ...payload,
+          prompt: 'Different prompt same key.',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toEqual(expect.objectContaining({
+        code: 'idempotency_conflict',
+      }));
+      expect(providerCalls).toBe(1);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+      expect(env.DB.state.usageEvents).toHaveLength(1);
+      expect(env.DB.state.usageEvents[0]).toEqual(expect.objectContaining({
+        feature_key: 'ai.image.generate',
+        credits_delta: -1,
+      }));
+    });
+
+    test('charged BFL admin image tests do not return paid results when billing finalization fails', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      seedAdminImageChargeOrg(env);
+      env.DB.failUsageEventInsert = true;
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'Billing failure should hide result.',
+          width: 1024,
+          height: 1024,
+          steps: 4,
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-finalization-fail-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+      const body = await res.json();
+
+      expect(providerCalls).toBe(1);
+      expect(res.status).toBe(503);
+      expect(body).toEqual(expect.objectContaining({
+        ok: false,
+        code: 'billing_finalization_failed',
+      }));
+      expect(JSON.stringify(body)).not.toContain('imageBase64');
+      expect(env.DB.state.usageEvents).toHaveLength(0);
+      expect(env.DB.state.aiUsageAttempts[0]).toEqual(expect.objectContaining({
+        status: 'billing_failed',
+        billing_status: 'failed',
+      }));
     });
 
     test('POST /api/admin/ai/test-image allows FLUX.2 Dev and uses the multipart AI path', async () => {
@@ -11181,13 +11540,14 @@ test.describe('Worker routes', () => {
           throw new Error('sensitive provider detail');
         },
       });
+      seedAdminImageChargeOrg(env);
 
       const res = await authWorker.fetch(
-        authJsonRequest('/api/admin/ai/test-image', 'POST', {
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
           model: '@cf/black-forest-labs/flux-1-schnell',
           prompt: 'Trigger an upstream failure.',
           steps: 4,
-        }, authHeaders),
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-upstream-error-key')),
         env,
         createExecutionContext().execCtx
       );
@@ -11199,6 +11559,7 @@ test.describe('Worker routes', () => {
         code: 'upstream_error',
         error: 'Image generation failed',
       }));
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/test-image logs privacy-safe upstream failure diagnostics with correlation id', async () => {
@@ -11210,15 +11571,17 @@ test.describe('Worker routes', () => {
             throw new Error(`provider exploded while handling: ${prompt}`);
           },
         });
+        seedAdminImageChargeOrg(env);
 
         const res = await authWorker.fetch(
-          authJsonRequest('/api/admin/ai/test-image', 'POST', {
+          authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
             model: '@cf/black-forest-labs/flux-1-schnell',
             prompt,
             steps: 4,
-          }, {
+          }), {
             ...authHeaders,
             'x-bitbi-correlation-id': 'image-upstream-corr-1234',
+            'Idempotency-Key': 'admin-image-upstream-logs-key',
           }),
           env,
           createExecutionContext().execCtx
@@ -11248,6 +11611,7 @@ test.describe('Worker routes', () => {
         expect(serialized).not.toContain(prompt);
         expect(serialized).not.toContain('provider exploded while handling');
         expect(serialized).not.toContain('data:image');
+        expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
       } finally {
         diagnostics.restore();
       }

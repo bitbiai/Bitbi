@@ -14,6 +14,7 @@ import {
   validateAdminAiTextBody as validateTextPayload,
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
+  resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
   getErrorFields,
@@ -34,7 +35,9 @@ import {
 } from "../lib/admin-ai-proxy.js";
 import {
   BillingError,
+  assertOrganizationFeatureEnabled,
   billingErrorResponse,
+  consumeOrganizationCredits,
   normalizeBillingIdempotencyKey,
 } from "../lib/billing.js";
 import {
@@ -50,12 +53,24 @@ import {
 } from "../lib/ai-video-jobs.js";
 import {
   adminAiUsageAttemptCursorExpiry,
+  beginAiUsageAttempt,
   buildAdminAiUsageAttemptFilterHash,
   cleanupExpiredAiUsageAttempts,
   getAdminAiUsageAttempt,
   listAdminAiUsageAttempts,
+  markAiUsageAttemptBillingFailed,
+  markAiUsageAttemptFinalizing,
+  markAiUsageAttemptProviderFailed,
+  markAiUsageAttemptProviderRunning,
+  markAiUsageAttemptSucceeded,
   normalizeAdminAiUsageAttemptFilters,
 } from "../lib/ai-usage-attempts.js";
+import {
+  calculateAdminImageTestCreditCost,
+  isChargeableAdminImageTestModel,
+} from "../lib/admin-ai-image-credit-pricing.js";
+import { normalizeOrgId } from "../lib/orgs.js";
+import { sha256Hex } from "../lib/tokens.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
 import { withAdminAiCode } from "../lib/admin-ai-response.js";
@@ -124,6 +139,123 @@ function billingAdminErrorResponse(error, correlationId) {
     return withCorrelationId(json(billingErrorResponse(error), { status: error.status }), correlationId);
   }
   throw error;
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableJson(value[key])}`
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function adminImageOrganizationId(body) {
+  try {
+    return normalizeOrgId(body?.organization_id ?? body?.organizationId);
+  } catch {
+    throw new BillingError("A valid organization_id is required for charged admin image tests.", {
+      status: 400,
+      code: "organization_required",
+    });
+  }
+}
+
+function adminImageAttemptResponse({ usageKind, organizationId, pricing, attempt }, correlationId) {
+  if (usageKind === "completed" || usageKind === "completed_expired") {
+    return withCorrelationId(json({
+      ok: true,
+      task: "image",
+      code: usageKind === "completed_expired"
+        ? "ai_usage_result_expired"
+        : "ai_usage_result_unavailable",
+      result: null,
+      billing: {
+        organization_id: organizationId,
+        feature: "ai.image.generate",
+        credits_charged: 0,
+        original_credits_charged: pricing.credits,
+        balance_after: attempt?.balanceAfter ?? null,
+        idempotent_replay: true,
+        replay_available: false,
+      },
+    }), correlationId);
+  }
+
+  if (usageKind === "in_progress") {
+    return withCorrelationId(json({
+      ok: false,
+      error: "This idempotent admin image test is already in progress.",
+      code: "ai_usage_attempt_in_progress",
+      billing: {
+        organization_id: organizationId,
+        feature: "ai.image.generate",
+        credits_reserved: pricing.credits,
+      },
+    }, { status: 409 }), correlationId);
+  }
+
+  return withCorrelationId(json({
+    ok: false,
+    error: "Admin image test billing could not be finalized. Use a new idempotency key to retry.",
+    code: "ai_usage_billing_failed",
+    billing: {
+      organization_id: organizationId,
+      feature: "ai.image.generate",
+    },
+  }, { status: 503 }), correlationId);
+}
+
+function adminImageBillingErrorResponse(error, correlationId) {
+  if (error instanceof BillingError) {
+    return withCorrelationId(json(billingErrorResponse(error), { status: error.status }), correlationId);
+  }
+  throw error;
+}
+
+async function appendAdminImageBilling(response, billing, correlationId) {
+  if (!(response instanceof Response)) return response;
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) return response;
+  let body = null;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+  if (!body?.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+  return withCorrelationId(new Response(JSON.stringify({
+    ...body,
+    billing,
+  }), {
+    status: response.status,
+    headers,
+  }), correlationId);
+}
+
+async function adminImageRequestFingerprint({ organizationId, userId, payload, modelId, pricing }) {
+  return sha256Hex(stableJson({
+    route: "/api/admin/ai/test-image",
+    operation: "admin_ai_image_test",
+    organizationId,
+    userId,
+    modelId,
+    prompt: payload.prompt || null,
+    structuredPrompt: payload.structuredPrompt || null,
+    width: payload.width || null,
+    height: payload.height || null,
+    steps: payload.steps || null,
+    seed: payload.seed || null,
+    guidance: payload.guidance || null,
+    referenceImageCount: Array.isArray(payload.referenceImages) ? payload.referenceImages.length : 0,
+    credits: pricing.credits,
+  }));
 }
 
 function decodePathSegment(value) {
@@ -416,6 +548,64 @@ export async function handleAdminAI(ctx) {
     try {
       const payload = validateImagePayload(body);
       await validateFlux2DevReferenceImageDimensions(env, payload);
+      const selection = resolveAdminAiModelSelection("image", payload);
+      const modelId = selection.model.id;
+      const pricing = isChargeableAdminImageTestModel(modelId)
+        ? calculateAdminImageTestCreditCost(modelId, payload)
+        : null;
+      if (!pricing) {
+        const response = await proxyToAiLab(
+          env,
+          "/internal/ai/test-image",
+          { method: "POST", body: payload },
+          result.user,
+          correlationId,
+          requestInfo
+        );
+        return attachAdminImageSaveReference(response, env, result.user, correlationId, requestInfo);
+      }
+
+      const organizationId = adminImageOrganizationId(body);
+      const clientIdempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const scopedIdempotencyKey = `admin-ai-image:${await sha256Hex(stableJson({
+        organizationId,
+        userId: result.user.id,
+        clientIdempotencyKey,
+      }))}`;
+      await assertOrganizationFeatureEnabled(env, {
+        organizationId,
+        featureKey: "ai.image.generate",
+      });
+      const requestFingerprint = await adminImageRequestFingerprint({
+        organizationId,
+        userId: result.user.id,
+        payload,
+        modelId,
+        pricing,
+      });
+      const attemptState = await beginAiUsageAttempt({
+        env,
+        organizationId,
+        userId: result.user.id,
+        featureKey: "ai.image.generate",
+        operationKey: "admin_ai_image_test",
+        route: "/api/admin/ai/test-image",
+        idempotencyKey: scopedIdempotencyKey,
+        requestFingerprint,
+        creditCost: pricing.credits,
+        quantity: 1,
+      });
+
+      if (attemptState.kind !== "reserved") {
+        return adminImageAttemptResponse({
+          usageKind: attemptState.kind,
+          organizationId,
+          pricing,
+          attempt: attemptState.attempt,
+        }, correlationId);
+      }
+
+      await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",
@@ -424,9 +614,99 @@ export async function handleAdminAI(ctx) {
         correlationId,
         requestInfo
       );
-      return attachAdminImageSaveReference(response, env, result.user, correlationId, requestInfo);
+
+      let providerBody = null;
+      try {
+        providerBody = await response.clone().json();
+      } catch {
+        providerBody = null;
+      }
+      if (!response.ok || !providerBody?.ok) {
+        try {
+          await markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, {
+            code: "provider_failed",
+            message: "Admin image test provider failed.",
+          });
+        } catch {}
+        return response;
+      }
+
+      await markAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+      let debit;
+      try {
+        debit = await consumeOrganizationCredits({
+          env,
+          organizationId,
+          userId: result.user.id,
+          featureKey: "ai.image.generate",
+          quantity: 1,
+          credits: pricing.credits,
+          idempotencyKey: scopedIdempotencyKey,
+          requestFingerprint,
+          source: "admin_ai_image_test",
+          metadata: {
+            source: "admin_ai_image_test",
+            route: "/api/admin/ai/test-image",
+            operation: "admin_ai_image_test",
+            model: modelId,
+            credit_cost: pricing.credits,
+            prompt_length: payload.prompt ? String(payload.prompt).length : 0,
+            width: pricing.normalized?.width || payload.width || null,
+            height: pricing.normalized?.height || payload.height || null,
+            steps: pricing.normalized?.steps || payload.steps || null,
+            pricing_version: "phase2m",
+          },
+        });
+      } catch (error) {
+        const responseError = error instanceof BillingError
+          ? error
+          : new BillingError("Admin image test billing could not be finalized.", {
+              status: 503,
+              code: "billing_finalization_failed",
+            });
+        try {
+          await markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, {
+            code: responseError.code,
+            message: "Admin image test billing finalization failed.",
+          });
+        } catch {}
+        return adminImageBillingErrorResponse(responseError, correlationId);
+      }
+
+      await markAiUsageAttemptSucceeded(env, attemptState.attempt.id, {
+        model: modelId,
+        promptLength: payload.prompt ? String(payload.prompt).length : 0,
+        steps: pricing.normalized?.steps ?? payload.steps ?? null,
+        seed: payload.seed ?? null,
+        balanceAfter: debit.creditBalance,
+        resultStatus: "unavailable",
+        metadata: {
+          pricing: {
+            model: modelId,
+            credits: pricing.credits,
+            providerCostUsd: pricing.providerCostUsd,
+            normalized: pricing.normalized,
+            formula: pricing.formula,
+          },
+          replay: {
+            available: false,
+            reason: "admin_image_test_result_not_replayed",
+          },
+        },
+      });
+
+      const billedResponse = await appendAdminImageBilling(response, {
+        organization_id: organizationId,
+        feature: "ai.image.generate",
+        operation: "admin_ai_image_test",
+        credits_charged: pricing.credits,
+        balance_after: debit.creditBalance,
+        idempotent_replay: false,
+      }, correlationId);
+      return attachAdminImageSaveReference(billedResponse, env, result.user, correlationId, requestInfo);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
+      if (error instanceof BillingError) return billingAdminErrorResponse(error, correlationId);
       throw error;
     }
   }

@@ -649,8 +649,59 @@ async function mockAdminAiLab(page, captures = {}) {
     });
   });
 
+  await page.route('**/api/admin/orgs**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/admin/orgs') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          organizations: [{
+            id: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            name: 'Admin Image Billing Org',
+            slug: 'admin-image-billing-org',
+            status: 'active',
+          }],
+        }),
+      });
+      return;
+    }
+    if (url.pathname === '/api/admin/orgs/org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/billing') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          billing: {
+            organizationId: 'org_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            creditBalance: 100,
+          },
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
   await page.route('**/api/admin/ai/test-image', async (route) => {
     const body = route.request().postDataJSON();
+    const idempotencyKey = route.request().headers()['idempotency-key'];
+    if (
+      ['@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b', undefined].includes(body.model) &&
+      (!body.organization_id || !idempotencyKey)
+    ) {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: body.organization_id ? 'idempotency_key_required' : 'organization_required',
+          error: 'Charged admin image tests require organization context and idempotency.',
+        }),
+      });
+      return;
+    }
     const selectedModel =
       catalog.models.image.find((entry) => entry.id === body.model) ||
       catalog.models.image.find((entry) => entry.id === '@cf/black-forest-labs/flux-1-schnell') ||
@@ -680,6 +731,11 @@ async function mockAdminAiLab(page, captures = {}) {
               ? { width: body.width, height: body.height }
               : null,
         },
+        billing: body.organization_id ? {
+          organization_id: body.organization_id,
+          credits_charged: selectedModel.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 10 : 1,
+          balance_after: selectedModel.id === '@cf/black-forest-labs/flux-2-klein-9b' ? 90 : 99,
+        } : undefined,
         elapsedMs: 456,
         warnings: body.model && body.model !== '@cf/black-forest-labs/flux-1-schnell'
           ? ['Explicit model overrides the default image preset.']
@@ -2237,8 +2293,8 @@ async function mockCreditsAccount(page, {
       configNames: role === 'admin' ? ['ENABLE_LIVE_STRIPE_CREDIT_PACKS'] : undefined,
     },
     packs: [
-      { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 100, currency: 'eur', displayPrice: '1,00 €' },
-      { id: 'live_credits_10000', name: '10000 Credit Pack', credits: 10000, amountCents: 150, currency: 'eur', displayPrice: '1,50 €' },
+      { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €' },
+      { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €' },
     ],
     purchaseHistory: [],
     recentLedger: [],
@@ -2294,8 +2350,8 @@ async function mockCreditsAccount(page, {
       authorization_scope: role === 'admin' ? 'platform_admin' : 'org_owner',
       credit_pack: {
         id: route.request().postDataJSON().pack_id,
-        credits: route.request().postDataJSON().pack_id === 'live_credits_10000' ? 10000 : 5000,
-        amountCents: route.request().postDataJSON().pack_id === 'live_credits_10000' ? 150 : 100,
+        credits: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 12000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 1999 : 999,
         currency: 'eur',
       },
     }, 201);
@@ -3073,8 +3129,8 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsOrgName')).toContainText('Credits Org');
     await expect(page.locator('#creditsAccessScope')).toContainText('organization owner');
     await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
-    await expect(page.locator('.credits-pack').nth(0)).toContainText('1,00 €');
-    await expect(page.locator('.credits-pack').nth(1)).toContainText('1,50 €');
+    await expect(page.locator('.credits-pack').nth(0)).toContainText('9,99 €');
+    await expect(page.locator('.credits-pack').nth(1)).toContainText('19,99 €');
 
     const cardWidths = await page.locator('.credits-pack').evaluateAll((cards) =>
       cards.map((card) => card.getBoundingClientRect().width)
@@ -5473,6 +5529,23 @@ test.describe('Admin AI Lab', () => {
     await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
     await expect(page.locator('#statTotal')).toHaveText('12');
+  });
+
+  test('shows admin image-test credit labels only inside AI Lab image controls', async ({ page }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await clickAiLabMode(page, 'image');
+
+    await expect(page.locator('#aiImageRun')).toHaveText('Run image test · 1 credit');
+    await expect(page.locator('#aiImageOrganization')).toBeVisible();
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('charges 1 credit');
+
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await expect(page.locator('#aiImageRun')).toHaveText('Run image test · 10 credits');
+    await expect(page.locator('#aiImageOrganizationState')).toContainText('charges 10 credits');
+
+    await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
+    await expect(page.locator('#aiImageRun')).toHaveText('Run Image Test');
   });
 
   test('Music AI card validates, posts the expected payload, and renders success plus error states beside Live Agent', async ({

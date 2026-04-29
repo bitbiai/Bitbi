@@ -491,6 +491,7 @@ export async function consumeOrganizationCredits({
   idempotencyKey,
   requestFingerprint = null,
   metadata = {},
+  source = "usage_event",
 }) {
   const orgId = normalizeOrgId(organizationId);
   const feature = normalizeFeatureKey(featureKey);
@@ -510,6 +511,7 @@ export async function consumeOrganizationCredits({
     credits: normalizedCredits,
     requestFingerprint,
   });
+  const normalizedSource = normalizeNullableString(source, 64) || "usage_event";
 
   const existingUsage = await fetchUsageByIdempotency(env, { organizationId: orgId, idempotencyKey });
   if (existingUsage) {
@@ -554,7 +556,7 @@ export async function consumeOrganizationCredits({
     normalizedCredits,
     "consume",
     feature,
-    "usage_event",
+    normalizedSource,
     idempotencyKey,
     requestHash,
     userId || null,

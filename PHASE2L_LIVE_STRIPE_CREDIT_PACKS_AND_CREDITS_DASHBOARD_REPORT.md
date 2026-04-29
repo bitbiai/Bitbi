@@ -8,6 +8,8 @@ Phase 2-L adds a narrow live Stripe one-time credit-pack purchase path for platf
 
 This phase enables only fixed live one-time credit packs for eligible buyers. It does not make pricing public, does not add subscriptions, invoices, customer portal, Stripe Tax, Connect, coupons, refund automation, or full production billing readiness.
 
+Phase 2-M later updated the live credit-pack economics. The current live catalog is now 5,000 credits for 9.99 EUR and 12,000 credits for 19.99 EUR; the original Phase 2-L 10,000-credit live pack is no longer offered for new checkout creation.
+
 ## Files Changed
 
 - `workers/auth/migrations/0040_add_live_stripe_credit_pack_scope.sql`
@@ -76,10 +78,12 @@ The live catalog is fixed server-side:
 
 | Pack id | Credits | Amount | Currency |
 | --- | ---: | ---: | --- |
-| `live_credits_5000` | 5,000 | 1.00 | `eur` |
-| `live_credits_10000` | 10,000 | 1.50 | `eur` |
+| `live_credits_5000` | 5,000 | 9.99 | `eur` |
+| `live_credits_12000` | 12,000 | 19.99 | `eur` |
 
 Clients may send only the pack id. The server rejects unknown packs and ignores or rejects client-supplied amount, credits, currency, product, price, or model data.
+
+`live_credits_10000` is retained only as a legacy persisted-session validation concern. New live checkout creation must not offer or silently remap it.
 
 ## Live Configuration
 
@@ -280,7 +284,7 @@ Documented only; Codex must not execute these steps.
 9. Deploy code with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false`.
 10. Verify normal users, organization admins, members, and viewers cannot see or use Credits checkout.
 11. Set `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` only for the canary window.
-12. Perform exactly one 1.00 EUR live purchase as a platform admin or active organization owner.
+12. Perform exactly one 9.99 EUR live purchase as a platform admin or active organization owner.
 13. Verify live webhook signature validation.
 14. Verify exactly one credit ledger grant.
 15. Replay the duplicate webhook and verify no duplicate grant.

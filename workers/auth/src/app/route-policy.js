@@ -402,7 +402,11 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-ai-models-ip", failClosed: true },
   }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", { config: REQUIRED_CONFIG.adminAi }),
-  adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", { config: REQUIRED_CONFIG.adminAi }),
+  adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
+    config: REQUIRED_CONFIG.adminAi,
+    sensitivity: "high",
+    notes: "Admin area only. Platform admin required. BFL Flux 1 Schnell and Flux 2 Klein 9B admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure. No public/member/owner route exposure.",
+  }),
   adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", { config: REQUIRED_CONFIG.adminAi }),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", { config: REQUIRED_CONFIG.adminAi }),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {

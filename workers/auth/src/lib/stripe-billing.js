@@ -50,12 +50,25 @@ export const STRIPE_LIVE_CREDIT_PACKS = Object.freeze([
     id: "live_credits_5000",
     name: "5000 Credit Pack",
     credits: 5000,
-    amountCents: 100,
+    amountCents: 999,
     currency: "eur",
-    displayPrice: "1,00 €",
+    displayPrice: "9,99 €",
     active: true,
     sortOrder: 5000,
   }),
+  Object.freeze({
+    id: "live_credits_12000",
+    name: "12000 Credit Pack",
+    credits: 12000,
+    amountCents: 1999,
+    currency: "eur",
+    displayPrice: "19,99 €",
+    active: true,
+    sortOrder: 12000,
+  }),
+]);
+
+const STRIPE_LIVE_LEGACY_CREDIT_PACKS = Object.freeze([
   Object.freeze({
     id: "live_credits_10000",
     name: "10000 Credit Pack",
@@ -63,7 +76,7 @@ export const STRIPE_LIVE_CREDIT_PACKS = Object.freeze([
     amountCents: 150,
     currency: "eur",
     displayPrice: "1,50 €",
-    active: true,
+    active: false,
     sortOrder: 10000,
   }),
 ]);
@@ -361,7 +374,7 @@ function normalizePackId(value) {
 export function getStripeCreditPack(packId) {
   const normalized = normalizePackId(packId);
   const pack = STRIPE_CREDIT_PACKS.find((entry) => entry.id === normalized);
-  if (!pack || !pack.active) {
+  if (!pack || (!pack.active && !includeLegacy)) {
     throw new StripeBillingError("Unsupported credit pack.", {
       status: 400,
       code: "unsupported_credit_pack",
@@ -370,9 +383,12 @@ export function getStripeCreditPack(packId) {
   return pack;
 }
 
-export function getStripeLiveCreditPack(packId) {
+export function getStripeLiveCreditPack(packId, { includeLegacy = false } = {}) {
   const normalized = normalizePackId(packId);
-  const pack = STRIPE_LIVE_CREDIT_PACKS.find((entry) => entry.id === normalized);
+  const packs = includeLegacy
+    ? STRIPE_LIVE_CREDIT_PACKS.concat(STRIPE_LIVE_LEGACY_CREDIT_PACKS)
+    : STRIPE_LIVE_CREDIT_PACKS;
+  const pack = packs.find((entry) => entry.id === normalized);
   if (!pack || !pack.active) {
     throw new StripeBillingError("Unsupported live credit pack.", {
       status: 400,
@@ -1147,7 +1163,7 @@ function normalizeLiveCheckoutCompletion(payload) {
     : {};
   const organizationId = normalizeStripeMetadataOrgId(metadata.organization_id || metadata.organizationId);
   const userId = normalizeUserId(metadata.user_id || metadata.userId);
-  const pack = getStripeLiveCreditPack(metadata.credit_pack_id || metadata.creditPackId);
+  const pack = getStripeLiveCreditPack(metadata.credit_pack_id || metadata.creditPackId, { includeLegacy: true });
   const metadataCredits = Number(metadata.credits);
   const amountTotal = Number(session.amount_total);
   const currency = safeString(session.currency, 16)?.toLowerCase();
