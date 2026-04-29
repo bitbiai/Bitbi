@@ -12,6 +12,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Latest observed commit before Phase 2-O work | `9198621 org` |
 | Working tree at Phase 2-O start | Clean |
 | Latest implemented work | Phase 2-O Pricing hero/live-pack cleanup and profile navigation reconciliation |
+| Latest corrective fix | Profile navigation eligibility now matches the real `/api/profile` account payload, so platform admins see Credits and Organization under Wallet even though `/api/profile` does not include `account.id`. |
 | Latest auth D1 migration | `0040_add_live_stripe_credit_pack_scope.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Baseline preflight | `npm run release:preflight` passed before Phase 2-M edits |
@@ -103,6 +104,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Profile navigation adds `Credits` below `Wallet` only for platform admins and active organization owners.
 - Organization route: `/account/organization.html`.
 - Profile navigation adds `Organization` near Wallet/Credits only for platform admins and active organization owners.
+- Platform-admin profile navigation visibility is based on the authenticated account role, not organization-dashboard availability or a selected organization. This lets a platform admin reach Organization/Credits pages to diagnose organization context.
 - Active frontend organization context is stored as localStorage key `bitbi.activeOrganizationId`; it is convenience-only and backend authorization remains authoritative.
 - Backend live checkout route: `POST /api/orgs/:id/billing/checkout/live-credit-pack`.
 - Backend Credits dashboard route: `GET /api/orgs/:id/billing/credits-dashboard`.

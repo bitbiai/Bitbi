@@ -66,6 +66,17 @@ The profile navigation/card stack keeps the account links in this order:
 
 Credits and Organization visibility remains tied to the existing eligible states: platform/global admins and active organization owners. The profile card stack was compacted when Credits and Organization are visible so the account navigation footprint remains controlled without clipping or hiding links.
 
+### Corrective Profile Navigation Fix
+
+A follow-up regression fix updated the profile navigation eligibility check to match the real `/api/profile` response shape. The backend profile account payload reports `email`, `role`, verification state, and creation timestamp, but does not include `account.id`; the frontend previously hid Credits and Organization before checking platform-admin eligibility when `account.id` was absent.
+
+Current behavior:
+
+- Platform/global admins see `Credits` and `Organization` directly under `Wallet` on `/account/profile.html`, even if an organization dashboard for the selected org is unavailable.
+- Active organization owners can still see the links after the organization-list eligibility check succeeds.
+- Regular users, organization admins, members, and viewers remain hidden from the restricted Credits/Organization profile links unless they meet the eligible owner/platform-admin condition.
+- No billing backend, Stripe behavior, migrations, or authorization boundaries changed.
+
 ## Validation
 
 Focused static tests were added/updated for the Pricing hero, live pack tiers, removal of stale Testmode runtime copy, paid CTA routing to Credits, and profile navigation ordering/height.

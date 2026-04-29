@@ -247,7 +247,7 @@ function setCreditsNavVisible(visible) {
 async function syncCreditsEligibility(account) {
     const seq = ++creditsEligibilitySeq;
     setCreditsNavVisible(false);
-    if (!account?.id) return;
+    if (!account) return;
     if (account.role === 'admin') {
         setCreditsNavVisible(true);
         return;

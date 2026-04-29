@@ -1928,6 +1928,7 @@ async function mockAuthenticatedProfile(page, {
   role = 'user',
   email = `${role}@bitbi.ai`,
   displayName = role === 'admin' ? 'Admin User' : 'Member User',
+  includeProfileAccountId = true,
   organizations = [],
   hasAvatar = false,
   favoritesPayload = [],
@@ -1971,6 +1972,15 @@ async function mockAuthenticatedProfile(page, {
       return;
     }
 
+    const account = {
+      email,
+      role,
+      email_verified: true,
+      verification_method: 'email',
+      created_at: '2026-04-01T10:00:00.000Z',
+    };
+    if (includeProfileAccountId) account.id = `${role}-profile-user`;
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1981,14 +1991,7 @@ async function mockAuthenticatedProfile(page, {
           website: '',
           youtube_url: '',
         },
-        account: {
-          id: `${role}-profile-user`,
-          email,
-          role,
-          email_verified: true,
-          verification_method: 'email',
-          created_at: '2026-04-01T10:00:00.000Z',
-        },
+        account,
       }),
     });
   });
@@ -5168,7 +5171,7 @@ test.describe('Profile page (authenticated)', () => {
   test('admin profile keeps AI Lab inside the Profile shell without exposing admin hero or nav chrome', async ({
     page,
   }) => {
-    await mockAuthenticatedProfile(page, { role: 'admin' });
+    await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
     await mockAdminAiLab(page);
 
     const response = await page.goto('/account/profile.html');
@@ -5181,6 +5184,8 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileOrganizationCard')).toBeVisible();
+    await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html');
+    await expect(page.locator('#profileOrganizationCard')).toHaveAttribute('href', '/account/organization.html');
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toContainText('AI Lab');
     await expect(page.locator('#profileStudioStack .profile__studio-card:visible .profile__studio-label')).toHaveText([
@@ -5209,6 +5214,7 @@ test.describe('Profile page (authenticated)', () => {
     expect(labBox.y).toBeGreaterThan(studioBox.y + studioBox.height - 1);
     expect(creditsBox.y).toBeGreaterThan(walletBox.y + walletBox.height - 1);
     expect(organizationBox.y).toBeGreaterThan(creditsBox.y + creditsBox.height - 1);
+    expect(organizationBox.y + organizationBox.height).toBeLessThanOrEqual(stackBox.y + stackBox.height + 2);
     expect(stackBox.height).toBeLessThanOrEqual(avatarBox.height + 8);
 
     await page.locator('#profileAdminAiLabCard').click();
@@ -5383,6 +5389,7 @@ test.describe('Profile page (authenticated mobile)', () => {
   }) => {
     await mockAuthenticatedProfile(page, {
       role: 'user',
+      includeProfileAccountId: false,
       organizations: [{
         id: 'org_profile_owner_1234567890abcdef12',
         name: 'Owner Profile Org',
