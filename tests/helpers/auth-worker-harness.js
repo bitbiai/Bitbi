@@ -705,6 +705,14 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === 'UPDATE users SET password_hash = ? WHERE id = ?') {
+      const [passwordHash, userId] = bindings;
+      const row = this.state.users.find((item) => item.id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.password_hash = passwordHash;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'UPDATE users SET status = ?, updated_at = ? WHERE id = ?') {
       const [status, updatedAt, userId] = bindings;
       const row = this.state.users.find((item) => item.id === userId);

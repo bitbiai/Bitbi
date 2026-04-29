@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
+const { pbkdf2Sync } = require('crypto');
 const { pathToFileURL } = require('url');
 
 const {
@@ -14,6 +15,12 @@ const {
 async function loadAuthModules() {
   const passwordPath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/passwords.js')).href;
   return import(passwordPath);
+}
+
+function makeLegacyPbkdf2Hash(password, iterations = 310_000) {
+  const salt = Buffer.alloc(16, 7);
+  const hash = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
+  return `pbkdf2_sha256$${iterations}$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
 
 async function loadRequestModule() {
@@ -12027,6 +12034,233 @@ test.describe('Worker routes', () => {
     await expect(meAfterLogout.json()).resolves.toMatchObject({
       loggedIn: false,
       user: null,
+    });
+  });
+
+  test('auth login works for a verified regular user without organization tables or active organization', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const env = createAuthTestEnv({
+      missingTables: ['organizations', 'organization_memberships'],
+      users: [
+        {
+          id: 'regular-no-org-user',
+          email: 'regular-no-org@example.com',
+          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+          created_at: '2026-04-01T00:00:00.000Z',
+          status: 'active',
+          role: 'user',
+          email_verified_at: '2026-04-01T00:10:00.000Z',
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'regular-no-org@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.211',
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.user).toMatchObject({
+      email: 'regular-no-org@example.com',
+      role: 'user',
+    });
+    expect(env.DB.state.sessions).toHaveLength(1);
+  });
+
+  test('auth login is independent of organization role and admin MFA proof', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const passwordHash = await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' });
+    const createdAt = '2026-04-01T00:00:00.000Z';
+    const orgId = 'org_login_roles_1234567890abcdef123456';
+    const orgRoles = ['owner', 'admin', 'member', 'viewer'];
+    const orgUsers = orgRoles.map((role) => ({
+      id: `login-org-${role}`,
+      email: `login-org-${role}@example.com`,
+      password_hash: passwordHash,
+      created_at: createdAt,
+      status: 'active',
+      role: 'user',
+      email_verified_at: '2026-04-01T00:10:00.000Z',
+      verification_method: 'email_verified',
+    }));
+    const platformAdmin = {
+      id: 'login-platform-admin',
+      email: 'login-platform-admin@example.com',
+      password_hash: passwordHash,
+      created_at: createdAt,
+      status: 'active',
+      role: 'admin',
+      email_verified_at: '2026-04-01T00:10:00.000Z',
+      verification_method: 'email_verified',
+    };
+    const env = createAuthTestEnv({
+      BITBI_ENV: 'production',
+      users: [...orgUsers, platformAdmin],
+      organizations: [{
+        id: orgId,
+        name: 'Login Role Org',
+        slug: 'login-role-org',
+        status: 'active',
+        created_by_user_id: orgUsers[0].id,
+        created_at: createdAt,
+        updated_at: createdAt,
+      }],
+      organizationMemberships: orgRoles.map((role) => ({
+        id: `om-login-${role}`,
+        organization_id: orgId,
+        user_id: `login-org-${role}`,
+        role,
+        status: 'active',
+        created_by_user_id: orgUsers[0].id,
+        created_at: createdAt,
+        updated_at: createdAt,
+      })),
+    });
+
+    const cases = [
+      ...orgRoles.map((role) => ({
+        email: `login-org-${role}@example.com`,
+        expectedRole: 'user',
+      })),
+      {
+        email: 'login-platform-admin@example.com',
+        expectedRole: 'admin',
+      },
+    ];
+
+    for (const [index, loginCase] of cases.entries()) {
+      const exec = createExecutionContext();
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/login', 'POST', {
+          email: loginCase.email,
+          password: 'password123',
+        }, {
+          Origin: 'https://bitbi.ai',
+          'CF-Connecting-IP': `203.0.113.${220 + index}`,
+        }),
+        env,
+        exec.execCtx
+      );
+      await exec.flush();
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.user).toMatchObject({
+        email: loginCase.email,
+        role: loginCase.expectedRole,
+      });
+    }
+
+    expect(env.DB.state.sessions).toHaveLength(cases.length);
+  });
+
+  test('auth login verifies legacy 310k PBKDF2 hashes and rehashes to the Worker-safe target', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'legacy-pbkdf2-user',
+          email: 'legacy-pbkdf2@example.com',
+          password_hash: makeLegacyPbkdf2Hash('password123', 310_000),
+          created_at: '2026-04-01T00:00:00.000Z',
+          status: 'active',
+          role: 'user',
+          email_verified_at: '2026-04-01T00:10:00.000Z',
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const exec = createExecutionContext();
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'legacy-pbkdf2@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.230',
+      }),
+      env,
+      exec.execCtx
+    );
+    await exec.flush();
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      user: {
+        email: 'legacy-pbkdf2@example.com',
+        role: 'user',
+      },
+    });
+    expect(env.DB.state.users[0].password_hash).toMatch(/^pbkdf2_sha256\$100000\$/);
+  });
+
+  test('auth login still rejects unknown email and invalid regular-user passwords with 401', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { hashPassword } = await loadAuthModules();
+    const env = createAuthTestEnv({
+      users: [
+        {
+          id: 'invalid-login-user',
+          email: 'invalid-login@example.com',
+          password_hash: await hashPassword('password123', { PBKDF2_ITERATIONS: '100000' }),
+          created_at: '2026-04-01T00:00:00.000Z',
+          status: 'active',
+          role: 'user',
+          email_verified_at: '2026-04-01T00:10:00.000Z',
+          verification_method: 'email_verified',
+        },
+      ],
+    });
+
+    const invalidPasswordRes = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'invalid-login@example.com',
+        password: 'wrong-password',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.231',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(invalidPasswordRes.status).toBe(401);
+    await expect(invalidPasswordRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Invalid email or password.',
+    });
+
+    const unknownEmailRes = await authWorker.fetch(
+      authJsonRequest('/api/login', 'POST', {
+        email: 'unknown-login@example.com',
+        password: 'password123',
+      }, {
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.232',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unknownEmailRes.status).toBe(401);
+    await expect(unknownEmailRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Invalid email or password.',
     });
   });
 

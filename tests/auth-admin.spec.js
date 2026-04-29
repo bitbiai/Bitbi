@@ -2461,6 +2461,44 @@ test.describe('Auth modal', () => {
     ).toBeVisible();
   });
 
+  test('login form posts only email/password JSON without organization or admin preconditions', async ({ page }) => {
+    let loginPayload = null;
+    let loginContentType = '';
+    await page.route('**/api/login', async (route) => {
+      loginContentType = route.request().headers()['content-type'] || '';
+      loginPayload = JSON.parse(route.request().postData() || '{}');
+      await fulfillJson(route, {
+        ok: true,
+        message: 'Login successful.',
+        user: {
+          id: 'regular-login-user',
+          email: 'regular@example.com',
+          role: 'user',
+          status: 'active',
+        },
+      });
+    });
+
+    await page.evaluate(() => {
+      localStorage.setItem('bitbi.activeOrganizationId', 'org_static_login_should_not_be_sent');
+    });
+    await page.locator('.site-nav__cta').click();
+    const form = page.locator('#authLoginForm');
+    await form.locator('input[name="email"]').fill('regular@example.com');
+    await form.locator('input[name="password"]').fill('password123');
+    await form.getByRole('button', { name: 'Sign In', exact: true }).click();
+
+    await expect.poll(() => loginPayload).toEqual({
+      email: 'regular@example.com',
+      password: 'password123',
+    });
+    expect(loginContentType).toContain('application/json');
+    expect(loginPayload).not.toHaveProperty('organization_id');
+    expect(loginPayload).not.toHaveProperty('organizationId');
+    expect(loginPayload).not.toHaveProperty('activeOrganizationId');
+    expect(loginPayload).not.toHaveProperty('admin');
+  });
+
   test('can switch to register form', async ({ page }) => {
     await page.locator('.site-nav__cta').click();
     await expect(page.locator('.auth-modal__overlay')).toBeVisible();
