@@ -96,17 +96,48 @@
     }
 
     .pricing-hero {
+        position: relative;
+        overflow: hidden;
+        min-block-size: clamp(24rem, 46vw, 34rem);
         background:
             radial-gradient(circle at 12% 8%, rgba(0, 240, 255, 0.16), transparent 34%),
             radial-gradient(circle at 88% 16%, rgba(255, 179, 0, 0.14), transparent 30%),
             linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025));
     }
 
+    .pricing-hero::before,
+    .pricing-hero::after {
+        content: "";
+        position: absolute;
+        pointer-events: none;
+        border-radius: var(--radius-full);
+        filter: blur(2px);
+    }
+
+    .pricing-hero::before {
+        inset-block-start: -18%;
+        inset-inline-end: -10%;
+        inline-size: clamp(13rem, 28vw, 25rem);
+        block-size: clamp(13rem, 28vw, 25rem);
+        background: radial-gradient(circle, rgba(0, 240, 255, 0.16), transparent 68%);
+    }
+
+    .pricing-hero::after {
+        inset-block-end: -24%;
+        inset-inline-start: 10%;
+        inline-size: clamp(14rem, 32vw, 30rem);
+        block-size: clamp(14rem, 32vw, 30rem);
+        background: radial-gradient(circle, rgba(255, 179, 0, 0.13), transparent 70%);
+    }
+
     .pricing-hero__grid {
+        position: relative;
+        z-index: 1;
+        min-block-size: inherit;
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
         gap: clamp(1.5rem, 4vw, 3rem);
-        align-items: end;
+        align-items: center;
     }
 
     .pricing-hero__copy {
@@ -291,6 +322,7 @@
         letter-spacing: 0.11em;
         text-transform: uppercase;
         cursor: pointer;
+        text-decoration: none;
         transition: transform 0.2s var(--ease-default), filter 0.2s var(--ease-default), opacity 0.2s var(--ease-default);
     }
 
@@ -445,6 +477,10 @@
     @media (max-width: 620px) {
         .pricing-page {
             padding-block-start: 7.5rem;
+        }
+
+        .pricing-hero {
+            min-block-size: auto;
         }
 
         .pricing-root,

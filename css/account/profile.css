@@ -605,22 +605,26 @@
         }
 
         .profile__studio-stack[data-has-organization="true"] {
-            gap: 0.55rem;
+            gap: 0.48rem;
         }
 
         .profile__studio-stack[data-has-organization="true"] .profile__studio-card {
-            padding: var(--space-4);
+            padding: 0.9rem 1rem;
             min-block-size: 0;
         }
 
+        .profile__studio-stack[data-has-organization="true"] .profile__studio-card:not(.profile__studio-card--wallet):not(.profile__studio-card--credits):not(.profile__studio-card--organization) {
+            padding-block: 0.72rem;
+        }
+
         .profile__studio-stack[data-has-organization="true"] .profile__studio-emoji {
-            inline-size: 2.55rem;
-            block-size: 2.55rem;
-            font-size: 1.35rem;
+            inline-size: 2.35rem;
+            block-size: 2.35rem;
+            font-size: 1.22rem;
         }
 
         .profile__studio-stack[data-has-organization="true"] .profile__studio-label {
-            font-size: 1.02rem;
+            font-size: 0.98rem;
         }
     }
 

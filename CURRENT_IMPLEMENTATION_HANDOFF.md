@@ -2,16 +2,16 @@
 
 Date: 2026-04-29
 
-Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2-N, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, and the gated live Credits/Organization dashboards. This is not a production deploy approval.
+Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2-O, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, and the gated live Credits/Organization dashboards. This is not a production deploy approval.
 
 ## Current Baseline
 
 | Area | Current state |
 | --- | --- |
 | Branch | `main` |
-| Latest observed commit before Phase 2-N work | `3554904 credit` |
-| Working tree at Phase 2-N start | Clean |
-| Latest implemented work | Phase 2-N Organization context page/selection and Admin AI credit-debit diagnostics |
+| Latest observed commit before Phase 2-O work | `9198621 org` |
+| Working tree at Phase 2-O start | Clean |
+| Latest implemented work | Phase 2-O Pricing hero/live-pack cleanup and profile navigation reconciliation |
 | Latest auth D1 migration | `0040_add_live_stripe_credit_pack_scope.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Baseline preflight | `npm run release:preflight` passed before Phase 2-M edits |
@@ -20,6 +20,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Phase 2-L targeted validation | Baseline `npm run release:preflight`, `npm run check:js`, `npm run check:route-policies`, `npm run test:workers` 352/352, and focused Credits static tests passed during implementation |
 | Phase 2-M validation | Baseline `npm run release:preflight`, focused Phase 2-M/Phase 2-L Worker tests, focused Admin AI/Credits static tests, `npm run test:workers` 359/359, `npm run test:static` 168/168, `npm run build:static`, and `npm run release:preflight` passed during implementation |
 | Phase 2-N validation | See `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md` and final Codex response for command results |
+| Phase 2-O validation | See `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md` and final Codex response for command results |
 | Merge readiness | Ready for review after Phase 2-N validation; no commit made |
 | Staging readiness | Requires migrations/config/resources and functional staging verification |
 | Production readiness | Blocked |
@@ -40,7 +41,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Phase 2-M updated live credit-pack economics and charges existing organization credits when platform admins run Admin AI image tests for Flux 1 schnell or Flux 2 klein 9B.
 - Phase 2-N adds `/account/organization.html`, shared active organization selection, a sanitized organization dashboard API, and safe Admin AI Lab credit-debit diagnostics so platform admins can verify which organization owns credits and receives admin image-test debits.
 - Admin Control Plane frontend for existing sanitized admin APIs.
-- Admin-only Pricing page for Free, 5000 Credits, and 10000 Credits.
+- Admin-only Pricing page for Free, 5,000 credits, and 12,000 credits, with paid CTAs routed to the Credits dashboard instead of direct checkout creation.
 - Stripe Testmode config diagnostics that identify missing variable names without exposing values.
 
 ## What Is Not Implemented
@@ -90,10 +91,11 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Pricing route: `/pricing.html`.
 - Header link visible only to authenticated admins.
 - Direct pricing route access is frontend admin-gated.
-- Exposed options: Free, Buy 5000 Credits, Buy 10000 Credits.
+- Exposed options: Free, 5,000 credits for 9.99 EUR, and 12,000 credits for 19.99 EUR.
 - Free tier copy: 10 successful legacy image generations per UTC day.
-- Pricing uses the server-side platform-admin-only organization checkout route and generated idempotency keys. The signed-in platform admin must also be an active owner/admin of the selected organization.
-- No public rollout or live billing activation.
+- Pricing paid CTAs open `/account/credits.html`; checkout authorization remains enforced by the existing Credits dashboard/backend routes and flags.
+- Runtime Pricing page copy no longer presents the page as a Testmode surface.
+- No public rollout or unrestricted checkout activation.
 
 ## Credits Dashboard / Live Credit Pack Status
 
@@ -130,17 +132,18 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 1. `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`
 2. `AUDIT_NEXT_LEVEL.md`
 3. `AUDIT_ACTION_PLAN.md`
-4. `PHASE_PRICING_PAGE_CREDIT_PACKS_REPORT.md`
-5. `PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md`
-6. `PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md`
-7. `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md`
-8. `PHASE2M_ADMIN_BFL_IMAGE_TEST_CREDIT_PRICING_REPORT.md`
-9. `PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md`
-10. `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`
-11. `DATA_INVENTORY.md`
-12. `docs/DATA_RETENTION_POLICY.md`
-13. `workers/auth/CLAUDE.md`
-14. `config/release-compat.json`
+4. `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md`
+5. `PHASE_PRICING_PAGE_CREDIT_PACKS_REPORT.md`
+6. `PHASE2K_ADMIN_STRIPE_TESTMODE_LOCKDOWN_REPORT.md`
+7. `PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md`
+8. `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md`
+9. `PHASE2M_ADMIN_BFL_IMAGE_TEST_CREDIT_PRICING_REPORT.md`
+10. `PHASE2J_STRIPE_TESTMODE_CREDIT_PACK_CHECKOUT_REPORT.md`
+11. `PHASE_ADMIN_CONTROL_PLANE_REPORT.md`
+12. `DATA_INVENTORY.md`
+13. `docs/DATA_RETENTION_POLICY.md`
+14. `workers/auth/CLAUDE.md`
+15. `config/release-compat.json`
 
 Historical but no longer current entrypoints:
 

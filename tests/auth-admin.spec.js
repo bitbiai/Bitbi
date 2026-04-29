@@ -3097,7 +3097,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-card')).toHaveCount(0);
   });
 
-  test('renders exactly the Free, 5000 Credits, and 10000 Credits options for admins', async ({
+  test('renders the live credit-pack tiers without stale Testmode pricing copy', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -3105,14 +3105,22 @@ test.describe('Pricing credit-pack rollout', () => {
     const response = await page.goto('/pricing.html');
     expect(response.status()).toBe(200);
 
+    await expect(page.locator('.pricing-hero__title')).toHaveText('Credits for BITBI AI');
+    await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await expect(page.locator('.pricing-card')).toHaveCount(3);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('Free');
+    await expect(page.locator('.pricing-card__title')).toHaveText(['Free', '5,000 credits', '12,000 credits']);
     await expect(page.locator('.pricing-card').nth(0)).toContainText('10 free image generations per UTC day');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('Buy 5000 Credits');
-    await expect(page.locator('.pricing-card').nth(2)).toContainText('Buy 10000 Credits');
-    await expect(page.locator('#pricingOrgSelect')).toHaveValue('org_pricing_1234567890abcdef1234567890ab');
-    await expect(page.locator('#pricingBillingState')).toContainText('Current balance: 1,250 credits');
-    await expect(page.getByText('Internal/Test rollout')).toBeVisible();
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
+    await expect(page.locator('.pricing-card').nth(2)).toContainText('19,99 €');
+    const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
+      nodes.map((node) => node.textContent.trim()),
+    );
+    expect(pricingTitles.some((title) => /10,?000 Credits/i.test(title))).toBe(false);
+    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveAttribute('href', '/account/credits.html');
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveAttribute('href', '/account/credits.html');
+    await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
+    await expect(page.locator('#pricingBillingState')).toHaveCount(0);
+    await expect(page.locator('.pricing-result')).toContainText('Credits dashboard');
 
     const layoutMetrics = await page.locator('.pricing-card').evaluateAll((cards) => cards.map((card) => ({
       width: card.getBoundingClientRect().width,
@@ -3127,21 +3135,15 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('creates Testmode checkout from paid pack CTAs and renders return states', async ({ page }) => {
+  test('paid Pricing CTAs route to the gated Credits dashboard without creating checkout directly', async ({ page }) => {
     const { checkoutRequests } = await mockPricingAccount(page, {
       checkoutUrl: '/pricing?checkout=success',
     });
     await page.goto('/pricing.html');
 
-    await page.locator('[data-checkout-pack="credits_5000"]').click();
-    await expect(page).toHaveURL(/\/pricing\?checkout=success$/);
-    await expect(page.locator('.pricing-return--success')).toContainText('Checkout returned successfully');
-    expect(checkoutRequests).toHaveLength(1);
-    expect(checkoutRequests[0].body).toEqual({ pack_id: 'credits_5000' });
-    expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing:credits_5000:org_pricing_/);
-
-    await page.goto('/pricing?checkout=cancel');
-    await expect(page.locator('.pricing-return--cancel')).toContainText('Checkout cancelled');
+    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveAttribute('href', '/account/credits.html');
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveAttribute('href', '/account/credits.html');
+    expect(checkoutRequests).toHaveLength(0);
   });
 });
 
@@ -5138,15 +5140,38 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'true');
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileAdminAiLabCard')).toBeVisible();
+    await expect(page.locator('#profileWalletCard')).toBeVisible();
+    await expect(page.locator('#profileCreditsCard')).toBeVisible();
+    await expect(page.locator('#profileOrganizationCard')).toBeVisible();
     await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileAdminAiLabCard')).toContainText('AI Lab');
+    await expect(page.locator('#profileStudioStack .profile__studio-card:visible .profile__studio-label')).toHaveText([
+      'AI Studio',
+      'AI Lab',
+      'Wallet',
+      'Credits',
+      'Organization',
+    ]);
 
     const studioBox = await page.locator('#profileStudioCard').boundingBox();
     const labBox = await page.locator('#profileAdminAiLabCard').boundingBox();
+    const walletBox = await page.locator('#profileWalletCard').boundingBox();
+    const creditsBox = await page.locator('#profileCreditsCard').boundingBox();
+    const organizationBox = await page.locator('#profileOrganizationCard').boundingBox();
+    const stackBox = await page.locator('#profileStudioStack').boundingBox();
+    const avatarBox = await page.locator('.profile__avatar-card').boundingBox();
     expect(studioBox).not.toBeNull();
     expect(labBox).not.toBeNull();
+    expect(walletBox).not.toBeNull();
+    expect(creditsBox).not.toBeNull();
+    expect(organizationBox).not.toBeNull();
+    expect(stackBox).not.toBeNull();
+    expect(avatarBox).not.toBeNull();
     expect(Math.abs(studioBox.x - labBox.x)).toBeLessThanOrEqual(2);
     expect(labBox.y).toBeGreaterThan(studioBox.y + studioBox.height - 1);
+    expect(creditsBox.y).toBeGreaterThan(walletBox.y + walletBox.height - 1);
+    expect(organizationBox.y).toBeGreaterThan(creditsBox.y + creditsBox.height - 1);
+    expect(stackBox.height).toBeLessThanOrEqual(avatarBox.height + 8);
 
     await page.locator('#profileAdminAiLabCard').click();
     await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
