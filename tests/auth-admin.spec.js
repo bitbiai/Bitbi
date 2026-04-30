@@ -63,15 +63,18 @@ async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
   await aiLabModeButton(page, mode, rootSelector).click();
 }
 
-async function expandAllAdminNavGroups(page) {
-  // Admin nav groups are accordion-style — only the active group is expanded by default.
-  // Tests that exercise multiple sections expand every group upfront so each link is reachable.
-  const collapsed = page.locator('button.admin-nav__group-toggle[aria-expanded="false"]');
-  for (let safety = 0; safety < 12; safety++) {
-    const count = await collapsed.count();
-    if (count === 0) return;
-    await collapsed.first().click();
-  }
+async function clickAdminNavSection(page, sectionName) {
+  // Admin nav groups are accordion-style and collapse-on-click — clicking a
+  // child link auto-collapses the parent. This helper ensures the parent is
+  // expanded before each click, regardless of prior nav state.
+  await page.evaluate((name) => {
+    const link = document.querySelector(`a.admin-nav__link[data-section="${name}"]`);
+    const toggle = link?.closest('.admin-nav__group')?.querySelector('.admin-nav__group-toggle');
+    if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
+      toggle.click();
+    }
+  }, sectionName);
+  await page.locator(`a.admin-nav__link[data-section="${sectionName}"]`).click();
 }
 
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
@@ -5366,33 +5369,31 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Testmode only');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
-    await expandAllAdminNavGroups(page);
-
-    await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeVisible();
-    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeVisible();
+    await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
 
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Organizations / RBAC');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Billing / Credits');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
 
-    await page.locator('a.admin-nav__link[data-section="security"]').click();
+    await clickAdminNavSection(page, 'security');
     await expect(page).toHaveURL(/#security$/);
     await expect(page.locator('#sectionSecurity')).toContainText('Route Policy Registry');
     await expect(page.locator('#sectionSecurity')).toContainText('Secret values');
 
-    await page.locator('a.admin-nav__link[data-section="orgs"]').click();
+    await clickAdminNavSection(page, 'orgs');
     await expect(page).toHaveURL(/#orgs$/);
     await expect(page.locator('#sectionOrgs')).toContainText('Control Plane Org');
     await page.getByRole('button', { name: 'Inspect' }).first().click();
     await expect(page.locator('#orgDetail')).toContainText('owner@example.com');
     await expect(page.locator('#orgDetail')).toContainText('member@example.com');
 
-    await page.locator('a.admin-nav__link[data-section="billing"]').click();
+    await clickAdminNavSection(page, 'billing');
     await expect(page.locator('#sectionBilling')).toContainText('Free');
     await expect(page.locator('#sectionBilling')).toContainText('ai.text.generate');
     await page.locator('#orgBillingId').fill('org_control_1234567890');
@@ -5416,7 +5417,7 @@ test.describe('Admin Control Plane', () => {
       reason: 'Support adjustment for control-plane test',
     });
 
-    await page.locator('a.admin-nav__link[data-section="billing-events"]').click();
+    await clickAdminNavSection(page, 'billing-events');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Testmode only');
     await expect(page.locator('#billingEventsList')).toContainText('checkout.session.completed');
     await page.locator('#billingEventsList').getByRole('button', { name: 'Inspect' }).click();
@@ -5424,7 +5425,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#billingEventDetail')).not.toContainText('should-not-render');
     await expect(page.locator('#billingEventDetail')).not.toContainText('stripe_signature');
 
-    await page.locator('a.admin-nav__link[data-section="ai-usage"]').click();
+    await clickAdminNavSection(page, 'ai-usage');
     await expect(page.locator('#aiAttemptsList')).toContainText('AI Text');
     await page.locator('#aiAttemptsList').getByRole('button', { name: 'Inspect' }).click();
     await expect(page.locator('#aiAttemptDetail')).toContainText('/api/ai/generate-text');
@@ -5435,20 +5436,20 @@ test.describe('Admin Control Plane', () => {
     expect(captures.aiCleanupRequests[0].idempotencyKey).toMatch(/^ai-usage-cleanup-/);
     expect(captures.aiCleanupRequests[0].body.dry_run).toBe(true);
 
-    await page.locator('a.admin-nav__link[data-section="lifecycle"]').click();
+    await clickAdminNavSection(page, 'lifecycle');
     await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');
     await expect(page.locator('#sectionLifecycle')).toContainText('execute-only rather than dry-run');
     await expect(page.locator('#sectionLifecycle').getByRole('button', { name: /delete|execute/i })).toHaveCount(0);
 
-    await page.locator('a.admin-nav__link[data-section="operations"]').click();
+    await clickAdminNavSection(page, 'operations');
     await expect(page.locator('#sectionOperations')).toContainText('max_attempts');
     await expect(page.locator('#sectionOperations')).toContainText('provider_failed');
 
-    await page.locator('a.admin-nav__link[data-section="readiness"]').click();
+    await clickAdminNavSection(page, 'readiness');
     await expect(page.locator('#sectionReadiness')).toContainText('Production Status');
     await expect(page.locator('#sectionReadiness')).toContainText('Blocked');
 
-    await page.locator('a.admin-nav__link[data-section="settings"]').click();
+    await clickAdminNavSection(page, 'settings');
     await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
     await expect(page.getByRole('button', { name: /enable live|activate live|customer portal|checkout/i })).toHaveCount(0);
 
@@ -5468,7 +5469,6 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expandAllAdminNavGroups(page);
     await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(7);
 
     const dashboardCardWidths = await page.locator('#controlPlaneCapabilityGrid .admin-control-card').evaluateAll((cards) =>
@@ -5488,7 +5488,7 @@ test.describe('Admin Control Plane', () => {
     );
     expect(dashboardBadgeOverlaps).toBe(0);
 
-    await page.locator('a.admin-nav__link[data-section="security"]').click();
+    await clickAdminNavSection(page, 'security');
     await expect(page.locator('#sectionSecurity')).toBeVisible();
     const securityLabelMetrics = await page.locator('#sectionSecurity .admin-inventory__name').evaluateAll((labels) =>
       labels.map((label) => ({
@@ -5700,7 +5700,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Drive through the static night');
     await expect(page.locator('#aiMusicDownload')).toBeVisible();
 
-    await page.locator('a.admin-nav__link[data-section="dashboard"]').click();
+    await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
     await expect(page.locator('#statTotal')).toHaveText('12');
   });

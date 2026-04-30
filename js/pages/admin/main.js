@@ -411,6 +411,7 @@ function bootstrapAdminPanel() {
     }
 
     initAdminNavGroups();
+    initAdminNavLinkCollapse();
     initRouting();
 }
 
@@ -587,6 +588,23 @@ function initAdminNavGroups() {
         toggle.addEventListener('click', () => {
             const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
             setAdminNavGroupExpanded(group, !isExpanded);
+        });
+    });
+}
+
+function initAdminNavLinkCollapse() {
+    // After a child link is clicked, collapse its parent group. rAF runs after
+    // the click default action and hashchange-driven showSection (which auto-
+    // expands the active group) but before the next paint, so there is no
+    // expand-then-collapse flicker. Cold deep-links never fire a link click,
+    // so showSection's auto-expand for direct hash routes is preserved.
+    document.querySelectorAll('.admin-nav__group-items .admin-nav__link').forEach((link) => {
+        link.addEventListener('click', () => {
+            const group = link.closest('.admin-nav__group');
+            if (!group) return;
+            requestAnimationFrame(() => {
+                setAdminNavGroupExpanded(group, false);
+            });
         });
     });
 }
