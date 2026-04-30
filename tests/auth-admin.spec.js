@@ -5558,6 +5558,125 @@ test.describe('Admin Control Plane', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Admin nav accordion: cold-deep-link auto-expand vs. click-to-collapse
+// ---------------------------------------------------------------------------
+
+test.describe('Admin nav accordion behavior', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+    await mockAdminAiLab(page);
+  });
+
+  test('cold load with no hash auto-expands only the Overview group', async ({ page }) => {
+    await page.goto('/admin/index.html');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const overviewToggle = page.locator('.admin-nav__group:has(a[data-section="dashboard"]) > .admin-nav__group-toggle');
+    const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
+    const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+
+    await expect(overviewToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('cold deep link to #ai-lab auto-expands the AI group on load', async ({ page }) => {
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionAiLab')).toBeVisible();
+
+    const aiGroup = page.locator('.admin-nav__group:has(a[data-section="ai-lab"])');
+    const aiToggle = aiGroup.locator('> .admin-nav__group-toggle');
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
+    await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
+  });
+
+  test('cold deep link to #settings auto-expands the System group on load', async ({ page }) => {
+    await page.goto('/admin/index.html#settings');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionSettings')).toBeVisible();
+
+    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="settings"])');
+    const systemToggle = systemGroup.locator('> .admin-nav__group-toggle');
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(systemGroup).toHaveClass(/admin-nav__group--expanded/);
+    await expect(systemGroup).toHaveClass(/admin-nav__group--active/);
+  });
+
+  test('clicking a child link collapses its parent group while keeping the active highlight', async ({ page }) => {
+    await page.goto('/admin/index.html#dashboard');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    // ── AI: open heading manually, then click AI Lab child link ──
+    const aiGroup = page.locator('.admin-nav__group:has(a[data-section="ai-lab"])');
+    const aiToggle = aiGroup.locator('> .admin-nav__group-toggle');
+    const aiLabLink = aiGroup.locator('a[data-section="ai-lab"]');
+
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(aiGroup).not.toHaveClass(/admin-nav__group--active/);
+
+    await aiToggle.click();
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
+
+    await aiLabLink.click();
+    // Wait for navigation to settle: URL hash, visible section, and active link.
+    await expect(page).toHaveURL(/#ai-lab$/);
+    await expect(page.locator('#sectionAiLab')).toBeVisible();
+    await expect(aiLabLink).toHaveClass(/admin-nav__link--active/);
+
+    // After navigation settles, the parent group must be collapsed even
+    // though it remains the active group.
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(aiGroup).not.toHaveClass(/admin-nav__group--expanded/);
+    await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
+
+    // ── Users: open heading, click Users child link ──
+    const usersGroup = page.locator('.admin-nav__group:has(a[data-section="users"])');
+    const usersToggle = usersGroup.locator('> .admin-nav__group-toggle');
+    const usersLink = usersGroup.locator('a[data-section="users"]');
+
+    await usersToggle.click();
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await usersLink.click();
+    await expect(page).toHaveURL(/#users$/);
+    await expect(page.locator('#sectionUsers')).toBeVisible();
+    await expect(usersLink).toHaveClass(/admin-nav__link--active/);
+
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(usersGroup).not.toHaveClass(/admin-nav__group--expanded/);
+    await expect(usersGroup).toHaveClass(/admin-nav__group--active/);
+
+    // AI is no longer the active group.
+    await expect(aiGroup).not.toHaveClass(/admin-nav__group--active/);
+
+    // ── System: open heading, click Settings child link ──
+    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="settings"])');
+    const systemToggle = systemGroup.locator('> .admin-nav__group-toggle');
+    const settingsLink = systemGroup.locator('a[data-section="settings"]');
+
+    await systemToggle.click();
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await settingsLink.click();
+    await expect(page).toHaveURL(/#settings$/);
+    await expect(page.locator('#sectionSettings')).toBeVisible();
+    await expect(settingsLink).toHaveClass(/admin-nav__link--active/);
+
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(systemGroup).not.toHaveClass(/admin-nav__group--expanded/);
+    await expect(systemGroup).toHaveClass(/admin-nav__group--active/);
+
+    // Users is no longer the active group.
+    await expect(usersGroup).not.toHaveClass(/admin-nav__group--active/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Admin AI Lab
 // ---------------------------------------------------------------------------
 

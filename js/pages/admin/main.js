@@ -549,7 +549,14 @@ function showSection(name) {
         g.classList.toggle('admin-nav__group--active', g === activeGroup);
     });
     if (activeGroup) {
-        setAdminNavGroupExpanded(activeGroup, true);
+        // If the user just clicked a child link inside this group, honor the
+        // collapse intent; otherwise (cold deep links, hashchange from elsewhere)
+        // auto-expand the active group.
+        const collapseAfterClick = pendingNavLinkCollapseGroup === activeGroup;
+        pendingNavLinkCollapseGroup = null;
+        setAdminNavGroupExpanded(activeGroup, !collapseAfterClick);
+    } else {
+        pendingNavLinkCollapseGroup = null;
     }
 
     // Update hero
@@ -592,19 +599,26 @@ function initAdminNavGroups() {
     });
 }
 
+// Captures the parent group of a child link the user just clicked, so the
+// next showSection() call can collapse it instead of auto-expanding it.
+// Cold deep links never set this, so showSection's auto-expand still works
+// for direct hash routes.
+let pendingNavLinkCollapseGroup = null;
+
 function initAdminNavLinkCollapse() {
-    // After a child link is clicked, collapse its parent group. rAF runs after
-    // the click default action and hashchange-driven showSection (which auto-
-    // expands the active group) but before the next paint, so there is no
-    // expand-then-collapse flicker. Cold deep-links never fire a link click,
-    // so showSection's auto-expand for direct hash routes is preserved.
     document.querySelectorAll('.admin-nav__group-items .admin-nav__link').forEach((link) => {
         link.addEventListener('click', () => {
             const group = link.closest('.admin-nav__group');
             if (!group) return;
-            requestAnimationFrame(() => {
+            const linkHash = link.getAttribute('href') || '';
+            const currentHash = location.hash || '#dashboard';
+            if (linkHash === currentHash) {
+                // Same-hash click: no hashchange fires, so showSection won't run.
+                // Collapse synchronously instead of relying on the flag.
                 setAdminNavGroupExpanded(group, false);
-            });
+                return;
+            }
+            pendingNavLinkCollapseGroup = group;
         });
     });
 }
