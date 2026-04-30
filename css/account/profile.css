@@ -498,12 +498,6 @@
         outline-offset: 2px;
     }
 
-    .profile__studio-card--lab {
-        --profile-studio-accent: rgba(255, 179, 0, 0.7);
-        --profile-studio-border: rgba(255, 179, 0, 0.16);
-        --profile-studio-glow: rgba(255, 179, 0, 0.18);
-    }
-
     .profile__studio-card--wallet {
         --profile-studio-accent: rgba(34, 197, 94, 0.7);
         --profile-studio-border: rgba(34, 197, 94, 0.16);
@@ -513,34 +507,10 @@
         text-align: start;
     }
 
-    .profile__studio-card--credits {
-        --profile-studio-accent: rgba(0, 240, 255, 0.7);
-        --profile-studio-border: rgba(0, 240, 255, 0.16);
-        --profile-studio-glow: rgba(0, 240, 255, 0.18);
-    }
-
-    .profile__studio-card--organization {
-        --profile-studio-accent: rgba(255, 179, 0, 0.72);
-        --profile-studio-border: rgba(255, 179, 0, 0.16);
-        --profile-studio-glow: rgba(255, 179, 0, 0.18);
-    }
-
     .profile__studio-emoji--wallet {
         background: rgba(34, 197, 94, 0.08);
         border-color: rgba(34, 197, 94, 0.12);
         filter: drop-shadow(0 0 14px rgba(34, 197, 94, 0.24));
-    }
-
-    .profile__studio-emoji--credits {
-        background: rgba(0, 240, 255, 0.08);
-        border-color: rgba(0, 240, 255, 0.12);
-        filter: drop-shadow(0 0 14px rgba(0, 240, 255, 0.24));
-    }
-
-    .profile__studio-emoji--organization {
-        background: rgba(255, 179, 0, 0.08);
-        border-color: rgba(255, 179, 0, 0.12);
-        filter: drop-shadow(0 0 14px rgba(255, 179, 0, 0.24));
     }
 
     .profile__studio-emoji {
@@ -557,12 +527,6 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         filter: drop-shadow(0 0 12px var(--profile-studio-glow));
-    }
-
-    .profile__studio-emoji--lab {
-        background: rgba(255, 179, 0, 0.08);
-        border-color: rgba(255, 179, 0, 0.12);
-        filter: drop-shadow(0 0 14px rgba(255, 179, 0, 0.24));
     }
 
     .profile__studio-label {
@@ -596,73 +560,6 @@
             min-block-size: 0;
         }
 
-        .profile__studio-stack[data-has-credits="true"] {
-            gap: var(--space-3);
-        }
-
-        .profile__studio-stack[data-has-credits="true"] .profile__studio-card {
-            padding: var(--space-5);
-        }
-
-        .profile__studio-stack[data-has-organization="true"] {
-            gap: 0.48rem;
-        }
-
-        .profile__studio-stack[data-has-organization="true"] .profile__studio-card {
-            padding: 0.9rem 1rem;
-            min-block-size: 0;
-        }
-
-        .profile__studio-stack[data-has-organization="true"] .profile__studio-card:not(.profile__studio-card--wallet):not(.profile__studio-card--credits):not(.profile__studio-card--organization) {
-            padding-block: 0.72rem;
-        }
-
-        .profile__studio-stack[data-has-organization="true"] .profile__studio-emoji {
-            inline-size: 2.35rem;
-            block-size: 2.35rem;
-            font-size: 1.22rem;
-        }
-
-        .profile__studio-stack[data-has-organization="true"] .profile__studio-label {
-            font-size: 0.98rem;
-        }
-    }
-
-    .profile-view[hidden] {
-        display: none !important;
-    }
-
-    .profile-ai-lab-view {
-        max-inline-size: var(--container-wide);
-        margin-inline: auto;
-    }
-
-    .profile__admin-lab-shell {
-        display: grid;
-        gap: var(--space-5);
-    }
-
-    .profile-ai-lab__back-link {
-        appearance: none;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        text-decoration: none;
-        cursor: pointer;
-    }
-
-    .profile__admin-lab-shell .glass-card {
-        max-inline-size: none;
-        margin-inline: 0;
-    }
-
-    .profile__admin-lab-shell .admin-ai,
-    .profile__admin-lab-shell .admin-ai__panel {
-        margin-block-end: 0;
-    }
-
-    .profile__admin-lab-shell .admin-ai__save-dialog {
-        max-inline-size: min(32rem, calc(100vw - 2rem));
     }
 
     /* ── Mobile Tab Link ── */
@@ -1302,36 +1199,6 @@
         #profileContent[data-active-tab="favorites"] .profile-layout__sidebar {
             display: block;
             margin-block-start: 0;
-        }
-
-        #profileContent[data-active-tab="favorites"] .profile__admin-lab-shell {
-            display: none;
-        }
-    }
-
-    @media (max-width: 719px) {
-        .profile-ai-lab-view .admin-ai__header-actions,
-        .profile-ai-lab-view .admin-ai__panel-actions {
-            inline-size: 100%;
-        }
-
-        .profile-ai-lab-view .admin-ai__input--compact {
-            min-inline-size: 0;
-            inline-size: 100%;
-        }
-
-        .profile-ai-lab-view .admin-ai__catalog-row {
-            flex-direction: column;
-        }
-
-        .profile-ai-lab-view .admin-ai__catalog-meta {
-            min-inline-size: 0;
-            inline-size: 100%;
-            align-items: flex-start;
-        }
-
-        .profile-ai-lab-view .admin-ai__catalog-code {
-            text-align: start;
         }
     }
 

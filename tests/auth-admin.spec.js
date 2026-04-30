@@ -5143,7 +5143,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
   });
 
-  test('non-admin profile shows only the AI Studio card in the profile action stack', async ({
+  test('non-admin profile shows only Studio and Wallet cards in the profile action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -5153,101 +5153,34 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('#profileStudioCard')).toBeVisible();
-    await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'false');
-    await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
-    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
-    await expect(page.locator('#profileCreditsCard')).toBeHidden();
-    await expect(page.locator('#profileCreditsLink')).toBeHidden();
+    await expect(page.locator('#profileWalletCard')).toBeVisible();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
-
-    await page.goto('/account/profile.html#ai-lab');
-    await expect(page.locator('#profileHomeView')).toBeVisible();
-    await expect(page.locator('#profileAiLabView')).toBeHidden();
-    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
-    await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
+    await expect(page.locator('#profileCreditsCard')).toHaveCount(0);
+    await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
+    await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('admin profile keeps AI Lab inside the Profile shell without exposing admin hero or nav chrome', async ({
+  test('admin profile shows the same simplified Studio + Wallet stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
-    await mockAdminAiLab(page);
 
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('#profileStudioStack')).toHaveAttribute('data-has-admin-lab', 'true');
     await expect(page.locator('#profileStudioCard')).toBeVisible();
-    await expect(page.locator('#profileAdminAiLabCard')).toBeVisible();
     await expect(page.locator('#profileWalletCard')).toBeVisible();
-    await expect(page.locator('#profileCreditsCard')).toBeVisible();
-    await expect(page.locator('#profileOrganizationCard')).toBeVisible();
-    await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('#profileOrganizationCard')).toHaveAttribute('href', '/account/organization.html');
-    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
-    await expect(page.locator('#profileAdminAiLabCard')).toContainText('AI Lab');
-    await expect(page.locator('#profileStudioStack .profile__studio-card:visible .profile__studio-label')).toHaveText([
-      'AI Studio',
-      'AI Lab',
-      'Wallet',
-      'Credits',
-      'Organization',
-    ]);
-
-    const studioBox = await page.locator('#profileStudioCard').boundingBox();
-    const labBox = await page.locator('#profileAdminAiLabCard').boundingBox();
-    const walletBox = await page.locator('#profileWalletCard').boundingBox();
-    const creditsBox = await page.locator('#profileCreditsCard').boundingBox();
-    const organizationBox = await page.locator('#profileOrganizationCard').boundingBox();
-    const stackBox = await page.locator('#profileStudioStack').boundingBox();
-    const avatarBox = await page.locator('.profile__avatar-card').boundingBox();
-    expect(studioBox).not.toBeNull();
-    expect(labBox).not.toBeNull();
-    expect(walletBox).not.toBeNull();
-    expect(creditsBox).not.toBeNull();
-    expect(organizationBox).not.toBeNull();
-    expect(stackBox).not.toBeNull();
-    expect(avatarBox).not.toBeNull();
-    expect(Math.abs(studioBox.x - labBox.x)).toBeLessThanOrEqual(2);
-    expect(labBox.y).toBeGreaterThan(studioBox.y + studioBox.height - 1);
-    expect(creditsBox.y).toBeGreaterThan(walletBox.y + walletBox.height - 1);
-    expect(organizationBox.y).toBeGreaterThan(creditsBox.y + creditsBox.height - 1);
-    expect(organizationBox.y + organizationBox.height).toBeLessThanOrEqual(stackBox.y + stackBox.height + 2);
-    expect(stackBox.height).toBeLessThanOrEqual(avatarBox.height + 8);
-
-    await page.locator('#profileAdminAiLabCard').click();
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
-    await expect(page.locator('#profileHeroLabel')).toHaveCount(0);
-    await expect(page.locator('#profileHeroTitle')).toHaveText('AI Lab');
-    await expect(page.locator('#profileHeroDesc')).toHaveText(
-      'Admin-only testing surface, kept inside your Profile workspace.',
-    );
-    await expect(page.locator('#profileHomeView')).toBeHidden();
-    await expect(page.locator('#profileAiLabView')).toBeVisible();
-    await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#adminHeroTitle')).toHaveCount(0);
-    await expect(page.locator('#adminNav')).toHaveCount(0);
-    await expect(page.locator('a.admin-nav__link[data-section="ai-lab"]')).toHaveCount(0);
-    await expect(page.locator('.admin-quick-link[data-nav="ai-lab"]')).toHaveCount(0);
-    await expect(page.locator('#summaryName')).toBeHidden();
-
-    await page.locator('#aiLabRefreshModels').click();
-    await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
-    await clickAiLabMode(page, 'text');
-    await expect(page.locator('#aiTextPreset option')).toHaveCount(2);
-    await page.locator('#aiTextPrompt').fill('profile ai lab smoke');
-    await page.locator('#aiTextRun').click();
-    await expect(page.locator('#aiTextOutput')).toContainText('Mocked text output from admin AI Lab.');
-
-    await page.locator('#profileAiLabBack').click();
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
-    await expect(page.locator('#profileHeroLabel')).toHaveCount(0);
-    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
-    await expect(page.locator('#profileHeroDesc')).toHaveText('View and manage your account');
-    await expect(page.locator('#profileAiLabView')).toBeHidden();
-    await expect(page.locator('#profileHomeView')).toBeVisible();
+    await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+    await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
+    await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
+    await expect(page.locator('#profileCreditsCard')).toHaveCount(0);
+    await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
+    await expect(page.locator('#profileAiLabView')).toHaveCount(0);
+    await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
+    await expect(page.locator('#profileCreditsLink')).toHaveCount(0);
+    await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
   });
 });
 
@@ -5318,11 +5251,10 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-profile')).toBeVisible();
   });
 
-  test('admin mobile profile shows AI Lab beside Studio and hides the lower AI cards', async ({
+  test('admin mobile profile shows the same simplified tab bar as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin' });
-    await mockAdminAiLab(page);
 
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
@@ -5330,39 +5262,23 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileStudioStack')).toBeHidden();
-    await expect(page.locator('#profileStudioCard')).toBeHidden();
-    await expect(page.locator('#profileAdminAiLabCard')).toBeHidden();
-    await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Organization', 'Studio', 'AI Lab']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
+    await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
+    await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
+    await expect(page.locator('#profileAiLabView')).toHaveCount(0);
 
     const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
       (node) => node.scrollWidth > node.clientWidth + 1,
     );
     expect(tabBarOverflow).toBe(false);
-    const tabBarHeight = await page.locator('#profileTabBar').evaluate((node) => node.getBoundingClientRect().height);
-    expect(tabBarHeight).toBeLessThanOrEqual(90);
-
-    await page.locator('#profileMobileAiLabLink').click();
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?#ai-lab$/);
-    await expect(page.locator('#profileHeroTitle')).toHaveText('AI Lab');
-    await expect(page.locator('#profileHomeView')).toBeHidden();
-    await expect(page.locator('#profileAiLabView')).toBeVisible();
-    await expect(page.locator('#sectionAiLab')).toBeVisible({ timeout: 10_000 });
 
     const hasOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     );
     expect(hasOverflow).toBe(false);
-
-    await page.locator('#profileAiLabBack').click();
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
-    await expect(page.locator('#profileHomeView')).toBeVisible();
-    await expect(page.locator('#profileAiLabView')).toBeHidden();
-    await expect(page.locator('#profileMobileAiLabLink')).toBeVisible();
   });
 
-  test('non-admin mobile profile keeps only Studio in the top row and rejects AI Lab state', async ({
+  test('non-admin mobile profile keeps only Studio in the tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -5373,18 +5289,12 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileStudioStack')).toBeHidden();
-    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
     await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
-
-    await page.goto('/account/profile.html#ai-lab');
-    await expect(page.locator('#profileHomeView')).toBeVisible();
-    await expect(page.locator('#profileAiLabView')).toBeHidden();
-    await expect(page.locator('#profileHeroTitle')).toHaveText('My Profile');
-    await expect(page).toHaveURL(/\/account\/profile(?:\.html)?$/);
+    await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
+    await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('organization owner mobile profile shows Credits below Wallet without exposing AI Lab', async ({
+  test('organization owner mobile profile keeps the simplified Wallet + Studio tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -5402,10 +5312,10 @@ test.describe('Profile page (authenticated mobile)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#profileCreditsLink')).toBeVisible();
-    await expect(page.locator('#profileMobileAiLabLink')).toBeHidden();
-    await expect(page.locator('#profileOrganizationLink')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Organization', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
+    await expect(page.locator('#profileCreditsLink')).toHaveCount(0);
+    await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
+    await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
 
     const tabBarOverflow = await page.locator('#profileTabBar').evaluate(
       (node) => node.scrollWidth > node.clientWidth + 1,
@@ -6872,7 +6782,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoImageClear')).toBeHidden();
   });
 
-  test('shows the Vidu Q3 Pro video card in both the admin AI Lab and profile AI Lab embed', async ({
+  test('shows the Vidu Q3 Pro video card in the admin AI Lab', async ({
     page,
   }) => {
     await page.goto('/admin/index.html#ai-lab');
@@ -6881,15 +6791,6 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
-
-    await mockAuthenticatedProfile(page, { role: 'admin' });
-    await mockAdminAiLab(page);
-    await page.goto('/account/profile.html#ai-lab');
-    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await clickAiLabMode(page, 'video');
-    await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
-    await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
-    await expect(page.locator('#aiVideoCardVidu')).toContainText('Vidu Q3 Pro');
   });
 
   test('Vidu Q3 Pro sends supported text-to-video and start/end-frame payloads and renders the shared video preview', async ({

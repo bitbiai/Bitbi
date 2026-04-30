@@ -111,21 +111,39 @@
 <!-- ADMIN NAV -->
 <nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none">
     <div class="admin-nav__inner">
-        <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
-        <a href="#security" class="admin-nav__link" data-section="security">Security</a>
-        <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
-        <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
-        <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
-        <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
-        <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
-        <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
-        <a href="#readiness" class="admin-nav__link" data-section="readiness">Readiness</a>
-        <a href="#users" class="admin-nav__link" data-section="users">Users</a>
-        <a href="#content" class="admin-nav__link" data-section="content">Content</a>
-        <a href="#media" class="admin-nav__link" data-section="media">Media</a>
-        <a href="#access" class="admin-nav__link" data-section="access">Access</a>
-        <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
-        <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
+        <div class="admin-nav__group" role="group" aria-label="Overview">
+            <span class="admin-nav__group-label">Overview</span>
+            <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
+        </div>
+        <div class="admin-nav__group" role="group" aria-label="Users">
+            <span class="admin-nav__group-label">Users</span>
+            <a href="#users" class="admin-nav__link" data-section="users">Users</a>
+            <a href="#security" class="admin-nav__link" data-section="security">Security</a>
+            <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
+            <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+        </div>
+        <div class="admin-nav__group" role="group" aria-label="AI">
+            <span class="admin-nav__group-label">AI</span>
+            <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
+            <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
+        </div>
+        <div class="admin-nav__group" role="group" aria-label="Finance">
+            <span class="admin-nav__group-label">Finance</span>
+            <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
+            <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
+            <a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Credits</a>
+        </div>
+        <div class="admin-nav__group" role="group" aria-label="Organization">
+            <span class="admin-nav__group-label">Organization</span>
+            <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
+            <a href="/account/organization.html" class="admin-nav__link admin-nav__link--external" data-section="organization">Organization</a>
+        </div>
+        <div class="admin-nav__group" role="group" aria-label="System">
+            <span class="admin-nav__group-label">System</span>
+            <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
+            <a href="#readiness" class="admin-nav__link" data-section="readiness">Readiness</a>
+            <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
+        </div>
     </div>
 </nav>
 
@@ -265,13 +283,17 @@
                         <span class="admin-quick-link__icon">&#x1F512;</span>
                         <span class="admin-quick-link__label">Data Lifecycle</span>
                     </a>
-                    <a href="#content" class="admin-quick-link glass glass-card reveal" data-nav="content">
-                        <span class="admin-quick-link__icon">&#x1F4DD;</span>
-                        <span class="admin-quick-link__label">Content</span>
+                    <a href="#ai-lab" class="admin-quick-link glass glass-card reveal" data-nav="ai-lab">
+                        <span class="admin-quick-link__icon">&#x1F9EA;</span>
+                        <span class="admin-quick-link__label">AI Lab</span>
                     </a>
-                    <a href="#media" class="admin-quick-link glass glass-card reveal" data-nav="media">
-                        <span class="admin-quick-link__icon">&#x1F3A8;</span>
-                        <span class="admin-quick-link__label">Media Library</span>
+                    <a href="/account/credits.html" class="admin-quick-link glass glass-card reveal" data-nav="credits">
+                        <span class="admin-quick-link__icon">&#x1F4B0;</span>
+                        <span class="admin-quick-link__label">Credits</span>
+                    </a>
+                    <a href="/account/organization.html" class="admin-quick-link glass glass-card reveal" data-nav="organization">
+                        <span class="admin-quick-link__icon">&#x1F3DB;</span>
+                        <span class="admin-quick-link__label">Organization</span>
                     </a>
                     <a href="#activity" class="admin-quick-link glass glass-card reveal" data-nav="activity">
                         <span class="admin-quick-link__icon">&#x1F4CB;</span>

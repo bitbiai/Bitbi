@@ -96,10 +96,7 @@ const sections = {
     operations: document.getElementById('sectionOperations'),
     readiness: document.getElementById('sectionReadiness'),
     users:     document.getElementById('sectionUsers'),
-    content:   document.getElementById('sectionContent'),
-    media:     document.getElementById('sectionMedia'),
     'ai-lab':  document.getElementById('sectionAiLab'),
-    access:    document.getElementById('sectionAccess'),
     activity:  document.getElementById('sectionActivity'),
     settings:  document.getElementById('sectionSettings'),
 };
@@ -116,10 +113,7 @@ const sectionMeta = {
     operations: { title: 'Operations',      desc: 'Async AI video diagnostics and operational visibility' },
     readiness: { title: 'Readiness',        desc: 'Release, migration, Cloudflare, and staging verification checklist' },
     users:     { title: 'User Management',  desc: 'Manage users, roles, and sessions' },
-    content:   { title: 'Content',          desc: 'Site content entries and publishing' },
-    media:     { title: 'Media Library',    desc: 'Assets, images, audio, and video files' },
     'ai-lab':  { title: 'AI Lab',           desc: 'Admin-only AI tests, previews, and model comparisons' },
-    access:    { title: 'Access Control',   desc: 'Membership gating and role-based access' },
     activity:  { title: 'Activity',         desc: 'Audit trail and admin actions' },
     settings:  { title: 'Admin Settings',   desc: 'Safe settings boundaries and deployment-owned configuration' },
 };
@@ -472,9 +466,6 @@ let activityExpanded = false;
 let activitySearchTimer = null;
 const ACTIVITY_LIMIT = 50;
 const ACTIVITY_VISIBLE = 10;
-let contentLoaded = false;
-let mediaLoaded = false;
-let accessLoaded = false;
 let adminNavOffsetObserver = null;
 
 const ADMIN_ACTION_LABELS = {
@@ -564,10 +555,7 @@ function showSection(name) {
     });
     if (name === 'users') loadUsers($searchInput.value.trim());
     if (name === 'activity') loadActivity();
-    if (name === 'content' && !contentLoaded) { loadContent(); contentLoaded = true; }
-    if (name === 'media' && !mediaLoaded) { loadMedia(); mediaLoaded = true; }
     if (name === 'ai-lab') aiLab.show();
-    if (name === 'access' && !accessLoaded) { loadAccess(); accessLoaded = true; }
 }
 
 function initRouting() {

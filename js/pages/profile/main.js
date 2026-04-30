@@ -26,7 +26,6 @@ import {
     apiDeleteAvatar,
     apiGetFavorites,
     apiGetProfile,
-    apiListOrganizations,
     apiLogout,
     apiRemoveFavorite,
     apiRequestReverification,
@@ -42,7 +41,6 @@ import {
     getPublicMempicVersionFromUrl,
     getPublicMemvidVersionFromUrl,
 } from '../../shared/public-media-contract.mjs';
-import { createAdminAiLab } from '../admin/ai-lab.js?v=__ASSET_VERSION__';
 import { buildSoundLabTrack, getSoundLabTrackBySlug } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
 import {
     initGlobalAudioManager,
@@ -58,11 +56,6 @@ import {
 const $loading        = document.getElementById('loadingState');
 const $denied         = document.getElementById('deniedState');
 const $content        = document.getElementById('profileContent');
-const $hero           = document.getElementById('profileHero');
-const $heroTitle      = document.getElementById('profileHeroTitle');
-const $heroDesc       = document.getElementById('profileHeroDesc');
-const $homeView       = document.getElementById('profileHomeView');
-const $aiLabView      = document.getElementById('profileAiLabView');
 
 const $summaryName    = document.getElementById('summaryName');
 const $summaryEmail   = document.getElementById('summaryEmail');
@@ -74,16 +67,7 @@ const $walletSectionMsg = document.getElementById('walletSectionMsg');
 const $walletSectionRows = document.getElementById('walletSectionRows');
 const $walletSectionActions = document.getElementById('walletSectionActions');
 const $profileWalletWorkspaceBtn = document.getElementById('profileWalletWorkspaceBtn');
-const $profileCreditsLink = document.getElementById('profileCreditsLink');
-const $profileOrganizationLink = document.getElementById('profileOrganizationLink');
-const $studioStack    = document.getElementById('profileStudioStack');
-const $adminAiLabCard = document.getElementById('profileAdminAiLabCard');
 const $walletCard     = document.getElementById('profileWalletCard');
-const $creditsCard    = document.getElementById('profileCreditsCard');
-const $organizationCard = document.getElementById('profileOrganizationCard');
-const $mobileAiLabLink = document.getElementById('profileMobileAiLabLink');
-const $aiLabBackBtn   = document.getElementById('profileAiLabBack');
-const $aiLabToast     = document.getElementById('profileAiLabToast');
 
 const $form           = document.getElementById('profileForm');
 const $displayName    = document.getElementById('displayName');
@@ -110,23 +94,7 @@ const $avatarAssetsFilter = document.getElementById('avatarAssetsFilter');
 const $avatarAssetsStatus = document.getElementById('avatarAssetsStatus');
 const $avatarAssetsGrid = document.getElementById('avatarAssetsGrid');
 
-const PROFILE_VIEW = 'profile';
-const AI_LAB_HASH = 'ai-lab';
-let canAccessAdminAiLab = false;
 let walletViewState = null;
-
-const HERO_CONTENT = {
-    [PROFILE_VIEW]: {
-        ariaLabel: 'My Profile',
-        title: 'My Profile',
-        desc: 'View and manage your account',
-    },
-    [AI_LAB_HASH]: {
-        ariaLabel: 'Profile / AI Lab',
-        title: 'AI Lab',
-        desc: 'Admin-only testing surface, kept inside your Profile workspace.',
-    },
-};
 
 function setActiveTab(tab) {
     if (!$content) return;
@@ -138,81 +106,6 @@ function setActiveTab(tab) {
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-selected', String(isActive));
     });
-}
-
-function showAiLabToast(message, type = 'success') {
-    if (!$aiLabToast || !message) return;
-
-    const item = document.createElement('div');
-    item.className = `admin-toast__item admin-toast__item--${type === 'error' ? 'error' : 'success'}`;
-    item.textContent = message;
-    $aiLabToast.appendChild(item);
-    setTimeout(() => item.remove(), 3000);
-}
-
-const aiLab = createAdminAiLab({ showToast: showAiLabToast });
-
-function getProfileHashView() {
-    return location.hash.replace(/^#/, '').trim().toLowerCase();
-}
-
-function applyHeroContent(view) {
-    const heroContent = HERO_CONTENT[view] || HERO_CONTENT[PROFILE_VIEW];
-
-    $hero?.setAttribute('aria-label', heroContent.ariaLabel);
-    if ($heroTitle) $heroTitle.textContent = heroContent.title;
-    if ($heroDesc) $heroDesc.textContent = heroContent.desc;
-}
-
-function clearAiLabHash() {
-    history.replaceState(null, '', `${location.pathname}${location.search}`);
-}
-
-function setActiveView(view) {
-    const resolvedView = view === AI_LAB_HASH && canAccessAdminAiLab ? AI_LAB_HASH : PROFILE_VIEW;
-
-    if ($content) {
-        $content.dataset.activeView = resolvedView;
-    }
-    if ($homeView) {
-        $homeView.hidden = resolvedView !== PROFILE_VIEW;
-    }
-    if ($aiLabView) {
-        $aiLabView.hidden = resolvedView !== AI_LAB_HASH;
-    }
-    if ($adminAiLabCard) {
-        if (resolvedView === AI_LAB_HASH) {
-            $adminAiLabCard.setAttribute('aria-current', 'page');
-        } else {
-            $adminAiLabCard.removeAttribute('aria-current');
-        }
-    }
-    if ($mobileAiLabLink) {
-        if (resolvedView === AI_LAB_HASH) {
-            $mobileAiLabLink.setAttribute('aria-current', 'page');
-        } else {
-            $mobileAiLabLink.removeAttribute('aria-current');
-        }
-    }
-
-    applyHeroContent(resolvedView);
-
-    if (resolvedView === AI_LAB_HASH) {
-        setActiveTab('profile');
-        aiLab.show();
-    }
-
-    return resolvedView;
-}
-
-function syncAiLabView() {
-    const wantsAiLab = getProfileHashView() === AI_LAB_HASH;
-
-    if (wantsAiLab && !canAccessAdminAiLab) {
-        clearAiLabHash();
-    }
-
-    setActiveView(wantsAiLab && canAccessAdminAiLab ? AI_LAB_HASH : PROFILE_VIEW);
 }
 
 /* ── Mobile tab switcher ── */
@@ -232,40 +125,6 @@ $profileWalletWorkspaceBtn?.addEventListener('click', () => {
 $walletCard?.addEventListener('click', () => {
     openWalletWorkspaceView();
 });
-
-let creditsEligibilitySeq = 0;
-
-function setCreditsNavVisible(visible) {
-    if ($profileCreditsLink) $profileCreditsLink.hidden = !visible;
-    if ($creditsCard) $creditsCard.hidden = !visible;
-    if ($profileOrganizationLink) $profileOrganizationLink.hidden = !visible;
-    if ($organizationCard) $organizationCard.hidden = !visible;
-    if ($studioStack) $studioStack.dataset.hasCredits = visible ? 'true' : 'false';
-    if ($studioStack) $studioStack.dataset.hasOrganization = visible ? 'true' : 'false';
-}
-
-async function syncCreditsEligibility(account) {
-    const seq = ++creditsEligibilitySeq;
-    setCreditsNavVisible(false);
-    if (!account) return;
-    if (account.role === 'admin') {
-        setCreditsNavVisible(true);
-        return;
-    }
-    try {
-        const res = await apiListOrganizations({ limit: 100 });
-        if (seq !== creditsEligibilitySeq) return;
-        const organizations = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
-        const canUseCredits = res.ok && organizations.some((org) =>
-            org?.status === 'active' && org?.role === 'owner'
-        );
-        setCreditsNavVisible(canUseCredits);
-    } catch {
-        if (seq === creditsEligibilitySeq) setCreditsNavVisible(false);
-    }
-}
-
-window.addEventListener('hashchange', syncAiLabView);
 
 /* ── Date formatter ── */
 const dtf = new Intl.DateTimeFormat('de-DE', {
@@ -858,23 +717,9 @@ function showState(el) {
 
 /* ── Render profile data ── */
 function renderProfile(profile, account) {
-    const isAdmin = account?.role === 'admin';
-    canAccessAdminAiLab = isAdmin;
-
-    if ($studioStack) {
-        $studioStack.dataset.hasAdminLab = isAdmin ? 'true' : 'false';
-    }
-    if ($adminAiLabCard) {
-        $adminAiLabCard.hidden = !isAdmin;
-    }
     if ($walletCard) {
         $walletCard.hidden = false;
     }
-    if ($mobileAiLabLink) {
-        $mobileAiLabLink.hidden = !isAdmin;
-    }
-    syncCreditsEligibility(account);
-    syncAiLabView();
 
     // Summary card
     $summaryName.textContent = profile.display_name || '\u2014';
@@ -1509,15 +1354,6 @@ async function init() {
             renderFavorites(favRes.data.favorites);
         }
     }).catch(e => console.warn('favorites:', e));
-
-    if ($aiLabBackBtn) {
-        $aiLabBackBtn.addEventListener('click', () => {
-            setActiveTab('profile');
-            clearAiLabHash();
-            syncAiLabView();
-            $adminAiLabCard?.focus();
-        });
-    }
 
     // Avatar source chooser + picker
     $avatarChangeBtn?.addEventListener('click', () => {
