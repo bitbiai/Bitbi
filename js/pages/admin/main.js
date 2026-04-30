@@ -410,6 +410,7 @@ function bootstrapAdminPanel() {
         });
     }
 
+    initAdminNavGroups();
     initRouting();
 }
 
@@ -540,6 +541,16 @@ function showSection(name) {
         link.classList.toggle('admin-nav__link--active', isActive);
     });
 
+    // Mark the active group and ensure it is expanded
+    const activeLink = document.querySelector(`.admin-nav__link[data-section="${name}"]`);
+    const activeGroup = activeLink?.closest('.admin-nav__group');
+    document.querySelectorAll('.admin-nav__group').forEach(g => {
+        g.classList.toggle('admin-nav__group--active', g === activeGroup);
+    });
+    if (activeGroup) {
+        setAdminNavGroupExpanded(activeGroup, true);
+    }
+
     // Update hero
     const meta = sectionMeta[name];
     if (meta) {
@@ -556,6 +567,28 @@ function showSection(name) {
     if (name === 'users') loadUsers($searchInput.value.trim());
     if (name === 'activity') loadActivity();
     if (name === 'ai-lab') aiLab.show();
+}
+
+function setAdminNavGroupExpanded(group, expanded) {
+    const toggle = group.querySelector('.admin-nav__group-toggle');
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    group.classList.toggle('admin-nav__group--expanded', expanded);
+}
+
+function initAdminNavGroups() {
+    const groups = document.querySelectorAll('.admin-nav__group');
+    groups.forEach((group) => {
+        const toggle = group.querySelector('.admin-nav__group-toggle');
+        if (!toggle) return;
+        // Sync the explicit class with the initial aria-expanded state from HTML
+        const initiallyExpanded = toggle.getAttribute('aria-expanded') === 'true';
+        group.classList.toggle('admin-nav__group--expanded', initiallyExpanded);
+        toggle.addEventListener('click', () => {
+            const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+            setAdminNavGroupExpanded(group, !isExpanded);
+        });
+    });
 }
 
 function initRouting() {

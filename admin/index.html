@@ -112,37 +112,67 @@
 <nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none">
     <div class="admin-nav__inner">
         <div class="admin-nav__group" role="group" aria-label="Overview">
-            <span class="admin-nav__group-label">Overview</span>
-            <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupOverview">
+                <span class="admin-nav__group-label">Overview</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupOverview">
+                <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
+            </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="Users">
-            <span class="admin-nav__group-label">Users</span>
-            <a href="#users" class="admin-nav__link" data-section="users">Users</a>
-            <a href="#security" class="admin-nav__link" data-section="security">Security</a>
-            <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
-            <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupUsers">
+                <span class="admin-nav__group-label">Users</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupUsers">
+                <a href="#users" class="admin-nav__link" data-section="users">Users</a>
+                <a href="#security" class="admin-nav__link" data-section="security">Security</a>
+                <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
+                <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+            </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="AI">
-            <span class="admin-nav__group-label">AI</span>
-            <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
-            <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupAi">
+                <span class="admin-nav__group-label">AI</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupAi">
+                <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
+                <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
+            </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="Finance">
-            <span class="admin-nav__group-label">Finance</span>
-            <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
-            <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
-            <a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Credits</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupFinance">
+                <span class="admin-nav__group-label">Finance</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupFinance">
+                <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
+                <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
+                <a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Credits</a>
+            </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="Organization">
-            <span class="admin-nav__group-label">Organization</span>
-            <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
-            <a href="/account/organization.html" class="admin-nav__link admin-nav__link--external" data-section="organization">Organization</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupOrg">
+                <span class="admin-nav__group-label">Organization</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupOrg">
+                <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
+                <a href="/account/organization.html" class="admin-nav__link admin-nav__link--external" data-section="organization">Organization</a>
+            </div>
         </div>
         <div class="admin-nav__group" role="group" aria-label="System">
-            <span class="admin-nav__group-label">System</span>
-            <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
-            <a href="#readiness" class="admin-nav__link" data-section="readiness">Readiness</a>
-            <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
+            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupSystem">
+                <span class="admin-nav__group-label">System</span>
+                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="admin-nav__group-items" id="adminNavGroupSystem">
+                <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
+                <a href="#readiness" class="admin-nav__link" data-section="readiness">Readiness</a>
+                <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
+            </div>
         </div>
     </div>
 </nav>

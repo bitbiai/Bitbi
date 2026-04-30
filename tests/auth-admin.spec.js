@@ -63,6 +63,17 @@ async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
   await aiLabModeButton(page, mode, rootSelector).click();
 }
 
+async function expandAllAdminNavGroups(page) {
+  // Admin nav groups are accordion-style — only the active group is expanded by default.
+  // Tests that exercise multiple sections expand every group upfront so each link is reachable.
+  const collapsed = page.locator('button.admin-nav__group-toggle[aria-expanded="false"]');
+  for (let safety = 0; safety < 12; safety++) {
+    const count = await collapsed.count();
+    if (count === 0) return;
+    await collapsed.first().click();
+  }
+}
+
 function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   const folders = cloneJson(folderPayload.folders || []);
   const assetMap = new Map();
@@ -5355,6 +5366,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Testmode only');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
+    await expandAllAdminNavGroups(page);
+
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeVisible();
     await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeVisible();
     await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeVisible();
@@ -5455,6 +5468,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expandAllAdminNavGroups(page);
     await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(7);
 
     const dashboardCardWidths = await page.locator('#controlPlaneCapabilityGrid .admin-control-card').evaluateAll((cards) =>
