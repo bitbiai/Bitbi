@@ -12,6 +12,15 @@
         scroll-behavior: auto;
     }
 
+    /* ── Hide the page hero in the admin area ──
+       The grouped admin nav is the operator's primary anchor; the hero title and
+       description duplicate the active section's nav state. Hiding (not removing)
+       preserves #adminHeroTitle / #adminHeroDesc in the DOM so existing JS
+       (showSection text updates) and tests (toHaveText) keep working. */
+    section.hero.hero--compact {
+        display: none;
+    }
+
     /* ── Admin Navigation ── */
     .admin-nav {
         position: sticky;

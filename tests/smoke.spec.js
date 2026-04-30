@@ -29,7 +29,6 @@ const COMPACT_HERO_PATHS = [
   '/legal/datenschutz.html',
   '/account/profile.html',
   '/account/image-studio.html',
-  '/admin/index.html',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
