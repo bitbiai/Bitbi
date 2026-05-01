@@ -1416,6 +1416,22 @@ async function mockAdminControlPlane(page, captures = {}) {
   await page.route('**/api/admin/orgs', async (route) => {
     await fulfillJson(route, orgList);
   });
+  await page.route('**/api/admin/users?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      users: [
+        {
+          id: 'user_member',
+          email: 'member@example.com',
+          role: 'user',
+          status: 'active',
+          created_at: '2026-04-18T11:05:00.000Z',
+          updated_at: '2026-04-18T11:05:00.000Z',
+        },
+      ],
+      next_cursor: null,
+    });
+  });
   await page.route('**/api/admin/orgs/org_control_1234567890', async (route) => {
     await fulfillJson(route, {
       ok: true,
@@ -2342,6 +2358,7 @@ async function mockCreditsAccount(page, {
   ],
   dashboard = null,
   organizationDashboard = null,
+  memberDashboard = null,
   checkoutRequests = [],
   checkoutUrl = 'https://checkout.stripe.com/c/pay/cs_live_credits_5000',
 } = {}) {
@@ -2371,6 +2388,69 @@ async function mockCreditsAccount(page, {
     ],
     purchaseHistory: [],
     recentLedger: [],
+  };
+  const defaultMemberDashboard = memberDashboard || {
+    account: {
+      userId: `${role}-credits-user`,
+      email,
+      role,
+      status: 'active',
+    },
+    balance: {
+      current: 10,
+      available: 10,
+      dailyAllowance: 10,
+      lifetimeIncoming: 17,
+      lifetimeDailyTopUps: 7,
+      lifetimeManualGrants: 10,
+      lifetimeConsumed: 1,
+    },
+    dailyTopUp: {
+      dayStart: '2026-05-01T00:00:00.000Z',
+      grantedCredits: 7,
+      reused: false,
+      dailyAllowance: 10,
+    },
+    transactions: [{
+      id: 'mcl_member_usage',
+      type: 'usage_charge',
+      entryType: 'consume',
+      source: 'member_ai_image_generate',
+      featureKey: 'ai.image.generate',
+      amount: -1,
+      balanceAfter: 9,
+      createdAt: '2026-05-01T12:10:00.000Z',
+      description: 'Image generation charge for flux-1-schnell',
+      usage: {
+        id: 'ue_member_usage',
+        featureKey: 'ai.image.generate',
+        quantity: 1,
+        creditsDelta: -1,
+        status: 'succeeded',
+        model: 'flux-1-schnell',
+        action: 'image_generation',
+        pricingSource: 'org_image_credit_catalog',
+      },
+    }, {
+      id: 'mcl_member_grant',
+      type: 'manual_grant',
+      entryType: 'grant',
+      source: 'manual_admin_grant',
+      amount: 10,
+      balanceAfter: 10,
+      createdAt: '2026-05-01T11:00:00.000Z',
+      description: 'Member support adjustment',
+      createdByEmail: 'admin@bitbi.ai',
+    }, {
+      id: 'mcl_member_topup',
+      type: 'daily_top_up',
+      entryType: 'grant',
+      source: 'daily_member_top_up',
+      amount: 7,
+      balanceAfter: 10,
+      createdAt: '2026-05-01T00:00:00.000Z',
+      description: 'Daily member credit top-up to 10 credits',
+    }],
   };
   const defaultOrganizationDashboard = organizationDashboard || {
     ...defaultDashboard,
@@ -2439,6 +2519,9 @@ async function mockCreditsAccount(page, {
   });
   await page.route('**/api/orgs/*/billing/credits-dashboard*', async (route) => {
     await fulfillJson(route, { ok: true, dashboard: defaultDashboard });
+  });
+  await page.route('**/api/account/credits-dashboard*', async (route) => {
+    await fulfillJson(route, { ok: true, dashboard: defaultMemberDashboard });
   });
   await page.route('**/api/orgs/*/organization-dashboard*', async (route) => {
     await fulfillJson(route, { ok: true, dashboard: defaultOrganizationDashboard });
@@ -3241,7 +3324,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await seedCookieConsent(page);
   });
 
-  test('keeps direct Credits access gated for unauthenticated users and organization admins', async ({ page }) => {
+  test('keeps direct Credits access gated for unauthenticated users and falls back to member credits without owner org access', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
@@ -3262,7 +3345,9 @@ test.describe('Credits dashboard live credit packs', () => {
       }],
     });
     await page.goto('/account/credits.html');
-    await expect(page.locator('#creditsDenied')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
+    await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
   });
 
@@ -3290,6 +3375,29 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(checkoutRequests).toHaveLength(1);
     expect(checkoutRequests[0].body).toEqual({ pack_id: 'live_credits_5000' });
     expect(checkoutRequests[0].idempotencyKey).toMatch(/^credits-live:org_credits_/);
+  });
+
+  test('renders member Credits page with personal balance, top-up status, and own transactions', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      email: 'member-credits@example.com',
+      organizations: [],
+    });
+    const response = await page.goto('/account/credits.html?scope=member');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
+    await expect(page.locator('#creditsScopeLabel')).toHaveText('Member account');
+    await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
+    await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Current balance');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('10 credits');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Daily top-up target');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Manual grants');
+    await expect(page.locator('#creditsLedgerBody')).toContainText('Image generation charge for flux-1-schnell');
+    await expect(page.locator('#creditsLedgerBody')).toContainText('org_image_credit_catalog');
+    await expect(page.locator('#creditsLedgerBody')).toContainText('Member support adjustment');
+    await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(0);
+    await expect(page.locator('#creditsPurchasesSection')).toBeHidden();
   });
 
   test('renders cancel state and has no mobile document overflow', async ({ page }) => {
@@ -5435,7 +5543,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
   });
 
-  test('non-admin profile shows only Studio and Wallet cards in the profile action stack', async ({
+  test('non-admin profile shows Studio, Wallet, and Credits cards in the profile action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -5447,13 +5555,15 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileWalletCard')).toBeVisible();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+    await expect(page.locator('#profileCreditsCard')).toBeVisible();
+    await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
+    await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
-    await expect(page.locator('#profileCreditsCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('admin profile shows the same simplified Studio + Wallet stack as non-admin users', async ({
+  test('admin profile shows the same compact Studio + Wallet + Credits stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -5466,12 +5576,13 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileWalletCard')).toBeVisible();
     await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
+    await expect(page.locator('#profileCreditsCard')).toBeVisible();
+    await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
-    await expect(page.locator('#profileCreditsCard')).toHaveCount(0);
     await expect(page.locator('#profileOrganizationCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
-    await expect(page.locator('#profileCreditsLink')).toHaveCount(0);
+    await expect(page.locator('#profileCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
   });
 });
@@ -5554,7 +5665,7 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -5570,7 +5681,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(hasOverflow).toBe(false);
   });
 
-  test('non-admin mobile profile keeps only Studio in the tab bar', async ({
+  test('non-admin mobile profile keeps Wallet, Credits, and Studio in the tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -5581,12 +5692,12 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('organization owner mobile profile keeps the simplified Wallet + Studio tab bar', async ({
+  test('organization owner mobile profile keeps the compact Wallet + Credits + Studio tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -5604,8 +5715,8 @@ test.describe('Profile page (authenticated mobile)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Studio']);
-    await expect(page.locator('#profileCreditsLink')).toHaveCount(0);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+    await expect(page.locator('#profileCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
 
@@ -5674,17 +5785,20 @@ test.describe('Admin Control Plane', () => {
     await clickAdminNavSection(page, 'billing');
     await expect(page.locator('#sectionBilling')).toContainText('Free');
     await expect(page.locator('#sectionBilling')).toContainText('ai.text.generate');
-    await page.locator('#orgBillingId').fill('org_control_1234567890');
-    await page.locator('#orgBillingLookupForm').getByRole('button', { name: 'Load Billing' }).click();
+    await page.locator('#orgBillingSearch').fill('Control Plane Org');
+    await page.locator('#orgBillingLookupForm').getByRole('button', { name: 'Find Billing' }).click();
+    await expect(page.locator('#orgBillingDetail')).toContainText('Control Plane Org');
     await expect(page.locator('#orgBillingDetail')).toContainText('Credit balance');
     await expect(page.locator('#orgBillingDetail')).toContainText('125');
+    await expect(page.locator('#orgBillingDetail')).not.toContainText('org_control_1234567890');
 
-    await page.locator('#userBillingId').fill('user_member');
-    await page.locator('#userBillingLookupForm').getByRole('button', { name: 'Load Billing' }).click();
+    await page.locator('#userBillingSearch').fill('member@example.com');
+    await page.locator('#userBillingLookupForm').getByRole('button', { name: 'Find Billing' }).click();
     await expect(page.locator('#userBillingDetail')).toContainText('member@example.com');
     await expect(page.locator('#userBillingDetail')).toContainText('9');
+    await expect(page.locator('#userBillingDetail')).not.toContainText('user_member');
 
-    await page.locator('#creditGrantOrgId').fill('org_control_1234567890');
+    await page.locator('#creditGrantOrgSearch').fill('Control Plane Org');
     await page.locator('#creditGrantAmount').fill('50');
     await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
     expect(captures.creditGrantRequests).toHaveLength(0);
@@ -5692,7 +5806,7 @@ test.describe('Admin Control Plane', () => {
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#creditGrantReason').fill('Support adjustment for control-plane test');
     await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
-    await expect(page.locator('#creditGrantResult')).toContainText('Credit grant recorded');
+    await expect(page.locator('#creditGrantResult')).toContainText('Credit grant recorded for Control Plane Org');
     expect(captures.creditGrantRequests).toHaveLength(1);
     expect(captures.creditGrantRequests[0].idempotencyKey).toMatch(/^admin-credit-grant-/);
     expect(captures.creditGrantRequests[0].body).toEqual({
@@ -5700,7 +5814,7 @@ test.describe('Admin Control Plane', () => {
       reason: 'Support adjustment for control-plane test',
     });
 
-    await page.locator('#creditGrantUserId').fill('user_member');
+    await page.locator('#creditGrantUserSearch').fill('member@example.com');
     await page.locator('#userCreditGrantAmount').fill('25');
     await page.locator('#userCreditGrantForm').getByRole('button', { name: 'Grant User Credits' }).click();
     expect(captures.userCreditGrantRequests).toHaveLength(0);
@@ -5708,7 +5822,7 @@ test.describe('Admin Control Plane', () => {
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#userCreditGrantReason').fill('Member support adjustment for control-plane test');
     await page.locator('#userCreditGrantForm').getByRole('button', { name: 'Grant User Credits' }).click();
-    await expect(page.locator('#userCreditGrantResult')).toContainText('User credit grant recorded');
+    await expect(page.locator('#userCreditGrantResult')).toContainText('User credit grant recorded for member@example.com');
     expect(captures.userCreditGrantRequests).toHaveLength(1);
     expect(captures.userCreditGrantRequests[0].idempotencyKey).toMatch(/^admin-user-credit-grant-/);
     expect(captures.userCreditGrantRequests[0].body).toEqual({

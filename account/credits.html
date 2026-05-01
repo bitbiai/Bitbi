@@ -73,9 +73,9 @@
     <section class="credits-hero" aria-labelledby="creditsTitle">
         <div class="credits-hero__glow credits-hero__glow--cyan" aria-hidden="true"></div>
         <div class="credits-hero__glow credits-hero__glow--gold" aria-hidden="true"></div>
-        <p class="credits-eyebrow">Organization billing</p>
+        <p id="creditsEyebrow" class="credits-eyebrow">Organization billing</p>
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
-        <p class="credits-subtitle">Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.</p>
+        <p id="creditsSubtitle" class="credits-subtitle">Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.</p>
         <div id="creditsReturnState" class="credits-return" hidden></div>
     </section>
 
@@ -83,14 +83,14 @@
         <div id="creditsLoading" class="credits-state glass glass-card">Loading credits dashboard...</div>
         <div id="creditsDenied" class="credits-state glass glass-card" hidden>
             <h2>Credits are not available for this account</h2>
-            <p>Only platform admins and active organization owners can view live credit checkout.</p>
+            <p>Please sign in to view your personal credit balance and activity.</p>
         </div>
         <div id="creditsError" class="credits-state credits-state--error glass glass-card" hidden></div>
 
         <div id="creditsDashboard" hidden>
             <div class="credits-toolbar glass glass-card">
                 <div>
-                    <p class="credits-eyebrow">Organization</p>
+                    <p id="creditsScopeLabel" class="credits-eyebrow">Organization</p>
                     <h2 id="creditsOrgName">Not selected</h2>
                     <p id="creditsAccessScope" class="credits-muted">Access scope pending.</p>
                 </div>
@@ -102,7 +102,7 @@
 
             <div class="credits-summary-grid" id="creditsSummaryGrid"></div>
 
-            <section class="credits-section" aria-labelledby="creditsPacksTitle">
+            <section id="creditsPacksSection" class="credits-section" aria-labelledby="creditsPacksTitle">
                 <div class="credits-section__header">
                     <div>
                         <p class="credits-eyebrow">Live checkout</p>
@@ -114,7 +114,7 @@
                 <div id="creditsPackGrid" class="credits-pack-grid"></div>
             </section>
 
-            <section class="credits-section" aria-labelledby="creditsPurchasesTitle">
+            <section id="creditsPurchasesSection" class="credits-section" aria-labelledby="creditsPurchasesTitle">
                 <div class="credits-section__header">
                     <div>
                         <p class="credits-eyebrow">History</p>
@@ -150,7 +150,8 @@
                             <tr>
                                 <th>Date</th>
                                 <th>Type</th>
-                                <th>Source</th>
+                                <th>Description</th>
+                                <th>Details</th>
                                 <th>Amount</th>
                                 <th>Balance</th>
                             </tr>

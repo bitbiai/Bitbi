@@ -200,8 +200,9 @@ export function apiAdminUserActivity(limit, cursor, search) {
     return request('GET', `/admin/user-activity${qs}`);
 }
 
-export function apiAdminOrganizations({ limit } = {}) {
+export function apiAdminOrganizations({ limit, search } = {}) {
     const params = new URLSearchParams();
+    if (search) params.set('search', search);
     if (limit) params.set('limit', String(limit));
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/orgs${qs}`);
@@ -401,6 +402,13 @@ export function apiRequestReverification() {
 export async function apiAiGetQuota() {
     const res = await request('GET', '/ai/quota');
     return res.ok ? (res.data?.data || null) : null;
+}
+
+export function apiAccountCreditsDashboard({ limit } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/account/credits-dashboard${qs}`);
 }
 
 export function apiAiGenerateImage(prompt, steps, seed, model) {

@@ -1297,8 +1297,18 @@ class MockD1 {
           ).length,
         };
       }
-      const [limit] = bindings;
-      const rows = this.state.organizations
+      const hasSearch = query.includes('WHERE o.name LIKE ? OR o.slug LIKE ?');
+      const search = hasSearch ? String(bindings[0] || '').replace(/^%|%$/g, '') : null;
+      const limit = bindings[hasSearch ? 2 : 0];
+      let rows = this.state.organizations.slice();
+      if (search) {
+        const normalizedSearch = search.toLowerCase();
+        rows = rows.filter((org) =>
+          String(org.name || '').toLowerCase().includes(normalizedSearch) ||
+          String(org.slug || '').toLowerCase().includes(normalizedSearch)
+        );
+      }
+      rows = rows
         .map((org) => {
           const creator = this.state.users.find((entry) => entry.id === org.created_by_user_id);
           return {
@@ -1908,6 +1918,67 @@ class MockD1 {
       const [userId] = bindings;
       const latest = latestMemberCreditLedgerEntry(this.state.memberCreditLedger, userId);
       return latest ? { balance_after: latest.balance_after } : null;
+    }
+
+    if (query.startsWith('SELECT COALESCE(SUM(amount), 0) AS credits FROM member_credit_ledger WHERE user_id = ? AND amount > 0')) {
+      const [userId] = bindings;
+      const credits = this.state.memberCreditLedger
+        .filter((row) => row.user_id === userId && Number(row.amount || 0) > 0)
+        .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return { credits };
+    }
+
+    if (query.startsWith("SELECT COALESCE(SUM(amount), 0) AS credits FROM member_credit_ledger WHERE user_id = ? AND source = 'daily_member_top_up'")) {
+      const [userId] = bindings;
+      const credits = this.state.memberCreditLedger
+        .filter((row) => row.user_id === userId && row.source === 'daily_member_top_up')
+        .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return { credits };
+    }
+
+    if (query.startsWith("SELECT COALESCE(SUM(amount), 0) AS credits FROM member_credit_ledger WHERE user_id = ? AND entry_type = 'grant' AND source = 'manual_admin_grant'")) {
+      const [userId] = bindings;
+      const credits = this.state.memberCreditLedger
+        .filter((row) => row.user_id === userId && row.entry_type === 'grant' && row.source === 'manual_admin_grant')
+        .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return { credits };
+    }
+
+    if (query.startsWith("SELECT COALESCE(SUM(ABS(amount)), 0) AS credits FROM member_credit_ledger WHERE user_id = ? AND entry_type IN ('consume', 'debit')")) {
+      const [userId] = bindings;
+      const credits = this.state.memberCreditLedger
+        .filter((row) => row.user_id === userId && ['consume', 'debit'].includes(row.entry_type))
+        .reduce((sum, row) => sum + Math.abs(Number(row.amount || 0)), 0);
+      return { credits };
+    }
+
+    if (query.startsWith('SELECT l.id, l.user_id, l.amount, l.balance_after, l.entry_type, l.feature_key, l.source, l.created_by_user_id, actor.email AS created_by_email')) {
+      const [userId, limit] = bindings;
+      const rows = this.state.memberCreditLedger
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.user_id === userId)
+        .sort((a, b) => (
+          String(b.row.created_at || '').localeCompare(String(a.row.created_at || '')) ||
+          b.index - a.index
+        ))
+        .slice(0, Number(limit))
+        .map(({ row }) => {
+          const usage = this.state.memberUsageEvents.find((entry) =>
+            entry.credit_ledger_id === row.id && entry.user_id === row.user_id
+          );
+          const actor = this.state.users.find((entry) => entry.id === row.created_by_user_id);
+          return {
+            ...deepClone(row),
+            created_by_email: actor?.email || null,
+            usage_id: usage?.id || null,
+            usage_feature_key: usage?.feature_key || null,
+            quantity: usage?.quantity ?? null,
+            credits_delta: usage?.credits_delta ?? null,
+            usage_status: usage?.status || null,
+            usage_metadata_json: usage?.metadata_json || null,
+          };
+        });
+      return { results: rows };
     }
 
     if (query.startsWith('SELECT id, user_id, amount, balance_after, entry_type, feature_key, source, request_hash, created_by_user_id, created_at FROM member_credit_ledger WHERE user_id = ? AND idempotency_key = ?')) {

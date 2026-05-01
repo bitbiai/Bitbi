@@ -159,6 +159,10 @@ export const ROUTE_POLICIES = Object.freeze([
   userJsonWrite("profile.update", "PATCH", "/api/profile", "profile", "smallJson", "profile-update-user", {
     audit: { event: "update_profile" },
   }),
+  safeRead("account.credits.dashboard.read", "GET", "/api/account/credits-dashboard", "billing", {
+    config: ["DB"],
+    notes: "Returns only the authenticated member's personal credit balance and sanitized transaction history.",
+  }),
   safeRead("profile.avatar.read", "GET", "/api/profile/avatar", "profile", {
     config: ["DB", "PRIVATE_MEDIA"],
   }),

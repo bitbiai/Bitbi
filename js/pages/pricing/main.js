@@ -237,7 +237,7 @@ function renderPricingExperience() {
     const heroCopy = document.createElement('div');
     heroCopy.append(
         createTextElement('h1', 'pricing-hero__title gt-gold-cyan', 'Credits for BITBI AI'),
-        createTextElement('p', 'pricing-hero__copy', 'Credits are the organization-scoped usage units for eligible BITBI AI creation tools. Free image generation remains available, and paid packs are handled through the gated Credits dashboard.'),
+        createTextElement('p', 'pricing-hero__copy', 'Credits are the usage units for eligible BITBI AI creation tools. Members receive a daily non-stacking credit top-up, and paid organization packs are handled through the gated Credits dashboard.'),
     );
     const heroBadges = document.createElement('div');
     heroBadges.className = 'pricing-hero__badges';

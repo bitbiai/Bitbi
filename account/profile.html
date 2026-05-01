@@ -135,6 +135,7 @@
                 <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
                     <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
                     <button type="button" class="profile-tab-link" id="profileWalletWorkspaceBtn" data-open-wallet-workspace="profile">Wallet</button>
+                    <a href="/account/credits.html?scope=member" class="profile-tab-link" id="profileCreditsLink">Credits</a>
                     <a href="/account/image-studio.html" class="profile-tab-link">Studio</a>
                     <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
                 </div>
@@ -174,7 +175,7 @@
                     <div id="avatarMsg" class="profile__msg" role="status"></div>
                 </div>
 
-                <div id="profileStudioStack" class="profile__studio-stack">
+                <div id="profileStudioStack" class="profile__studio-stack profile__studio-stack--compact">
                     <a href="/account/image-studio.html" id="profileStudioCard" class="profile__card profile__studio-card" aria-label="Open AI Image Studio">
                         <span class="profile__studio-emoji" aria-hidden="true">&#127912;</span>
                         <span class="profile__studio-label">AI Studio</span>
@@ -184,6 +185,11 @@
                         <span class="profile__studio-emoji profile__studio-emoji--wallet" aria-hidden="true">&#128142;</span>
                         <span class="profile__studio-label">Wallet</span>
                     </button>
+
+                    <a href="/account/credits.html?scope=member" id="profileCreditsCard" class="profile__card profile__studio-card profile__studio-card--credits" aria-label="Open Credits">
+                        <span class="profile__studio-emoji profile__studio-emoji--credits" aria-hidden="true">Cr</span>
+                        <span class="profile__studio-label">Credits</span>
+                    </a>
                 </div>
 
                 </div><!-- /.profile__top-pair -->

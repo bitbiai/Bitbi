@@ -480,6 +480,7 @@
       "GET /api/profile",
       "PATCH /api/profile",
       "GET /api/profile/avatar",
+      "GET /api/account/credits-dashboard",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",

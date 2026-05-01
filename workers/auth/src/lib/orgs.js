@@ -551,8 +551,13 @@ export async function addOrganizationMember({ env, actorUser, organizationId, bo
   };
 }
 
-export async function listAdminOrganizations(env, { limit = 50 } = {}) {
+export async function listAdminOrganizations(env, { limit = 50, search = null } = {}) {
   const appliedLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const searchTerm = String(search || "").trim();
+  const whereClause = searchTerm
+    ? "WHERE o.name LIKE ? OR o.slug LIKE ?"
+    : "";
+  const bindings = searchTerm ? [`%${searchTerm}%`, `%${searchTerm}%`] : [];
   const rows = await env.DB.prepare(
     `SELECT o.id, o.name, o.slug, o.status, o.created_by_user_id, u.email AS created_by_email,
             o.created_at, o.updated_at,
@@ -560,9 +565,10 @@ export async function listAdminOrganizations(env, { limit = 50 } = {}) {
              WHERE active_members.organization_id = o.id AND active_members.status = 'active') AS member_count
      FROM organizations o
      INNER JOIN users u ON u.id = o.created_by_user_id
+     ${whereClause}
      ORDER BY o.created_at DESC, o.id DESC
      LIMIT ?`
-  ).bind(appliedLimit).all();
+  ).bind(...bindings, appliedLimit).all();
   return (rows.results || []).map((row) => ({
     ...serializeOrganization(row),
     createdByEmail: row.created_by_email || null,

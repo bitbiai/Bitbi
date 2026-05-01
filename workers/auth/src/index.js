@@ -18,6 +18,7 @@ import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
+import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import { handleFavorites } from "./routes/favorites.js";
 import {
@@ -219,6 +220,10 @@ export default {
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
     // route-policy: profile.update
     if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
+    if (pathname === "/api/account/credits-dashboard" && method === "GET") {
+      const result = await handleAccountCredits(ctx);
+      if (result) return result;
+    }
 
     // Avatar
     if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);

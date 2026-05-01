@@ -1211,6 +1211,10 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'orgs.billing.credits-dashboard.read',
       auth: 'user',
     }));
+    expect(getRoutePolicy('GET', '/api/account/credits-dashboard')).toEqual(expect.objectContaining({
+      id: 'account.credits.dashboard.read',
+      auth: 'user',
+    }));
     expect(getRoutePolicy('POST', '/api/admin/orgs/org_0123456789abcdef0123456789abcdef/credits/grant')).toEqual(expect.objectContaining({
       id: 'admin.orgs.credits.grant',
       auth: 'admin',
@@ -4278,6 +4282,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
 
     const body = await res.json();
     expect(res.status).toBe(200);
+    expect(body.code).not.toBe('ai_usage_policy_unavailable');
     expect(body).toMatchObject({
       ok: true,
       data: { prompt: 'legacy image generation' },
@@ -4301,6 +4306,41 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       10,
       -expectedPricing.credits,
     ]);
+  });
+
+  test('member image generation fails closed when personal credit policy storage is unavailable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'phase2c-member-policy-missing-user', role: 'user' });
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      missingTables: ['member_credit_ledger'],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'member policy storage unavailable',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ai_usage_policy_unavailable',
+    });
+    expect(aiCalls).toBe(0);
+    expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
   });
 
   test('org owner, admin, and member roles can generate images with shared Flux 1 Schnell pricing charged', async () => {
@@ -13088,6 +13128,114 @@ test.describe('Worker routes', () => {
       },
     });
     expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-read-user')).toHaveLength(2);
+  });
+
+  test('GET /api/account/credits-dashboard returns only the signed-in member credit ledger and usage details', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'member-dashboard-user', email: 'member-dashboard@example.com', role: 'user' });
+    const other = createContractUser({ id: 'member-dashboard-other', email: 'other-dashboard@example.com', role: 'user' });
+    const admin = createAdminUser('member-dashboard-admin');
+    const env = createAuthTestEnv({
+      users: [member, other, admin],
+      memberCreditLedger: [{
+        id: 'mcl_dashboard_grant',
+        user_id: member.id,
+        amount: 5,
+        balance_after: 5,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'manual_admin_grant',
+        idempotency_key: 'dashboard-grant',
+        request_hash: 'seed',
+        created_by_user_id: admin.id,
+        created_at: '2026-05-01T10:00:00.000Z',
+        metadata_json: JSON.stringify({ reason: 'Support grant' }),
+      }, {
+        id: 'mcl_dashboard_usage',
+        user_id: member.id,
+        amount: -2,
+        balance_after: 3,
+        entry_type: 'consume',
+        feature_key: 'ai.image.generate',
+        source: 'member_image_generation',
+        idempotency_key: 'dashboard-usage',
+        request_hash: 'seed',
+        created_by_user_id: member.id,
+        created_at: '2026-05-01T10:10:00.000Z',
+        metadata_json: '{}',
+      }, {
+        id: 'mcl_dashboard_other',
+        user_id: other.id,
+        amount: 100,
+        balance_after: 100,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'manual_admin_grant',
+        idempotency_key: 'dashboard-other',
+        request_hash: 'seed',
+        created_by_user_id: admin.id,
+        created_at: '2026-05-01T10:20:00.000Z',
+        metadata_json: JSON.stringify({ reason: 'Other user grant' }),
+      }],
+      memberUsageEvents: [{
+        id: 'ue_dashboard_usage',
+        user_id: member.id,
+        feature_key: 'ai.image.generate',
+        quantity: 1,
+        credits_delta: -2,
+        credit_ledger_id: 'mcl_dashboard_usage',
+        idempotency_key: 'dashboard-usage',
+        request_hash: 'seed',
+        status: 'succeeded',
+        created_at: '2026-05-01T10:10:00.000Z',
+        metadata_json: JSON.stringify({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          operation: 'member.image.generate',
+          route: '/api/ai/generate-image',
+          pricing_source: 'org_image_credit_catalog',
+        }),
+      }],
+    });
+    const token = await seedSession(env, member.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/account/credits-dashboard?limit=10', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      dashboard: {
+        account: {
+          email: 'member-dashboard@example.com',
+        },
+        balance: {
+          current: 10,
+          dailyAllowance: 10,
+          lifetimeIncoming: 12,
+          lifetimeDailyTopUps: 7,
+          lifetimeManualGrants: 5,
+          lifetimeConsumed: 2,
+        },
+        dailyTopUp: {
+          grantedCredits: 7,
+          dailyAllowance: 10,
+        },
+      },
+    });
+    const payload = JSON.stringify(body);
+    expect(payload).toContain('Support grant');
+    expect(payload).toContain('@cf/black-forest-labs/flux-1-schnell');
+    expect(payload).toContain('org_image_credit_catalog');
+    expect(payload).not.toContain('other-dashboard@example.com');
+    expect(payload).not.toContain('Other user grant');
+    expect(body.dashboard.transactions.some((entry) => entry.type === 'daily_top_up')).toBe(true);
+    expect(body.dashboard.transactions.some((entry) => entry.type === 'usage_charge' && entry.usage?.model === '@cf/black-forest-labs/flux-1-schnell')).toBe(true);
   });
 
   test('admin destructive path: delete user without AI-owned records', async () => {

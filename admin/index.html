@@ -382,12 +382,13 @@
                         <p class="admin-shell__desc">Inspect an organization credit balance and grant manual credits with confirmation.</p>
                         <form id="orgBillingLookupForm" class="admin-control-form">
                             <label class="admin-ai__field">
-                                <span class="admin-ai__label">Organization ID</span>
-                                <input id="orgBillingId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_...">
+                                <span class="admin-ai__label">Organization name</span>
+                                <input id="orgBillingSearch" class="admin-ai__input" type="search" autocomplete="off" spellcheck="false" placeholder="Company or organization name">
                             </label>
-                            <button type="submit" class="btn-action">Load Billing</button>
+                            <button type="submit" class="btn-action">Find Billing</button>
                         </form>
-                        <div id="orgBillingState" class="admin-state">Enter an organization ID to inspect billing state.</div>
+                        <div id="orgBillingMatches" class="admin-control-chip-row" aria-live="polite"></div>
+                        <div id="orgBillingState" class="admin-state">Enter an organization name to inspect billing state.</div>
                         <div id="orgBillingDetail"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
@@ -395,12 +396,13 @@
                         <p class="admin-shell__desc">Inspect a registered member credit balance before issuing manual user credits.</p>
                         <form id="userBillingLookupForm" class="admin-control-form">
                             <label class="admin-ai__field">
-                                <span class="admin-ai__label">User ID</span>
-                                <input id="userBillingId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="user_...">
+                                <span class="admin-ai__label">User email</span>
+                                <input id="userBillingSearch" class="admin-ai__input" type="email" autocomplete="off" spellcheck="false" placeholder="member@example.com">
                             </label>
-                            <button type="submit" class="btn-action">Load Billing</button>
+                            <button type="submit" class="btn-action">Find Billing</button>
                         </form>
-                        <div id="userBillingState" class="admin-state">Enter a user ID to inspect member credit state.</div>
+                        <div id="userBillingMatches" class="admin-control-chip-row" aria-live="polite"></div>
+                        <div id="userBillingState" class="admin-state">Enter a user email to inspect member credit state.</div>
                         <div id="userBillingDetail"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
@@ -408,8 +410,8 @@
                         <p class="admin-shell__desc">Admin-only grant. Requires reason, confirmation, same-origin browser context, and a generated idempotency key.</p>
                         <form id="creditGrantForm" class="admin-control-form">
                             <label class="admin-ai__field">
-                                <span class="admin-ai__label">Organization ID</span>
-                                <input id="creditGrantOrgId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="org_..." required>
+                                <span class="admin-ai__label">Organization name</span>
+                                <input id="creditGrantOrgSearch" class="admin-ai__input" type="search" autocomplete="off" spellcheck="false" placeholder="Company or organization name" required>
                             </label>
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">Credits</span>
@@ -421,6 +423,7 @@
                             </label>
                             <button type="submit" class="admin-ai__run">Grant Credits</button>
                         </form>
+                        <div id="creditGrantOrgMatches" class="admin-control-chip-row" aria-live="polite"></div>
                         <div id="creditGrantResult" class="admin-state" aria-live="polite"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
@@ -428,8 +431,8 @@
                         <p class="admin-shell__desc">Admin-only member grant. Manual credits add to the user balance and are not overwritten by daily top-ups.</p>
                         <form id="userCreditGrantForm" class="admin-control-form">
                             <label class="admin-ai__field">
-                                <span class="admin-ai__label">User ID</span>
-                                <input id="creditGrantUserId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="user_..." required>
+                                <span class="admin-ai__label">User email</span>
+                                <input id="creditGrantUserSearch" class="admin-ai__input" type="email" autocomplete="off" spellcheck="false" placeholder="member@example.com" required>
                             </label>
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label">Credits</span>
@@ -441,6 +444,7 @@
                             </label>
                             <button type="submit" class="admin-ai__run">Grant User Credits</button>
                         </form>
+                        <div id="creditGrantUserMatches" class="admin-control-chip-row" aria-live="polite"></div>
                         <div id="userCreditGrantResult" class="admin-state" aria-live="polite"></div>
                     </div>
                 </div>

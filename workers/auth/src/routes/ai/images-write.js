@@ -364,6 +364,7 @@ export async function handleGenerateImage(ctx) {
       correlationId,
       user_id: userId,
       code: policyError.body?.code || "ai_usage_policy_rejected",
+      ...getErrorFields(error),
     });
     return respond(policyError.body, { status: policyError.status });
   }
@@ -419,6 +420,7 @@ export async function handleGenerateImage(ctx) {
         correlationId,
         user_id: userId,
         code: policyError.body?.code || "member_credit_policy_rejected",
+        ...getErrorFields(error),
       });
       return respond(policyError.body, { status: policyError.status });
     }

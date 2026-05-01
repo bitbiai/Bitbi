@@ -19,6 +19,7 @@ import {
     apiAdminOrganization,
     apiAdminOrganizationBilling,
     apiAdminOrganizations,
+    apiAdminUsers,
     apiAdminUserBilling,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
@@ -242,9 +243,180 @@ async function capabilityProbe(label, call) {
 
 export function createAdminControlPlane({ showToast, formatDate }) {
     const loaded = new Set();
+    const billingTargets = {
+        orgLookup: null,
+        userLookup: null,
+        orgGrant: null,
+        userGrant: null,
+    };
 
     function notify(message, type = 'success') {
         if (typeof showToast === 'function') showToast(message, type);
+    }
+
+    function normalizeLookupValue(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function orgDisplayName(org) {
+        return org?.name || org?.companyName || org?.company_name || org?.slug || 'Organization';
+    }
+
+    function userDisplayEmail(user) {
+        return user?.email || user?.userEmail || user?.user_email || '';
+    }
+
+    function clearLookupMatches(id) {
+        clear(byId(id));
+    }
+
+    function renderLookupMatches(holderId, items, labelFn, onSelect) {
+        const holder = byId(holderId);
+        if (!holder) return;
+        clear(holder);
+        if (!items.length) return;
+        const row = el('div', 'admin-control-chip-row');
+        for (const item of items.slice(0, 8)) {
+            const button = el('button', 'btn-action', labelFn(item));
+            button.type = 'button';
+            button.addEventListener('click', () => onSelect(item));
+            row.appendChild(button);
+        }
+        holder.appendChild(row);
+    }
+
+    function rememberLookupTarget({ key, inputId, matchesId, target, label, stateId, message }) {
+        billingTargets[key] = target;
+        const input = byId(inputId);
+        if (input) input.value = label;
+        clearLookupMatches(matchesId);
+        if (stateId && message) setState(stateId, message);
+    }
+
+    function matchingStoredTarget({ key, inputId, labelFn }) {
+        const inputValue = normalizeLookupValue(byId(inputId)?.value);
+        const target = billingTargets[key];
+        if (!inputValue || !target) return null;
+        return normalizeLookupValue(labelFn(target)) === inputValue ? target : null;
+    }
+
+    async function resolveOrganizationByName({ inputId, matchesId, stateId, key, onSelect }) {
+        const existing = matchingStoredTarget({ key, inputId, labelFn: orgDisplayName });
+        if (existing) return existing;
+        const search = byId(inputId)?.value.trim();
+        billingTargets[key] = null;
+        clearLookupMatches(matchesId);
+        if (!search) {
+            setState(stateId, 'Enter an organization name to continue.', 'error');
+            return null;
+        }
+        setState(stateId, 'Finding organization...');
+        const res = await apiAdminOrganizations({ search, limit: 10 });
+        if (!res.ok) {
+            setState(stateId, apiUnavailableMessage(res, 'Organization lookup failed.'), 'error');
+            return null;
+        }
+        const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
+        if (orgs.length === 0) {
+            setState(stateId, 'No organization found by that name.', 'error');
+            return null;
+        }
+        const normalizedSearch = normalizeLookupValue(search);
+        const exactMatches = orgs.filter((org) => (
+            normalizeLookupValue(orgDisplayName(org)) === normalizedSearch
+            || normalizeLookupValue(org.slug) === normalizedSearch
+        ));
+        const chosen = exactMatches.length === 1 ? exactMatches[0] : (orgs.length === 1 ? orgs[0] : null);
+        if (chosen) {
+            rememberLookupTarget({
+                key,
+                inputId,
+                matchesId,
+                target: chosen,
+                label: orgDisplayName(chosen),
+                stateId,
+                message: 'Organization selected.',
+            });
+            return chosen;
+        }
+        renderLookupMatches(
+            matchesId,
+            orgs,
+            (org) => [orgDisplayName(org), org.createdByEmail ? `created by ${org.createdByEmail}` : org.slug]
+                .filter(Boolean)
+                .join(' - '),
+            (org) => {
+                rememberLookupTarget({
+                    key,
+                    inputId,
+                    matchesId,
+                    target: org,
+                    label: orgDisplayName(org),
+                    stateId,
+                    message: 'Organization selected.',
+                });
+                if (typeof onSelect === 'function') onSelect(org);
+            },
+        );
+        setState(stateId, 'Multiple organizations matched. Select one result.', 'error');
+        return null;
+    }
+
+    async function resolveUserByEmail({ inputId, matchesId, stateId, key, onSelect }) {
+        const existing = matchingStoredTarget({ key, inputId, labelFn: userDisplayEmail });
+        if (existing) return existing;
+        const search = byId(inputId)?.value.trim();
+        billingTargets[key] = null;
+        clearLookupMatches(matchesId);
+        if (!search) {
+            setState(stateId, 'Enter a user email address to continue.', 'error');
+            return null;
+        }
+        setState(stateId, 'Finding user...');
+        const res = await apiAdminUsers(search, { limit: 10 });
+        if (!res.ok) {
+            setState(stateId, apiUnavailableMessage(res, 'User lookup failed.'), 'error');
+            return null;
+        }
+        const users = Array.isArray(res.data?.users) ? res.data.users : [];
+        if (users.length === 0) {
+            setState(stateId, 'No user found by that email.', 'error');
+            return null;
+        }
+        const normalizedSearch = normalizeLookupValue(search);
+        const exactMatches = users.filter((user) => normalizeLookupValue(userDisplayEmail(user)) === normalizedSearch);
+        const chosen = exactMatches.length === 1 ? exactMatches[0] : (users.length === 1 ? users[0] : null);
+        if (chosen) {
+            rememberLookupTarget({
+                key,
+                inputId,
+                matchesId,
+                target: chosen,
+                label: userDisplayEmail(chosen),
+                stateId,
+                message: 'User selected.',
+            });
+            return chosen;
+        }
+        renderLookupMatches(
+            matchesId,
+            users,
+            (user) => userDisplayEmail(user) || 'User without email',
+            (user) => {
+                rememberLookupTarget({
+                    key,
+                    inputId,
+                    matchesId,
+                    target: user,
+                    label: userDisplayEmail(user),
+                    stateId,
+                    message: 'User selected.',
+                });
+                if (typeof onSelect === 'function') onSelect(user);
+            },
+        );
+        setState(stateId, 'Multiple users matched. Select one email.', 'error');
+        return null;
     }
 
     async function loadCommandCenter() {
@@ -279,7 +451,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Billing / Credits',
                 badge: { label: probes[1].status, variant: probes[1].variant },
-                copy: 'Review plan entitlements, org credit balances, and perform confirmed manual credit grants. Live payment activation remains disabled.',
+                copy: 'Review plan entitlements, organization and member credit balances, and perform confirmed manual credit grants. Live payment activation remains disabled.',
                 href: '#billing',
             },
             {
@@ -451,12 +623,12 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         holder.appendChild(stack);
     }
 
-    async function loadOrgBilling(orgId) {
+    async function loadOrgBilling(orgId, organization = null) {
         const state = byId('orgBillingState');
         const detail = byId('orgBillingDetail');
         clear(detail);
         if (!orgId) {
-            setState('orgBillingState', 'Enter an organization ID to inspect billing state.');
+            setState('orgBillingState', 'Enter an organization name to inspect billing state.');
             return;
         }
         setState('orgBillingState', 'Loading organization billing...');
@@ -469,7 +641,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const billing = res.data?.billing || {};
         setState('orgBillingState', 'Billing state loaded.');
         detail.appendChild(detailRows([
-            ['Organization ID', shortId(billing.organizationId || orgId)],
+            ['Organization', orgDisplayName(organization) || '-'],
             ['Plan', billing.plan?.name || billing.planCode || billing.plan?.code || '-'],
             ['Credit balance', billing.creditBalance ?? billing.balance ?? '-'],
             ['Live payments', 'Disabled'],
@@ -487,11 +659,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
-    async function loadUserBilling(userId) {
+    async function loadUserBilling(userId, user = null) {
         const detail = byId('userBillingDetail');
         clear(detail);
         if (!userId) {
-            setState('userBillingState', 'Enter a user ID to inspect member credit state.');
+            setState('userBillingState', 'Enter a user email to inspect member credit state.');
             return;
         }
         setState('userBillingState', 'Loading user billing...');
@@ -504,8 +676,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const billing = res.data?.billing || {};
         setState('userBillingState', 'User billing state loaded.');
         detail.appendChild(detailRows([
-            ['User ID', shortId(billing.userId || userId)],
-            ['Email', billing.email || '-'],
+            ['User email', billing.email || userDisplayEmail(user) || '-'],
             ['Role', billing.role || '-'],
             ['Status', billing.status || '-'],
             ['Credit balance', billing.creditBalance ?? '-'],
@@ -516,31 +687,38 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     async function handleCreditGrant(event) {
         event.preventDefault();
         const submitButton = event.submitter;
-        const orgId = byId('creditGrantOrgId')?.value.trim();
+        const org = await resolveOrganizationByName({
+            inputId: 'creditGrantOrgSearch',
+            matchesId: 'creditGrantOrgMatches',
+            stateId: 'creditGrantResult',
+            key: 'orgGrant',
+        });
         const amount = Number(byId('creditGrantAmount')?.value);
         const reason = byId('creditGrantReason')?.value.trim();
-        if (!orgId || !Number.isInteger(amount) || amount <= 0 || !reason) {
-            setState('creditGrantResult', 'Organization ID, positive credit amount, and reason are required.', 'error');
+        if (!org || !org.id || !Number.isInteger(amount) || amount <= 0 || !reason) {
+            setState('creditGrantResult', 'Organization name, positive credit amount, and reason are required.', 'error');
             return;
         }
-        if (!confirm(`Grant ${amount} credits to ${orgId}? This creates a credit ledger entry.`)) {
+        if (!confirm(`Grant ${amount} credits to ${orgDisplayName(org)}? This creates a credit ledger entry.`)) {
             return;
         }
         const idempotencyKey = createIdempotencyKey('admin-credit-grant');
         setState('creditGrantResult', 'Submitting credit grant...');
         setSubmitting(submitButton, true);
         try {
-            const res = await apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey });
+            const res = await apiAdminGrantOrganizationCredits(org.id, { amount, reason, idempotencyKey });
             if (!res.ok) {
                 setState('creditGrantResult', apiUnavailableMessage(res, 'Credit grant failed.'), 'error');
                 notify('Credit grant failed.', 'error');
                 return;
             }
             const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
-            setState('creditGrantResult', `Credit grant recorded. Balance after: ${balance}.`, 'success');
+            setState('creditGrantResult', `Credit grant recorded for ${orgDisplayName(org)}. Balance after: ${balance}.`, 'success');
             notify('Credit grant recorded.', 'success');
-            byId('orgBillingId').value = orgId;
-            loadOrgBilling(orgId);
+            const lookup = byId('orgBillingSearch');
+            if (lookup) lookup.value = orgDisplayName(org);
+            billingTargets.orgLookup = org;
+            loadOrgBilling(org.id, org);
         } finally {
             setSubmitting(submitButton, false);
         }
@@ -549,31 +727,38 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     async function handleUserCreditGrant(event) {
         event.preventDefault();
         const submitButton = event.submitter;
-        const userId = byId('creditGrantUserId')?.value.trim();
+        const user = await resolveUserByEmail({
+            inputId: 'creditGrantUserSearch',
+            matchesId: 'creditGrantUserMatches',
+            stateId: 'userCreditGrantResult',
+            key: 'userGrant',
+        });
         const amount = Number(byId('userCreditGrantAmount')?.value);
         const reason = byId('userCreditGrantReason')?.value.trim();
-        if (!userId || !Number.isInteger(amount) || amount <= 0 || !reason) {
-            setState('userCreditGrantResult', 'User ID, positive credit amount, and reason are required.', 'error');
+        if (!user || !user.id || !Number.isInteger(amount) || amount <= 0 || !reason) {
+            setState('userCreditGrantResult', 'User email, positive credit amount, and reason are required.', 'error');
             return;
         }
-        if (!confirm(`Grant ${amount} credits to user ${userId}? This creates a member credit ledger entry.`)) {
+        if (!confirm(`Grant ${amount} credits to ${userDisplayEmail(user)}? This creates a member credit ledger entry.`)) {
             return;
         }
         const idempotencyKey = createIdempotencyKey('admin-user-credit-grant');
         setState('userCreditGrantResult', 'Submitting user credit grant...');
         setSubmitting(submitButton, true);
         try {
-            const res = await apiAdminGrantUserCredits(userId, { amount, reason, idempotencyKey });
+            const res = await apiAdminGrantUserCredits(user.id, { amount, reason, idempotencyKey });
             if (!res.ok) {
                 setState('userCreditGrantResult', apiUnavailableMessage(res, 'User credit grant failed.'), 'error');
                 notify('User credit grant failed.', 'error');
                 return;
             }
             const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
-            setState('userCreditGrantResult', `User credit grant recorded. Balance after: ${balance}.`, 'success');
+            setState('userCreditGrantResult', `User credit grant recorded for ${userDisplayEmail(user)}. Balance after: ${balance}.`, 'success');
             notify('User credit grant recorded.', 'success');
-            byId('userBillingId').value = userId;
-            loadUserBilling(userId);
+            const lookup = byId('userBillingSearch');
+            if (lookup) lookup.value = userDisplayEmail(user);
+            billingTargets.userLookup = user;
+            loadUserBilling(user.id, user);
         } finally {
             setSubmitting(submitButton, false);
         }
@@ -930,13 +1115,27 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     function bind() {
         byId('orgsRefresh')?.addEventListener('click', loadOrgs);
         byId('billingPlansRefresh')?.addEventListener('click', loadBillingPlans);
-        byId('orgBillingLookupForm')?.addEventListener('submit', (event) => {
+        byId('orgBillingLookupForm')?.addEventListener('submit', async (event) => {
             event.preventDefault();
-            loadOrgBilling(byId('orgBillingId')?.value.trim());
+            const org = await resolveOrganizationByName({
+                inputId: 'orgBillingSearch',
+                matchesId: 'orgBillingMatches',
+                stateId: 'orgBillingState',
+                key: 'orgLookup',
+                onSelect: (selectedOrg) => loadOrgBilling(selectedOrg.id, selectedOrg),
+            });
+            if (org) loadOrgBilling(org.id, org);
         });
-        byId('userBillingLookupForm')?.addEventListener('submit', (event) => {
+        byId('userBillingLookupForm')?.addEventListener('submit', async (event) => {
             event.preventDefault();
-            loadUserBilling(byId('userBillingId')?.value.trim());
+            const user = await resolveUserByEmail({
+                inputId: 'userBillingSearch',
+                matchesId: 'userBillingMatches',
+                stateId: 'userBillingState',
+                key: 'userLookup',
+                onSelect: (selectedUser) => loadUserBilling(selectedUser.id, selectedUser),
+            });
+            if (user) loadUserBilling(user.id, user);
         });
         byId('creditGrantForm')?.addEventListener('submit', handleCreditGrant);
         byId('userCreditGrantForm')?.addEventListener('submit', handleUserCreditGrant);

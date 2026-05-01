@@ -98,6 +98,16 @@ function normalizeNullableString(value, maxLength = 256) {
   return text.slice(0, maxLength);
 }
 
+function parseJsonObject(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 async function hashRequest(value) {
   return sha256Hex(JSON.stringify(value));
 }
@@ -213,6 +223,7 @@ function serializeUsageEvent(row) {
 
 function serializeMemberLedgerEntry(row) {
   if (!row) return null;
+  const metadata = parseJsonObject(row.metadata_json);
   return {
     id: row.id,
     userId: row.user_id,
@@ -222,12 +233,15 @@ function serializeMemberLedgerEntry(row) {
     featureKey: row.feature_key || null,
     source: row.source,
     createdByUserId: row.created_by_user_id || null,
+    createdByEmail: row.created_by_email || null,
     createdAt: row.created_at,
+    metadata,
   };
 }
 
 function serializeMemberUsageEvent(row) {
   if (!row) return null;
+  const metadata = parseJsonObject(row.metadata_json);
   return {
     id: row.id,
     userId: row.user_id,
@@ -237,6 +251,7 @@ function serializeMemberUsageEvent(row) {
     creditLedgerId: row.credit_ledger_id || null,
     status: row.status,
     createdAt: row.created_at,
+    metadata,
   };
 }
 
@@ -1171,5 +1186,136 @@ export async function getAdminUserBilling(env, { userId }) {
     status: user.status,
     creditBalance,
     dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+  };
+}
+
+function memberCreditTypeLabel(row) {
+  if (row.source === "daily_member_top_up") return "daily_top_up";
+  if (row.source === "manual_admin_grant") return "manual_grant";
+  if (row.entry_type === "consume") return "usage_charge";
+  return row.entry_type || "credit_activity";
+}
+
+function memberCreditDescription(row, usageMetadata = {}) {
+  const ledgerMetadata = parseJsonObject(row.metadata_json);
+  if (row.source === "daily_member_top_up") {
+    const allowance = ledgerMetadata.allowance || MEMBER_DAILY_CREDIT_ALLOWANCE;
+    return `Daily member credit top-up to ${allowance} credits`;
+  }
+  if (row.source === "manual_admin_grant") {
+    return ledgerMetadata.reason || "Manual admin credit grant";
+  }
+  if (row.entry_type === "consume") {
+    if (usageMetadata.model) return `Image generation charge for ${usageMetadata.model}`;
+    return row.feature_key ? `Usage charge for ${row.feature_key}` : "Credit usage charge";
+  }
+  return ledgerMetadata.reason || row.source || "Credit activity";
+}
+
+function serializeMemberDashboardTransaction(row) {
+  const usageMetadata = parseJsonObject(row.usage_metadata_json);
+  return {
+    id: row.id,
+    type: memberCreditTypeLabel(row),
+    entryType: row.entry_type,
+    source: row.source,
+    featureKey: row.feature_key || row.usage_feature_key || null,
+    amount: Number(row.amount || 0),
+    balanceAfter: Number(row.balance_after || 0),
+    createdAt: row.created_at,
+    description: memberCreditDescription(row, usageMetadata),
+    reason: parseJsonObject(row.metadata_json).reason || null,
+    createdByEmail: row.created_by_email || null,
+    usage: row.usage_id ? {
+      id: row.usage_id,
+      featureKey: row.usage_feature_key || row.feature_key || null,
+      quantity: Number(row.quantity || 0),
+      creditsDelta: Number(row.credits_delta || row.amount || 0),
+      status: row.usage_status || null,
+      model: usageMetadata.model || null,
+      action: usageMetadata.operation || usageMetadata.route || null,
+      route: usageMetadata.route || null,
+      pricingSource: usageMetadata.pricing_source || null,
+      providerCostUsd: Number.isFinite(Number(usageMetadata.provider_cost_usd))
+        ? Number(usageMetadata.provider_cost_usd)
+        : null,
+    } : null,
+  };
+}
+
+export async function getMemberCreditsDashboard({
+  env,
+  userId,
+  limit = 50,
+  applyDailyTopUp = true,
+}) {
+  const user = await getActiveUser(env, userId);
+  const appliedLimit = Math.min(Math.max(Number.parseInt(String(limit || 50), 10) || 50, 1), 100);
+  const dailyTopUp = applyDailyTopUp
+    ? await topUpMemberDailyCredits({ env, userId: user.id })
+    : null;
+  const currentBalance = await getMemberCreditBalance(env, user.id);
+  const incomingRow = await env.DB.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS credits
+     FROM member_credit_ledger
+     WHERE user_id = ?
+       AND amount > 0`
+  ).bind(user.id).first();
+  const topUpRow = await env.DB.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS credits
+     FROM member_credit_ledger
+     WHERE user_id = ?
+       AND source = 'daily_member_top_up'`
+  ).bind(user.id).first();
+  const manualGrantRow = await env.DB.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS credits
+     FROM member_credit_ledger
+     WHERE user_id = ?
+       AND entry_type = 'grant'
+       AND source = 'manual_admin_grant'`
+  ).bind(user.id).first();
+  const consumedRow = await env.DB.prepare(
+    `SELECT COALESCE(SUM(ABS(amount)), 0) AS credits
+     FROM member_credit_ledger
+     WHERE user_id = ?
+       AND entry_type IN ('consume', 'debit')`
+  ).bind(user.id).first();
+  const transactionRows = await env.DB.prepare(
+    `SELECT l.id, l.user_id, l.amount, l.balance_after, l.entry_type,
+            l.feature_key, l.source, l.created_by_user_id, actor.email AS created_by_email,
+            l.created_at, l.metadata_json,
+            u.id AS usage_id, u.feature_key AS usage_feature_key, u.quantity,
+            u.credits_delta, u.status AS usage_status, u.metadata_json AS usage_metadata_json
+     FROM member_credit_ledger l
+     LEFT JOIN member_usage_events u ON u.credit_ledger_id = l.id AND u.user_id = l.user_id
+     LEFT JOIN users actor ON actor.id = l.created_by_user_id
+     WHERE l.user_id = ?
+     ORDER BY l.created_at DESC, l.rowid DESC
+     LIMIT ?`
+  ).bind(user.id, appliedLimit).all();
+
+  return {
+    account: {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    balance: {
+      current: currentBalance,
+      available: currentBalance,
+      dailyAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+      lifetimeIncoming: Number(incomingRow?.credits || 0),
+      lifetimeDailyTopUps: Number(topUpRow?.credits || 0),
+      lifetimeManualGrants: Number(manualGrantRow?.credits || 0),
+      lifetimeConsumed: Number(consumedRow?.credits || 0),
+    },
+    dailyTopUp: dailyTopUp ? {
+      dayStart: dailyTopUp.dayStart,
+      grantedCredits: dailyTopUp.grantedCredits,
+      reused: dailyTopUp.reused,
+      dailyAllowance: dailyTopUp.dailyAllowance,
+    } : null,
+    transactions: (transactionRows.results || []).map(serializeMemberDashboardTransaction),
   };
 }

@@ -1,6 +1,7 @@
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import {
+    apiAccountCreditsDashboard,
     apiAdminOrganizations,
     apiCreateLiveCreditPackCheckout,
     apiGetMe,
@@ -18,14 +19,19 @@ const $denied = document.getElementById('creditsDenied');
 const $error = document.getElementById('creditsError');
 const $dashboard = document.getElementById('creditsDashboard');
 const $returnState = document.getElementById('creditsReturnState');
+const $eyebrow = document.getElementById('creditsEyebrow');
+const $subtitle = document.getElementById('creditsSubtitle');
+const $scopeLabel = document.getElementById('creditsScopeLabel');
 const $orgName = document.getElementById('creditsOrgName');
 const $accessScope = document.getElementById('creditsAccessScope');
 const $orgPickerWrap = document.getElementById('creditsOrgPickerWrap');
 const $orgPicker = document.getElementById('creditsOrgPicker');
 const $summaryGrid = document.getElementById('creditsSummaryGrid');
+const $packsSection = document.getElementById('creditsPacksSection');
 const $checkoutStatus = document.getElementById('creditsCheckoutStatus');
 const $configNote = document.getElementById('creditsConfigNote');
 const $packGrid = document.getElementById('creditsPackGrid');
+const $purchasesSection = document.getElementById('creditsPurchasesSection');
 const $purchasesBody = document.getElementById('creditsPurchasesBody');
 const $ledgerBody = document.getElementById('creditsLedgerBody');
 
@@ -36,6 +42,7 @@ let currentUser = null;
 let eligibleOrganizations = [];
 let selectedOrganizationId = null;
 let currentDashboard = null;
+let activeMode = 'organization';
 
 function show(node) {
     if (node) node.hidden = false;
@@ -60,6 +67,17 @@ function setDenied() {
     hide($dashboard);
     hide($error);
     show($denied);
+}
+
+function setMode(mode) {
+    activeMode = mode === 'member' ? 'member' : 'organization';
+    if ($eyebrow) $eyebrow.textContent = activeMode === 'member' ? 'Member credits' : 'Organization billing';
+    if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? 'Member account' : 'Organization';
+    if ($subtitle) {
+        $subtitle.textContent = activeMode === 'member'
+            ? 'View your personal credit balance, daily top-up status, usage charges, and manual grants.'
+            : 'Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.';
+    }
 }
 
 function setNeedsOrganizationSelection() {
@@ -179,14 +197,25 @@ function summaryCard(label, value) {
 function renderSummary(balance = {}) {
     if (!$summaryGrid) return;
     $summaryGrid.textContent = '';
-    $summaryGrid.append(
-        summaryCard('Current balance', formatCredits(balance.current)),
-        summaryCard('Available', formatCredits(balance.available)),
-        summaryCard('Reserved', formatCredits(balance.reserved)),
-        summaryCard('Live purchased', formatCredits(balance.lifetimePurchasedLive)),
-        summaryCard('Manual grants', formatCredits(balance.lifetimeManualGrants)),
-        summaryCard('Consumed', formatCredits(balance.lifetimeConsumed)),
-    );
+    if (activeMode === 'member') {
+        $summaryGrid.append(
+            summaryCard('Current balance', formatCredits(balance.current)),
+            summaryCard('Daily top-up target', formatCredits(balance.dailyAllowance)),
+            summaryCard('Daily top-ups', formatCredits(balance.lifetimeDailyTopUps)),
+            summaryCard('Manual grants', formatCredits(balance.lifetimeManualGrants)),
+            summaryCard('Consumed', formatCredits(balance.lifetimeConsumed)),
+            summaryCard('Incoming credits', formatCredits(balance.lifetimeIncoming)),
+        );
+    } else {
+        $summaryGrid.append(
+            summaryCard('Current balance', formatCredits(balance.current)),
+            summaryCard('Available', formatCredits(balance.available)),
+            summaryCard('Reserved', formatCredits(balance.reserved)),
+            summaryCard('Live purchased', formatCredits(balance.lifetimePurchasedLive)),
+            summaryCard('Manual grants', formatCredits(balance.lifetimeManualGrants)),
+            summaryCard('Consumed', formatCredits(balance.lifetimeConsumed)),
+        );
+    }
 }
 
 function renderCheckoutStatus(status = {}, accessScope) {
@@ -270,7 +299,7 @@ function renderLedger(rows = []) {
     if (!rows.length) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 5;
+        cell.colSpan = 6;
         cell.className = 'credits-empty';
         cell.textContent = 'No recent credit ledger activity.';
         row.appendChild(cell);
@@ -279,10 +308,18 @@ function renderLedger(rows = []) {
     }
     for (const item of rows) {
         const row = document.createElement('tr');
+        const details = item.usage
+            ? [
+                item.usage.model,
+                item.usage.action,
+                item.usage.pricingSource,
+            ].filter(Boolean).join(' • ')
+            : (item.featureKey || item.createdByEmail || 'Not reported');
         for (const value of [
             formatDate(item.createdAt),
-            item.entryType || 'Not reported',
-            item.source || 'Not reported',
+            item.type || item.entryType || 'Not reported',
+            item.description || item.source || 'Not reported',
+            details || 'Not reported',
             formatCredits(item.amount),
             formatCredits(item.balanceAfter),
         ]) {
@@ -294,12 +331,36 @@ function renderLedger(rows = []) {
     }
 }
 
-function renderDashboard(dashboard) {
+function renderMemberDashboard(dashboard) {
     currentDashboard = dashboard;
+    setMode('member');
     hide($loading);
     hide($error);
     hide($denied);
     show($dashboard);
+    if ($orgName) $orgName.textContent = 'Personal credits';
+    if ($accessScope) {
+        const topUp = dashboard.dailyTopUp;
+        $accessScope.textContent = topUp
+            ? `Daily top-up: ${formatCredits(topUp.grantedCredits)} granted today.`
+            : 'Personal member credit account.';
+    }
+    if ($orgPickerWrap) $orgPickerWrap.hidden = true;
+    if ($packsSection) $packsSection.hidden = true;
+    if ($purchasesSection) $purchasesSection.hidden = true;
+    renderSummary(dashboard.balance);
+    renderLedger(dashboard.transactions);
+}
+
+function renderDashboard(dashboard) {
+    currentDashboard = dashboard;
+    setMode('organization');
+    hide($loading);
+    hide($error);
+    hide($denied);
+    show($dashboard);
+    if ($packsSection) $packsSection.hidden = false;
+    if ($purchasesSection) $purchasesSection.hidden = false;
     if ($orgName) $orgName.textContent = dashboard.organization?.name || 'Organization';
     if ($accessScope) {
         $accessScope.textContent = dashboard.organization?.accessScope === 'platform_admin'
@@ -312,6 +373,18 @@ function renderDashboard(dashboard) {
     renderPacks(dashboard.packs, checkoutEnabled);
     renderPurchases(dashboard.purchaseHistory);
     renderLedger(dashboard.recentLedger);
+}
+
+async function loadMemberDashboard() {
+    hide($denied);
+    hide($error);
+    show($loading);
+    const res = await apiAccountCreditsDashboard({ limit: 50 });
+    if (!res.ok) {
+        if (res.status === 401 || res.status === 403) return setDenied();
+        return setError(res.error || 'Credits dashboard is unavailable.');
+    }
+    renderMemberDashboard(res.data?.dashboard || {});
 }
 
 async function loadDashboard() {
@@ -361,13 +434,16 @@ async function init() {
     const me = await apiGetMe();
     if (!me.ok || !me.data?.loggedIn) return setDenied();
     currentUser = me.data.user || {};
+    const params = new URLSearchParams(window.location.search);
+    const requestedScope = params.get('scope');
 
     try {
         eligibleOrganizations = await loadEligibleOrganizations();
     } catch (error) {
+        if (requestedScope === 'member') return loadMemberDashboard();
         return setError(error?.message || 'Could not load organization access.');
     }
-    if (!eligibleOrganizations.length) return setDenied();
+    if (requestedScope === 'member' || !eligibleOrganizations.length) return loadMemberDashboard();
     selectedOrganizationId = resolveActiveOrganizationId(eligibleOrganizations);
     if (!selectedOrganizationId) return setNeedsOrganizationSelection();
     await loadDashboard();

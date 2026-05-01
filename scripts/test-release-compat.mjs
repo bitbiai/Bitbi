@@ -461,6 +461,7 @@ const baseManifest = {
       "GET /api/profile",
       "PATCH /api/profile",
       "GET /api/profile/avatar",
+      "GET /api/account/credits-dashboard",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",
@@ -841,6 +842,7 @@ function createValidContext() {
       if (pathname === "/api/profile" && method === "GET") return handleGetProfile();
       if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile();
       if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar();
+      if (pathname === "/api/account/credits-dashboard" && method === "GET") return handleAccountCredits();
       if (pathname === "/api/profile/avatar" && method === "POST") return handleUploadAvatar();
       if (pathname === "/api/profile/avatar" && method === "DELETE") return handleDeleteAvatar();
       if (pathname === "/api/favorites") { return handleFavorites(); }

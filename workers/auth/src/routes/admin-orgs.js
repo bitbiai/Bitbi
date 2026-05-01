@@ -57,6 +57,7 @@ export async function handleAdminOrgs(ctx) {
   if (pathname === "/api/admin/orgs" && method === "GET") {
     const organizations = await listAdminOrganizations(env, {
       limit: url.searchParams.get("limit"),
+      search: url.searchParams.get("search"),
     });
     return json({ ok: true, organizations });
   }
