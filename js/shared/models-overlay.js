@@ -31,7 +31,7 @@ const STATUS_LABELS = {
     'coming-soon': 'Coming soon',
 };
 
-function buildModelCatalog({ excludeModelIds = [] } = {}) {
+function buildModelCatalog({ excludeModelIds = [], includedStatusLabel = STATUS_LABELS.included } = {}) {
     const catalog = listAdminAiCatalog();
     const modelsByTask = catalog?.models || {};
     const excludedIds = new Set(excludeModelIds);
@@ -54,6 +54,7 @@ function buildModelCatalog({ excludeModelIds = [] } = {}) {
                     name: model.label || adminModel?.label || model.id,
                     vendor: adminModel?.vendor || '',
                     availability: task === 'image' ? 'included' : 'live',
+                    statusLabel: task === 'image' ? includedStatusLabel : null,
                 });
             }
 
@@ -138,7 +139,7 @@ function buildOverlay() {
 
             const status = document.createElement('span');
             status.className = `models-overlay__status models-overlay__status--${model.availability}`;
-            status.textContent = STATUS_LABELS[model.availability] || 'Coming soon';
+            status.textContent = model.statusLabel || STATUS_LABELS[model.availability] || 'Coming soon';
 
             li.appendChild(name);
             meta.appendChild(vendor);
@@ -243,9 +244,9 @@ function syncModelsHash() {
     }
 }
 
-export function initModelsOverlay(root = document, { excludeModelIds = [] } = {}) {
+export function initModelsOverlay(root = document, { excludeModelIds = [], includedStatusLabel = STATUS_LABELS.included } = {}) {
     if (!modelCatalog) {
-        modelCatalog = buildModelCatalog({ excludeModelIds });
+        modelCatalog = buildModelCatalog({ excludeModelIds, includedStatusLabel });
     }
     root.querySelectorAll('[data-models-link]').forEach(bindTrigger);
 

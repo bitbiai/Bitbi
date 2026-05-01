@@ -34,7 +34,7 @@ const VIDU_PROVIDER_CREATE_PATHS = Object.freeze({
   start_end_to_video: "/ent/v2/start-end2video",
 });
 const VIDU_PROVIDER_DEFAULT_POLL_INTERVAL_MS = 4_000;
-const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 450_000;
+const VIDU_PROVIDER_DEFAULT_TIMEOUT_MS = 600_000;
 const VIDU_VALID_RESOLUTIONS = ["540p", "720p", "1080p"];
 const VIDU_VALID_ASPECT_RATIOS = ["16:9", "9:16", "3:4", "4:3", "1:1"];
 const VIDU_MINIMAL_MODE_PAYLOAD = {

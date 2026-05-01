@@ -16,8 +16,9 @@ const POSTER_MAX_HEIGHT = 320;
 const POSTER_QUALITY = 82;
 const POSTER_FORMAT = "image/webp";
 const POSTER_MAX_BYTES = 2_000_000;
+const AI_VIDEO_ASSET_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 const METADATA_JSON_LIMITS = {
-  maxEntries: 16,
+  maxEntries: 32,
   maxKeyLength: 80,
   maxStringLength: 8_000,
 };
@@ -304,31 +305,49 @@ function buildMusicMetadata(payload, savedAt) {
   };
 }
 
-function urlPathLooksLikeMp4(value) {
-  try {
-    return new URL(value).pathname.toLowerCase().endsWith(".mp4");
-  } catch {
-    return false;
-  }
-}
-
-function resolveFetchedVideoMimeType(contentType, sourceUrl, finalUrl) {
-  const normalized = String(contentType || "")
+function normalizeVideoMimeType(contentType, fallback = "video/mp4") {
+  const normalized = String(contentType || fallback || "")
     .split(";")[0]
     .trim()
     .toLowerCase();
+  return AI_VIDEO_ASSET_MIME_TYPES.has(normalized) ? normalized : null;
+}
 
-  if (normalized === "video/mp4") {
-    return "video/mp4";
+function extensionForVideoMimeType(mimeType) {
+  if (mimeType === "video/webm") return "webm";
+  if (mimeType === "video/quicktime") return "mov";
+  return "mp4";
+}
+
+function normalizePosterMimeType(contentType) {
+  const normalized = String(contentType || POSTER_FORMAT)
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (normalized === "image/webp" || normalized === "image/png" || normalized === "image/jpeg") {
+    return normalized;
   }
+  return null;
+}
 
-  if (
-    (!normalized || normalized === "application/octet-stream")
-    && (urlPathLooksLikeMp4(finalUrl) || urlPathLooksLikeMp4(sourceUrl))
-  ) {
-    return "video/mp4";
+function extensionForPosterMimeType(mimeType) {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/jpeg") return "jpg";
+  return "webp";
+}
+
+async function r2ObjectToUint8Array(object) {
+  if (!object) return null;
+  if (typeof object.arrayBuffer === "function") {
+    return new Uint8Array(await object.arrayBuffer());
   }
-
+  const body = object.body;
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (typeof body === "string") return new TextEncoder().encode(body);
+  if (body && typeof body.arrayBuffer === "function") {
+    return new Uint8Array(await body.arrayBuffer());
+  }
   return null;
 }
 
@@ -336,6 +355,7 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
   const metadata = {
     source_module: "video",
     upstream_url: payload.videoUrl || null,
+    video_job_id: payload.videoJobId || null,
     mime_type: mimeType || "video/mp4",
     size_bytes: sizeBytes ?? null,
   };
@@ -452,23 +472,104 @@ async function buildMusicAssetFields(safeTitle, payload, now) {
   return { bytes, mimeType, ext, previewText, metadata };
 }
 
-async function buildVideoAssetFields(safeTitle, payload, now) {
-  const error = attachRemoteMediaPolicyContext(
-    new Error(
-      buildRemoteMediaUrlRejectedMessage(
-        "data.videoUrl",
-        "Download the provider result in the browser until a trusted Bitbi video-ingest contract exists."
-      )
-    ),
-    payload?.videoUrl,
+async function buildVideoAssetFields(env, payload, now) {
+  if (payload?.videoUrl) {
+    const error = attachRemoteMediaPolicyContext(
+      new Error(
+        buildRemoteMediaUrlRejectedMessage(
+          "data.videoUrl",
+          "Save video from the trusted Bitbi video job output instead."
+        )
+      ),
+      payload.videoUrl,
+      {
+        field: "data.videoUrl",
+        reason: "remote_video_save_url_rejected",
+      }
+    );
+    error.status = 400;
+    error.code = REMOTE_MEDIA_URL_POLICY_CODE;
+    throw error;
+  }
+
+  const job = payload.videoJobId
+    ? await env.DB.prepare(
+      `SELECT id, user_id, scope, status, provider, model, prompt, output_r2_key, output_content_type, output_size_bytes, poster_r2_key, poster_content_type, poster_size_bytes, completed_at
+       FROM ai_video_jobs
+       WHERE id = ? AND user_id = ? AND scope = 'admin' AND status = 'succeeded'`
+    ).bind(payload.videoJobId, payload.userId).first()
+    : null;
+
+  if (!job || !job.output_r2_key) {
+    const error = new Error("Video job output is no longer available.");
+    error.status = 404;
+    error.code = "not_found";
+    throw error;
+  }
+
+  const object = await env.USER_IMAGES.get(job.output_r2_key);
+  if (!object) {
+    const error = new Error("Video file is no longer available.");
+    error.status = 404;
+    error.code = "not_found";
+    throw error;
+  }
+
+  const bytes = await r2ObjectToUint8Array(object);
+  if (!bytes || bytes.byteLength === 0) {
+    const error = new Error("Video file is empty.");
+    error.status = 409;
+    error.code = "validation_error";
+    throw error;
+  }
+  if (bytes.byteLength > AI_VIDEO_ASSET_MAX_BYTES) {
+    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const mimeType = normalizeVideoMimeType(job.output_content_type || object.httpMetadata?.contentType);
+  if (!mimeType) {
+    const error = new Error("Video job output is not a supported video type.");
+    error.status = 409;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const ext = extensionForVideoMimeType(mimeType);
+  const previewText = truncatePreview(payload.prompt || job.prompt || "Video generation");
+  const normalizedPayload = {
+    ...payload,
+    prompt: payload.prompt || job.prompt || null,
+    model: payload.model || (job.model ? { id: job.model } : null),
+    provider: job.provider || null,
+    completedAt: job.completed_at || null,
+  };
+  const metadata = buildVideoMetadata(
+    normalizedPayload,
+    now,
     {
-      field: "data.videoUrl",
-      reason: "remote_video_save_url_rejected",
+      mimeType,
+      sizeBytes: bytes.byteLength,
     }
   );
-  error.status = 400;
-  error.code = REMOTE_MEDIA_URL_POLICY_CODE;
-  throw error;
+  if (job.provider) metadata.provider = job.provider;
+  if (job.completed_at) metadata.completed_at = job.completed_at;
+
+  return {
+    bytes,
+    mimeType,
+    ext,
+    previewText,
+    metadata,
+    posterSource: job.poster_r2_key
+      ? {
+        r2Key: job.poster_r2_key,
+        contentType: job.poster_content_type || null,
+      }
+      : null,
+  };
 }
 
 export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {
@@ -480,6 +581,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   let fileExt;
   let previewText;
   let metadataRaw;
+  let videoPosterSource = null;
 
   if (sourceModule === "music") {
     const music = await buildMusicAssetFields(safeTitle, payload, now);
@@ -489,12 +591,13 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     previewText = music.previewText;
     metadataRaw = music.metadata;
   } else if (sourceModule === "video") {
-    const video = await buildVideoAssetFields(safeTitle, payload, now);
+    const video = await buildVideoAssetFields(env, { ...payload, userId }, now);
     bytes = video.bytes;
     mimeType = video.mimeType;
     fileExt = video.ext;
     previewText = video.previewText;
     metadataRaw = video.metadata;
+    videoPosterSource = video.posterSource;
   } else {
     const serialization = serializeAdminAiTextAsset({
       title: safeTitle,
@@ -639,6 +742,13 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
       assetId,
       posterBase64: payload.posterBase64,
     });
+  } else if (sourceModule === "video" && videoPosterSource?.r2Key) {
+    posterResult = await copyVideoPosterFromR2(env, {
+      userId,
+      assetId,
+      sourceKey: videoPosterSource.r2Key,
+      contentType: videoPosterSource.contentType,
+    });
   }
 
   return {
@@ -655,6 +765,51 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     poster_width: posterResult?.width || null,
     poster_height: posterResult?.height || null,
   };
+}
+
+async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentType }) {
+  try {
+    const source = await env.USER_IMAGES.get(sourceKey);
+    if (!source) return null;
+
+    const posterBytes = await r2ObjectToUint8Array(source);
+    if (!posterBytes || posterBytes.byteLength === 0 || posterBytes.byteLength > POSTER_MAX_BYTES) {
+      return null;
+    }
+
+    const mimeType = normalizePosterMimeType(contentType || source.httpMetadata?.contentType);
+    if (!mimeType) return null;
+
+    const r2Key = `users/${userId}/derivatives/v1/${assetId}/poster.${extensionForPosterMimeType(mimeType)}`;
+    await env.USER_IMAGES.put(r2Key, posterBytes, {
+      httpMetadata: { contentType: mimeType },
+    });
+
+    await env.DB.prepare(
+      "UPDATE ai_text_assets SET poster_r2_key = ? WHERE id = ? AND user_id = ?"
+    ).bind(r2Key, assetId, userId).run();
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: "video_poster_copied",
+      asset_id: assetId,
+      user_id: userId,
+    });
+
+    return { r2Key, width: null, height: null };
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: "video_poster_copy_failed",
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      ...getErrorFields(error),
+    });
+    return null;
+  }
 }
 
 async function processVideoPoster(env, { userId, assetId, posterBase64 }) {

@@ -515,6 +515,7 @@ async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
+  const saveAudioRequests = captures.saveAudioRequests || [];
   const imageTestRequests = captures.imageTestRequests || [];
   const generatedImageSaveReference = captures.generateSaveReference || 'admin-generated-save-reference';
   const saveImageHandler = typeof captures.saveImageHandler === 'function'
@@ -1375,6 +1376,42 @@ async function mockAdminAiLab(page, captures = {}) {
           model: body.model,
           steps: body.steps ?? null,
           seed: body.seed ?? null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/ai/audio/save', async (route) => {
+    const body = route.request().postDataJSON();
+    saveAudioRequests.push(body);
+    const id = `audio-${saveAudioRequests.length}`;
+    assetStore.addAsset({
+      id,
+      asset_type: 'audio',
+      folder_id: body.folder_id || null,
+      title: body.title || body.prompt || 'Saved audio',
+      file_name: `${id}.mp3`,
+      source_module: 'music',
+      mime_type: body.mimeType || 'audio/mpeg',
+      size_bytes: body.sizeBytes || 1024,
+      preview_text: body.prompt || 'Saved audio',
+      created_at: '2026-04-10T12:00:00.000Z',
+      file_url: `/api/ai/text-assets/${id}/file`,
+    });
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          id,
+          folder_id: body.folder_id || null,
+          title: body.title || body.prompt || 'Saved audio',
+          file_name: `${id}.mp3`,
+          source_module: 'music',
+          mime_type: body.mimeType || 'audio/mpeg',
+          size_bytes: body.sizeBytes || 1024,
           created_at: '2026-04-10T12:00:00.000Z',
         },
       }),
@@ -3874,6 +3911,10 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(overlay).toHaveClass(/is-active/);
     await expect(overlay).toContainText('FLUX.1 Schnell');
     await expect(overlay).toContainText('FLUX.2 Klein 9B');
+    await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
+    await expect.poll(() => overlay.locator('.models-overlay__status').evaluateAll((nodes) =>
+      nodes.map((node) => node.textContent?.trim() || ''),
+    )).not.toContain('Included');
     await expect(overlay).not.toContainText('FLUX.2 Dev');
   });
 
@@ -6478,6 +6519,34 @@ test.describe('Admin AI Lab', () => {
     page,
   }) => {
     const musicRequests = [];
+    const saveAudioRequests = [];
+    await page.unroute('**/api/ai/audio/save');
+    await page.route('**/api/ai/audio/save', async (route) => {
+      saveAudioRequests.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: 'audio-saved-from-url',
+            source_module: 'music',
+            mime_type: 'audio/mpeg',
+            size_bytes: 15,
+          },
+        }),
+      });
+    });
+    await page.route('https://example.com/music-admin-test.mp3', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': '16',
+        },
+        body: 'mock-mp3-bytes!!',
+      });
+    });
     await page.unroute('**/api/admin/ai/test-music');
     await page.route('**/api/admin/ai/test-music', async (route) => {
       const body = route.request().postDataJSON();
@@ -6546,12 +6615,26 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiMusicRun').click();
 
     await expect(page.locator('#aiMusicPreview audio')).toBeVisible();
-    await expect(page.locator('#aiMusicSave')).toBeHidden();
+    await expect(page.locator('#aiMusicSave')).toBeVisible();
     await expect(page.locator('#aiMusicPreview')).toContainText(
-      'Server-side save is disabled for security',
+      'Save copies the audio through the browser',
     );
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
     await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Hold the light inside the circuit');
+    await page.locator('#aiMusicSave').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
+    await page.locator('#aiLabSaveInput').fill('Warm Electronic Pop');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+    expect(saveAudioRequests).toHaveLength(1);
+    expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
+      title: 'Warm Electronic Pop',
+      prompt: 'Warm electronic pop with a wide chorus.',
+      mimeType: 'audio/mpeg',
+      sizeBytes: 16,
+    }));
+    expect(saveAudioRequests[0].audioBase64).toBeTruthy();
+    expect(saveAudioRequests[0].audioUrl).toBeUndefined();
     expect(musicRequests[0]).toEqual(expect.objectContaining({
       preset: 'music_studio',
       prompt: 'Warm electronic pop with a wide chorus.',
@@ -6806,12 +6889,18 @@ test.describe('Admin AI Lab', () => {
     await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoPrompt').fill('Save this video output');
     await page.locator('#aiVideoRun').click();
-    await expect(page.locator('#aiVideoSave')).toBeHidden();
     await expect(page.locator('#aiVideoPreview')).toContainText(
       'protected async job output',
     );
+    await expect(page.locator('#aiVideoSave')).toBeVisible();
+    await page.locator('#aiVideoSave').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeVisible();
+    await page.locator('#aiLabSaveInput').fill('Saved Video Output');
+    await page.selectOption('#aiLabSaveFolder', 'folder-launches');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
 
-    expect(saveTextAssetRequests).toHaveLength(4);
+    expect(saveTextAssetRequests).toHaveLength(5);
     expect(saveTextAssetRequests[0]).toEqual(expect.objectContaining({
       sourceModule: 'text',
       folderId: 'folder-launches',
@@ -6850,6 +6939,17 @@ test.describe('Admin AI Lab', () => {
       folderId: 'folder-research',
     }));
     expect(saveTextAssetRequests[3].data.transcript.length).toBeGreaterThanOrEqual(2);
+    expect(saveTextAssetRequests[4]).toEqual(expect.objectContaining({
+      title: 'Saved Video Output',
+      sourceModule: 'video',
+      folderId: 'folder-launches',
+    }));
+    expect(saveTextAssetRequests[4].data).toEqual(expect.objectContaining({
+      videoJobId: expect.stringMatching(/^mock-video-job-/),
+      prompt: 'Save this video output',
+      model: expect.objectContaining({ id: expect.any(String) }),
+    }));
+    expect(saveTextAssetRequests[4].data.videoUrl).toBeUndefined();
     await expect(page.locator('#aiVideoPreview')).toContainText(
       'protected async job output',
     );
@@ -7408,7 +7508,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiCompareBText')).not.toContainText('Slow compare B.');
   });
 
-  test('uses the 480 second default timeout for slow Video AI requests without breaking abort handling', async ({
+  test('uses the 600 second default timeout for slow Video AI requests without breaking abort handling', async ({
     page,
   }) => {
     const catalog = createMockAiCatalog();
@@ -7452,14 +7552,14 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoPrompt').fill('timeout video');
     await page.locator('#aiVideoRun').click();
 
-    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 600 s.');
     await expect(page.locator('#aiVideoState')).not.toContainText('cancelled');
-    await expect(page.locator('#aiLabStatus')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiLabStatus')).toContainText('Video request timed out after 600 s.');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
     await expect(page.locator('#aiVideoCancel')).toBeDisabled();
 
     await wait(750);
-    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 480 s.');
+    await expect(page.locator('#aiVideoState')).toContainText('Video request timed out after 600 s.');
     await expect(page.locator('#aiVideoPreview video')).toHaveCount(0);
     await expect(page.locator('#aiVideoSave')).toBeHidden();
   });

@@ -34,7 +34,7 @@ function initHeroBackgroundVideo() {
 
     const mobileQuery = window.matchMedia('(max-width: 639px)');
     const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const HERO_VIDEO_PLAYBACK_RATE = 1.42;
+    const HERO_VIDEO_PLAYBACK_RATE = 1.5;
     let activeSource = '';
     let pausedByMenu = false;
 
@@ -289,6 +289,7 @@ try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio FAILED:', e);
 try {
     initModelsOverlay(document, {
         excludeModelIds: HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
+        includedStatusLabel: 'LIVE',
     });
 } catch (e) { console.warn('modelsOverlay:', e); }
 

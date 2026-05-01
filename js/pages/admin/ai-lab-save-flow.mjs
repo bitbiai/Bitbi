@@ -15,6 +15,7 @@ const SAVE_REFERENCE_FALLBACK_CODES = new Set([
   'SAVE_REFERENCE_EXPIRED',
   'SAVE_REFERENCE_UNAVAILABLE',
 ]);
+const AUDIO_SAVE_MAX_BYTES = 12_000_000;
 
 /**
  * @typedef {object} SaveIntentContext
@@ -107,10 +108,10 @@ export function buildAdminAiLabSaveIntent(task, context) {
  */
 export function getSaveIntentUnavailableMessage(task) {
   if (task === 'music') {
-    return 'This audio result can be previewed or downloaded, but remote URL saves are disabled for security.';
+    return 'Generate audio before saving it.';
   }
   if (task === 'video') {
-    return 'Video save is disabled until a trusted Bitbi video-ingest contract exists.';
+    return 'Generate a completed video job before saving it.';
   }
   return 'Nothing available to save yet.';
 }
@@ -133,6 +134,50 @@ function captureVideoPosterBase64(previewRoot) {
   } catch {
     return null;
   }
+}
+
+/**
+ * @param {ArrayBuffer} buffer
+ */
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+/**
+ * @param {string} audioUrl
+ */
+async function fetchAudioUrlForSave(audioUrl) {
+  const response = await fetch(audioUrl, { credentials: 'omit' });
+  if (!response.ok) {
+    throw new Error('Could not load the generated audio for saving.');
+  }
+
+  const declaredLength = Number(response.headers.get('content-length') || 0);
+  if (declaredLength > AUDIO_SAVE_MAX_BYTES) {
+    throw new Error('Generated audio is too large to save.');
+  }
+
+  const blob = await response.blob();
+  if (blob.size > AUDIO_SAVE_MAX_BYTES) {
+    throw new Error('Generated audio is too large to save.');
+  }
+  if (blob.size === 0) {
+    throw new Error('Generated audio is empty.');
+  }
+
+  const buffer = await blob.arrayBuffer();
+  return {
+    audioBase64: arrayBufferToBase64(buffer),
+    mimeType: blob.type || response.headers.get('content-type') || 'audio/mpeg',
+    sizeBytes: blob.size,
+  };
 }
 
 /**
@@ -212,17 +257,33 @@ export async function saveAdminAiLabIntent({
     }
   }
 
+  const payload = { ...intent.payload };
+  if (intent.sourceModule === 'music' && !payload.audioBase64 && payload.audioUrl) {
+    try {
+      const audio = await fetchAudioUrlForSave(payload.audioUrl);
+      payload.audioBase64 = audio.audioBase64;
+      payload.mimeType = audio.mimeType;
+      payload.sizeBytes = audio.sizeBytes;
+      delete payload.audioUrl;
+    } catch (error) {
+      return {
+        ok: false,
+        error: error?.message || 'Could not prepare the generated audio for saving.',
+      };
+    }
+  }
+
   const response = intent.sourceModule === 'music'
     ? await apiAiSaveAudio({
       title,
       folder_id: folderId,
-      ...intent.payload,
+      ...payload,
     })
     : await apiAdminAiSaveTextAsset({
       title,
       folderId,
       sourceModule: intent.sourceModule,
-      data: intent.payload,
+      data: payload,
     });
 
   if (!response.ok) {

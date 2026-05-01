@@ -16844,6 +16844,132 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('admin AI save-text-asset saves video output from the trusted async job asset', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const outputKey = 'users/admin-save-video-job/video-jobs/vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/output.mp4';
+    const posterKey = 'users/admin-save-video-job/video-jobs/vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/poster.webp';
+    const env = createAuthTestEnv({
+      users: [createAdminUser('admin-save-video-job')],
+      aiFolders: [
+        {
+          id: 'feed9876',
+          user_id: 'admin-save-video-job',
+          name: 'Videos',
+          slug: 'videos',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+      aiVideoJobs: [
+        {
+          id: 'vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          user_id: 'admin-save-video-job',
+          scope: 'admin',
+          status: 'succeeded',
+          provider: 'workers-ai',
+          model: 'pixverse/v6',
+          prompt: 'A family walking through a sunlit park.',
+          input_json: '{}',
+          request_hash: 'video-hash',
+          provider_task_id: 'provider-task-1',
+          idempotency_key: 'video-idempotency-1',
+          attempt_count: 1,
+          max_attempts: 3,
+          next_attempt_at: null,
+          locked_until: null,
+          output_r2_key: outputKey,
+          output_url: null,
+          output_content_type: 'video/mp4',
+          output_size_bytes: 16,
+          poster_r2_key: posterKey,
+          poster_url: null,
+          poster_content_type: 'image/webp',
+          poster_size_bytes: 11,
+          provider_state: '{}',
+          error_code: null,
+          error_message: null,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+          completed_at: nowIso(),
+          expires_at: null,
+        },
+      ],
+      userImages: {
+        [outputKey]: {
+          body: new TextEncoder().encode('fake-video-bytes'),
+          httpMetadata: { contentType: 'video/mp4' },
+        },
+        [posterKey]: {
+          body: new TextEncoder().encode('fake-poster'),
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'admin-save-video-job');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
+        title: 'Family Walk',
+        folderId: 'feed9876',
+        sourceModule: 'video',
+        data: {
+          videoJobId: 'vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          prompt: 'A family walking through a sunlit park.',
+          model: { id: 'pixverse/v6', label: 'Pixverse V6', vendor: 'Pixverse' },
+          duration: 5,
+          aspect_ratio: '16:9',
+          quality: '720p',
+          seed: 99,
+          generate_audio: true,
+          hasImageInput: false,
+          warnings: ['Mock video warning'],
+          elapsedMs: 645,
+          receivedAt: nowIso(),
+        },
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.43',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        folder_id: 'feed9876',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        file_name: expect.stringMatching(/\.mp4$/),
+      },
+    });
+
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(row.folder_id).toBe('feed9876');
+    expect(row.source_module).toBe('video');
+    expect(row.mime_type).toBe('video/mp4');
+    expect(row.r2_key).toContain('/video/');
+    expect(row.r2_key).toMatch(/\.mp4$/);
+    expect(row.r2_key).not.toBe(outputKey);
+    expect(env.USER_IMAGES.objects.has(outputKey)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+    const savedObject = env.USER_IMAGES.objects.get(row.r2_key);
+    expect(decodeStoredTextBody(savedObject.body)).toBe('fake-video-bytes');
+    expect(savedObject.httpMetadata.contentType).toBe('video/mp4');
+    expect(row.poster_r2_key).toMatch(new RegExp(`^users/admin-save-video-job/derivatives/v1/${row.id}/poster\\.webp$`));
+    expect(env.USER_IMAGES.objects.has(posterKey)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(row.poster_r2_key)).toBe(true);
+    const savedPoster = env.USER_IMAGES.objects.get(row.poster_r2_key);
+    expect(decodeStoredTextBody(savedPoster.body)).toBe('fake-poster');
+    expect(savedPoster.httpMetadata.contentType).toBe('image/webp');
+    const metadata = JSON.parse(row.metadata_json);
+    expect(metadata.video_job_id).toBe('vidjob_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(metadata.provider).toBe('workers-ai');
+  });
+
   test('admin AI save-text-asset rejects remote video save requests before any fetch occurs', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

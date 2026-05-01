@@ -33,6 +33,7 @@ const SAVE_TEXT_ASSET_LIMITS = {
   maxDiffItems: 8,
   maxDiffItemLength: 400,
   maxTranscriptMessages: 60,
+  maxPosterBase64Length: 512_000,
 };
 
 const SAVEABLE_TEXT_MODULES = new Set(["text", "embeddings", "compare", "live_agent", "music", "video"]);
@@ -505,22 +506,49 @@ function validateSavedVideoData(data) {
       ? input.videoUrl.trim()
       : null;
 
-  const error = attachRemoteMediaPolicyContext(
-    new InputError(
-      buildRemoteMediaUrlRejectedMessage(
-        "data.videoUrl",
-        "Download the generated video in the browser until a trusted Bitbi video-ingest contract exists."
+  if (candidateUrl) {
+    const error = attachRemoteMediaPolicyContext(
+      new InputError(
+        buildRemoteMediaUrlRejectedMessage(
+          "data.videoUrl",
+          "Save video from the trusted Bitbi video job output instead."
+        ),
+        400,
+        REMOTE_MEDIA_URL_POLICY_CODE
       ),
-      400,
-      REMOTE_MEDIA_URL_POLICY_CODE
-    ),
-    candidateUrl,
-    {
-      field: "data.videoUrl",
-      reason: "remote_video_save_url_rejected",
-    }
-  );
-  throw error;
+      candidateUrl,
+      {
+        field: "data.videoUrl",
+        reason: "remote_video_save_url_rejected",
+      }
+    );
+    throw error;
+  }
+
+  const videoJobId = requiredString(input.videoJobId, "data.videoJobId", 48);
+  if (!/^vidjob_[a-f0-9]{32}$/.test(videoJobId)) {
+    throw new InputError("data.videoJobId is invalid.", 400, "validation_error");
+  }
+
+  return {
+    videoJobId,
+    prompt: optionalString(input.prompt, "data.prompt", LIMITS.video.maxPromptLength),
+    model: optionalModelSummary(input.model, "data.model"),
+    duration: optionalInteger(input.duration, "data.duration", LIMITS.video.minDuration, LIMITS.video.maxDuration, null),
+    aspect_ratio: optionalString(input.aspect_ratio, "data.aspect_ratio", 24),
+    quality: optionalString(input.quality, "data.quality", 24),
+    resolution: optionalString(input.resolution, "data.resolution", 24),
+    seed: optionalInteger(input.seed, "data.seed", 0, 2147483647, null),
+    generate_audio: optionalBoolean(input.generate_audio, "data.generate_audio", null),
+    hasImageInput: optionalBoolean(input.hasImageInput, "data.hasImageInput", null),
+    hasEndImageInput: optionalBoolean(input.hasEndImageInput, "data.hasEndImageInput", null),
+    workflow: optionalString(input.workflow, "data.workflow", 80),
+    posterBase64: optionalString(input.posterBase64, "data.posterBase64", SAVE_TEXT_ASSET_LIMITS.maxPosterBase64Length),
+    posterUrl: optionalString(input.posterUrl, "data.posterUrl", 2048),
+    warnings: optionalWarnings(input.warnings),
+    elapsedMs: optionalInteger(input.elapsedMs, "data.elapsedMs", 0, 600_000, null),
+    receivedAt: optionalIsoString(input.receivedAt, "data.receivedAt"),
+  };
 }
 
 function validateSaveTextAssetPayload(body) {

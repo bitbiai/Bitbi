@@ -77,7 +77,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
     return {
       name: entry.label,
       vendor: adminEntry?.vendor || '',
-      status: 'Included',
+      status: homepage ? 'LIVE' : 'Included',
     };
   });
 
@@ -916,6 +916,13 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Close models' }).click();
     await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
     await expectPathUnchanged(page, '/');
+  });
+
+  test('homepage hero video uses the intended 1.5x playback speed', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('[data-hero-video]')).toHaveCount(1);
+    await expect.poll(() => page.locator('[data-hero-video]').evaluate((video) => video.playbackRate)).toBe(1.5);
+    await expect.poll(() => page.locator('[data-hero-video]').evaluate((video) => video.defaultPlaybackRate)).toBe(1.5);
   });
 
   test('MODELS opens the homepage models overlay from the mobile navigation without navigation', async ({ page }) => {

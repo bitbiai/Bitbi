@@ -155,7 +155,7 @@ export function buildMusicSaveIntent({
     receivedAt,
 }) {
     const result = response?.result;
-    if (!result?.audioBase64) return null;
+    if (!result?.audioBase64 && !result?.audioUrl) return null;
     return {
         type: 'text',
         sourceModule: 'music',
@@ -166,6 +166,7 @@ export function buildMusicSaveIntent({
         note: 'The audio file is stored as an MP3 alongside your existing saved assets.',
         payload: {
             audioBase64: result.audioBase64 || null,
+            audioUrl: result.audioUrl || null,
             mimeType: result.mimeType || 'audio/mpeg',
             prompt: result.prompt || prompt || '',
             model: response?.model || null,
@@ -188,12 +189,40 @@ export function buildMusicSaveIntent({
 }
 
 export function buildVideoSaveIntent({
-    response: _response,
-    prompt: _prompt,
-    warnings: _warnings,
-    receivedAt: _receivedAt,
+    response,
+    prompt,
+    warnings,
+    receivedAt,
 }) {
-    return null;
+    const result = response?.result;
+    if (!result?.videoUrl || !result?.jobId) return null;
+    return {
+        type: 'text',
+        sourceModule: 'video',
+        modalTitle: 'Save Video Result',
+        description: 'Save the generated video into your existing folder structure.',
+        confirmLabel: 'Save Video',
+        defaultTitle: buildSaveTitle(result.prompt || prompt, 'AI Lab Video'),
+        note: 'The saved file is copied from the already-ingested async video job output.',
+        payload: {
+            videoJobId: result.jobId,
+            prompt: result.prompt || prompt || '',
+            model: response?.model || null,
+            duration: result.duration ?? null,
+            aspect_ratio: result.aspect_ratio || null,
+            quality: result.quality || null,
+            resolution: result.resolution || null,
+            seed: result.seed ?? null,
+            generate_audio: result.generate_audio ?? null,
+            hasImageInput: result.hasImageInput ?? null,
+            hasEndImageInput: result.hasEndImageInput ?? null,
+            workflow: result.workflow || null,
+            posterUrl: result.posterUrl || null,
+            warnings,
+            elapsedMs: response?.elapsedMs || null,
+            receivedAt,
+        },
+    };
 }
 
 function deriveTranscriptFromDom(transcriptRoot) {

@@ -5286,6 +5286,32 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
+    if (query === 'UPDATE ai_text_assets SET poster_r2_key = ? WHERE id = ? AND user_id = ?') {
+      const [posterR2Key, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.poster_r2_key = posterR2Key;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ? WHERE id = ? AND user_id = ?') {
+      const [posterR2Key, posterWidth, posterHeight, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.poster_r2_key = posterR2Key;
+          row.poster_width = posterWidth;
+          row.poster_height = posterHeight;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
@@ -6030,6 +6056,33 @@ class MockD1 {
     if (query.startsWith('SELECT id, user_id, scope, status, provider, model, prompt, input_json, request_hash, provider_task_id, idempotency_key, attempt_count, max_attempts, next_attempt_at, locked_until, output_r2_key, output_url') && query.endsWith("FROM ai_video_jobs WHERE id = ? AND user_id = ? AND scope = 'admin'")) {
       const [jobId, userId] = bindings;
       return deepClone(this.state.aiVideoJobs.find((row) => row.id === jobId && row.user_id === userId && row.scope === 'admin') || null);
+    }
+
+    if (query === "SELECT id, user_id, scope, status, provider, model, prompt, output_r2_key, output_content_type, output_size_bytes, poster_r2_key, poster_content_type, poster_size_bytes, completed_at FROM ai_video_jobs WHERE id = ? AND user_id = ? AND scope = 'admin' AND status = 'succeeded'") {
+      const [jobId, userId] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => (
+        item.id === jobId
+        && item.user_id === userId
+        && item.scope === 'admin'
+        && item.status === 'succeeded'
+      ));
+      if (!row) return null;
+      return deepClone({
+        id: row.id,
+        user_id: row.user_id,
+        scope: row.scope,
+        status: row.status,
+        provider: row.provider,
+        model: row.model,
+        prompt: row.prompt ?? null,
+        output_r2_key: row.output_r2_key ?? null,
+        output_content_type: row.output_content_type ?? null,
+        output_size_bytes: row.output_size_bytes ?? null,
+        poster_r2_key: row.poster_r2_key ?? null,
+        poster_content_type: row.poster_content_type ?? null,
+        poster_size_bytes: row.poster_size_bytes ?? null,
+        completed_at: row.completed_at ?? null,
+      });
     }
 
     if (query.startsWith('SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, ai_video_jobs.scope AS scope, ai_video_jobs.status AS status') && query.endsWith('FROM ai_video_jobs INNER JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ?')) {

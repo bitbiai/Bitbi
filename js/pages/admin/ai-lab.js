@@ -65,13 +65,15 @@ const ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS = {
     '@cf/black-forest-labs/flux-2-klein-9b': 10,
     'black-forest-labs/flux-2-klein-9b': 10,
 };
+const ADMIN_AI_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_REQUEST_TIMEOUTS = {
-    text: 20_000,
-    image: 180_000,
-    embeddings: 15_000,
-    music: 320_000,
-    video: 480_000,
-    compare: 30_000,
+    text: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    image: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    embeddings: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    music: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    video: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    compare: ADMIN_AI_REQUEST_TIMEOUT_MS,
+    liveAgent: ADMIN_AI_REQUEST_TIMEOUT_MS,
 };
 const TASK_UI = {
     text: {
@@ -2839,7 +2841,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const note = document.createElement('div');
         note.className = 'admin-ai__music-player-note';
         note.textContent = payload.audioUrl
-            ? 'Streaming from a temporary provider URL. Server-side save is disabled for security; download while it is still available.'
+            ? 'Streaming from a temporary provider URL. Save copies the audio through the browser into your saved assets.'
             : 'Inline audio buffer ready for preview and download.';
 
         head.append(title, note);
@@ -3097,6 +3099,9 @@ export function createAdminAiLab({ showToast } = {}) {
         video.preload = 'auto';
         video.crossOrigin = 'anonymous';
         video.className = 'admin-ai__video-el';
+        if (payload.posterUrl) {
+            video.poster = payload.posterUrl;
+        }
 
         wrapper.append(head, video);
         refs.video.preview.appendChild(wrapper);
@@ -4478,6 +4483,7 @@ export function createAdminAiLab({ showToast } = {}) {
     const liveAgentState = {
         messages: [],   // { role, content } — the full conversation
         controller: null,
+        timer: null,
         busy: false,
     };
 
@@ -4531,6 +4537,33 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function syncLiveAgentSaveButton() {
         refs.liveAgent.save.disabled = liveAgentState.busy || liveAgentState.messages.length === 0;
+    }
+
+    function clearLiveAgentTimer(controller = null) {
+        const timerEntry = liveAgentState.timer;
+        if (!timerEntry) return;
+        if (controller && timerEntry.controller !== controller) return;
+        window.clearTimeout(timerEntry.id);
+        liveAgentState.timer = null;
+    }
+
+    function startLiveAgentTimer(controller) {
+        const timeoutMs = state.timeouts.liveAgent || ADMIN_AI_REQUEST_TIMEOUT_MS;
+        if (!timeoutMs) return;
+        clearLiveAgentTimer();
+        liveAgentState.timer = {
+            controller,
+            id: window.setTimeout(() => {
+                if (liveAgentState.controller !== controller || !liveAgentState.busy) return;
+                clearLiveAgentTimer(controller);
+                controller.abort();
+                liveAgentState.controller = null;
+                liveAgentSetBusy(false);
+                const message = `Live Agent request timed out after ${formatTimeoutDuration(timeoutMs)}.`;
+                liveAgentSetState('timeout', message);
+                setStatus(message, 'timeout');
+            }, timeoutMs),
+        };
     }
 
     function liveAgentAppendBubble(role, content) {
@@ -4607,17 +4640,20 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const controller = new AbortController();
         liveAgentState.controller = controller;
+        startLiveAgentTimer(controller);
 
         const res = await apiAdminAiLiveAgent({ messages: outMessages }, { signal: controller.signal });
         if (controller !== liveAgentState.controller) return;
 
         if (res.aborted) {
+            clearLiveAgentTimer(controller);
             liveAgentSetBusy(false);
             liveAgentSetState('aborted', 'Request cancelled.');
             return;
         }
 
         if (!res.ok) {
+            clearLiveAgentTimer(controller);
             liveAgentSetBusy(false);
             const code = res.code || '';
             liveAgentSetState('error', ADMIN_AI_CODE_MESSAGES[code] || res.error || 'Live agent request failed.');
@@ -4665,6 +4701,10 @@ export function createAdminAiLab({ showToast } = {}) {
                 }
             }
 
+            if (controller !== liveAgentState.controller) {
+                assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
+                return;
+            }
             assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
             if (fullText) {
                 liveAgentState.messages.push({ role: 'assistant', content: fullText });
@@ -4686,11 +4726,13 @@ export function createAdminAiLab({ showToast } = {}) {
             }
         }
 
+        clearLiveAgentTimer(controller);
         liveAgentState.controller = null;
         liveAgentSetBusy(false);
     }
 
     function liveAgentCancel() {
+        clearLiveAgentTimer(liveAgentState.controller);
         if (liveAgentState.controller) {
             liveAgentState.controller.abort();
             liveAgentState.controller = null;
