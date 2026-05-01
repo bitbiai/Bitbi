@@ -1957,6 +1957,15 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
     expect(denied.status).toBe(403);
     expect(env.DB.state.memberCreditLedger).toHaveLength(0);
 
+    const deniedBilling = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(deniedBilling.status).toBe(403);
+
     const grant = await worker.fetch(
       authJsonRequest(`/api/admin/users/${member.id}/credits/grant`, 'POST', { amount: 12, reason: 'support credit' }, {
         Origin: 'https://bitbi.ai',
@@ -1991,6 +2000,17 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
         userId: member.id,
         creditBalance: 12,
         dailyCreditAllowance: 10,
+        balance: {
+          current: 12,
+          lifetimeManualGrants: 12,
+        },
+        transactions: [
+          {
+            type: 'manual_grant',
+            amount: 12,
+            description: 'support credit',
+          },
+        ],
       },
     });
 

@@ -80,6 +80,12 @@ function setMode(mode) {
     }
 }
 
+function removeMemberIrrelevantOrgPicker() {
+    if ($orgPickerWrap && $orgPickerWrap.isConnected) {
+        $orgPickerWrap.remove();
+    }
+}
+
 function setNeedsOrganizationSelection() {
     hide($loading);
     hide($error);
@@ -345,7 +351,7 @@ function renderMemberDashboard(dashboard) {
             ? `Daily top-up: ${formatCredits(topUp.grantedCredits)} granted today.`
             : 'Personal member credit account.';
     }
-    if ($orgPickerWrap) $orgPickerWrap.hidden = true;
+    removeMemberIrrelevantOrgPicker();
     if ($packsSection) $packsSection.hidden = true;
     if ($purchasesSection) $purchasesSection.hidden = true;
     renderSummary(dashboard.balance);
@@ -436,14 +442,14 @@ async function init() {
     currentUser = me.data.user || {};
     const params = new URLSearchParams(window.location.search);
     const requestedScope = params.get('scope');
+    if (requestedScope === 'member') return loadMemberDashboard();
 
     try {
         eligibleOrganizations = await loadEligibleOrganizations();
     } catch (error) {
-        if (requestedScope === 'member') return loadMemberDashboard();
         return setError(error?.message || 'Could not load organization access.');
     }
-    if (requestedScope === 'member' || !eligibleOrganizations.length) return loadMemberDashboard();
+    if (!eligibleOrganizations.length) return loadMemberDashboard();
     selectedOrganizationId = resolveActiveOrganizationId(eligibleOrganizations);
     if (!selectedOrganizationId) return setNeedsOrganizationSelection();
     await loadDashboard();

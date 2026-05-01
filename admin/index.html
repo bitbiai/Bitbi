@@ -180,7 +180,7 @@
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
 <section class="section" aria-label="Admin content">
-    <div class="section__inner--narrow" style="margin-inline:auto;max-inline-size:var(--container-wide)">
+    <div class="section__inner admin-management-shell">
 
         <!-- Access Denied -->
         <div id="adminDenied" class="glass glass-card reveal" style="display:none">
@@ -659,6 +659,7 @@
                             <table class="admin-table" id="userTable" style="display:none">
                                 <thead><tr>
                                     <th>Email</th>
+                                    <th>User ID</th>
                                     <th>Role</th>
                                     <th>Status</th>
                                     <th>Verified</th>
@@ -1816,6 +1817,23 @@
             <div id="lightboxEmail" class="admin-lightbox__email"></div>
         </div>
     </div>
+</div>
+
+<div id="userCreditModal" class="admin-credit-modal" hidden aria-hidden="true">
+    <div class="admin-credit-modal__backdrop" data-user-credit-close aria-hidden="true"></div>
+    <section class="admin-credit-modal__dialog glass glass-card" role="dialog" aria-modal="true" aria-labelledby="userCreditModalTitle">
+        <header class="admin-credit-modal__header">
+            <div>
+                <p class="admin-credit-modal__eyebrow">Member credit account</p>
+                <h2 id="userCreditModalTitle">Credit details</h2>
+                <p id="userCreditModalSubtitle" class="admin-credit-modal__subtitle">Loading selected user.</p>
+            </div>
+            <button type="button" class="admin-credit-modal__close" data-user-credit-close aria-label="Close credit details">&times;</button>
+        </header>
+        <div id="userCreditModalBody" class="admin-credit-modal__body">
+            <div class="admin-state">Loading credit details...</div>
+        </div>
+    </section>
 </div>
 
 <script type="module" src="../js/pages/admin/main.js?v=__ASSET_VERSION__"></script>

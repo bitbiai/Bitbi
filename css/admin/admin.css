@@ -52,7 +52,7 @@
         display: flex;
         align-items: stretch;
         gap: var(--space-3);
-        max-inline-size: var(--container-wide);
+        max-inline-size: var(--container-management);
         margin-inline: auto;
         padding: var(--space-3) var(--space-4);
         overflow-x: auto;
@@ -60,6 +60,15 @@
         scroll-padding-inline: var(--space-4);
         scrollbar-width: none;
         -ms-overflow-style: none;
+    }
+
+    .admin-management-shell {
+        max-inline-size: min(var(--container-management), calc(100vw - 2rem));
+        margin-inline: auto;
+    }
+
+    body.modal-open {
+        overflow: hidden;
     }
 
     .admin-nav__inner::-webkit-scrollbar {
@@ -2643,6 +2652,10 @@
         font-size: 13px;
     }
 
+    #userTable {
+        min-inline-size: 76rem;
+    }
+
     .admin-table thead th {
         font-family: var(--font-mono);
         font-size: 11px;
@@ -2724,6 +2737,38 @@
         display: flex;
         flex-wrap: wrap;
         gap: var(--space-1);
+    }
+
+    .admin-user-id {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        max-inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    .admin-user-id__code {
+        display: inline-block;
+        max-inline-size: min(22rem, 52vw);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: rgba(255, 255, 255, 0.68);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.6;
+        padding: 2px var(--space-2);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .admin-user-id--compact .admin-user-id__code {
+        max-inline-size: 9.5rem;
+    }
+
+    .admin-user-id__copy {
+        flex: 0 0 auto;
     }
 
     .btn-action {
@@ -3064,6 +3109,188 @@
         font-size: 10px;
         color: rgba(255, 255, 255, 0.55);
         margin-top: 2px;
+    }
+
+    /* ── User credit details modal ── */
+    .admin-credit-modal[hidden] {
+        display: none !important;
+    }
+
+    .admin-credit-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 210;
+        display: grid;
+        place-items: center;
+        padding: clamp(1rem, 3vw, 2rem);
+    }
+
+    .admin-credit-modal__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.78);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+    }
+
+    .admin-credit-modal__dialog {
+        position: relative;
+        width: min(100%, 64rem);
+        max-block-size: min(86vh, 54rem);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+        border-color: rgba(0, 240, 255, 0.16);
+        background:
+            radial-gradient(circle at 12% 0%, rgba(0, 240, 255, 0.1), transparent 28rem),
+            radial-gradient(circle at 88% 0%, rgba(255, 179, 0, 0.09), transparent 24rem),
+            rgba(8, 12, 16, 0.96);
+    }
+
+    .admin-credit-modal__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        padding: clamp(1rem, 2vw, 1.5rem);
+        border-block-end: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .admin-credit-modal__eyebrow {
+        margin: 0 0 var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(0, 240, 255, 0.72);
+    }
+
+    .admin-credit-modal__header h2 {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(1.6rem, 3vw, 2.25rem);
+        line-height: 1.05;
+    }
+
+    .admin-credit-modal__subtitle {
+        margin: var(--space-2) 0 0;
+        color: rgba(255, 255, 255, 0.48);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-credit-modal__close {
+        inline-size: 2.35rem;
+        block-size: 2.35rem;
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        border-radius: var(--radius-full);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 1.4rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .admin-credit-modal__close:hover {
+        color: white;
+        border-color: rgba(0, 240, 255, 0.26);
+    }
+
+    .admin-credit-modal__body {
+        min-height: 0;
+        overflow: auto;
+        padding: clamp(1rem, 2vw, 1.5rem);
+    }
+
+    .admin-credit-modal__identity {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .admin-credit-modal__identity-email {
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 700;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-credit-modal__metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+        gap: var(--space-3);
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-credit-modal__metric {
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .admin-credit-modal__metric-label {
+        display: block;
+        margin-block-end: var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.42);
+    }
+
+    .admin-credit-modal__metric-value {
+        color: white;
+        font-size: clamp(1.25rem, 2vw, 1.8rem);
+        line-height: 1;
+    }
+
+    .admin-credit-modal__topup,
+    .admin-credit-modal__state {
+        margin-block-start: var(--space-4);
+        padding: var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        background: rgba(0, 240, 255, 0.055);
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 13px;
+        line-height: 1.6;
+    }
+
+    .admin-credit-modal__state--error {
+        border-color: rgba(239, 68, 68, 0.25);
+        background: rgba(239, 68, 68, 0.08);
+        color: rgba(254, 226, 226, 0.94);
+    }
+
+    .admin-credit-modal__section-title {
+        margin: var(--space-6) 0 var(--space-3);
+        font-size: 1rem;
+    }
+
+    .admin-credit-modal__table-wrap {
+        overflow-x: auto;
+        border-radius: var(--radius-md);
+    }
+
+    .admin-credit-modal__table {
+        min-inline-size: 54rem;
+    }
+
+    .admin-credit-modal__empty-cell {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.42);
     }
 
     /* ── State (loading / empty) ── */

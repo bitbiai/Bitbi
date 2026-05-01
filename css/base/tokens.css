@@ -82,6 +82,7 @@
         --container-text: 48rem;   /* 768px, equiv to max-w-3xl */
         --container-wide: 64rem;   /* 1024px, equiv to max-w-4xl */
         --container-xl: 72rem;     /* 1152px, equiv to max-w-6xl */
+        --container-management: 88rem; /* 1408px, dashboard/account management surfaces */
         --container-cards: 64rem;  /* max-w-5xl */
 
         /* Easing */

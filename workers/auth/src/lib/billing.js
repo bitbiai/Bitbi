@@ -1192,7 +1192,13 @@ export async function getAdminOrganizationBilling(env, { organizationId }) {
 
 export async function getAdminUserBilling(env, { userId }) {
   const user = await getActiveUser(env, userId);
-  const creditBalance = await getMemberCreditBalance(env, user.id);
+  const dashboard = await getMemberCreditsDashboard({
+    env,
+    userId: user.id,
+    limit: 50,
+    applyDailyTopUp: false,
+  });
+  const creditBalance = Number(dashboard?.balance?.current || 0);
   return {
     userId: user.id,
     email: user.email,
@@ -1200,6 +1206,9 @@ export async function getAdminUserBilling(env, { userId }) {
     status: user.status,
     creditBalance,
     dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+    balance: dashboard.balance,
+    dailyTopUp: dashboard.dailyTopUp,
+    transactions: dashboard.transactions,
   };
 }
 

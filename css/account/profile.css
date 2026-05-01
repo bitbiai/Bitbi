@@ -1214,7 +1214,7 @@
     /* ── Profile Two-Column Layout ── */
     @media (min-width: 1024px) {
         .profile-shell {
-            max-inline-size: var(--container-wide); /* 1024px */
+            max-inline-size: var(--container-xl); /* 1152px */
         }
 
         .profile-shell > #loadingState,
@@ -1225,7 +1225,7 @@
 
         #profileHomeView .profile-layout {
             display: grid;
-            grid-template-columns: 480px 280px;
+            grid-template-columns: minmax(0, 34rem) minmax(17rem, 21rem);
             gap: var(--space-8);
             justify-content: center;
         }

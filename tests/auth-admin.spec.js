@@ -1428,6 +1428,14 @@ async function mockAdminControlPlane(page, captures = {}) {
           created_at: '2026-04-18T11:05:00.000Z',
           updated_at: '2026-04-18T11:05:00.000Z',
         },
+        {
+          id: 'user_empty',
+          email: 'empty@example.com',
+          role: 'user',
+          status: 'active',
+          created_at: '2026-04-19T11:05:00.000Z',
+          updated_at: '2026-04-19T11:05:00.000Z',
+        },
       ],
       next_cursor: null,
     });
@@ -1532,6 +1540,76 @@ async function mockAdminControlPlane(page, captures = {}) {
         status: 'active',
         creditBalance: 9,
         dailyCreditAllowance: 10,
+        balance: {
+          current: 9,
+          available: 9,
+          dailyAllowance: 10,
+          lifetimeIncoming: 18,
+          lifetimeDailyTopUps: 8,
+          lifetimeManualGrants: 10,
+          lifetimeConsumed: 9,
+        },
+        dailyTopUp: null,
+        transactions: [
+          {
+            id: 'mcl_admin_member_usage',
+            type: 'usage_charge',
+            entryType: 'consume',
+            source: 'member_image_generation',
+            featureKey: 'ai.image.generate',
+            amount: -1,
+            balanceAfter: 9,
+            createdAt: '2026-05-01T12:00:00.000Z',
+            description: 'Image generation charge for flux-1-schnell',
+            usage: {
+              id: 'ue_admin_member_usage',
+              model: 'flux-1-schnell',
+              action: 'member.image.generate',
+              route: '/api/ai/generate-image',
+              pricingSource: 'org_image_credit_catalog',
+              quantity: 1,
+              creditsDelta: -1,
+              status: 'succeeded',
+            },
+          },
+          {
+            id: 'mcl_admin_member_grant',
+            type: 'manual_grant',
+            entryType: 'grant',
+            source: 'manual_admin_grant',
+            amount: 10,
+            balanceAfter: 10,
+            createdAt: '2026-05-01T11:00:00.000Z',
+            description: 'Manual admin credit grant',
+            reason: 'Support credit',
+            createdByEmail: 'admin@bitbi.ai',
+          },
+        ],
+      },
+    });
+  });
+
+  await page.route('**/api/admin/users/user_empty/billing', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      billing: {
+        userId: 'user_empty',
+        email: 'empty@example.com',
+        role: 'user',
+        status: 'active',
+        creditBalance: 0,
+        dailyCreditAllowance: 10,
+        balance: {
+          current: 0,
+          available: 0,
+          dailyAllowance: 10,
+          lifetimeIncoming: 0,
+          lifetimeDailyTopUps: 0,
+          lifetimeManualGrants: 0,
+          lifetimeConsumed: 0,
+        },
+        dailyTopUp: null,
+        transactions: [],
       },
     });
   });
@@ -3364,6 +3442,10 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
     await expect(page.locator('.credits-pack').nth(0)).toContainText('9,99 €');
     await expect(page.locator('.credits-pack').nth(1)).toContainText('19,99 €');
+    const creditsShellWidth = await page.locator('.credits-shell').evaluate((node) =>
+      Math.round(node.getBoundingClientRect().width)
+    );
+    expect(creditsShellWidth).toBeGreaterThan(1100);
 
     const cardWidths = await page.locator('.credits-pack').evaluateAll((cards) =>
       cards.map((card) => card.getBoundingClientRect().width)
@@ -3396,8 +3478,38 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsLedgerBody')).toContainText('Image generation charge for flux-1-schnell');
     await expect(page.locator('#creditsLedgerBody')).toContainText('org_image_credit_catalog');
     await expect(page.locator('#creditsLedgerBody')).toContainText('Member support adjustment');
+    await expect(page.locator('#creditsOrgPickerWrap')).toHaveCount(0);
+    await expect(page.locator('#creditsDashboard')).not.toContainText('Switch organization');
     await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(0);
     await expect(page.locator('#creditsPurchasesSection')).toBeHidden();
+  });
+
+  test('organization Credits view keeps organization switching only when multiple eligible organizations exist', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      organizations: [
+        {
+          id: 'org_credits_primary_1234567890abcdef',
+          name: 'Primary Credits Org',
+          slug: 'primary-credits-org',
+          role: 'owner',
+          status: 'active',
+        },
+        {
+          id: 'org_credits_second_1234567890abcdef',
+          name: 'Second Credits Org',
+          slug: 'second-credits-org',
+          role: 'owner',
+          status: 'active',
+        },
+      ],
+    });
+
+    const response = await page.goto('/account/credits.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#creditsOrgPickerWrap')).toBeVisible();
+    await expect(page.locator('#creditsOrgPickerWrap')).toContainText('Switch organization');
+    await expect(page.locator('#creditsOrgPicker option')).toHaveCount(3);
   });
 
   test('renders cancel state and has no mobile document overflow', async ({ page }) => {
@@ -5883,6 +5995,10 @@ test.describe('Admin Control Plane', () => {
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(7);
+    const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
+      Math.round(node.getBoundingClientRect().width)
+    );
+    expect(managementShellWidth).toBeGreaterThan(1100);
 
     const dashboardCardWidths = await page.locator('#controlPlaneCapabilityGrid .admin-control-card').evaluateAll((cards) =>
       cards.map((card) => Math.round(card.getBoundingClientRect().width)),
@@ -5932,6 +6048,42 @@ test.describe('Admin Control Plane', () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     );
     expect(mobileHasDocumentOverflow).toBe(false);
+  });
+
+  test('Admin Users shows user IDs with copy controls and opens credit details', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page);
+
+    const response = await page.goto('/admin/index.html#users');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionUsers')).toBeVisible();
+    await expect(page.locator('#userTbody tr')).toHaveCount(2);
+
+    const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
+    await expect(memberRow).toContainText('user_member');
+    await expect(memberRow.getByRole('button', { name: 'Copy user ID user_member' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Credits' })).toBeVisible();
+
+    await memberRow.getByRole('button', { name: 'Credits' }).click();
+    await expect(page.locator('#userCreditModal')).toBeVisible();
+    await expect(page.locator('#userCreditModal')).toContainText('member@example.com');
+    await expect(page.locator('#userCreditModal')).toContainText('user_member');
+    await expect(page.locator('#userCreditModal')).toContainText('Current balance');
+    await expect(page.locator('#userCreditModal')).toContainText('9 credits');
+    await expect(page.locator('#userCreditModal')).toContainText('Image generation charge for flux-1-schnell');
+    await expect(page.locator('#userCreditModal')).toContainText('org_image_credit_catalog');
+    await expect(page.locator('#userCreditModal').getByRole('button', { name: 'Copy user ID user_member' })).toBeVisible();
+
+    await page.locator('#userCreditModal .admin-credit-modal__close').click();
+    await expect(page.locator('#userCreditModal')).toBeHidden();
+
+    const emptyRow = page.locator('#userTbody tr', { hasText: 'empty@example.com' });
+    await emptyRow.getByRole('button', { name: 'Credits' }).click();
+    await expect(page.locator('#userCreditModal')).toBeVisible();
+    await expect(page.locator('#userCreditModal')).toContainText('empty@example.com');
+    await expect(page.locator('#userCreditModal')).toContainText('No member credit transactions yet.');
   });
 
   test('shows unavailable states when a backend capability is absent', async ({

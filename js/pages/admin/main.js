@@ -22,6 +22,7 @@ import {
     apiAdminChangeStatus,
     apiAdminRevokeSessions,
     apiAdminDeleteUser,
+    apiAdminUserBilling,
     apiAdminLatestAvatars,
     apiAdminStats,
     apiAdminActivity,
@@ -72,6 +73,10 @@ const $searchInput = document.getElementById('searchInput');
 const $userPagination = document.getElementById('userPagination');
 const $userPaginationStatus = document.getElementById('userPaginationStatus');
 const $userLoadMoreBtn = document.getElementById('userLoadMoreBtn');
+const $userCreditModal = document.getElementById('userCreditModal');
+const $userCreditModalTitle = document.getElementById('userCreditModalTitle');
+const $userCreditModalSubtitle = document.getElementById('userCreditModalSubtitle');
+const $userCreditModalBody = document.getElementById('userCreditModalBody');
 
 /* Avatar dropdown refs */
 const $avatarDropdown = document.getElementById('avatarDropdown');
@@ -361,6 +366,7 @@ function bootstrapAdminPanel() {
 
     initAvatarDropdown();
     initLightbox();
+    bindUserCreditModal();
     controlPlane.bind();
 
     $searchForm.addEventListener('submit', (e) => {
@@ -422,10 +428,15 @@ const dtf = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
 });
+const numberFormatter = new Intl.NumberFormat('en-US');
 
 function formatDate(iso) {
     if (!iso) return '\u2014';
     return dtf.format(new Date(iso));
+}
+
+function formatCredits(value) {
+    return `${numberFormatter.format(Number(value || 0))} credits`;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -445,6 +456,54 @@ function createActionBtn(label, onClick, danger) {
     btn.textContent = label;
     btn.addEventListener('click', onClick);
     return btn;
+}
+
+async function copyText(text, successMessage = 'Copied.') {
+    if (!text) return;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.insetInlineStart = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+        showToast(successMessage, 'success');
+    } catch {
+        showToast('Copy failed.', 'error');
+    }
+}
+
+function shortUserId(userId) {
+    const value = String(userId || '');
+    if (value.length <= 18) return value;
+    return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function createUserIdMeta(userId, { compact = false } = {}) {
+    const wrap = document.createElement('div');
+    wrap.className = `admin-user-id${compact ? ' admin-user-id--compact' : ''}`;
+
+    const code = document.createElement('code');
+    code.className = 'admin-user-id__code';
+    code.textContent = compact ? shortUserId(userId) : String(userId || '');
+    code.title = String(userId || '');
+
+    const copy = createActionBtn('Copy', (event) => {
+        event.stopPropagation();
+        copyText(String(userId || ''), 'User ID copied.');
+    });
+    copy.classList.add('admin-user-id__copy');
+    copy.setAttribute('aria-label', `Copy user ID ${userId}`);
+
+    wrap.append(code, copy);
+    return wrap;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1185,9 +1244,22 @@ function buildMobileCard(user) {
     meta.appendChild(metaLabel);
     meta.appendChild(metaValue);
 
+    const idMeta = document.createElement('div');
+    idMeta.className = 'admin-mobile-card__meta admin-mobile-card__meta--id';
+    const idLabel = document.createElement('span');
+    idLabel.className = 'admin-mobile-card__label';
+    idLabel.textContent = 'User ID';
+    idMeta.appendChild(idLabel);
+    idMeta.appendChild(createUserIdMeta(user.id, { compact: true }));
+
     // Actions (same logic as desktop)
     const actions = document.createElement('div');
     actions.className = 'admin-mobile-card__actions';
+
+    actions.appendChild(createActionBtn(
+        'Credits',
+        () => openUserCreditDetails(user),
+    ));
 
     const newRole = user.role === 'admin' ? 'user' : 'admin';
     actions.appendChild(createActionBtn(
@@ -1213,6 +1285,7 @@ function buildMobileCard(user) {
     ));
 
     content.appendChild(meta);
+    content.appendChild(idMeta);
     content.appendChild(actions);
     bodyInner.appendChild(content);
     body.appendChild(bodyInner);
@@ -1234,6 +1307,174 @@ function buildMobileCard(user) {
     });
 
     return card;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Users — Credit details overlay
+   ═══════════════════════════════════════════════════════════ */
+function setUserCreditModalOpen(open) {
+    if (!$userCreditModal) return;
+    $userCreditModal.hidden = !open;
+    $userCreditModal.setAttribute('aria-hidden', open ? 'false' : 'true');
+    document.body.classList.toggle('modal-open', open);
+}
+
+function closeUserCreditDetails() {
+    setUserCreditModalOpen(false);
+}
+
+function userCreditState(message, variant = '') {
+    const box = document.createElement('div');
+    box.className = `admin-credit-modal__state${variant ? ` admin-credit-modal__state--${variant}` : ''}`;
+    box.textContent = message;
+    return box;
+}
+
+function creditMetric(label, value) {
+    const card = document.createElement('article');
+    card.className = 'admin-credit-modal__metric';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'admin-credit-modal__metric-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('strong');
+    valueEl.className = 'admin-credit-modal__metric-value';
+    valueEl.textContent = value;
+    card.append(labelEl, valueEl);
+    return card;
+}
+
+function transactionDetails(item = {}) {
+    const usage = item.usage || {};
+    return [
+        usage.model,
+        usage.action || usage.route,
+        usage.pricingSource,
+        item.featureKey,
+        item.createdByEmail ? `by ${item.createdByEmail}` : null,
+        item.id ? `ref ${shortUserId(item.id)}` : null,
+    ].filter(Boolean).join(' • ') || 'Not reported';
+}
+
+function renderUserCreditTransactions(rows = []) {
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-credit-modal__table-wrap';
+    const table = document.createElement('table');
+    table.className = 'admin-table admin-credit-modal__table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Date', 'Type', 'Description', 'Details', 'Amount', 'Balance'].forEach((heading) => {
+        const th = document.createElement('th');
+        th.textContent = heading;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!rows.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 6;
+        cell.className = 'admin-credit-modal__empty-cell';
+        cell.textContent = 'No member credit transactions yet.';
+        row.appendChild(cell);
+        tbody.appendChild(row);
+    } else {
+        for (const item of rows) {
+            const row = document.createElement('tr');
+            [
+                formatDate(item.createdAt),
+                item.type || item.entryType || 'Not reported',
+                item.description || item.reason || item.source || 'Not reported',
+                transactionDetails(item),
+                formatCredits(item.amount),
+                formatCredits(item.balanceAfter),
+            ].forEach((value) => {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                row.appendChild(cell);
+            });
+            tbody.appendChild(row);
+        }
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+}
+
+function renderUserCreditDetails(user, billing = {}) {
+    if (!$userCreditModalBody) return;
+    const balance = billing.balance || {};
+    const transactions = Array.isArray(billing.transactions) ? billing.transactions : [];
+
+    $userCreditModalBody.textContent = '';
+    const identity = document.createElement('div');
+    identity.className = 'admin-credit-modal__identity';
+
+    const email = document.createElement('div');
+    email.className = 'admin-credit-modal__identity-email';
+    email.textContent = billing.email || user.email || 'Unknown email';
+    identity.appendChild(email);
+    identity.appendChild(createUserIdMeta(billing.userId || user.id));
+    $userCreditModalBody.appendChild(identity);
+
+    const metrics = document.createElement('div');
+    metrics.className = 'admin-credit-modal__metrics';
+    metrics.append(
+        creditMetric('Current balance', formatCredits(balance.current ?? billing.creditBalance)),
+        creditMetric('Daily top-up target', formatCredits(balance.dailyAllowance ?? billing.dailyCreditAllowance)),
+        creditMetric('Incoming credits', formatCredits(balance.lifetimeIncoming)),
+        creditMetric('Consumed credits', formatCredits(balance.lifetimeConsumed)),
+        creditMetric('Manual grants', formatCredits(balance.lifetimeManualGrants)),
+    );
+    $userCreditModalBody.appendChild(metrics);
+
+    const topUp = document.createElement('div');
+    topUp.className = 'admin-credit-modal__topup';
+    topUp.textContent = billing.dailyTopUp
+        ? `Daily top-up: ${formatCredits(billing.dailyTopUp.grantedCredits)} granted for ${formatDate(billing.dailyTopUp.dayStart)}.`
+        : `Daily top-up target: ${formatCredits(balance.dailyAllowance ?? billing.dailyCreditAllowance)}. Admin inspection does not apply a top-up.`;
+    $userCreditModalBody.appendChild(topUp);
+
+    const sectionTitle = document.createElement('h3');
+    sectionTitle.className = 'admin-credit-modal__section-title';
+    sectionTitle.textContent = 'Recent transactions';
+    $userCreditModalBody.appendChild(sectionTitle);
+    $userCreditModalBody.appendChild(renderUserCreditTransactions(transactions));
+}
+
+async function openUserCreditDetails(user) {
+    if (!$userCreditModal || !$userCreditModalBody) return;
+    if ($userCreditModalTitle) $userCreditModalTitle.textContent = 'Credit details';
+    if ($userCreditModalSubtitle) $userCreditModalSubtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
+    $userCreditModalBody.textContent = '';
+    $userCreditModalBody.appendChild(userCreditState('Loading credit details...'));
+    setUserCreditModalOpen(true);
+
+    let res = null;
+    try {
+        res = await apiAdminUserBilling(user.id);
+    } catch {
+        res = { ok: false, error: 'Could not load credit details.' };
+    }
+    if (!res.ok) {
+        $userCreditModalBody.textContent = '';
+        $userCreditModalBody.appendChild(userCreditState(res.error || 'Could not load credit details.', 'error'));
+        return;
+    }
+    renderUserCreditDetails(user, res.data?.billing || {});
+}
+
+function bindUserCreditModal() {
+    if (!$userCreditModal || $userCreditModal.dataset.bound === '1') return;
+    $userCreditModal.dataset.bound = '1';
+    $userCreditModal.querySelectorAll('[data-user-credit-close]').forEach((button) => {
+        button.addEventListener('click', closeUserCreditDetails);
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !$userCreditModal.hidden) closeUserCreditDetails();
+    });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1262,6 +1503,12 @@ function renderUsers(users) {
         const tdEmail = document.createElement('td');
         tdEmail.textContent = user.email;
         tr.appendChild(tdEmail);
+
+        // User ID
+        const tdUserId = document.createElement('td');
+        tdUserId.className = 'admin-user-id-cell';
+        tdUserId.appendChild(createUserIdMeta(user.id, { compact: true }));
+        tr.appendChild(tdUserId);
 
         // Role badge
         const tdRole = document.createElement('td');
@@ -1292,6 +1539,10 @@ function renderUsers(users) {
         const tdActions = document.createElement('td');
         const actionsWrap = document.createElement('div');
         actionsWrap.className = 'admin-actions';
+
+        actionsWrap.appendChild(
+            createActionBtn('Credits', () => openUserCreditDetails(user)),
+        );
 
         // Toggle role
         const newRole = user.role === 'admin' ? 'user' : 'admin';
