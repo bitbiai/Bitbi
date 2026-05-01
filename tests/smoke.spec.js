@@ -1424,7 +1424,10 @@ test.describe('Homepage', () => {
     await expect(modeBar.getByRole('tab', { name: /Create/ })).toBeVisible();
     await expect(page.locator('#galleryExplore')).toBeVisible();
     await expect(page.locator('#galleryStudio')).toBeHidden();
-    await expect(page.locator('.filter-btn[data-filter="experimental"]')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .filter-bar')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .filter-btn')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .auth-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .gal-filter-bar')).toHaveCount(0);
   });
 
   test('homepage removes the AI Art, AI Video, and Audio labels without leaving header gaps', async ({ page }) => {
@@ -1587,7 +1590,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
   });
 
-  test('gallery Explore renders public Mempics without regressing the existing Free gallery filters', async ({ page }) => {
+  test('gallery Explore renders public Mempics directly without category selector pills', async ({ page }) => {
     const mempicVersion = 'vpubmempic';
     const avatarVersion = 'avpubmempic';
     await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, async (route) => {
@@ -1649,9 +1652,11 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await switchHomepageCategory(page, 'gallery');
 
-    const mempicsBtn = page.locator('.filter-btn[data-filter="mempics"]');
-    await expect(mempicsBtn).toBeVisible();
-    await mempicsBtn.click();
+    await expect(page.locator('#galleryExplore .filter-btn')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .auth-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#galleryExplore .gal-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#galleryGrid .locked-area.gallery-item')).toHaveCount(0);
+    await expect(page.locator('#galleryGrid')).not.toContainText('Exclusive');
 
     const mempicsCard = page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').first();
     await expect(mempicsCard).toBeVisible();
@@ -1665,8 +1670,6 @@ test.describe('Homepage', () => {
     await expect(page.locator('#modalCaption')).toHaveText('Published by Ada Member on 2026-04-12.');
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`);
     await page.locator('.modal-close').click();
-
-    await page.locator('.filter-btn[data-filter="mempics"]').click();
   });
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {

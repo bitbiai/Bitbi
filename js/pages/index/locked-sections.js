@@ -1,5 +1,5 @@
 /* ============================================================
-   BITBI — Locked sections: 3 member-only placements
+   BITBI — Locked sections: member-only Sound Lab placements
    ============================================================ */
 
 import { getAuthState } from '../../shared/auth-state.js';
@@ -23,8 +23,6 @@ const LOCK_ICON = `<svg width="28" height="28" fill="none" stroke="currentColor"
 const lockedAreas = [];
 
 export function initLockedSections(revealObserver) {
-    setupGalleryFilter();
-    setupGalleryExclusiveCard();
     setupSoundLabCard(revealObserver);
 
     updateAll();
@@ -37,12 +35,6 @@ function updateAll() {
     lockedAreas.forEach(el => {
         el.setAttribute('data-locked', loggedIn ? 'false' : 'true');
     });
-    /* Update gallery filter button style */
-    const filterBtn = document.querySelector('.auth-filter-btn');
-    if (filterBtn) {
-        filterBtn.classList.toggle('auth-filter-btn--unlocked', loggedIn);
-        filterBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
-    }
 }
 
 function makeOverlay() {
@@ -53,255 +45,7 @@ function makeOverlay() {
     return overlay;
 }
 
-/* ── Placement 1: Gallery — Exclusive filter button ── */
-
-function setupGalleryFilter() {
-    const filterBar = document.querySelector('.filter-bar');
-    if (!filterBar) return;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'auth-filter-btn';
-    btn.textContent = 'Exclusive \uD83D\uDD12';
-    btn.setAttribute('role', 'tab');
-    btn.setAttribute('aria-selected', 'false');
-    btn.setAttribute('tabindex', '-1');
-
-    btn.addEventListener('click', () => {
-        const { loggedIn } = getAuthState();
-        if (!loggedIn) {
-            openAuthModal('register');
-            return;
-        }
-        const isActive = btn.classList.contains('active');
-        /* Deselect all filter buttons (both regular and exclusive) */
-        filterBar.querySelectorAll('.filter-btn').forEach(b => {
-            b.classList.remove('active');
-            b.setAttribute('aria-selected', 'false');
-        });
-        btn.classList.remove('active');
-        btn.setAttribute('aria-selected', 'false');
-
-        if (isActive) {
-            /* Toggle off: re-activate default category */
-            const defaultBtn = filterBar.querySelector('[data-filter="mempics"]');
-            if (defaultBtn) { defaultBtn.classList.add('active'); defaultBtn.setAttribute('aria-selected', 'true'); defaultBtn.click(); }
-        } else {
-            /* Toggle on: show exclusive only */
-            btn.classList.add('active');
-            btn.setAttribute('aria-selected', 'true');
-            /* Dispatch a custom event so gallery.js render('exclusive') is triggered */
-            const grid = document.getElementById('galleryGrid');
-            if (grid) grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
-        }
-    });
-
-    filterBar.appendChild(btn);
-}
-
-/* ── Placement 2: Gallery — Exclusive folder + Little Monster subcategory ── */
-function setupGalleryExclusiveCard() {
-    const grid = document.getElementById('galleryGrid');
-    const modal = document.getElementById('galleryModal');
-    if (!grid || !modal) return;
-
-    /* ── Folder card (shown in exclusive view) ── */
-    const folderWrapper = document.createElement('div');
-    folderWrapper.className = 'locked-area gallery-item';
-    folderWrapper.setAttribute('data-locked', 'true');
-
-    const folderContent = document.createElement('div');
-    folderContent.className = 'locked-area__content';
-    folderContent.style.cssText = 'cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px';
-    folderContent.setAttribute('tabindex', '0');
-    folderContent.setAttribute('role', 'button');
-    folderContent.setAttribute('aria-label', 'Little Monster — 15 exclusive images');
-    folderContent.innerHTML = `
-        <div class="folder-circle" style="width:80%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;border:2px solid rgba(0,240,255,0.15);background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr">
-            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
-            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
-            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
-            <img class="folder-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
-        </div>
-        <div style="text-align:center">
-            <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px">
-                <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">Little Monster</h4>
-                <span style="font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(255,179,0,0.1);color:rgba(255,179,0,0.8);padding:2px 6px;border-radius:10px">MEMBERS</span>
-            </div>
-            <p style="font-size:10px;color:rgba(255,255,255,0.4)">15 images</p>
-            <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">Open →</span>
-        </div>`;
-
-    folderWrapper.appendChild(folderContent);
-    folderWrapper.appendChild(makeOverlay());
-    folderWrapper.style.display = 'none';
-    grid.prepend(folderWrapper);
-    lockedAreas.push(folderWrapper);
-
-    /* Load 4 cover thumbnails when logged in */
-    const folderThumbs = folderContent.querySelectorAll('.folder-thumb');
-    let folderThumbsLoaded = false;
-
-    function loadFolderThumbs() {
-        if (folderThumbsLoaded) return;
-        if (!getAuthState().loggedIn) return;
-        folderThumbsLoaded = true;
-        for (let t = 0; t < 4; t++) {
-            const num = String(t + 1).padStart(2, '0');
-            const img = new Image();
-            img.crossOrigin = 'use-credentials';
-            img.onload = () => {
-                folderThumbs[t].src = img.src;
-                folderThumbs[t].style.display = 'block';
-            };
-            img.onerror = () => {
-                folderThumbs[t].style.display = 'none';
-            };
-            img.src = `/api/thumbnails/little-monster-${num}`;
-        }
-    }
-
-    document.addEventListener('bitbi:auth-change', () => {
-
-        if (getAuthState().loggedIn) {
-            loadFolderThumbs();
-        } else {
-            folderThumbsLoaded = false;
-            folderThumbs.forEach(t => { t.src = ''; t.style.display = 'none'; });
-        }
-    });
-    loadFolderThumbs();
-
-    /* ── Build 15 Little Monster image cards (not in DOM yet) ── */
-    const imageCards = [];
-    const cardStates = [];
-
-    for (let i = 1; i <= 15; i++) {
-        const num = String(i).padStart(2, '0');
-        const thumb = `/api/thumbnails/little-monster-${num}`;
-        const full = `/api/images/little-monster-${num}`;
-        const title = `Little Monster #${num}`;
-
-        const card = document.createElement('div');
-        card.className = 'gallery-item';
-        const inner = document.createElement('div');
-        inner.className = 'gallery-inner rounded-xl overflow-hidden relative';
-        inner.style.cssText = 'border:1px solid rgba(255,255,255,0.04);cursor:pointer';
-        inner.setAttribute('tabindex', '0');
-        inner.setAttribute('role', 'button');
-        inner.setAttribute('aria-label', title);
-        inner.innerHTML = `
-            <div class="excl-img-placeholder" style="width:100%;aspect-ratio:1/1;background:radial-gradient(ellipse at center,#0d1b2a,#060e18);display:flex;align-items:center;justify-content:center"><svg width="48" height="48" fill="rgba(0,240,255,0.15)" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>
-            <img class="excl-img-real" src="" alt="${title}" loading="lazy" decoding="async" style="width:100%;display:none;object-fit:cover">
-            <div class="gallery-overlay" style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:20px">
-                <div>
-                    <h4 style="font-family:'Playfair Display',serif;font-weight:700;font-size:14px;color:rgba(255,255,255,0.9)">${title}</h4>
-                    <p style="font-size:10px;color:rgba(255,255,255,0.4)">Little Monster</p>
-                    <span style="display:inline-block;margin-top:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#00F0FF">View Full →</span>
-                </div>
-            </div>`;
-        card.appendChild(inner);
-        imageCards.push(card);
-
-        const imgEl = inner.querySelector('.excl-img-real');
-        const placeholderEl = inner.querySelector('.excl-img-placeholder');
-        const state = { loaded: false, imgEl, placeholderEl, thumb, title };
-        cardStates.push(state);
-
-        /* Click/keyboard opens full-size image in modal */
-        inner.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inner.click(); }
-        });
-        inner.addEventListener('click', () => {
-            const mi = document.getElementById('modalImage');
-            mi.style.background = '#0D1B2A';
-            mi.innerHTML = `<img src="${full}" crossorigin="use-credentials" alt="${title}" style="width:100%;height:100%;object-fit:contain;display:block">`;
-            document.getElementById('modalTitle').textContent = title;
-            document.getElementById('modalCaption').textContent = 'An exclusive creature from the BITBI universe — only visible to registered members.';
-            const fullLink = document.getElementById('modalFullLink');
-            if (fullLink) {
-                fullLink.href = full;
-                fullLink.hidden = false;
-                fullLink.onclick = (e) => {
-                    e.stopPropagation();
-                    window.open(full, '_blank', 'noopener');
-                    e.preventDefault();
-                };
-            }
-            modal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        });
-    }
-
-    /* ── Open subcategory: show back button + 15 images ── */
-    function openSubcategory() {
-        if (!getAuthState().loggedIn) { openAuthModal('register'); return; }
-
-        /*
-         * Clear grid but keep folderWrapper in DOM (hidden).
-         * This way gallery.js render() always finds it via
-         * querySelectorAll('.locked-area.gallery-item') no matter
-         * which filter the user clicks next.
-         */
-        grid.innerHTML = '';
-        folderWrapper.style.display = 'none';
-        grid.appendChild(folderWrapper);
-
-        /* Back button */
-        const backBtn = document.createElement('button');
-        backBtn.type = 'button';
-        backBtn.className = 'auth-filter-btn auth-filter-btn--unlocked active';
-        backBtn.style.cssText = 'margin-bottom:16px;display:inline-flex;align-items:center;gap:6px';
-        backBtn.innerHTML = `<span style="font-size:14px">←</span> Exclusive`;
-        backBtn.addEventListener('click', () => {
-            /* Let gallery.js render('exclusive') handle cleanup */
-            grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
-        });
-        grid.appendChild(backBtn);
-
-        /* Load and show images */
-        cardStates.forEach(state => {
-            if (!state.loaded) {
-                const img = new Image();
-                img.crossOrigin = 'use-credentials';
-                img.onload = () => {
-                    state.imgEl.src = img.src;
-                    state.imgEl.style.display = 'block';
-                    state.placeholderEl.style.display = 'none';
-                    state.loaded = true;
-                };
-                img.onerror = () => {
-                    state.placeholderEl.style.display = 'flex';
-                };
-                img.src = state.thumb;
-            }
-        });
-        imageCards.forEach(card => grid.appendChild(card));
-    }
-
-    folderContent.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); folderContent.click(); }
-    });
-    folderContent.addEventListener('click', () => {
-        if (!getAuthState().loggedIn) { openAuthModal('register'); return; }
-        openSubcategory();
-    });
-
-    /* React to auth changes */
-    document.addEventListener('bitbi:auth-change', () => {
-
-        if (!getAuthState().loggedIn) {
-            cardStates.forEach(state => {
-                state.imgEl.src = '';
-                state.imgEl.style.display = 'none';
-                state.placeholderEl.style.display = 'flex';
-                state.loaded = false;
-            });
-        }
-    });
-}
-
-/* ── Placement 3: Sound Lab — Exclusive Track cards ── */
+/* ── Sound Lab — Exclusive Track cards ── */
 function setupSoundLabCard(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
     if (!ctn) return;
@@ -466,4 +210,3 @@ function setupSoundLabCard(revealObserver) {
         }
     });
 }
-

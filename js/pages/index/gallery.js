@@ -1,15 +1,11 @@
 /* ============================================================
-   BITBI — Gallery rendering, filtering, modal with focus trap
+   BITBI — Gallery rendering and modal with focus trap
    ============================================================ */
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
-import { getAuthState } from '../../shared/auth-state.js';
-import { openAuthModal } from '../../shared/auth-modal.js';
-import { galleryItems } from '../../shared/gallery-data.js';
 import { createStarButton } from '../../shared/favorites.js';
 
 
-const items = galleryItems;
 const MEMPICS_CATEGORY = 'mempics';
 const MEMPICS_LIMIT = 60;
 const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -300,27 +296,7 @@ export function initGallery() {
         currentFilter = filter;
         const seq = ++renderSeq;
         updateMempicsPagination(filter);
-        /* Preserve exclusive cards injected by locked-sections.js */
-        const exclusiveCards = Array.from(grid.querySelectorAll('.locked-area.gallery-item'));
-        exclusiveCards.forEach(card => card.remove());
-
         grid.innerHTML = '';
-
-        /* "exclusive" filter: show only the exclusive cards, no regular items */
-        if (filter === 'exclusive') {
-            exclusiveCards.forEach(card => {
-                card.style.display = '';
-                grid.appendChild(card);
-            });
-            updateMempicsPagination(filter);
-            return;
-        }
-
-        /* Exclusive cards only visible in exclusive view, hidden for all other filters */
-        exclusiveCards.forEach(card => {
-            card.style.display = 'none';
-            grid.appendChild(card);
-        });
 
         let list = [];
         if (filter === MEMPICS_CATEGORY) {
@@ -337,12 +313,10 @@ export function initGallery() {
             }
             if (seq !== renderSeq) return;
             Array.from(grid.querySelectorAll('.gallery-empty-state')).forEach((node) => node.remove());
-        } else {
-            list = items.filter(i => i.category === filter);
         }
 
         if (!list.length) {
-            renderGalleryState(filter === MEMPICS_CATEGORY ? 'No Mempics published yet.' : 'Nothing to show here yet.');
+            renderGalleryState('No Mempics published yet.');
             updateMempicsPagination(filter);
             return;
         }
@@ -355,7 +329,7 @@ export function initGallery() {
         updateMempicsPagination(filter);
     }
 
-    render('mempics');
+    render(MEMPICS_CATEGORY);
     $loadMore?.addEventListener('click', () => {
         loadMoreMempics();
     });
@@ -375,48 +349,6 @@ export function initGallery() {
         window.requestAnimationFrame(() => {
             if (window.scrollY + 1 < previousScrollY) {
                 window.scrollTo({ top: previousScrollY, behavior: 'auto' });
-            }
-        });
-    });
-
-    /* Listen for exclusive filter from locked-sections.js */
-    grid.addEventListener('gallery:filter', (e) => {
-        render(e.detail);
-    });
-
-    /* Filter buttons with keyboard navigation */
-    const filterBtns = document.querySelectorAll('.filter-btn');
-    filterBtns.forEach((btn, idx) => {
-        btn.addEventListener('click', () => {
-            if (btn.dataset.filter === MEMPICS_CATEGORY && !isDesktopDrawerEnabled()) {
-                mempicsDrawerExpanded = false;
-            }
-            filterBtns.forEach(x => {
-                x.classList.remove('active');
-                x.setAttribute('aria-selected', 'false');
-            });
-            /* Also deselect the Exclusive button so it doesn't think it's still active */
-            const exclBtn = document.querySelector('.auth-filter-btn');
-            if (exclBtn) {
-                exclBtn.classList.remove('active');
-                exclBtn.setAttribute('aria-selected', 'false');
-            }
-            btn.classList.add('active');
-            btn.setAttribute('aria-selected', 'true');
-            render(btn.dataset.filter);
-        });
-
-        btn.addEventListener('keydown', (e) => {
-            let target = null;
-            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                target = filterBtns[(idx + 1) % filterBtns.length];
-            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                target = filterBtns[(idx - 1 + filterBtns.length) % filterBtns.length];
-            }
-            if (target) {
-                e.preventDefault();
-                target.focus();
-                target.click();
             }
         });
     });
@@ -487,7 +419,6 @@ export function initGallery() {
     let galDotsEl = null;
     let galSwipeLock = false;
     let galGridObserver = null;
-    let galCategory = 'mempics';
 
     function galGetCards() {
         return Array.from(grid.children).filter(c => c.style.display !== 'none' && c.tagName !== 'BUTTON');
@@ -568,17 +499,6 @@ export function initGallery() {
         galBuildDots();
     }
 
-    function galSwitchCategory(cat) {
-        galCategory = cat;
-        if (!galIsDeck) return;
-        galActive = 0;
-        if (cat === 'exclusive') {
-            grid.dispatchEvent(new CustomEvent('gallery:filter', { detail: 'exclusive' }));
-        } else {
-            render(cat);
-        }
-    }
-
     bindMediaQueryChange(desktopDrawerQuery, () => {
         if (!isDesktopDrawerEnabled()) {
             mempicsDrawerExpanded = false;
@@ -586,90 +506,12 @@ export function initGallery() {
         render(currentFilter);
     });
 
-    function galCreateFilterBar() {
-        const bar = document.createElement('div');
-        bar.className = 'gal-filter-bar';
-        bar.setAttribute('role', 'tablist');
-        bar.setAttribute('aria-label', 'Gallery categories');
-
-        const cats = [
-            { key: 'mempics', label: 'Mempics' },
-        ];
-
-        const galBtns = {};
-
-        cats.forEach(({ key, label }) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'gal-filter-btn' + (key === galCategory ? ' active' : '');
-            btn.textContent = label;
-            btn.setAttribute('role', 'tab');
-            btn.setAttribute('aria-selected', key === galCategory ? 'true' : 'false');
-            btn.addEventListener('click', () => {
-                if (galCategory === key) return;
-                Object.values(galBtns).forEach(b => {
-                    b.classList.remove('active');
-                    b.setAttribute('aria-selected', 'false');
-                });
-                btn.classList.add('active');
-                btn.setAttribute('aria-selected', 'true');
-                galSwitchCategory(key);
-            });
-            galBtns[key] = btn;
-            bar.appendChild(btn);
-        });
-
-        const exclBtn = document.createElement('button');
-        exclBtn.type = 'button';
-        exclBtn.className = 'gal-filter-btn gal-filter-btn--auth';
-        exclBtn.textContent = 'Exclusive \uD83D\uDD12';
-        exclBtn.setAttribute('role', 'tab');
-        exclBtn.setAttribute('aria-selected', 'false');
-
-        const { loggedIn } = getAuthState();
-        if (loggedIn) {
-            exclBtn.classList.add('unlocked');
-            exclBtn.textContent = 'Exclusive';
-        }
-
-        exclBtn.addEventListener('click', () => {
-            const { loggedIn } = getAuthState();
-            if (!loggedIn) { openAuthModal('register'); return; }
-            Object.values(galBtns).forEach(b => {
-                b.classList.remove('active');
-                b.setAttribute('aria-selected', 'false');
-            });
-            exclBtn.classList.add('active');
-            exclBtn.setAttribute('aria-selected', 'true');
-            galSwitchCategory('exclusive');
-        });
-
-        galBtns.exclusive = exclBtn;
-        bar.appendChild(exclBtn);
-
-        document.addEventListener('bitbi:auth-change', () => {
-
-            const { loggedIn } = getAuthState();
-            exclBtn.classList.toggle('unlocked', loggedIn);
-            exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive \uD83D\uDD12';
-            if (!loggedIn && galCategory === 'exclusive') {
-                exclBtn.classList.remove('active');
-                exclBtn.setAttribute('aria-selected', 'false');
-                galBtns.mempics.classList.add('active');
-                galBtns.mempics.setAttribute('aria-selected', 'true');
-                galSwitchCategory('mempics');
-            }
-        });
-
-        grid.parentElement.insertBefore(bar, grid);
-    }
-
     function galEngage() {
         if (galIsDeck) return;
         galIsDeck = true;
         galActive = 0;
         grid.classList.add('gal-deck');
-        render(galCategory);
+        render(MEMPICS_CATEGORY);
         galRenderDeck();
     }
 
@@ -685,18 +527,7 @@ export function initGallery() {
             c.style.transition = '';
         });
         if (galDotsEl) { galDotsEl.remove(); galDotsEl = null; }
-        render('mempics');
-        const desktopBar = document.querySelector('#gallery .filter-bar');
-        if (desktopBar) {
-            desktopBar.querySelectorAll('.filter-btn').forEach(b => {
-                b.classList.remove('active');
-                b.setAttribute('aria-selected', 'false');
-            });
-            const mempicsBtn = desktopBar.querySelector('[data-filter="mempics"]');
-            if (mempicsBtn) { mempicsBtn.classList.add('active'); mempicsBtn.setAttribute('aria-selected', 'true'); }
-            const authBtn = desktopBar.querySelector('.auth-filter-btn');
-            if (authBtn) { authBtn.classList.remove('active'); authBtn.setAttribute('aria-selected', 'false'); }
-        }
+        render(MEMPICS_CATEGORY);
     }
 
     /* Touch handling */
@@ -773,14 +604,12 @@ export function initGallery() {
         if (galSwipeLock) { e.stopPropagation(); e.preventDefault(); galSwipeLock = false; }
     }, true);
 
-    /* Watch for DOM changes (locked-sections.js, render, subcategory) */
+    /* Watch for DOM changes from public Mempics rendering */
     galGridObserver = new MutationObserver(() => {
 
         if (galIsDeck) galRenderDeck();
     });
     galGridObserver.observe(grid, { childList: true });
-
-    galCreateFilterBar();
 
     galMql.addEventListener('change', e => {
         if (e.matches) galEngage();
