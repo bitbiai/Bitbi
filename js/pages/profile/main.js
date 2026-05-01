@@ -33,6 +33,12 @@ import {
     apiUpdateProfile,
     apiUploadAvatar,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    initAvatarGenerate,
+    openAvatarGenerateModal,
+    closeAvatarGenerateModal,
+    isAvatarGenerateModalOpen,
+} from './avatar-generate.js?v=__ASSET_VERSION__';
 import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
 import {
@@ -88,6 +94,8 @@ const $avatarSourceModal = document.getElementById('avatarSourceModal');
 const $avatarSourceClose = document.getElementById('avatarSourceClose');
 const $avatarChooseSavedAssets = document.getElementById('avatarChooseSavedAssets');
 const $avatarChooseUploadDevice = document.getElementById('avatarChooseUploadDevice');
+const $avatarChooseGenerate = document.getElementById('avatarChooseGenerate');
+const $avatarGenerateModal = document.getElementById('avatarGenerateModal');
 const $avatarAssetsModal = document.getElementById('avatarAssetsModal');
 const $avatarAssetsClose = document.getElementById('avatarAssetsClose');
 const $avatarAssetsFilter = document.getElementById('avatarAssetsFilter');
@@ -349,6 +357,7 @@ function setAvatarActionState(isBusy, text = 'Change Photo') {
     if ($avatarInput) $avatarInput.disabled = isBusy;
     if ($avatarChooseSavedAssets) $avatarChooseSavedAssets.disabled = isBusy;
     if ($avatarChooseUploadDevice) $avatarChooseUploadDevice.disabled = isBusy;
+    if ($avatarChooseGenerate) $avatarChooseGenerate.disabled = isBusy;
     if ($avatarUploadText) $avatarUploadText.textContent = isBusy ? text : 'Change Photo';
 }
 
@@ -361,7 +370,8 @@ function setAvatarAssetsStatus(text, type = 'neutral') {
 function hasOpenAvatarModal() {
     return Boolean(
         ($avatarSourceModal && !$avatarSourceModal.hidden) ||
-        ($avatarAssetsModal && !$avatarAssetsModal.hidden)
+        ($avatarAssetsModal && !$avatarAssetsModal.hidden) ||
+        ($avatarGenerateModal && !$avatarGenerateModal.hidden)
     );
 }
 
@@ -1402,6 +1412,27 @@ async function init() {
     $avatarChooseSavedAssets?.addEventListener('click', async () => {
         closeAvatarSourceModal({ focusEl: $avatarChangeBtn });
         await openAvatarAssetsModal();
+    });
+
+    initAvatarGenerate({
+        onAvatarUpdated: () => {
+            patchAuthUser({
+                has_avatar: true,
+                avatar_url: `${AVATAR_URL}?t=${Date.now()}`,
+            });
+            showAvatarMsg('Photo updated.', 'success');
+            loadAvatar(true);
+            syncAvatarModalBodyLock();
+            $avatarChangeBtn?.focus();
+        },
+        onClose: () => {
+            syncAvatarModalBodyLock();
+        },
+    });
+
+    $avatarChooseGenerate?.addEventListener('click', () => {
+        closeAvatarSourceModal({ focusEl: null });
+        openAvatarGenerateModal();
     });
 
     $avatarAssetsFilter?.addEventListener('change', () => {

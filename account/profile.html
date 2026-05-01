@@ -316,6 +316,11 @@
                         <span class="profile-avatar-modal__option-title">Upload from Device</span>
                         <span class="profile-avatar-modal__option-desc">Continue with the current local upload flow.</span>
                     </button>
+                    <button type="button" id="avatarChooseGenerate" class="profile-avatar-modal__option">
+                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#9881;</span>
+                        <span class="profile-avatar-modal__option-title">Generate one</span>
+                        <span class="profile-avatar-modal__option-desc">Describe a portrait and create an avatar with AI.</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -346,6 +351,34 @@
                 <div id="avatarAssetsGrid" class="profile-avatar-picker__grid">
                     <div class="studio__gallery-empty">Loading saved images...</div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="avatarGenerateModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
+    <div class="modal-content profile-avatar-modal__content">
+        <div class="modal-card profile-avatar-modal__card profile-avatar-generate" role="dialog" aria-modal="true" aria-labelledby="avatarGenerateTitle">
+            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarGenerateClose" aria-label="Close avatar generator">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-body profile-avatar-modal__body profile-avatar-generate__body">
+                <span class="profile-avatar-modal__eyebrow">Profile Photo</span>
+                <h3 id="avatarGenerateTitle" class="modal-title">Generate Avatar</h3>
+                <p class="profile-avatar-modal__desc">Describe the avatar you want and we'll generate it for you.</p>
+                <div class="profile-avatar-generate__preview" id="avatarGeneratePreview" aria-live="polite">
+                    <div class="profile-avatar-generate__preview-empty">Your avatar will appear here.</div>
+                </div>
+                <div id="avatarGenerateMsg" class="profile__msg" role="status"></div>
+                <label class="profile-avatar-generate__prompt-label" for="avatarGeneratePrompt">
+                    <span class="sr-only">Avatar prompt</span>
+                    <textarea id="avatarGeneratePrompt" class="profile-avatar-generate__prompt" rows="3" maxlength="1000" placeholder="Describe your avatar..." autocomplete="off"></textarea>
+                </label>
+                <div class="profile-avatar-generate__actions">
+                    <button type="button" id="avatarGenerateBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--primary">Generate</button>
+                    <button type="button" id="avatarGenerateUseBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--use" disabled>Use</button>
+                </div>
+                <div id="avatarGenerateQuota" class="profile-avatar-generate__quota" aria-live="polite" hidden></div>
             </div>
         </div>
     </div>

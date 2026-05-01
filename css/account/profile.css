@@ -401,6 +401,199 @@
         }
     }
 
+    /* ── Avatar Generate Overlay ── */
+    .profile-avatar-generate__body {
+        gap: var(--space-4);
+    }
+
+    .profile-avatar-generate__preview {
+        position: relative;
+        display: grid;
+        place-items: center;
+        inline-size: 14rem;
+        block-size: 14rem;
+        max-inline-size: 100%;
+        margin-inline: auto;
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+            rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(0, 240, 255, 0.04);
+    }
+
+    .profile-avatar-generate__preview-empty {
+        padding: var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.36);
+        text-align: center;
+    }
+
+    .profile-avatar-generate__preview-loading {
+        display: grid;
+        place-items: center;
+        gap: var(--space-3);
+        color: rgba(255, 255, 255, 0.7);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .profile-avatar-generate__spinner {
+        inline-size: 1.75rem;
+        block-size: 1.75rem;
+        border-radius: var(--radius-full);
+        border: 2px solid rgba(0, 240, 255, 0.18);
+        border-top-color: var(--color-cyan);
+        animation: profile-avatar-generate-spin 0.9s linear infinite;
+    }
+
+    @keyframes profile-avatar-generate-spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .profile-avatar-generate__preview-img {
+        inline-size: 100%;
+        block-size: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .profile-avatar-generate__prompt-label {
+        display: block;
+    }
+
+    .profile-avatar-generate__prompt {
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font: inherit;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: var(--color-text);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-md);
+        resize: vertical;
+        min-block-size: 4.5rem;
+        max-block-size: 12rem;
+        transition:
+            border-color 0.2s var(--ease-default),
+            background 0.2s var(--ease-default),
+            box-shadow 0.2s var(--ease-default);
+    }
+
+    .profile-avatar-generate__prompt::placeholder {
+        color: rgba(255, 255, 255, 0.32);
+    }
+
+    .profile-avatar-generate__prompt:focus-visible {
+        outline: none;
+        border-color: rgba(0, 240, 255, 0.32);
+        background: rgba(255, 255, 255, 0.05);
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.16);
+    }
+
+    .profile-avatar-generate__prompt:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .profile-avatar-generate__actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-3);
+    }
+
+    .profile-avatar-generate__btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        appearance: none;
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        transition:
+            background 0.2s var(--ease-default),
+            border-color 0.2s var(--ease-default),
+            color 0.2s var(--ease-default),
+            box-shadow 0.2s var(--ease-default),
+            transform 0.2s var(--ease-default);
+    }
+
+    .profile-avatar-generate__btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .profile-avatar-generate__btn--primary {
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.1);
+        border: 1px solid rgba(0, 240, 255, 0.24);
+    }
+
+    .profile-avatar-generate__btn--primary:hover:not(:disabled),
+    .profile-avatar-generate__btn--primary:focus-visible:not(:disabled) {
+        background: rgba(0, 240, 255, 0.18);
+        border-color: rgba(0, 240, 255, 0.4);
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.18);
+        outline: none;
+        transform: translateY(-1px);
+    }
+
+    .profile-avatar-generate__btn--use {
+        color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .profile-avatar-generate__btn--use.profile-avatar-generate__btn--ready {
+        color: var(--color-midnight);
+        background: linear-gradient(180deg, var(--color-cyan), rgba(0, 200, 230, 0.96));
+        border-color: rgba(0, 240, 255, 0.6);
+        box-shadow: 0 8px 24px rgba(0, 240, 255, 0.18);
+    }
+
+    .profile-avatar-generate__btn--use.profile-avatar-generate__btn--ready:hover:not(:disabled),
+    .profile-avatar-generate__btn--use.profile-avatar-generate__btn--ready:focus-visible:not(:disabled) {
+        outline: none;
+        transform: translateY(-1px);
+        box-shadow: 0 12px 32px rgba(0, 240, 255, 0.28);
+    }
+
+    .profile-avatar-generate__quota {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.42);
+        text-align: center;
+    }
+
+    .profile-avatar-generate__quota--empty {
+        color: var(--color-danger);
+    }
+
+    @media (max-width: 639px) {
+        .profile-avatar-generate__preview {
+            inline-size: 12rem;
+            block-size: 12rem;
+        }
+
+        .profile-avatar-generate__actions {
+            grid-template-columns: 1fr;
+        }
+    }
+
     /* ── Top Pair (Avatar + Studio) ── */
     .profile__top-pair {
         display: block;

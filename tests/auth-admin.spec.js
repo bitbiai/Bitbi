@@ -4975,6 +4975,229 @@ test.describe('Profile page (authenticated)', () => {
     expect(imageRequests).not.toContain('/api/ai/images/img-ready/file');
   });
 
+  test('change photo chooser surfaces the Generate option without growing', async ({ page }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
+
+    const optionCount = await page
+      .locator('#avatarSourceModal .profile-avatar-modal__option')
+      .count();
+    expect(optionCount).toBe(3);
+    await expect(page.locator('#avatarChooseSavedAssets')).toBeVisible();
+    await expect(page.locator('#avatarChooseUploadDevice')).toBeVisible();
+    await expect(page.locator('#avatarChooseGenerate')).toBeVisible();
+
+    const cardWidth = await page
+      .locator('#avatarSourceModal .modal-card')
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(cardWidth).toBeLessThanOrEqual(640);
+  });
+
+  test('clicking Generate one opens the compact AI overlay with no model/steps/size pickers', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            isAdmin: false,
+            dailyLimit: 10,
+            usedToday: 0,
+            remainingToday: 10,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await expect(page.locator('#avatarSourceModal')).toHaveClass(/active/);
+
+    await page.locator('#avatarChooseGenerate').click();
+
+    await expect(page.locator('#avatarSourceModal')).toBeHidden();
+    await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
+    await expect(page.locator('#avatarGeneratePrompt')).toBeVisible();
+    await expect(page.locator('#avatarGenerateBtn')).toBeVisible();
+    await expect(page.locator('#avatarGenerateUseBtn')).toBeDisabled();
+
+    await expect(page.locator('#avatarGenerateModal select')).toHaveCount(0);
+    await expect(page.locator('#avatarGenerateModal input[type="number"]')).toHaveCount(0);
+    await expect(page.locator('#avatarGenerateModal input[type="range"]')).toHaveCount(0);
+    await expect(page.locator('#avatarGenerateModal [data-model-picker]')).toHaveCount(0);
+    const overlayText = (await page.locator('#avatarGenerateModal').innerText()).toLowerCase();
+    expect(overlayText).not.toContain('model');
+    expect(overlayText).not.toContain('steps');
+    expect(overlayText).not.toContain('seed');
+    expect(overlayText).not.toContain('1024');
+    expect(overlayText).not.toContain('resolution');
+
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('10 / 10');
+  });
+
+  test('avatar generate sends FLUX.1 Schnell with 4 steps and shares the AI Lab quota', async ({
+    page,
+  }) => {
+    const avatarRequests = [];
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      avatarRequests,
+    });
+
+    let quotaRemaining = 10;
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            isAdmin: false,
+            dailyLimit: 10,
+            usedToday: 10 - quotaRemaining,
+            remainingToday: quotaRemaining,
+          },
+        }),
+      });
+    });
+
+    const generateRequests = [];
+    await page.route('**/api/ai/generate-image', async (route) => {
+      const body = route.request().postDataJSON();
+      generateRequests.push(body);
+      quotaRemaining = Math.max(0, quotaRemaining - 1);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            mimeType: 'image/png',
+            prompt: body.prompt,
+            model: body.model,
+            steps: body.steps,
+            seed: body.seed,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await page.locator('#avatarChooseGenerate').click();
+    await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
+
+    await page.locator('#avatarGeneratePrompt').fill('A friendly explorer with cyan glow');
+    await page.locator('#avatarGenerateBtn').click();
+
+    await expect(page.locator('#avatarGenerateUseBtn')).toBeEnabled();
+    await expect(page.locator('#avatarGeneratePreview img')).toBeVisible();
+
+    expect(generateRequests).toHaveLength(1);
+    expect(generateRequests[0]).toMatchObject({
+      prompt: 'A friendly explorer with cyan glow',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+    });
+    expect(typeof generateRequests[0].seed).toBe('number');
+
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('9 / 10');
+
+    await page.locator('#avatarGenerateUseBtn').click();
+
+    await expect(page.locator('#avatarGenerateModal')).toBeHidden();
+    await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+    await expect(page.locator('#avatarImg')).toBeVisible();
+    await expect(page.locator('.auth-nav__avatar-link')).toBeVisible();
+
+    expect(generateRequests).toHaveLength(1);
+    expect(avatarRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'upload',
+          contentType: expect.stringContaining('multipart/form-data'),
+        }),
+      ])
+    );
+    expect(avatarRequests).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'saved_asset' }),
+      ])
+    );
+  });
+
+  test('avatar generate surfaces an error when the shared daily quota is exhausted', async ({
+    page,
+  }) => {
+    await mockAuthenticatedProfile(page, { role: 'user' });
+
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            isAdmin: false,
+            dailyLimit: 10,
+            usedToday: 10,
+            remainingToday: 0,
+          },
+        }),
+      });
+    });
+
+    let generateCalled = 0;
+    await page.route('**/api/ai/generate-image', async (route) => {
+      generateCalled += 1;
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: 'Daily generation limit reached. Please come back tomorrow.',
+          code: 'DAILY_IMAGE_LIMIT_REACHED',
+        }),
+      });
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await page.locator('#avatarChooseGenerate').click();
+    await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
+
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('0 / 10');
+
+    await page.locator('#avatarGeneratePrompt').fill('Anything');
+    await page.locator('#avatarGenerateBtn').click();
+
+    await expect(page.locator('#avatarGenerateMsg')).toContainText(/limit/i);
+    await expect(page.locator('#avatarGenerateUseBtn')).toBeDisabled();
+    expect(generateCalled).toBeLessThanOrEqual(1);
+  });
+
   test('AI Creations favorites are completely omitted from the member favorites UI', async ({
     page,
   }) => {

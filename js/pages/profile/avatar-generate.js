@@ -1,0 +1,374 @@
+/* ============================================================
+   BITBI — Compact avatar-generation overlay
+   Hardcoded settings (FLUX.1 Schnell, 4 steps, 1024×1024) are
+   enforced here, not exposed to the user. Reuses the existing
+   /api/ai/generate-image endpoint so the daily free-use quota
+   matches the AI Lab. The Use button re-encodes the already
+   generated PNG client-side and calls /api/profile/avatar via
+   the existing FormData upload route — no second generation.
+   ============================================================ */
+
+import {
+    apiAiGenerateImage,
+    apiAiGetQuota,
+    apiUploadAvatar,
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { DEFAULT_AI_IMAGE_MODEL } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
+import { setupFocusTrap } from '../../shared/focus-trap.js';
+
+export const AVATAR_GENERATION_MODEL = DEFAULT_AI_IMAGE_MODEL;
+export const AVATAR_GENERATION_STEPS = 4;
+export const AVATAR_GENERATION_SIZE = 1024;
+const AVATAR_UPLOAD_SIZE = 512;
+const AVATAR_UPLOAD_QUALITY = 0.9;
+const AVATAR_UPLOAD_MIME = 'image/webp';
+
+let initialized = false;
+let focusTrapCleanup = null;
+let busy = false;
+let quotaRemaining = null;
+let quotaLimit = 10;
+let isAdmin = false;
+let generatedImageDataUrl = null;
+let onAvatarUpdated = () => {};
+let onClose = () => {};
+
+let $modal = null;
+let $closeBtn = null;
+let $title = null;
+let $preview = null;
+let $msg = null;
+let $prompt = null;
+let $generateBtn = null;
+let $useBtn = null;
+let $quota = null;
+
+function showMsg(text, type) {
+    if (!$msg) return;
+    $msg.textContent = text;
+    $msg.className = type ? `profile__msg profile__msg--${type}` : 'profile__msg';
+}
+
+function hideMsg() {
+    if (!$msg) return;
+    $msg.textContent = '';
+    $msg.className = 'profile__msg';
+}
+
+function renderQuota() {
+    if (!$quota) return;
+    if (isAdmin || quotaRemaining === null) {
+        $quota.hidden = true;
+        $quota.textContent = '';
+        return;
+    }
+    $quota.hidden = false;
+    $quota.textContent = `${quotaRemaining} / ${quotaLimit} generations left today`;
+    $quota.classList.toggle('profile-avatar-generate__quota--empty', quotaRemaining <= 0);
+}
+
+async function loadQuota() {
+    const q = await apiAiGetQuota();
+    if (!q) {
+        isAdmin = false;
+        quotaRemaining = null;
+        renderQuota();
+        return;
+    }
+    isAdmin = !!q.isAdmin;
+    quotaLimit = q.dailyLimit || 10;
+    quotaRemaining = typeof q.remainingToday === 'number' ? q.remainingToday : null;
+    renderQuota();
+}
+
+function setBusy(state, generateLabel = 'Generate', useLabel = 'Use') {
+    busy = state;
+    if ($generateBtn) {
+        $generateBtn.disabled = state;
+        $generateBtn.textContent = state ? generateLabel : 'Generate';
+    }
+    if ($useBtn) {
+        $useBtn.textContent = useLabel;
+    }
+    if ($prompt) $prompt.disabled = state;
+    if ($closeBtn) $closeBtn.disabled = state;
+}
+
+function setUseEnabled(enabled) {
+    if (!$useBtn) return;
+    $useBtn.disabled = !enabled;
+    $useBtn.classList.toggle('profile-avatar-generate__btn--ready', enabled);
+}
+
+function clearPreview() {
+    if (!$preview) return;
+    $preview.innerHTML = '<div class="profile-avatar-generate__preview-empty">Your avatar will appear here.</div>';
+}
+
+function setPreviewLoading() {
+    if (!$preview) return;
+    $preview.innerHTML = '<div class="profile-avatar-generate__preview-loading"><div class="profile-avatar-generate__spinner" aria-hidden="true"></div><span>Creating your avatar…</span></div>';
+}
+
+function setPreviewImage(dataUrl, alt) {
+    if (!$preview) return;
+    $preview.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = alt;
+    img.className = 'profile-avatar-generate__preview-img';
+    $preview.appendChild(img);
+}
+
+function resetState() {
+    generatedImageDataUrl = null;
+    setUseEnabled(false);
+    hideMsg();
+    clearPreview();
+    if ($prompt) $prompt.value = '';
+}
+
+async function handleGenerate() {
+    if (busy) return;
+    const prompt = ($prompt?.value || '').trim();
+    if (!prompt) {
+        showMsg('Please describe your avatar.', 'error');
+        $prompt?.focus();
+        return;
+    }
+    if (!isAdmin && quotaRemaining !== null && quotaRemaining <= 0) {
+        showMsg('Daily generation limit reached. Please come back tomorrow.', 'error');
+        return;
+    }
+
+    hideMsg();
+    setBusy(true, 'Generating…');
+    setUseEnabled(false);
+    generatedImageDataUrl = null;
+    setPreviewLoading();
+
+    const seed = Math.floor(Math.random() * 2147483647);
+
+    let res;
+    try {
+        res = await apiAiGenerateImage(
+            prompt,
+            AVATAR_GENERATION_STEPS,
+            seed,
+            AVATAR_GENERATION_MODEL,
+        );
+    } catch (error) {
+        console.warn('Avatar generation failed:', error);
+        showMsg('Generation failed. Please try again.', 'error');
+        clearPreview();
+        setBusy(false);
+        return;
+    } finally {
+        setBusy(false);
+    }
+
+    if (!res?.ok) {
+        const msg = res?.error || 'Generation failed. Please try again.';
+        showMsg(msg, 'error');
+        clearPreview();
+        if (res?.data?.code === 'DAILY_IMAGE_LIMIT_REACHED' && quotaRemaining !== null) {
+            quotaRemaining = 0;
+            renderQuota();
+        }
+        return;
+    }
+
+    const data = res.data?.data || res.data || {};
+    const imageBase64 = data.imageBase64;
+    const mimeType = data.mimeType || 'image/png';
+    if (!imageBase64) {
+        showMsg('No image returned. Please try again.', 'error');
+        clearPreview();
+        return;
+    }
+
+    generatedImageDataUrl = `data:${mimeType};base64,${imageBase64}`;
+    setPreviewImage(generatedImageDataUrl, prompt);
+    setUseEnabled(true);
+    showMsg('Avatar ready. Press Use to apply it.', 'success');
+
+    if (!isAdmin && quotaRemaining !== null && quotaRemaining > 0) {
+        quotaRemaining--;
+        renderQuota();
+    }
+}
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Could not decode generated image.'));
+        img.src = src;
+    });
+}
+
+function canvasToBlob(canvas, mime, quality) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error('Could not encode avatar image.'));
+            },
+            mime,
+            quality,
+        );
+    });
+}
+
+async function reencodeForAvatar(dataUrl) {
+    const img = await loadImage(dataUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = AVATAR_UPLOAD_SIZE;
+    canvas.height = AVATAR_UPLOAD_SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context unavailable.');
+    const sourceSize = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+    const sx = ((img.naturalWidth || img.width) - sourceSize) / 2;
+    const sy = ((img.naturalHeight || img.height) - sourceSize) / 2;
+    ctx.drawImage(img, sx, sy, sourceSize, sourceSize, 0, 0, AVATAR_UPLOAD_SIZE, AVATAR_UPLOAD_SIZE);
+    let blob;
+    try {
+        blob = await canvasToBlob(canvas, AVATAR_UPLOAD_MIME, AVATAR_UPLOAD_QUALITY);
+        if (!blob || blob.size === 0) throw new Error('Empty blob.');
+        return new File([blob], 'avatar.webp', { type: AVATAR_UPLOAD_MIME });
+    } catch {
+        const pngBlob = await canvasToBlob(canvas, 'image/png');
+        return new File([pngBlob], 'avatar.png', { type: 'image/png' });
+    }
+}
+
+async function handleUse() {
+    if (busy || !generatedImageDataUrl) return;
+
+    setBusy(true, 'Generate', 'Applying…');
+    if ($useBtn) $useBtn.disabled = true;
+    hideMsg();
+
+    try {
+        const file = await reencodeForAvatar(generatedImageDataUrl);
+        const result = await apiUploadAvatar(file);
+
+        if (!result?.ok) {
+            showMsg(result?.error || 'Could not apply avatar. Please try again.', 'error');
+            if ($useBtn) $useBtn.disabled = false;
+            return;
+        }
+
+        try { onAvatarUpdated(); } catch (e) { console.warn('avatar update callback failed:', e); }
+        closeAvatarGenerateModal({ resetForm: true });
+    } catch (error) {
+        console.warn('Avatar apply failed:', error);
+        showMsg('Could not apply avatar. Please try again.', 'error');
+        if ($useBtn) $useBtn.disabled = false;
+    } finally {
+        setBusy(false);
+        if ($useBtn) $useBtn.textContent = 'Use';
+    }
+}
+
+function bindEvents() {
+    $generateBtn?.addEventListener('click', handleGenerate);
+    $useBtn?.addEventListener('click', handleUse);
+    $closeBtn?.addEventListener('click', () => closeAvatarGenerateModal());
+
+    $modal?.addEventListener('click', (event) => {
+        if (event.target === $modal) closeAvatarGenerateModal();
+    });
+
+    $prompt?.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            handleGenerate();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        if (!$modal || $modal.hidden) return;
+        if (busy) return;
+        event.preventDefault();
+        closeAvatarGenerateModal();
+    });
+}
+
+function ensureInit() {
+    if (initialized) return true;
+
+    $modal       = document.getElementById('avatarGenerateModal');
+    $closeBtn    = document.getElementById('avatarGenerateClose');
+    $title       = document.getElementById('avatarGenerateTitle');
+    $preview     = document.getElementById('avatarGeneratePreview');
+    $msg         = document.getElementById('avatarGenerateMsg');
+    $prompt      = document.getElementById('avatarGeneratePrompt');
+    $generateBtn = document.getElementById('avatarGenerateBtn');
+    $useBtn      = document.getElementById('avatarGenerateUseBtn');
+    $quota       = document.getElementById('avatarGenerateQuota');
+
+    if (!$modal || !$prompt || !$generateBtn || !$useBtn || !$preview) {
+        return false;
+    }
+
+    bindEvents();
+    initialized = true;
+    return true;
+}
+
+export function initAvatarGenerate(opts = {}) {
+    if (typeof opts.onAvatarUpdated === 'function') onAvatarUpdated = opts.onAvatarUpdated;
+    if (typeof opts.onClose === 'function') onClose = opts.onClose;
+    return ensureInit();
+}
+
+export function openAvatarGenerateModal() {
+    if (!ensureInit()) return;
+    if (!$modal.hidden) return;
+
+    resetState();
+    setUseEnabled(false);
+
+    $modal.hidden = false;
+    $modal.setAttribute('aria-hidden', 'false');
+    $modal.classList.add('active');
+
+    if (focusTrapCleanup) {
+        try { focusTrapCleanup(); } catch {}
+        focusTrapCleanup = null;
+    }
+    const focusTarget = $modal.querySelector('.modal-card');
+    focusTrapCleanup = setupFocusTrap(focusTarget);
+
+    document.body.style.overflow = 'hidden';
+
+    loadQuota();
+    window.setTimeout(() => $prompt?.focus(), 0);
+}
+
+export function closeAvatarGenerateModal({ resetForm = false } = {}) {
+    if (!$modal || $modal.hidden) return;
+
+    $modal.classList.remove('active');
+    $modal.hidden = true;
+    $modal.setAttribute('aria-hidden', 'true');
+
+    if (focusTrapCleanup) {
+        try { focusTrapCleanup(); } catch {}
+        focusTrapCleanup = null;
+    }
+
+    document.body.style.overflow = '';
+
+    if (resetForm) {
+        resetState();
+    }
+
+    try { onClose(); } catch (e) { console.warn('avatar generate close callback failed:', e); }
+}
+
+export function isAvatarGenerateModalOpen() {
+    return !!($modal && !$modal.hidden);
+}
