@@ -6537,7 +6537,7 @@ test.describe('Admin AI Lab', () => {
         }),
       });
     });
-    await page.route('https://example.com/music-admin-test.mp3', async (route) => {
+    await page.route('https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music-admin-test.mp3?X-Amz-Signature=mock', async (route) => {
       await route.fulfill({
         status: 200,
         headers: {
@@ -6579,7 +6579,7 @@ test.describe('Admin AI Lab', () => {
             bpm: body.bpm ?? null,
             key: body.key || null,
             mimeType: 'audio/mpeg',
-            audioUrl: 'https://example.com/music-admin-test.mp3',
+            audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music-admin-test.mp3?X-Amz-Signature=mock',
             audioBase64: null,
             durationMs: 22400,
             sampleRate: 44100,
@@ -6617,7 +6617,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicPreview audio')).toBeVisible();
     await expect(page.locator('#aiMusicSave')).toBeVisible();
     await expect(page.locator('#aiMusicPreview')).toContainText(
-      'Save copies the audio through the browser',
+      'Save copies the audio through Bitbi',
     );
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
     await expect(page.locator('#aiMusicLyricsOutput')).toContainText('Hold the light inside the circuit');
@@ -6631,10 +6631,10 @@ test.describe('Admin AI Lab', () => {
       title: 'Warm Electronic Pop',
       prompt: 'Warm electronic pop with a wide chorus.',
       mimeType: 'audio/mpeg',
-      sizeBytes: 16,
+      sizeBytes: 702144,
+      audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music-admin-test.mp3?X-Amz-Signature=mock',
+      audioBase64: null,
     }));
-    expect(saveAudioRequests[0].audioBase64).toBeTruthy();
-    expect(saveAudioRequests[0].audioUrl).toBeUndefined();
     expect(musicRequests[0]).toEqual(expect.objectContaining({
       preset: 'music_studio',
       prompt: 'Warm electronic pop with a wide chorus.',

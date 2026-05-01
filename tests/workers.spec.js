@@ -17437,6 +17437,93 @@ test.describe('Worker routes', () => {
     expect(metadata.bpm).toBe(90);
   });
 
+  test('member audio save endpoint fetches trusted generated audio URLs server-side and stores MP3 in R2', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-url-save', role: 'user' })],
+      aiFolders: [
+        {
+          id: 'af00a111',
+          user_id: 'member-audio-url-save',
+          name: 'Provider Tracks',
+          slug: 'provider-tracks',
+          status: 'active',
+          created_at: nowIso(),
+        },
+      ],
+    });
+
+    const remoteUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/track.mp3?X-Amz-Signature=mock';
+    const mp3Bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x6d, 0x70, 0x33]);
+    const originalFetch = global.fetch;
+    const fetchCalls = [];
+    global.fetch = async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
+      return new Response(mp3Bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': String(mp3Bytes.byteLength),
+        },
+      });
+    };
+
+    try {
+      const token = await seedSession(env, 'member-audio-url-save');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Provider Track',
+          audioUrl: remoteUrl,
+          prompt: 'A provider-hosted music result',
+          folder_id: 'af00a111',
+          mode: 'instrumental',
+          bpm: 100,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.54',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(201);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          folder_id: 'af00a111',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: mp3Bytes.byteLength,
+        },
+      });
+      expect(fetchCalls).toEqual([expect.objectContaining({
+        url: remoteUrl,
+        options: expect.objectContaining({
+          method: 'GET',
+          redirect: 'manual',
+        }),
+      })]);
+
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const row = env.DB.state.aiTextAssets[0];
+      expect(row.user_id).toBe('member-audio-url-save');
+      expect(row.folder_id).toBe('af00a111');
+      expect(row.source_module).toBe('music');
+      expect(row.mime_type).toBe('audio/mpeg');
+      expect(row.r2_key).toContain('/audio/');
+      expect(env.USER_IMAGES.objects.has(row.r2_key)).toBe(true);
+      const object = env.USER_IMAGES.objects.get(row.r2_key);
+      expect(object.httpMetadata.contentType).toBe('audio/mpeg');
+      expect(Array.from(object.body)).toEqual(Array.from(mp3Bytes));
+      const metadata = JSON.parse(row.metadata_json);
+      expect(metadata.prompt).toBe('A provider-hosted music result');
+      expect(metadata.mode).toBe('instrumental');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('member audio save rejects unauthenticated requests', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({});
@@ -17480,7 +17567,7 @@ test.describe('Worker routes', () => {
     expect(json.ok).toBe(false);
   });
 
-  test('member audio save rejects remote audioUrl payloads before any fetch occurs', async () => {
+  test('member audio save rejects untrusted remote audioUrl payloads before any fetch occurs', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'member-audio-url', role: 'user' })],
@@ -17523,7 +17610,7 @@ test.describe('Worker routes', () => {
     }
   });
 
-  test('member audio save does not follow redirecting remote URLs because remote fetch is disabled', async () => {
+  test('member audio save does not fetch untrusted redirecting remote URLs', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'member-audio-redirect', role: 'user' })],
@@ -17557,6 +17644,139 @@ test.describe('Worker routes', () => {
         code: 'remote_url_not_allowed',
       }));
       expect(fetchCount).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('member audio save returns controlled JSON when trusted generated audio fetch fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-upstream-fail', role: 'user' })],
+    });
+
+    const originalFetch = global.fetch;
+    let fetchCount = 0;
+    global.fetch = async () => {
+      fetchCount += 1;
+      return new Response('expired', { status: 403 });
+    };
+
+    try {
+      const token = await seedSession(env, 'member-audio-upstream-fail');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Expired Provider Audio',
+          audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/expired.mp3?X-Amz-Signature=expired',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.64',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'upstream_audio_fetch_failed',
+        error: 'Generated audio could not be fetched for saving.',
+      }));
+      expect(fetchCount).toBe(1);
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.size).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('member audio save rejects trusted generated audio URLs with unsupported content type', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-bad-content-type', role: 'user' })],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => new Response('not audio', {
+      status: 200,
+      headers: {
+        'content-type': 'text/plain',
+        'content-length': '9',
+      },
+    });
+
+    try {
+      const token = await seedSession(env, 'member-audio-bad-content-type');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Bad Provider Audio',
+          audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/not-audio.txt?X-Amz-Signature=mock',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.65',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: 'Generated audio is not a supported audio file.',
+      }));
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.size).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('member audio save rejects trusted generated audio URLs above the audio byte limit', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'member-audio-too-large-url', role: 'user' })],
+    });
+
+    const originalFetch = global.fetch;
+    let fetchCount = 0;
+    global.fetch = async () => {
+      fetchCount += 1;
+      return new Response(new Uint8Array([0x49, 0x44, 0x33, 0x04]), {
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': String(12_000_001),
+        },
+      });
+    };
+
+    try {
+      const token = await seedSession(env, 'member-audio-too-large-url');
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Oversized Provider Audio',
+          audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/large.mp3?X-Amz-Signature=mock',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'CF-Connecting-IP': '203.0.113.66',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('byte limit'),
+      }));
+      expect(fetchCount).toBe(1);
+      expect(env.DB.state.aiTextAssets).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.size).toBe(0);
     } finally {
       global.fetch = originalFetch;
     }

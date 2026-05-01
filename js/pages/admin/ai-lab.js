@@ -2841,7 +2841,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const note = document.createElement('div');
         note.className = 'admin-ai__music-player-note';
         note.textContent = payload.audioUrl
-            ? 'Streaming from a temporary provider URL. Save copies the audio through the browser into your saved assets.'
+            ? 'Streaming from a temporary provider URL. Save copies the audio through Bitbi into your saved assets.'
             : 'Inline audio buffer ready for preview and download.';
 
         head.append(title, note);
