@@ -15,10 +15,12 @@ import {
 import {
   BillingError,
   billingErrorResponse,
+  billingStorageUnavailableResponse,
   getAdminOrganizationBilling,
   getAdminUserBilling,
   grantMemberCredits,
   grantOrganizationCredits,
+  isBillingStorageUnavailableError,
   listAdminPlans,
   normalizeBillingIdempotencyKey,
 } from "../lib/billing.js";
@@ -28,6 +30,10 @@ import {
   getBillingProviderEvent,
   listBillingProviderEvents,
 } from "../lib/billing-events.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 async function enforceAdminBillingRateLimit(ctx, {
   scope = "admin-billing-read-ip",
@@ -52,12 +58,24 @@ async function enforceAdminBillingRateLimit(ctx, {
   return null;
 }
 
-function billingErrorJson(error) {
+function billingErrorJson(error, ctx = null) {
   if (error instanceof BillingError) {
     return json(billingErrorResponse(error), { status: error.status });
   }
   if (error instanceof BillingEventError) {
     return json(billingEventErrorResponse(error), { status: error.status });
+  }
+  if (isBillingStorageUnavailableError(error)) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-billing",
+      event: "admin_billing_storage_unavailable",
+      level: "error",
+      correlationId: ctx?.correlationId || null,
+      code: "billing_storage_unavailable",
+      ...getErrorFields(error),
+    });
+    return json(billingStorageUnavailableResponse(), { status: 503 });
   }
   throw error;
 }
@@ -136,7 +154,7 @@ export async function handleAdminBilling(ctx) {
       });
       return json({ ok: true, events, livePaymentProviderEnabled: false });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 
@@ -148,7 +166,7 @@ export async function handleAdminBilling(ctx) {
       const event = await getBillingProviderEvent(env, { id: eventMatch[1] });
       return json({ ok: true, event, livePaymentProviderEnabled: false });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 
@@ -162,7 +180,7 @@ export async function handleAdminBilling(ctx) {
       });
       return json({ ok: true, billing });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 
@@ -203,7 +221,7 @@ export async function handleAdminBilling(ctx) {
       }
       return json({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 
@@ -217,7 +235,7 @@ export async function handleAdminBilling(ctx) {
       });
       return json({ ok: true, billing });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 
@@ -259,7 +277,7 @@ export async function handleAdminBilling(ctx) {
       }
       return json({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
     } catch (error) {
-      return billingErrorJson(error);
+      return billingErrorJson(error, ctx);
     }
   }
 

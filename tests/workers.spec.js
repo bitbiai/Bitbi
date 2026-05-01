@@ -2009,6 +2009,62 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
     expect(env.DB.state.creditLedger).toHaveLength(1);
   });
 
+  test('member credit routes fail closed with JSON instead of throwing when the member ledger migration is missing', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('member-credit-missing-admin');
+    const member = createContractUser({ id: 'member-credit-missing-target', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      missingTables: ['member_credit_ledger'],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const memberToken = await seedSession(env, member.id);
+
+    const dashboard = await worker.fetch(
+      authJsonRequest('/api/account/credits-dashboard', 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(dashboard.status).toBe(503);
+    await expect(dashboard.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'billing_storage_unavailable',
+    });
+
+    const userBilling = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(userBilling.status).toBe(503);
+    await expect(userBilling.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'billing_storage_unavailable',
+    });
+
+    const userGrant = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/credits/grant`, 'POST', {
+        amount: 12,
+        reason: 'support credit while migration missing',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'member-credit-missing-grant',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(userGrant.status).toBe(503);
+    await expect(userGrant.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'billing_storage_unavailable',
+    });
+  });
+
   test('credit consumption helper is idempotent and prevents negative balances', async () => {
     const {
       assertOrganizationHasCredits,
