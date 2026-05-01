@@ -490,7 +490,7 @@ function summarizeJsonBody(body) {
     if (key in body) summary[key] = body[key];
   }
   if (body.data && typeof body.data === "object" && !Array.isArray(body.data)) {
-    for (const key of ["isAdmin", "dailyLimit", "usedToday", "remainingToday"]) {
+    for (const key of ["isAdmin", "creditBalance", "dailyCreditAllowance"]) {
       if (key in body.data) {
         summary[`data.${key}`] = body.data[key];
       }

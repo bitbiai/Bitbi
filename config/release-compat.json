@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0040_add_live_stripe_credit_pack_scope.sql",
+        "latest": "0041_add_member_credit_ledger.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -621,6 +621,8 @@
       "GET /api/admin/orgs/:id",
       "GET /api/admin/orgs/:id/billing",
       "POST /api/admin/orgs/:id/credits/grant",
+      "GET /api/admin/users/:id/billing",
+      "POST /api/admin/users/:id/credits/grant",
       "GET /api/admin/billing/events/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",

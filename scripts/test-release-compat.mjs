@@ -16,7 +16,7 @@ const baseManifest = {
     schemaCheckpoints: {
       auth: {
         migrationDirectory: "workers/auth/migrations",
-        latest: "0040_add_live_stripe_credit_pack_scope.sql",
+        latest: "0041_add_member_credit_ledger.sql",
         databaseName: "bitbi-auth-db",
       },
     },
@@ -602,6 +602,8 @@ const baseManifest = {
       "GET /api/admin/orgs/:id",
       "GET /api/admin/orgs/:id/billing",
       "POST /api/admin/orgs/:id/credits/grant",
+      "GET /api/admin/users/:id/billing",
+      "POST /api/admin/users/:id/credits/grant",
       "GET /api/admin/billing/events/:id",
       "POST /api/admin/data-lifecycle/requests/:id/plan",
       "POST /api/admin/data-lifecycle/requests/:id/approve",
@@ -661,6 +663,7 @@ function createValidContext() {
           "0038_add_stripe_credit_pack_checkout.sql",
           "0039_raise_credit_balance_cap_for_pricing_packs.sql",
           "0040_add_live_stripe_credit_pack_scope.sql",
+          "0041_add_member_credit_ledger.sql",
         ],
       },
     },
@@ -931,6 +934,10 @@ function createValidContext() {
       if (adminOrgBillingMatch && method === "GET") return handleAdminOrgBilling();
       const adminOrgCreditGrantMatch = pathname.match(/^\\/api\\/admin\\/orgs\\/([^/]+)\\/credits\\/grant$/);
       if (adminOrgCreditGrantMatch && method === "POST") return handleAdminOrgCreditGrant();
+      const adminUserBillingMatch = pathname.match(/^\\/api\\/admin\\/users\\/([^/]+)\\/billing$/);
+      if (adminUserBillingMatch && method === "GET") return handleAdminUserBilling();
+      const adminUserCreditGrantMatch = pathname.match(/^\\/api\\/admin\\/users\\/([^/]+)\\/credits\\/grant$/);
+      if (adminUserCreditGrantMatch && method === "POST") return handleAdminUserCreditGrant();
       const adminBillingEventMatch = pathname.match(/^\\/api\\/admin\\/billing\\/events\\/([^/]+)$/);
       if (adminBillingEventMatch && method === "GET") return handleAdminBillingEvent();
     `,

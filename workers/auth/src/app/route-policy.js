@@ -308,6 +308,14 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "organization_credit_granted" },
   }),
+  adminRead("admin.users.billing.read", "/api/admin/users/:id/billing", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.users.credits.grant", "POST", "/api/admin/users/:id/credits/grant", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "user_credit_granted" },
+  }),
   adminRead("admin.billing.events.list", "/api/admin/billing/events", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },

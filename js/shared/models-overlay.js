@@ -20,6 +20,10 @@ const USER_LIVE_MODELS = {
     video: [],
 };
 
+export const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
+    '@cf/black-forest-labs/flux-2-dev',
+]);
+
 const STATUS_LABELS = {
     included: 'Included',
     live: 'Live',
@@ -27,9 +31,10 @@ const STATUS_LABELS = {
     'coming-soon': 'Coming soon',
 };
 
-function buildModelCatalog() {
+function buildModelCatalog({ excludeModelIds = [] } = {}) {
     const catalog = listAdminAiCatalog();
     const modelsByTask = catalog?.models || {};
+    const excludedIds = new Set(excludeModelIds);
 
     return MODEL_GROUPS.map(({ task, category, side }) => ({
         category,
@@ -53,7 +58,7 @@ function buildModelCatalog() {
             }
 
             for (const model of adminModels) {
-                if (!model?.id || liveIds.has(model.id)) continue;
+                if (!model?.id || liveIds.has(model.id) || excludedIds.has(model.id)) continue;
                 entries.push({
                     name: model.label || model.id,
                     vendor: model.vendor || '',
@@ -66,12 +71,11 @@ function buildModelCatalog() {
     })).filter((group) => group.models.length > 0);
 }
 
-const MODEL_CATALOG = buildModelCatalog();
-
 let overlayEl = null;
 let focusTrapCleanup = null;
 let isOpen = false;
 let didBindGlobals = false;
+let modelCatalog = null;
 
 function buildOverlay() {
     const overlay = document.createElement('div');
@@ -102,7 +106,7 @@ function buildOverlay() {
     right.className = 'models-overlay__col models-overlay__col--right';
 
     let cardIndex = 0;
-    for (const group of MODEL_CATALOG) {
+    for (const group of modelCatalog || buildModelCatalog()) {
         const section = document.createElement('div');
         section.className = 'models-overlay__group';
         section.style.setProperty('--group-delay', `${cardIndex * 60}ms`);
@@ -239,7 +243,10 @@ function syncModelsHash() {
     }
 }
 
-export function initModelsOverlay(root = document) {
+export function initModelsOverlay(root = document, { excludeModelIds = [] } = {}) {
+    if (!modelCatalog) {
+        modelCatalog = buildModelCatalog({ excludeModelIds });
+    }
     root.querySelectorAll('[data-models-link]').forEach(bindTrigger);
 
     if (didBindGlobals) return;

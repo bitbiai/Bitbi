@@ -16,6 +16,8 @@ import {
   BillingError,
   billingErrorResponse,
   getAdminOrganizationBilling,
+  getAdminUserBilling,
+  grantMemberCredits,
   grantOrganizationCredits,
   listAdminPlans,
   normalizeBillingIdempotencyKey,
@@ -77,13 +79,13 @@ function idempotencyKeyOrResponse(request) {
   }
 }
 
-async function auditBillingEvent(ctx, adminUser, action, meta = {}) {
+async function auditBillingEvent(ctx, adminUser, action, meta = {}, targetUserId = null) {
   await enqueueAdminAuditEvent(
     ctx.env,
     {
       adminUserId: adminUser.id,
       action,
-      targetUserId: null,
+      targetUserId,
       meta: {
         ...meta,
         actor_email: adminUser.email,
@@ -103,7 +105,9 @@ export async function handleAdminBilling(ctx) {
     || pathname === "/api/admin/billing/events"
     || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/orgs\/[^/]+\/billing$/.test(pathname)
-    || /^\/api\/admin\/orgs\/[^/]+\/credits\/grant$/.test(pathname);
+    || /^\/api\/admin\/orgs\/[^/]+\/credits\/grant$/.test(pathname)
+    || /^\/api\/admin\/users\/[^/]+\/billing$/.test(pathname)
+    || /^\/api\/admin\/users\/[^/]+\/credits\/grant$/.test(pathname);
   if (!isBillingRoute) return null;
 
   const session = await requireAdmin(request, env, {
@@ -196,6 +200,62 @@ export async function handleAdminBilling(ctx) {
           amount: result.ledgerEntry.amount,
           balance_after: result.ledgerEntry.balanceAfter,
         });
+      }
+      return json({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
+    } catch (error) {
+      return billingErrorJson(error);
+    }
+  }
+
+  const userBillingMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/billing$/);
+  if (userBillingMatch && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const billing = await getAdminUserBilling(env, {
+        userId: decodeURIComponent(userBillingMatch[1]),
+      });
+      return json({ ok: true, billing });
+    } catch (error) {
+      return billingErrorJson(error);
+    }
+  }
+
+  const userGrantMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/credits\/grant$/);
+  // route-policy: admin.users.credits.grant
+  if (userGrantMatch && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 30,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    const targetUserId = decodeURIComponent(userGrantMatch[1]);
+    try {
+      const result = await grantMemberCredits({
+        env,
+        userId: targetUserId,
+        amount: parsed.body?.amount,
+        reason: parsed.body?.reason,
+        createdByUserId: session.user.id,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, "user_credit_granted", {
+          user_id: targetUserId,
+          amount: result.ledgerEntry.amount,
+          balance_after: result.ledgerEntry.balanceAfter,
+        }, targetUserId);
       }
       return json({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
     } catch (error) {

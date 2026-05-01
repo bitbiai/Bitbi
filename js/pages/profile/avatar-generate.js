@@ -2,8 +2,8 @@
    BITBI — Compact avatar-generation overlay
    Hardcoded settings (FLUX.1 Schnell, 4 steps, 1024×1024) are
    enforced here, not exposed to the user. Reuses the existing
-   /api/ai/generate-image endpoint so the daily free-use quota
-   matches the AI Lab. The Use button re-encodes the already
+   /api/ai/generate-image endpoint so member credit charging
+   stays aligned with Image Studio. The Use button re-encodes the already
    generated PNG client-side and calls /api/profile/avatar via
    the existing FormData upload route — no second generation.
    ============================================================ */
@@ -26,8 +26,7 @@ const AVATAR_UPLOAD_MIME = 'image/webp';
 let initialized = false;
 let focusTrapCleanup = null;
 let busy = false;
-let quotaRemaining = null;
-let quotaLimit = 10;
+let creditBalance = null;
 let isAdmin = false;
 let generatedImageDataUrl = null;
 let onAvatarUpdated = () => {};
@@ -57,27 +56,26 @@ function hideMsg() {
 
 function renderQuota() {
     if (!$quota) return;
-    if (isAdmin || quotaRemaining === null) {
+    if (isAdmin || creditBalance === null) {
         $quota.hidden = true;
         $quota.textContent = '';
         return;
     }
     $quota.hidden = false;
-    $quota.textContent = `${quotaRemaining} / ${quotaLimit} generations left today`;
-    $quota.classList.toggle('profile-avatar-generate__quota--empty', quotaRemaining <= 0);
+    $quota.textContent = `${creditBalance} credits available`;
+    $quota.classList.toggle('profile-avatar-generate__quota--empty', creditBalance <= 0);
 }
 
 async function loadQuota() {
     const q = await apiAiGetQuota();
     if (!q) {
         isAdmin = false;
-        quotaRemaining = null;
+        creditBalance = null;
         renderQuota();
         return;
     }
     isAdmin = !!q.isAdmin;
-    quotaLimit = q.dailyLimit || 10;
-    quotaRemaining = typeof q.remainingToday === 'number' ? q.remainingToday : null;
+    creditBalance = typeof q.creditBalance === 'number' ? q.creditBalance : null;
     renderQuota();
 }
 
@@ -146,8 +144,8 @@ async function handleGenerate() {
         $prompt?.focus();
         return;
     }
-    if (!isAdmin && quotaRemaining !== null && quotaRemaining <= 0) {
-        showMsg('Daily generation limit reached. Please come back tomorrow.', 'error');
+    if (!isAdmin && creditBalance !== null && creditBalance <= 0) {
+        showMsg('No image credits available.', 'error');
         return;
     }
 
@@ -181,8 +179,8 @@ async function handleGenerate() {
         const msg = res?.error || 'Generation failed. Please try again.';
         showMsg(msg, 'error');
         clearPreview();
-        if (res?.data?.code === 'DAILY_IMAGE_LIMIT_REACHED' && quotaRemaining !== null) {
-            quotaRemaining = 0;
+        if (res?.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
+            creditBalance = 0;
             renderQuota();
         }
         return;
@@ -202,8 +200,9 @@ async function handleGenerate() {
     setUseEnabled(true);
     showMsg('Avatar ready. Press Use to apply it.', 'success');
 
-    if (!isAdmin && quotaRemaining !== null && quotaRemaining > 0) {
-        quotaRemaining--;
+    const balanceAfter = res.data?.billing?.balance_after;
+    if (!isAdmin && typeof balanceAfter === 'number') {
+        creditBalance = balanceAfter;
         renderQuota();
     }
 }

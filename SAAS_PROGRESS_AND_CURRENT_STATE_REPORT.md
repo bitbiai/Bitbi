@@ -282,7 +282,7 @@ Implemented:
 - Pricing link visible only to authenticated admins in desktop/mobile headers.
 - Direct page access is frontend admin-gated.
 - Exactly three options: Free, Buy 5000 Credits, Buy 10000 Credits.
-- Free tier copy reflects current legacy free image generation allowance: 10 successful image generations per UTC day.
+- Free tier copy reflects current member credit behavior: daily top-up to 10 credits without stacking above that balance.
 - Paid packs use `credits_5000` and `credits_10000`.
 - Checkout initiation uses the server-side platform-admin-only org checkout route and generated idempotency key. The admin must also be an active owner/admin of the selected organization.
 - Success/cancel return states are supported.

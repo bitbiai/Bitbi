@@ -362,7 +362,7 @@ Main execution flows:
 | Password reset/email verification | `workers/auth/src/routes/password.js`, `workers/auth/src/routes/verification.js`, `workers/auth/src/lib/email.js` | Token-hash model, Resend email, some best-effort behavior if email send fails. |
 | Admin protection | `workers/auth/src/lib/session.js:187-257`, `workers/auth/src/routes/admin-mfa.js` | Role check plus production MFA enforcement. MFA endpoints lack route-level rate limiting. |
 | Admin AI | `workers/auth/src/routes/admin-ai.js`, `workers/auth/src/lib/admin-ai-proxy.js`, `workers/ai/src/index.js` | Auth worker proxies admin requests to AI worker via service binding. AI worker itself does not verify a signed service credential. |
-| Member AI image generation | `workers/auth/src/routes/ai/images-write.js` | Per-user generation limiter and daily quota slots. Generated image payloads are returned to client and later saved. |
+| Member AI image generation | `workers/auth/src/routes/ai/images-write.js` | Per-user generation limiter and member credit charging with daily top-up bookkeeping. Generated image payloads are returned to client and later saved. |
 | Private media | `workers/auth/src/routes/media.js`, `workers/auth/src/routes/avatar.js`, `workers/auth/src/routes/ai/files-read.js` | Authenticated ownership checks for private images/music/text assets. |
 | Favorites and galleries | `workers/auth/src/routes/favorites.js`, static modules under `js/pages/index/` | Static catalog plus authenticated favorite state. |
 | Wallet/SIWE | `workers/auth/src/routes/wallet.js`, `js/shared/wallet/` | Nonce/challenge flow, address checks, local wallet UI state. |

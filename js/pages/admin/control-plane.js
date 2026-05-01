@@ -15,9 +15,11 @@ import {
     apiAdminDataLifecycleArchives,
     apiAdminDataLifecycleRequests,
     apiAdminGrantOrganizationCredits,
+    apiAdminGrantUserCredits,
     apiAdminOrganization,
     apiAdminOrganizationBilling,
     apiAdminOrganizations,
+    apiAdminUserBilling,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
 const CONTROL_SECTIONS = new Set([
@@ -485,6 +487,32 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
     }
 
+    async function loadUserBilling(userId) {
+        const detail = byId('userBillingDetail');
+        clear(detail);
+        if (!userId) {
+            setState('userBillingState', 'Enter a user ID to inspect member credit state.');
+            return;
+        }
+        setState('userBillingState', 'Loading user billing...');
+        const res = await apiAdminUserBilling(userId);
+        if (!res.ok) {
+            setState('userBillingState', '');
+            renderUnavailable(detail, res, 'User billing unavailable.');
+            return;
+        }
+        const billing = res.data?.billing || {};
+        setState('userBillingState', 'User billing state loaded.');
+        detail.appendChild(detailRows([
+            ['User ID', shortId(billing.userId || userId)],
+            ['Email', billing.email || '-'],
+            ['Role', billing.role || '-'],
+            ['Status', billing.status || '-'],
+            ['Credit balance', billing.creditBalance ?? '-'],
+            ['Daily top-up target', billing.dailyCreditAllowance ?? '-'],
+        ]));
+    }
+
     async function handleCreditGrant(event) {
         event.preventDefault();
         const submitButton = event.submitter;
@@ -513,6 +541,39 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             notify('Credit grant recorded.', 'success');
             byId('orgBillingId').value = orgId;
             loadOrgBilling(orgId);
+        } finally {
+            setSubmitting(submitButton, false);
+        }
+    }
+
+    async function handleUserCreditGrant(event) {
+        event.preventDefault();
+        const submitButton = event.submitter;
+        const userId = byId('creditGrantUserId')?.value.trim();
+        const amount = Number(byId('userCreditGrantAmount')?.value);
+        const reason = byId('userCreditGrantReason')?.value.trim();
+        if (!userId || !Number.isInteger(amount) || amount <= 0 || !reason) {
+            setState('userCreditGrantResult', 'User ID, positive credit amount, and reason are required.', 'error');
+            return;
+        }
+        if (!confirm(`Grant ${amount} credits to user ${userId}? This creates a member credit ledger entry.`)) {
+            return;
+        }
+        const idempotencyKey = createIdempotencyKey('admin-user-credit-grant');
+        setState('userCreditGrantResult', 'Submitting user credit grant...');
+        setSubmitting(submitButton, true);
+        try {
+            const res = await apiAdminGrantUserCredits(userId, { amount, reason, idempotencyKey });
+            if (!res.ok) {
+                setState('userCreditGrantResult', apiUnavailableMessage(res, 'User credit grant failed.'), 'error');
+                notify('User credit grant failed.', 'error');
+                return;
+            }
+            const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
+            setState('userCreditGrantResult', `User credit grant recorded. Balance after: ${balance}.`, 'success');
+            notify('User credit grant recorded.', 'success');
+            byId('userBillingId').value = userId;
+            loadUserBilling(userId);
         } finally {
             setSubmitting(submitButton, false);
         }
@@ -873,7 +934,12 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             event.preventDefault();
             loadOrgBilling(byId('orgBillingId')?.value.trim());
         });
+        byId('userBillingLookupForm')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            loadUserBilling(byId('userBillingId')?.value.trim());
+        });
         byId('creditGrantForm')?.addEventListener('submit', handleCreditGrant);
+        byId('userCreditGrantForm')?.addEventListener('submit', handleUserCreditGrant);
         byId('billingEventsFilter')?.addEventListener('submit', (event) => {
             event.preventDefault();
             loadBillingEvents();

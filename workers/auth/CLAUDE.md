@@ -83,7 +83,7 @@ src/
 
 **Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
-**AI Image Studio**: `/api/ai/*` uses the `AI` binding for legacy/member image generation, stores saved image blobs in `USER_IMAGES`, stores folder/image/quota metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` remains legacy user-scoped when no organization context is supplied. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. `/api/ai/generate-text` is backend-only and org-scoped only: it requires auth, explicit organization context, `Idempotency-Key`, `member` or higher role, the `ai.text.generate` entitlement, and credits. It calls the HMAC-protected `AI_LAB` internal text route and stores bounded generated-text replay metadata in `ai_usage_attempts.metadata_json`; it does not charge admin AI Lab text routes or text asset storage routes. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits, expired replay metadata is cleared, and expired attempt-linked temporary image replay objects under `tmp/ai-generated/{userId}/{tempId}` are deleted only after strict prefix/user/attempt validation. Cleanup does not delete ledger rows, usage events, attempt rows, saved media, private media, derivatives, video outputs, audit archives, export archives, or unrelated R2 objects.
+**AI Image Studio**: `/api/ai/*` uses the `AI` binding for member image generation, stores saved image blobs in `USER_IMAGES`, stores folder/image metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` without organization context charges the signed-in non-admin member credit balance after successful provider execution. Member balances get at most one UTC-day top-up to 10 credits through `member_credit_ledger`; existing balances of 10 or more receive a zero-credit top-up marker and are not overwritten. Member and organization image charges use the shared server-side image pricing helper. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. `/api/ai/generate-text` is backend-only and org-scoped only: it requires auth, explicit organization context, `Idempotency-Key`, `member` or higher role, the `ai.text.generate` entitlement, and credits. It calls the HMAC-protected `AI_LAB` internal text route and stores bounded generated-text replay metadata in `ai_usage_attempts.metadata_json`; it does not charge admin AI Lab text routes or text asset storage routes. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits, expired replay metadata is cleared, and expired attempt-linked temporary image replay objects under `tmp/ai-generated/{userId}/{tempId}` are deleted only after strict prefix/user/attempt validation. Cleanup does not delete ledger rows, usage events, attempt rows, saved media, private media, derivatives, video outputs, audit archives, export archives, or unrelated R2 objects.
 
 **Authorization pattern**: `requireUser()` and `requireAdmin()` return either a session object or a `Response` (error). Callers check `result instanceof Response` to distinguish.
 
@@ -139,6 +139,8 @@ src/
 - `GET /api/admin/orgs/:id` — inspect sanitized organization and member metadata (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/orgs/:id/billing` — inspect sanitized organization billing/credit state (requires admin/MFA in production, fail-closed limiter)
 - `POST /api/admin/orgs/:id/credits/grant` — grant organization credits manually with `Idempotency-Key` (requires admin/MFA in production, same-origin, byte-limited JSON, fail-closed limiter)
+- `GET /api/admin/users/:id/billing` — inspect sanitized member credit state (requires admin/MFA in production, fail-closed limiter)
+- `POST /api/admin/users/:id/credits/grant` — grant member credits manually with `Idempotency-Key` (requires admin/MFA in production, same-origin, byte-limited JSON, fail-closed limiter)
 - `GET /api/admin/billing/events` — list sanitized billing-provider event metadata (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/billing/events/:id` — inspect one sanitized billing-provider event and deferred dry-run action summaries (requires admin/MFA in production, fail-closed limiter)
 - `GET /api/admin/avatars/latest` — latest avatar uploads
@@ -173,8 +175,8 @@ src/
 - `GET /api/admin/ai/usage-attempts/:id` — inspect one sanitized org-scoped AI usage attempt/reservation (requires admin)
 - `POST /api/admin/ai/usage-attempts/cleanup-expired` — run a bounded dry-run/default cleanup batch for expired/stuck AI usage attempts; execution releases stale reservations and deletes only expired, attempt-linked temporary replay objects under the approved `tmp/ai-generated/` prefix (requires admin, same-origin, `Idempotency-Key`)
 - `POST /api/admin/ai/compare` — proxy a multi-model compare request into `workers/ai` (requires admin)
-- `GET /api/ai/quota` — remaining non-admin daily image quota
-- `POST /api/ai/generate-image` — generate an image via Cloudflare AI; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and temporary result replay
+- `GET /api/ai/quota` — member credit balance and daily top-up state for non-admin accounts
+- `POST /api/ai/generate-image` — generate an image via Cloudflare AI; member mode charges the signed-in user credit balance using shared image pricing after provider success; optional org-scoped mode requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.image.generate`, and priced available credits, then uses `ai_usage_attempts` for retry-safe reservation/finalization and temporary result replay
 - `POST /api/ai/generate-text` — generate text through the HMAC-protected AI worker; org-scoped only, requires `organization_id`, `Idempotency-Key`, active member/admin/owner membership, `ai.text.generate`, and one available credit, then uses `ai_usage_attempts` for retry-safe reservation/finalization and bounded text replay metadata
 - `GET /api/ai/folders` — list folders (+ counts)
 - `POST /api/ai/folders` — create folder
@@ -190,7 +192,7 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `member_credit_ledger`, `member_usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
@@ -255,12 +257,12 @@ STRIPE_LIVE_CHECKOUT_CANCEL_URL=https://bitbi.ai/account/credits.html?checkout=c
 
 Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during an explicitly approved, bounded operator canary.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0040_add_live_stripe_credit_pack_scope`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0041_add_member_credit_ledger`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
 - `0012_add_user_activity_log` — required before auth deploy if admin user-activity views and durable user activity logging must work immediately
-- `0014_add_ai_daily_quota_usage` — required before auth deploy if `/api/ai/quota` and non-admin daily quota enforcement must work immediately
+- `0014_add_ai_daily_quota_usage` — legacy quota table retained for compatibility/history; current member image generation uses member credits
 - `0015_add_rate_limit_counters` — required before auth deploy if remaining D1-backed limiter paths (for example avatar upload, favorites add, admin actions, AI generation) must work immediately
 - `0016_add_ai_text_assets` — required before auth/AI deploy if admin AI text asset persistence must work immediately
 - `0017_add_ai_image_derivatives` — required before auth deploy if saved-image derivative tracking must work immediately
@@ -283,6 +285,7 @@ Key migration-dependent behavior:
 - `0038_add_stripe_credit_pack_checkout` — required before auth deploy if Phase 2-J Stripe Testmode credit-pack checkout session tracking and verified checkout credit grants must work immediately
 - `0039_raise_credit_balance_cap_for_pricing_packs` — required before exposing the admin-only Pricing page credit packs, otherwise 5000/10000-credit Testmode webhook grants can exceed the original Phase 2-B free-plan balance cap and fail closed
 - `0040_add_live_stripe_credit_pack_scope` — required before auth deploy if Phase 2-L live credit-pack checkout, Credits dashboard purchase history, authorization-scope revalidation, payment-state tracking, and exactly-once live credit grants must work immediately
+- `0041_add_member_credit_ledger` — required before auth deploy if member image credit top-ups, member credit charging, and admin user credit grants must work immediately
 
 ## Conventions
 

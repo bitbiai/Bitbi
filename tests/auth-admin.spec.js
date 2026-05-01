@@ -1392,6 +1392,7 @@ async function fulfillJson(route, body, status = 200) {
 
 async function mockAdminControlPlane(page, captures = {}) {
   captures.creditGrantRequests = captures.creditGrantRequests || [];
+  captures.userCreditGrantRequests = captures.userCreditGrantRequests || [];
   captures.aiCleanupRequests = captures.aiCleanupRequests || [];
 
   const orgList = {
@@ -1501,6 +1502,36 @@ async function mockAdminControlPlane(page, captures = {}) {
       ledgerEntry: {
         amount: route.request().postDataJSON().amount,
         balanceAfter: 175,
+      },
+    }, 201);
+  });
+
+  await page.route('**/api/admin/users/user_member/billing', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      billing: {
+        userId: 'user_member',
+        email: 'member@example.com',
+        role: 'user',
+        status: 'active',
+        creditBalance: 9,
+        dailyCreditAllowance: 10,
+      },
+    });
+  });
+
+  await page.route('**/api/admin/users/user_member/credits/grant', async (route) => {
+    captures.userCreditGrantRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      ledgerEntry: {
+        userId: 'user_member',
+        amount: route.request().postDataJSON().amount,
+        balanceAfter: 34,
       },
     }, 201);
   });
@@ -1724,9 +1755,8 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
         ok: true,
         data: {
           isAdmin: false,
-          dailyLimit: 10,
-          usedToday: 0,
-          remainingToday: 10,
+          creditBalance: 10,
+          dailyCreditAllowance: 10,
         },
       }),
     });
@@ -1932,6 +1962,10 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
           steps: keepsLegacySteps ? body.steps ?? 4 : null,
           seed: keepsLegacySteps ? body.seed ?? null : null,
           saveReference: options.generateSaveReference || 'generated-save-reference',
+        },
+        billing: {
+          credits_charged: 1,
+          balance_after: Math.max(0, 10 - requests.length),
         },
       }),
     });
@@ -3164,7 +3198,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('.pricing-card__title')).toHaveText(['Free', '5,000 credits', '12,000 credits']);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('10 free image generations per UTC day');
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('Daily top-up to 10 member credits');
     await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
     await expect(page.locator('.pricing-card').nth(2)).toContainText('19,99 €');
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
@@ -3560,10 +3594,13 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioModel')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Dev');
+    await expect(page.locator('.studio__quota')).toContainText('10 credits available');
+    await expect(page.locator('.studio__quota')).not.toContainText('generations');
 
     await page.locator('#studioPrompt').fill('legacy model request');
     await page.locator('#studioGenerate').click();
     await expect(page.locator('#studioPreview img')).toBeVisible();
+    await expect(page.locator('.studio__quota')).toContainText('9 credits available');
 
     expect(requests).toEqual([
       expect.objectContaining({
@@ -3592,15 +3629,32 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioModel')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
+    await expect(page.locator('#galleryStudio .studio__quota')).toContainText('10 credits available');
+    await expect(page.locator('#galleryStudio .studio__quota')).not.toContainText('generations');
 
     await page.locator('#galStudioPrompt').fill('homepage legacy model request');
     await page.locator('#galStudioGenerate').click();
     await expect(page.locator('#galStudioPreview img')).toBeVisible();
+    await expect(page.locator('#galleryStudio .studio__quota')).toContainText('9 credits available');
 
     expect(requests.at(-1)).toEqual(expect.objectContaining({
       prompt: 'homepage legacy model request',
       model: '@cf/black-forest-labs/flux-1-schnell',
     }));
+  });
+
+  test('homepage hero-linked models list omits FLUX.2 Dev only from the public overlay', async ({
+    page,
+  }) => {
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+
+    await page.locator('[data-models-link="desktop"]').click();
+    const overlay = page.locator('.models-overlay');
+    await expect(overlay).toHaveClass(/is-active/);
+    await expect(overlay).toContainText('FLUX.1 Schnell');
+    await expect(overlay).toContainText('FLUX.2 Klein 9B');
+    await expect(overlay).not.toContainText('FLUX.2 Dev');
   });
 
   test('homepage create studio recovers button state and shows errors when generate/save requests abort', async ({
@@ -5013,9 +5067,8 @@ test.describe('Profile page (authenticated)', () => {
           ok: true,
           data: {
             isAdmin: false,
-            dailyLimit: 10,
-            usedToday: 0,
-            remainingToday: 10,
+            creditBalance: 10,
+            dailyCreditAllowance: 10,
           },
         }),
       });
@@ -5047,10 +5100,10 @@ test.describe('Profile page (authenticated)', () => {
     expect(overlayText).not.toContain('1024');
     expect(overlayText).not.toContain('resolution');
 
-    await expect(page.locator('#avatarGenerateQuota')).toContainText('10 / 10');
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('10 credits available');
   });
 
-  test('avatar generate sends FLUX.1 Schnell with 4 steps and shares the AI Lab quota', async ({
+  test('avatar generate sends FLUX.1 Schnell with 4 steps and shows member credits', async ({
     page,
   }) => {
     const avatarRequests = [];
@@ -5059,7 +5112,7 @@ test.describe('Profile page (authenticated)', () => {
       avatarRequests,
     });
 
-    let quotaRemaining = 10;
+    let creditBalance = 10;
     await page.route('**/api/ai/quota', async (route) => {
       await route.fulfill({
         status: 200,
@@ -5068,9 +5121,8 @@ test.describe('Profile page (authenticated)', () => {
           ok: true,
           data: {
             isAdmin: false,
-            dailyLimit: 10,
-            usedToday: 10 - quotaRemaining,
-            remainingToday: quotaRemaining,
+            creditBalance,
+            dailyCreditAllowance: 10,
           },
         }),
       });
@@ -5080,7 +5132,7 @@ test.describe('Profile page (authenticated)', () => {
     await page.route('**/api/ai/generate-image', async (route) => {
       const body = route.request().postDataJSON();
       generateRequests.push(body);
-      quotaRemaining = Math.max(0, quotaRemaining - 1);
+      creditBalance = Math.max(0, creditBalance - 1);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -5093,6 +5145,10 @@ test.describe('Profile page (authenticated)', () => {
             model: body.model,
             steps: body.steps,
             seed: body.seed,
+          },
+          billing: {
+            credits_charged: 1,
+            balance_after: creditBalance,
           },
         }),
       });
@@ -5120,7 +5176,7 @@ test.describe('Profile page (authenticated)', () => {
     });
     expect(typeof generateRequests[0].seed).toBe('number');
 
-    await expect(page.locator('#avatarGenerateQuota')).toContainText('9 / 10');
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('9 credits available');
 
     await page.locator('#avatarGenerateUseBtn').click();
 
@@ -5145,7 +5201,7 @@ test.describe('Profile page (authenticated)', () => {
     );
   });
 
-  test('avatar generate surfaces an error when the shared daily quota is exhausted', async ({
+  test('avatar generate surfaces an error when member credits are exhausted', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -5158,9 +5214,8 @@ test.describe('Profile page (authenticated)', () => {
           ok: true,
           data: {
             isAdmin: false,
-            dailyLimit: 10,
-            usedToday: 10,
-            remainingToday: 0,
+            creditBalance: 0,
+            dailyCreditAllowance: 10,
           },
         }),
       });
@@ -5174,8 +5229,8 @@ test.describe('Profile page (authenticated)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: false,
-          error: 'Daily generation limit reached. Please come back tomorrow.',
-          code: 'DAILY_IMAGE_LIMIT_REACHED',
+          error: 'Insufficient member credits.',
+          code: 'insufficient_member_credits',
         }),
       });
     });
@@ -5188,12 +5243,12 @@ test.describe('Profile page (authenticated)', () => {
     await page.locator('#avatarChooseGenerate').click();
     await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
 
-    await expect(page.locator('#avatarGenerateQuota')).toContainText('0 / 10');
+    await expect(page.locator('#avatarGenerateQuota')).toContainText('0 credits available');
 
     await page.locator('#avatarGeneratePrompt').fill('Anything');
     await page.locator('#avatarGenerateBtn').click();
 
-    await expect(page.locator('#avatarGenerateMsg')).toContainText(/limit/i);
+    await expect(page.locator('#avatarGenerateMsg')).toContainText(/credits/i);
     await expect(page.locator('#avatarGenerateUseBtn')).toBeDisabled();
     expect(generateCalled).toBeLessThanOrEqual(1);
   });
@@ -5624,6 +5679,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#orgBillingDetail')).toContainText('Credit balance');
     await expect(page.locator('#orgBillingDetail')).toContainText('125');
 
+    await page.locator('#userBillingId').fill('user_member');
+    await page.locator('#userBillingLookupForm').getByRole('button', { name: 'Load Billing' }).click();
+    await expect(page.locator('#userBillingDetail')).toContainText('member@example.com');
+    await expect(page.locator('#userBillingDetail')).toContainText('9');
+
     await page.locator('#creditGrantOrgId').fill('org_control_1234567890');
     await page.locator('#creditGrantAmount').fill('50');
     await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
@@ -5638,6 +5698,22 @@ test.describe('Admin Control Plane', () => {
     expect(captures.creditGrantRequests[0].body).toEqual({
       amount: 50,
       reason: 'Support adjustment for control-plane test',
+    });
+
+    await page.locator('#creditGrantUserId').fill('user_member');
+    await page.locator('#userCreditGrantAmount').fill('25');
+    await page.locator('#userCreditGrantForm').getByRole('button', { name: 'Grant User Credits' }).click();
+    expect(captures.userCreditGrantRequests).toHaveLength(0);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#userCreditGrantReason').fill('Member support adjustment for control-plane test');
+    await page.locator('#userCreditGrantForm').getByRole('button', { name: 'Grant User Credits' }).click();
+    await expect(page.locator('#userCreditGrantResult')).toContainText('User credit grant recorded');
+    expect(captures.userCreditGrantRequests).toHaveLength(1);
+    expect(captures.userCreditGrantRequests[0].idempotencyKey).toMatch(/^admin-user-credit-grant-/);
+    expect(captures.userCreditGrantRequests[0].body).toEqual({
+      amount: 25,
+      reason: 'Member support adjustment for control-plane test',
     });
 
     await clickAdminNavSection(page, 'billing-events');

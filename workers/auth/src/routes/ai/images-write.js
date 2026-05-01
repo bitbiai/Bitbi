@@ -4,7 +4,7 @@ import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
 } from "../../lib/request.js";
-import { addMinutesIso, nowIso, randomTokenHex } from "../../lib/tokens.js";
+import { nowIso, randomTokenHex } from "../../lib/tokens.js";
 import {
   evaluateSharedRateLimit,
   rateLimitResponse,
@@ -20,6 +20,7 @@ import {
   aiUsagePolicyErrorResponse,
   prepareAiUsagePolicy,
 } from "../../lib/ai-usage-policy.js";
+import { calculateAiImageCreditCost } from "../../lib/ai-image-credit-pricing.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
@@ -39,8 +40,6 @@ const MAX_STEPS = 8;
 const DEFAULT_STEPS = 4;
 const GENERATION_LIMIT = 20;
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
-const DAILY_IMAGE_LIMIT = 10;
-const QUOTA_RESERVATION_TTL_MINUTES = 60;
 const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
 const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
@@ -69,17 +68,6 @@ async function enforceAiImageWriteRateLimit(ctx, userId, {
   if (limit.unavailable) return rateLimitUnavailableResponse(correlationId || null);
   if (limit.limited) return rateLimitResponse();
   return null;
-}
-
-function getQuotaDayStart(ts = nowIso()) {
-  return ts.slice(0, 10) + "T00:00:00.000Z";
-}
-
-function quotaUnavailableResponse() {
-  return json(
-    { ok: false, error: "Service temporarily unavailable. Please try again later." },
-    { status: 503 }
-  );
 }
 
 function decodeBase64ToBytes(base64) {
@@ -213,46 +201,6 @@ async function resolveSaveImageInput(env, body, userId, correlationId) {
   };
 }
 
-async function deleteExpiredQuotaReservations(env, userId, dayStart, now) {
-  await env.DB.prepare(
-    "DELETE FROM ai_daily_quota_usage WHERE user_id = ? AND day_start = ? AND status = 'reserved' AND expires_at < ?"
-  ).bind(userId, dayStart, now).run();
-}
-
-async function reserveDailyQuota(env, userId, now = nowIso()) {
-  const dayStart = getQuotaDayStart(now);
-  await deleteExpiredQuotaReservations(env, userId, dayStart, now);
-  const expiresAt = addMinutesIso(QUOTA_RESERVATION_TTL_MINUTES);
-
-  for (let slot = 1; slot <= DAILY_IMAGE_LIMIT; slot += 1) {
-    const reservationId = randomTokenHex(16);
-    const result = await env.DB.prepare(
-      `INSERT OR IGNORE INTO ai_daily_quota_usage (id, user_id, day_start, slot, status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, 'reserved', ?, ?)`
-    ).bind(
-      reservationId,
-      userId,
-      dayStart,
-      slot,
-      now,
-      expiresAt
-    ).run();
-
-    if (result?.meta?.changes > 0) {
-      return { reservationId, dayStart };
-    }
-  }
-
-  return null;
-}
-
-async function releaseQuotaReservation(env, reservationId) {
-  if (!reservationId) return;
-  await env.DB.prepare(
-    "DELETE FROM ai_daily_quota_usage WHERE id = ? AND status = 'reserved'"
-  ).bind(reservationId).run();
-}
-
 async function replayOrgScopedGeneratedImage({
   env,
   usagePolicy,
@@ -339,7 +287,6 @@ export async function handleGenerateImage(ctx) {
 
   const userId = session.user.id;
   const isAdmin = session.user.role === "admin";
-  let quotaReservationId = null;
 
   const limit = await evaluateSharedRateLimit(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS, sensitiveRateLimitOptions({
     component: "ai-generate",
@@ -386,6 +333,14 @@ export async function handleGenerateImage(ctx) {
     if (isNaN(seed) || seed < 0) seed = null;
   }
   const aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
+  const imagePricing = calculateAiImageCreditCost(modelConfig.id, {
+    width: 1024,
+    height: 1024,
+    steps: aiRequest.steps,
+  });
+  if (!imagePricing) {
+    return respond({ ok: false, error: "Image model pricing is unavailable." }, { status: 503 });
+  }
   let usagePolicy = null;
   try {
     usagePolicy = await prepareAiUsagePolicy({
@@ -393,7 +348,10 @@ export async function handleGenerateImage(ctx) {
       request,
       user: session.user,
       body,
-      operation: AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE,
+      operation: {
+        ...AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE,
+        credits: imagePricing.credits,
+      },
       route: "/api/ai/generate-image",
     });
   } catch (error) {
@@ -448,23 +406,21 @@ export async function handleGenerateImage(ctx) {
     }
   }
 
-  if (!isAdmin) {
+  if (usagePolicy.mode === "member") {
     try {
-      const reservation = await reserveDailyQuota(env, userId);
-      if (!reservation) {
-        return json(
-          {
-            ok: false,
-            code: "DAILY_IMAGE_LIMIT_REACHED",
-            error: `You've reached your daily image generation limit (${DAILY_IMAGE_LIMIT}/${DAILY_IMAGE_LIMIT}). Please come back tomorrow for more creations.`,
-          },
-          { status: 429 }
-        );
-      }
-      quotaReservationId = reservation.reservationId;
-    } catch (e) {
-      if (String(e).includes("no such table")) return quotaUnavailableResponse();
-      throw e;
+      await usagePolicy.prepareForProvider();
+    } catch (error) {
+      const policyError = aiUsagePolicyErrorResponse(error);
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "member_credit_policy_rejected",
+        level: policyError.status >= 500 ? "error" : "warn",
+        correlationId,
+        user_id: userId,
+        code: policyError.body?.code || "member_credit_policy_rejected",
+      });
+      return respond(policyError.body, { status: policyError.status });
     }
   }
 
@@ -485,9 +441,6 @@ export async function handleGenerateImage(ctx) {
         organization_id: usagePolicy.organizationId,
         ...getErrorFields(error),
       });
-      if (quotaReservationId) {
-        try { await releaseQuotaReservation(env, quotaReservationId); } catch {}
-      }
       return respond({
         ok: false,
         error: "AI usage policy could not be verified.",
@@ -546,9 +499,6 @@ export async function handleGenerateImage(ctx) {
       is_admin: isAdmin,
       ...getErrorFields(e),
     });
-    if (quotaReservationId) {
-      try { await releaseQuotaReservation(env, quotaReservationId); } catch {}
-    }
     return respond({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
 
@@ -571,56 +521,15 @@ export async function handleGenerateImage(ctx) {
       model: modelConfig.id,
       is_admin: isAdmin,
     });
-    if (quotaReservationId) {
-      try { await releaseQuotaReservation(env, quotaReservationId); } catch {}
-    }
     return respond({ ok: false, error: "No image was generated." }, { status: 502 });
   }
 
   const logId = randomTokenHex(16);
   const completedAt = nowIso();
   try {
-    if (quotaReservationId) {
-      const results = await env.DB.batch([
-        env.DB.prepare(
-          "UPDATE ai_daily_quota_usage SET status = 'consumed', expires_at = NULL, consumed_at = ? WHERE id = ? AND status = 'reserved'"
-        ).bind(completedAt, quotaReservationId),
-        env.DB.prepare(
-          "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
-        ).bind(logId, userId, completedAt),
-      ]);
-      if (results?.[0]?.meta?.changes !== 1) {
-        try {
-          await env.DB.prepare("DELETE FROM ai_generation_log WHERE id = ?").bind(logId).run();
-        } catch {}
-        if (usagePolicy.mode === "organization") {
-          try {
-            await usagePolicy.markProviderFailed({
-              code: "generation_finalize_conflict",
-              message: "Image generation finalization conflicted before billing.",
-            });
-          } catch {}
-        }
-        logDiagnostic({
-          service: "bitbi-auth",
-          component: "ai-generate-image",
-          event: "ai_generate_finalize_conflict",
-          level: "error",
-          correlationId,
-          user_id: userId,
-          model: modelConfig.id,
-          quota_reservation_id: quotaReservationId,
-        });
-        return respond(
-          { ok: false, error: "Image generation could not be finalized. Please try again." },
-          { status: 500 }
-        );
-      }
-    } else {
-      await env.DB.prepare(
-        "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
-      ).bind(logId, userId, completedAt).run();
-    }
+    await env.DB.prepare(
+      "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
+    ).bind(logId, userId, completedAt).run();
   } catch (e) {
     if (usagePolicy.mode === "organization") {
       try {
@@ -638,12 +547,8 @@ export async function handleGenerateImage(ctx) {
       correlationId,
       user_id: userId,
       model: modelConfig.id,
-      quota_reservation_id: quotaReservationId,
       ...getErrorFields(e),
     });
-    if (quotaReservationId) {
-      try { await releaseQuotaReservation(env, quotaReservationId); } catch {}
-    }
     return respond(
       { ok: false, error: "Image generation could not be finalized. Please try again." },
       { status: 500 }
@@ -658,6 +563,9 @@ export async function handleGenerateImage(ctx) {
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
+      pricing_source: "ai-image-credit-pricing",
+      provider_cost_usd: imagePricing.providerCostUsd,
+      pricing_normalized: imagePricing.normalized,
     });
     if (usagePolicy.mode === "organization") {
       await usagePolicy.markSucceeded({

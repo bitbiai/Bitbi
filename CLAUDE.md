@@ -87,7 +87,7 @@ When a change adds or depends on new D1 tables, apply remote migrations from `wo
 Current migration-to-worker dependencies:
 - `0010_add_r2_cleanup_queue` — auth worker AI delete flows and scheduled R2 cleanup retries
 - `0012_add_user_activity_log` — admin user-activity views and durable activity logging
-- `0014_add_ai_daily_quota_usage` — `/api/ai/quota` and non-admin daily image quota enforcement
+- `0014_add_ai_daily_quota_usage` — legacy AI quota history table retained for compatibility
 - `0015_add_rate_limit_counters` — remaining D1-backed limiter paths (avatar, favorites, admin, AI generation)
 - `0016_add_ai_text_assets` — admin AI text-asset persistence and shared-folder save flows
 - `0017_add_ai_image_derivatives` — saved-image derivative tracking, queue generation, and derivative backfill

@@ -1,4 +1,14 @@
-import { BillingError, billingErrorResponse, normalizeBillingIdempotencyKey, assertOrganizationFeatureEnabled, consumeOrganizationCredits } from "./billing.js";
+import {
+  BillingError,
+  MEMBER_DAILY_CREDIT_ALLOWANCE,
+  assertMemberHasCredits,
+  assertOrganizationFeatureEnabled,
+  billingErrorResponse,
+  consumeMemberCredits,
+  consumeOrganizationCredits,
+  normalizeBillingIdempotencyKey,
+  topUpMemberDailyCredits,
+} from "./billing.js";
 import {
   beginAiUsageAttempt,
   billingMetadataFromAttempt,
@@ -101,6 +111,17 @@ async function buildRequestFingerprint({ route, operation, organizationId, body 
   }));
 }
 
+async function buildMemberRequestFingerprint({ route, operation, userId, body }) {
+  return sha256Hex(stableJson({
+    version: 1,
+    route,
+    operation: operation.id,
+    featureKey: operation.featureKey,
+    userId: userId || null,
+    body: fingerprintBody(body),
+  }));
+}
+
 async function buildScopedIdempotencyKey({ clientKey, route, operation, organizationId, userId }) {
   const digest = await sha256Hex(stableJson({
     version: 1,
@@ -148,13 +169,69 @@ export async function prepareAiUsagePolicy({
 }) {
   const resolvedOperation = resolveOperation(operation);
   if (!hasOrganizationContext(body)) {
+    if (user?.role === "admin") {
+      return {
+        mode: "admin-legacy",
+        organizationId: null,
+        featureKey: resolvedOperation.featureKey,
+        credits: 0,
+        async prepareForProvider() {
+          return null;
+        },
+        async chargeAfterSuccess() {
+          return null;
+        },
+      };
+    }
+
+    const requestFingerprint = await buildMemberRequestFingerprint({
+      route,
+      operation: resolvedOperation,
+      userId: user?.id || null,
+      body,
+    });
     return {
-      mode: "legacy-user",
+      mode: "member",
       organizationId: null,
       featureKey: resolvedOperation.featureKey,
-      credits: 0,
-      async chargeAfterSuccess() {
-        return null;
+      credits: resolvedOperation.credits,
+      dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+      async prepareForProvider() {
+        const topUp = await topUpMemberDailyCredits({
+          env,
+          userId: user?.id || null,
+        });
+        const availability = await assertMemberHasCredits(env, {
+          userId: user?.id || null,
+          credits: resolvedOperation.credits,
+        });
+        return {
+          topUp,
+          balanceBefore: availability.balance,
+        };
+      },
+      async chargeAfterSuccess(metadata = {}) {
+        const result = await consumeMemberCredits({
+          env,
+          userId: user?.id || null,
+          featureKey: resolvedOperation.featureKey,
+          quantity: resolvedOperation.quantity || 1,
+          credits: resolvedOperation.credits,
+          requestFingerprint,
+          metadata: {
+            route,
+            operation: resolvedOperation.id,
+            ...metadata,
+          },
+          source: "member_image_generation",
+        });
+        return {
+          user_id: user?.id || null,
+          feature: resolvedOperation.featureKey,
+          credits_charged: resolvedOperation.credits,
+          balance_after: result.creditBalance,
+          daily_credit_allowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+        };
       },
     };
   }

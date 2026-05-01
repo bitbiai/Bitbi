@@ -112,9 +112,13 @@ function createCurrentContractFetch() {
         ok: true,
         data: {
           isAdmin: false,
-          dailyLimit: 10,
-          usedToday: 2,
-          remainingToday: 8,
+          creditBalance: 8,
+          dailyCreditAllowance: 10,
+          dailyTopUp: {
+            dayStart: "2026-05-01T00:00:00.000Z",
+            grantedCredits: 0,
+            reused: true,
+          },
         },
       });
     }

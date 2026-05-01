@@ -219,8 +219,21 @@ export function apiAdminOrganizationBilling(orgId) {
     return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}/billing`);
 }
 
+export function apiAdminUserBilling(userId) {
+    return request('GET', `/admin/users/${encodeURIComponent(userId)}/billing`);
+}
+
 export function apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey }) {
     return request('POST', `/admin/orgs/${encodeURIComponent(orgId)}/credits/grant`, {
+        amount,
+        reason,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminGrantUserCredits(userId, { amount, reason, idempotencyKey }) {
+    return request('POST', `/admin/users/${encodeURIComponent(userId)}/credits/grant`, {
         amount,
         reason,
     }, {

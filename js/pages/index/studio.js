@@ -19,8 +19,7 @@ let initialized = false;
 let currentImageData = null;
 let currentMeta = null;
 let folders = [];
-let quotaRemaining = null;
-let quotaLimit = 10;
+let creditBalance = null;
 let $quotaEl = null;
 const SAVE_REFERENCE_FALLBACK_CODES = new Set([
     'INVALID_SAVE_REFERENCE',
@@ -50,20 +49,19 @@ function escapeHtml(str) {
 
 /* ── Quota indicator ── */
 function renderQuota() {
-    if (!$quotaEl || quotaRemaining === null) return;
-    $quotaEl.textContent = `${quotaRemaining} / ${quotaLimit} generations left today`;
-    $quotaEl.classList.toggle('studio__quota--empty', quotaRemaining <= 0);
+    if (!$quotaEl || creditBalance === null) return;
+    $quotaEl.textContent = `${creditBalance} credits available`;
+    $quotaEl.classList.toggle('studio__quota--empty', creditBalance <= 0);
 }
 
 async function loadQuota() {
     const q = await apiAiGetQuota();
     if (!q || q.isAdmin) {
         if ($quotaEl) $quotaEl.style.display = 'none';
-        quotaRemaining = null;
+        creditBalance = null;
         return;
     }
-    quotaLimit = q.dailyLimit || 10;
-    quotaRemaining = q.remainingToday;
+    creditBalance = typeof q.creditBalance === 'number' ? q.creditBalance : null;
     renderQuota();
 }
 
@@ -146,8 +144,8 @@ async function handleGenerate() {
     if (!res.ok) {
         $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
         showMsg($genMsg, res.error, 'error');
-        if (res.data?.code === 'DAILY_IMAGE_LIMIT_REACHED' && quotaRemaining !== null) {
-            quotaRemaining = 0;
+        if (res.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
+            creditBalance = 0;
             renderQuota();
         }
         return;
@@ -180,8 +178,9 @@ async function handleGenerate() {
     $saveBar.classList.add('visible');
     showMsg($genMsg, 'Image generated.', 'success');
 
-    if (quotaRemaining !== null && quotaRemaining > 0) {
-        quotaRemaining--;
+    const balanceAfter = res.data?.billing?.balance_after;
+    if (typeof balanceAfter === 'number') {
+        creditBalance = balanceAfter;
         renderQuota();
     }
 }

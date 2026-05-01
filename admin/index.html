@@ -391,6 +391,19 @@
                         <div id="orgBillingDetail"></div>
                     </div>
                     <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">User Billing</h3>
+                        <p class="admin-shell__desc">Inspect a registered member credit balance before issuing manual user credits.</p>
+                        <form id="userBillingLookupForm" class="admin-control-form">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">User ID</span>
+                                <input id="userBillingId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="user_...">
+                            </label>
+                            <button type="submit" class="btn-action">Load Billing</button>
+                        </form>
+                        <div id="userBillingState" class="admin-state">Enter a user ID to inspect member credit state.</div>
+                        <div id="userBillingDetail"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
                         <h3 class="admin-section-title">Manual Credit Grant</h3>
                         <p class="admin-shell__desc">Admin-only grant. Requires reason, confirmation, same-origin browser context, and a generated idempotency key.</p>
                         <form id="creditGrantForm" class="admin-control-form">
@@ -409,6 +422,26 @@
                             <button type="submit" class="admin-ai__run">Grant Credits</button>
                         </form>
                         <div id="creditGrantResult" class="admin-state" aria-live="polite"></div>
+                    </div>
+                    <div class="admin-shell glass glass-card reveal visible">
+                        <h3 class="admin-section-title">Manual User Credit Grant</h3>
+                        <p class="admin-shell__desc">Admin-only member grant. Manual credits add to the user balance and are not overwritten by daily top-ups.</p>
+                        <form id="userCreditGrantForm" class="admin-control-form">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">User ID</span>
+                                <input id="creditGrantUserId" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="user_..." required>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Credits</span>
+                                <input id="userCreditGrantAmount" class="admin-ai__input" type="number" min="1" max="100000" step="1" placeholder="100" required>
+                            </label>
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Reason</span>
+                                <textarea id="userCreditGrantReason" class="admin-ai__textarea" rows="3" maxlength="500" placeholder="Support adjustment, member credit correction, incident compensation..." required></textarea>
+                            </label>
+                            <button type="submit" class="admin-ai__run">Grant User Credits</button>
+                        </form>
+                        <div id="userCreditGrantResult" class="admin-state" aria-live="polite"></div>
                     </div>
                 </div>
             </div>

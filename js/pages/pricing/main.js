@@ -13,9 +13,9 @@ const PRICING_OPTIONS = Object.freeze([
         price: '0 €',
         cadence: 'Included account allowance',
         badge: 'Current',
-        description: 'Registered non-admin accounts currently get 10 successful legacy FLUX.1 Schnell image generations per UTC day.',
+        description: 'Registered non-admin accounts receive a daily member credit top-up to 10 credits for FLUX.1 Schnell image generation.',
         bullets: [
-            '10 free image generations per UTC day',
+            'Daily top-up to 10 member credits',
             'FLUX.1 Schnell image generation',
             'Saved asset and profile flows stay unchanged',
             'Does not unlock credit-gated organization AI usage',
@@ -191,11 +191,11 @@ function createCreditsInfoCard() {
     card.className = 'pricing-info glass glass-card reveal visible';
     card.append(
         createTextElement('h2', 'pricing-section-title', 'How credits work'),
-        createTextElement('p', 'pricing-section-copy', 'Credits belong to organizations and are debited only by eligible AI usage paths after successful provider execution. Checkout creation alone does not grant or consume credits.'),
+        createTextElement('p', 'pricing-section-copy', 'Organization credits belong to organizations. Member image credits belong to the signed-in user and are debited after successful provider execution. Checkout creation alone does not grant or consume credits.'),
     );
     const facts = document.createElement('dl');
     facts.className = 'pricing-facts';
-    appendFact(facts, 'Image', 'Legacy no-org FLUX.1 remains covered by the free daily allowance. Org-scoped paid image generation consumes credits where used.');
+    appendFact(facts, 'Image', 'No-org FLUX.1 uses member credits from the daily top-up. Org-scoped image generation consumes organization credits where used.');
     appendFact(facts, 'Text', 'Org-scoped member text generation uses credits and idempotent replay safety.');
     appendFact(facts, 'Access', 'Purchases remain restricted by backend authorization. Eligible users complete checkout from the Credits dashboard.');
     card.appendChild(facts);
@@ -218,7 +218,7 @@ function createFaqCard() {
     card.className = 'pricing-info glass glass-card reveal visible';
     card.append(
         createTextElement('h2', 'pricing-section-title', 'FAQ'),
-        createFaqItem('What does Free include?', 'Every registered non-admin account currently has 10 successful legacy image generations per UTC day with FLUX.1 Schnell.', true),
+        createFaqItem('What does Free include?', 'Every registered non-admin account receives a daily top-up to 10 member credits for FLUX.1 Schnell image generation.', true),
         createFaqItem('Do credits unlock every model?', 'No. Credits apply only to implemented org-scoped AI routes. Models that are not technically runnable remain Coming soon.'),
         createFaqItem('Where do I buy credits?', 'Eligible platform admins and active organization owners use the Credits dashboard. This Pricing page is still restricted and does not bypass backend authorization.'),
     );

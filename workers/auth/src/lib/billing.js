@@ -17,6 +17,7 @@ const IDEMPOTENCY_KEY_MIN_LENGTH = 8;
 const IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 const MAX_CREDIT_GRANT = 1_000_000;
 const MAX_CREDIT_CONSUME = 100_000;
+export const MEMBER_DAILY_CREDIT_ALLOWANCE = 10;
 
 export class BillingError extends Error {
   constructor(message, { status = 400, code = "bad_request" } = {}) {
@@ -56,6 +57,17 @@ function ledgerId() {
 
 function usageEventId() {
   return `ue_${randomTokenHex(16)}`;
+}
+
+function normalizeUserId(value) {
+  const userId = String(value || "").trim();
+  if (!userId || userId.length > 128) {
+    throw new BillingError("User not found.", {
+      status: 404,
+      code: "user_not_found",
+    });
+  }
+  return userId;
 }
 
 function normalizeFeatureKey(value) {
@@ -101,6 +113,22 @@ async function buildUsageRequestHash({
   return hashRequest({
     organizationId,
     userId: userId || null,
+    featureKey,
+    quantity,
+    credits,
+    requestFingerprint: normalizeNullableString(requestFingerprint, 128),
+  });
+}
+
+async function buildMemberUsageRequestHash({
+  userId,
+  featureKey,
+  quantity,
+  credits,
+  requestFingerprint = null,
+}) {
+  return hashRequest({
+    userId,
     featureKey,
     quantity,
     credits,
@@ -183,6 +211,35 @@ function serializeUsageEvent(row) {
   };
 }
 
+function serializeMemberLedgerEntry(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    amount: Number(row.amount || 0),
+    balanceAfter: Number(row.balance_after || 0),
+    entryType: row.entry_type,
+    featureKey: row.feature_key || null,
+    source: row.source,
+    createdByUserId: row.created_by_user_id || null,
+    createdAt: row.created_at,
+  };
+}
+
+function serializeMemberUsageEvent(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    featureKey: row.feature_key,
+    quantity: Number(row.quantity || 0),
+    creditsDelta: Number(row.credits_delta || 0),
+    creditLedgerId: row.credit_ledger_id || null,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
 async function getDefaultPlan(env) {
   const row = await env.DB.prepare(
     "SELECT id, code, name, status, billing_interval, monthly_credit_grant, created_at, updated_at FROM plans WHERE code = ? AND status = 'active' LIMIT 1"
@@ -206,6 +263,20 @@ async function assertOrganizationExists(env, organizationId) {
       code: "organization_not_found",
     });
   }
+}
+
+async function getActiveUser(env, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const row = await env.DB.prepare(
+    "SELECT id, email, role, status, created_at FROM users WHERE id = ? LIMIT 1"
+  ).bind(normalizedUserId).first();
+  if (!row || row.status !== "active") {
+    throw new BillingError("User not found.", {
+      status: 404,
+      code: "user_not_found",
+    });
+  }
+  return row;
 }
 
 async function getActiveSubscription(env, organizationId) {
@@ -245,6 +316,18 @@ export async function getCreditBalance(env, organizationId) {
      ORDER BY created_at DESC, rowid DESC
      LIMIT 1`
   ).bind(orgId).first();
+  return Number(row?.balance_after || 0);
+}
+
+export async function getMemberCreditBalance(env, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const row = await env.DB.prepare(
+    `SELECT balance_after
+     FROM member_credit_ledger
+     WHERE user_id = ?
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`
+  ).bind(normalizedUserId).first();
   return Number(row?.balance_after || 0);
 }
 
@@ -328,6 +411,16 @@ async function fetchLedgerByIdempotency(env, { organizationId, idempotencyKey })
   ).bind(organizationId, idempotencyKey).first();
 }
 
+async function fetchMemberLedgerByIdempotency(env, { userId, idempotencyKey }) {
+  return env.DB.prepare(
+    `SELECT id, user_id, amount, balance_after, entry_type, feature_key,
+            source, request_hash, created_by_user_id, created_at
+     FROM member_credit_ledger
+     WHERE user_id = ? AND idempotency_key = ?
+     LIMIT 1`
+  ).bind(userId, idempotencyKey).first();
+}
+
 async function fetchUsageByIdempotency(env, { organizationId, idempotencyKey }) {
   return env.DB.prepare(
     `SELECT id, organization_id, user_id, feature_key, quantity, credits_delta,
@@ -336,6 +429,16 @@ async function fetchUsageByIdempotency(env, { organizationId, idempotencyKey }) 
      WHERE organization_id = ? AND idempotency_key = ?
      LIMIT 1`
   ).bind(organizationId, idempotencyKey).first();
+}
+
+async function fetchMemberUsageByIdempotency(env, { userId, idempotencyKey }) {
+  return env.DB.prepare(
+    `SELECT id, user_id, feature_key, quantity, credits_delta,
+            credit_ledger_id, request_hash, status, created_at
+     FROM member_usage_events
+     WHERE user_id = ? AND idempotency_key = ?
+     LIMIT 1`
+  ).bind(userId, idempotencyKey).first();
 }
 
 export async function assertUsageIdempotencyAvailable({
@@ -477,6 +580,388 @@ export async function grantOrganizationCredits({
   return {
     ledgerEntry: serializeLedgerEntry(entry),
     creditBalance: nextBalance,
+    reused: false,
+  };
+}
+
+export async function topUpMemberDailyCredits({
+  env,
+  userId,
+  now = nowIso(),
+  allowance = MEMBER_DAILY_CREDIT_ALLOWANCE,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  await getActiveUser(env, normalizedUserId);
+  const normalizedAllowance = normalizePositiveInteger(allowance, {
+    max: MAX_CREDIT_GRANT,
+    fieldName: "allowance",
+  });
+  const dayStart = now.slice(0, 10) + "T00:00:00.000Z";
+  const idempotencyKey = `member-daily-topup:${dayStart}`;
+  const requestHash = await hashRequest({
+    userId: normalizedUserId,
+    dayStart,
+    allowance: normalizedAllowance,
+    source: "daily_member_top_up",
+  });
+
+  const existing = await fetchMemberLedgerByIdempotency(env, {
+    userId: normalizedUserId,
+    idempotencyKey,
+  });
+  if (existing) {
+    if (existing.request_hash !== requestHash) {
+      throw new BillingError("Daily member credit top-up conflict.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    const currentBalance = await getMemberCreditBalance(env, normalizedUserId);
+    return {
+      ledgerEntry: serializeMemberLedgerEntry(existing),
+      creditBalance: currentBalance,
+      grantedCredits: Number(existing.amount || 0),
+      dailyAllowance: normalizedAllowance,
+      dayStart,
+      reused: true,
+    };
+  }
+
+  const nowValue = nowIso();
+  const entryId = ledgerId();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO member_credit_ledger (
+         id, user_id, amount, balance_after, entry_type, feature_key,
+         source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+       )
+       SELECT
+         ?, ?, 
+         CASE WHEN latest.balance_after < ? THEN ? - latest.balance_after ELSE 0 END,
+         CASE WHEN latest.balance_after < ? THEN ? ELSE latest.balance_after END,
+         ?, ?, ?, ?, ?, ?, ?
+       FROM (
+         SELECT COALESCE((
+           SELECT balance_after FROM member_credit_ledger
+           WHERE user_id = ?
+           ORDER BY created_at DESC, rowid DESC
+           LIMIT 1
+         ), 0) AS balance_after
+       ) AS latest`
+    ).bind(
+      entryId,
+      normalizedUserId,
+      normalizedAllowance,
+      normalizedAllowance,
+      normalizedAllowance,
+      normalizedAllowance,
+      "grant",
+      null,
+      "daily_member_top_up",
+      idempotencyKey,
+      requestHash,
+      null,
+      nowValue,
+      JSON.stringify({ dayStart, allowance: normalizedAllowance }),
+      normalizedUserId
+    ).run();
+  } catch (error) {
+    if (String(error).includes("UNIQUE")) {
+      const raced = await fetchMemberLedgerByIdempotency(env, {
+        userId: normalizedUserId,
+        idempotencyKey,
+      });
+      if (raced && raced.request_hash === requestHash) {
+        const currentBalance = await getMemberCreditBalance(env, normalizedUserId);
+        return {
+          ledgerEntry: serializeMemberLedgerEntry(raced),
+          creditBalance: currentBalance,
+          grantedCredits: Number(raced.amount || 0),
+          dailyAllowance: normalizedAllowance,
+          dayStart,
+          reused: true,
+        };
+      }
+      throw new BillingError("Daily member credit top-up conflict.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    throw error;
+  }
+
+  const inserted = await fetchMemberLedgerByIdempotency(env, {
+    userId: normalizedUserId,
+    idempotencyKey,
+  });
+  return {
+    ledgerEntry: serializeMemberLedgerEntry(inserted),
+    creditBalance: Number(inserted?.balance_after || 0),
+    grantedCredits: Number(inserted?.amount || 0),
+    dailyAllowance: normalizedAllowance,
+    dayStart,
+    reused: false,
+  };
+}
+
+export async function assertMemberHasCredits(env, { userId, credits }) {
+  const normalizedUserId = normalizeUserId(userId);
+  const requiredCredits = normalizePositiveInteger(credits, {
+    max: MAX_CREDIT_CONSUME,
+    fieldName: "credits",
+  });
+  const balance = await getMemberCreditBalance(env, normalizedUserId);
+  if (balance < requiredCredits) {
+    throw new BillingError("Insufficient member credits.", {
+      status: 402,
+      code: "insufficient_member_credits",
+    });
+  }
+  return { balance, requiredCredits };
+}
+
+export async function grantMemberCredits({
+  env,
+  userId,
+  amount,
+  createdByUserId,
+  idempotencyKey,
+  source = "manual_admin_grant",
+  reason = null,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  await getActiveUser(env, normalizedUserId);
+  const normalizedAmount = normalizePositiveInteger(amount, {
+    max: MAX_CREDIT_GRANT,
+    fieldName: "amount",
+  });
+  const requestHash = await hashRequest({
+    userId: normalizedUserId,
+    amount: normalizedAmount,
+    source,
+    reason: normalizeNullableString(reason),
+  });
+  const existing = await fetchMemberLedgerByIdempotency(env, {
+    userId: normalizedUserId,
+    idempotencyKey,
+  });
+  if (existing) {
+    if (existing.request_hash !== requestHash) {
+      throw new BillingError("Idempotency-Key conflicts with a different credit grant.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    return {
+      ledgerEntry: serializeMemberLedgerEntry(existing),
+      creditBalance: Number(existing.balance_after || 0),
+      reused: true,
+    };
+  }
+
+  const balance = await getMemberCreditBalance(env, normalizedUserId);
+  const nextBalance = balance + normalizedAmount;
+  const now = nowIso();
+  const entry = {
+    id: ledgerId(),
+    user_id: normalizedUserId,
+    amount: normalizedAmount,
+    balance_after: nextBalance,
+    entry_type: "grant",
+    feature_key: null,
+    source,
+    idempotency_key: idempotencyKey,
+    request_hash: requestHash,
+    created_by_user_id: createdByUserId || null,
+    created_at: now,
+  };
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO member_credit_ledger (
+         id, user_id, amount, balance_after, entry_type, feature_key,
+         source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      entry.id,
+      entry.user_id,
+      entry.amount,
+      entry.balance_after,
+      entry.entry_type,
+      entry.feature_key,
+      entry.source,
+      entry.idempotency_key,
+      entry.request_hash,
+      entry.created_by_user_id,
+      entry.created_at,
+      JSON.stringify({ reason: normalizeNullableString(reason) })
+    ).run();
+  } catch (error) {
+    if (String(error).includes("UNIQUE")) {
+      throw new BillingError("Credit grant conflict.", {
+        status: 409,
+        code: "credit_grant_conflict",
+      });
+    }
+    throw error;
+  }
+
+  return {
+    ledgerEntry: serializeMemberLedgerEntry(entry),
+    creditBalance: nextBalance,
+    reused: false,
+  };
+}
+
+export async function consumeMemberCredits({
+  env,
+  userId,
+  featureKey,
+  quantity = 1,
+  credits,
+  idempotencyKey = null,
+  requestFingerprint = null,
+  metadata = {},
+  source = "usage_event",
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const feature = normalizeFeatureKey(featureKey);
+  const normalizedQuantity = normalizePositiveInteger(quantity, {
+    max: MAX_CREDIT_CONSUME,
+    fieldName: "quantity",
+  });
+  const normalizedCredits = normalizePositiveInteger(credits ?? normalizedQuantity, {
+    max: MAX_CREDIT_CONSUME,
+    fieldName: "credits",
+  });
+  const requestHash = await buildMemberUsageRequestHash({
+    userId: normalizedUserId,
+    featureKey: feature,
+    quantity: normalizedQuantity,
+    credits: normalizedCredits,
+    requestFingerprint,
+  });
+  const normalizedSource = normalizeNullableString(source, 64) || "usage_event";
+
+  if (idempotencyKey) {
+    const existingUsage = await fetchMemberUsageByIdempotency(env, {
+      userId: normalizedUserId,
+      idempotencyKey,
+    });
+    if (existingUsage) {
+      if (existingUsage.request_hash !== requestHash) {
+        throw new BillingError("Idempotency-Key conflicts with a different usage request.", {
+          status: 409,
+          code: "idempotency_conflict",
+        });
+      }
+      const balance = await getMemberCreditBalance(env, normalizedUserId);
+      return {
+        usageEvent: serializeMemberUsageEvent(existingUsage),
+        creditBalance: balance,
+        reused: true,
+      };
+    }
+  }
+
+  const now = nowIso();
+  const creditId = ledgerId();
+  const usageId = usageEventId();
+  const ledgerStatement = env.DB.prepare(
+    `INSERT INTO member_credit_ledger (
+       id, user_id, amount, balance_after, entry_type, feature_key,
+       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+     )
+     SELECT ?, ?, ?, latest.balance_after - ?, ?, ?, ?, ?, ?, ?, ?, ?
+     FROM (
+       SELECT COALESCE((
+         SELECT balance_after FROM member_credit_ledger
+         WHERE user_id = ?
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1
+       ), 0) AS balance_after
+     ) AS latest
+     WHERE latest.balance_after >= ?`
+  ).bind(
+    creditId,
+    normalizedUserId,
+    -normalizedCredits,
+    normalizedCredits,
+    "consume",
+    feature,
+    normalizedSource,
+    idempotencyKey,
+    requestHash,
+    userId || null,
+    now,
+    JSON.stringify({ quantity: normalizedQuantity }),
+    normalizedUserId,
+    normalizedCredits
+  );
+
+  const usage = {
+    id: usageId,
+    user_id: normalizedUserId,
+    feature_key: feature,
+    quantity: normalizedQuantity,
+    credits_delta: -normalizedCredits,
+    credit_ledger_id: creditId,
+    request_hash: requestHash,
+    status: "recorded",
+    created_at: now,
+  };
+
+  try {
+    const usageStatement = env.DB.prepare(
+      `INSERT INTO member_usage_events (
+         id, user_id, feature_key, quantity, credits_delta,
+         credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json
+       )
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM member_credit_ledger WHERE id = ?)`
+    ).bind(
+      usage.id,
+      usage.user_id,
+      usage.feature_key,
+      usage.quantity,
+      usage.credits_delta,
+      usage.credit_ledger_id,
+      idempotencyKey,
+      usage.request_hash,
+      usage.status,
+      usage.created_at,
+      JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}),
+      usage.credit_ledger_id
+    );
+    const [ledgerInsert, usageInsert] = await env.DB.batch([ledgerStatement, usageStatement]);
+    if (!ledgerInsert?.meta?.changes) {
+      throw new BillingError("Insufficient member credits.", {
+        status: 402,
+        code: "insufficient_member_credits",
+      });
+    }
+    if (!usageInsert?.meta?.changes) {
+      throw new BillingError("Usage event could not be recorded.", {
+        status: 503,
+        code: "usage_record_failed",
+      });
+    }
+  } catch (error) {
+    if (error instanceof BillingError) {
+      throw error;
+    }
+    if (String(error).includes("UNIQUE")) {
+      throw new BillingError("Usage event conflict.", {
+        status: 409,
+        code: "usage_event_conflict",
+      });
+    }
+    throw error;
+  }
+
+  return {
+    usageEvent: serializeMemberUsageEvent(usage),
+    creditBalance: await getMemberCreditBalance(env, normalizedUserId),
     reused: false,
   };
 }
@@ -674,4 +1159,17 @@ export async function listAdminPlans(env) {
 
 export async function getAdminOrganizationBilling(env, { organizationId }) {
   return getOrganizationBillingState(env, { organizationId });
+}
+
+export async function getAdminUserBilling(env, { userId }) {
+  const user = await getActiveUser(env, userId);
+  const creditBalance = await getMemberCreditBalance(env, user.id);
+  return {
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    creditBalance,
+    dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+  };
 }

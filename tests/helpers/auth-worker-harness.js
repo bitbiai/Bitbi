@@ -65,6 +65,25 @@ function latestCreditLedgerEntry(rows, organizationId) {
   return latest;
 }
 
+function latestMemberCreditLedgerEntry(rows, userId) {
+  let latest = null;
+  let latestIndex = -1;
+  for (const [index, row] of (rows || []).entries()) {
+    if (row.user_id !== userId) continue;
+    if (!latest) {
+      latest = row;
+      latestIndex = index;
+      continue;
+    }
+    const createdCompare = String(row.created_at || "").localeCompare(String(latest.created_at || ""));
+    if (createdCompare > 0 || (createdCompare === 0 && index > latestIndex)) {
+      latest = row;
+      latestIndex = index;
+    }
+  }
+  return latest;
+}
+
 function activeAiUsageReservedCredits(rows, organizationId, now, { excludeId = null } = {}) {
   return (rows || [])
     .filter((row) =>
@@ -532,6 +551,8 @@ class MockD1 {
       billingCheckoutSessions: [],
       creditLedger: [],
       usageEvents: [],
+      memberCreditLedger: [],
+      memberUsageEvents: [],
       aiUsageAttempts: [],
       ...deepClone(seed),
     };
@@ -633,6 +654,12 @@ class MockD1 {
     }
     if (this.missingTables.has('usage_events') && query.includes('usage_events')) {
       throw new Error('no such table: usage_events');
+    }
+    if (this.missingTables.has('member_credit_ledger') && query.includes('member_credit_ledger')) {
+      throw new Error('no such table: member_credit_ledger');
+    }
+    if (this.missingTables.has('member_usage_events') && query.includes('member_usage_events')) {
+      throw new Error('no such table: member_usage_events');
     }
     if (this.missingTables.has('ai_usage_attempts') && query.includes('ai_usage_attempts')) {
       throw new Error('no such table: ai_usage_attempts');
@@ -1058,6 +1085,18 @@ class MockD1 {
     if (query === 'SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1') {
       const [userId] = bindings;
       return this.state.users.find((row) => row.id === userId) || null;
+    }
+
+    if (query === 'SELECT id, email, role, status, created_at FROM users WHERE id = ? LIMIT 1') {
+      const [userId] = bindings;
+      const row = this.state.users.find((entry) => entry.id === userId);
+      return row ? deepClone({
+        id: row.id,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+        created_at: row.created_at,
+      }) : null;
     }
 
     if (query === 'SELECT id FROM organizations WHERE slug = ? LIMIT 1') {
@@ -1863,6 +1902,194 @@ class MockD1 {
         .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
         .slice(0, Number(limit));
       return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT balance_after FROM member_credit_ledger WHERE user_id = ?')) {
+      const [userId] = bindings;
+      const latest = latestMemberCreditLedgerEntry(this.state.memberCreditLedger, userId);
+      return latest ? { balance_after: latest.balance_after } : null;
+    }
+
+    if (query.startsWith('SELECT id, user_id, amount, balance_after, entry_type, feature_key, source, request_hash, created_by_user_id, created_at FROM member_credit_ledger WHERE user_id = ? AND idempotency_key = ?')) {
+      const [userId, idempotencyKey] = bindings;
+      return deepClone(this.state.memberCreditLedger.find((row) =>
+        row.user_id === userId && row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (query.startsWith('SELECT id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, request_hash, status, created_at FROM member_usage_events WHERE user_id = ? AND idempotency_key = ?')) {
+      const [userId, idempotencyKey] = bindings;
+      return deepClone(this.state.memberUsageEvents.find((row) =>
+        row.user_id === userId && row.idempotency_key === idempotencyKey
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT') && query.includes('CASE WHEN latest.balance_after <')) {
+      const [
+        id,
+        userId,
+        allowanceForAmount,
+        allowanceForDelta,
+        allowanceForBalance,
+        allowanceBalanceAfter,
+        entryType,
+        featureKey,
+        source,
+        idempotencyKey,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        metadataJson,
+        lookupUserId,
+      ] = bindings;
+      if (this.state.memberCreditLedger.some((row) =>
+        row.id === id || (row.user_id === userId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: member_credit_ledger');
+      }
+      const latest = latestMemberCreditLedgerEntry(this.state.memberCreditLedger, lookupUserId);
+      const currentBalance = Number(latest?.balance_after || 0);
+      const amount = currentBalance < Number(allowanceForAmount)
+        ? Number(allowanceForDelta) - currentBalance
+        : 0;
+      const balanceAfter = currentBalance < Number(allowanceForBalance)
+        ? Number(allowanceBalanceAfter)
+        : currentBalance;
+      this.state.memberCreditLedger.push({
+        id,
+        user_id: userId,
+        amount,
+        balance_after: balanceAfter,
+        entry_type: entryType,
+        feature_key: featureKey,
+        source,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) VALUES')) {
+      const [
+        id,
+        userId,
+        amount,
+        balanceAfter,
+        entryType,
+        featureKey,
+        source,
+        idempotencyKey,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        metadataJson,
+      ] = bindings;
+      if (this.state.memberCreditLedger.some((row) =>
+        row.id === id || (row.user_id === userId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: member_credit_ledger');
+      }
+      this.state.memberCreditLedger.push({
+        id,
+        user_id: userId,
+        amount,
+        balance_after: balanceAfter,
+        entry_type: entryType,
+        feature_key: featureKey,
+        source,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')) {
+      const [
+        id,
+        userId,
+        amount,
+        creditAmount,
+        entryType,
+        featureKey,
+        source,
+        idempotencyKey,
+        requestHash,
+        createdByUserId,
+        createdAt,
+        metadataJson,
+        lookupUserId,
+        requiredCredits,
+      ] = bindings;
+      const latest = latestMemberCreditLedgerEntry(this.state.memberCreditLedger, lookupUserId);
+      const currentBalance = Number(latest?.balance_after || 0);
+      if (currentBalance < Number(requiredCredits)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      if (this.state.memberCreditLedger.some((row) =>
+        row.id === id || (idempotencyKey && row.user_id === userId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: member_credit_ledger');
+      }
+      this.state.memberCreditLedger.push({
+        id,
+        user_id: userId,
+        amount,
+        balance_after: currentBalance - Number(creditAmount),
+        entry_type: entryType,
+        feature_key: featureKey,
+        source,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        created_by_user_id: createdByUserId,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO member_usage_events ( id, user_id, feature_key, quantity, credits_delta, credit_ledger_id, idempotency_key, request_hash, status, created_at, metadata_json ) SELECT')) {
+      const [
+        id,
+        userId,
+        featureKey,
+        quantity,
+        creditsDelta,
+        creditLedgerId,
+        idempotencyKey,
+        requestHash,
+        status,
+        createdAt,
+        metadataJson,
+        lookupCreditLedgerId,
+      ] = bindings;
+      if (!this.state.memberCreditLedger.some((row) => row.id === lookupCreditLedgerId)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      if (this.state.memberUsageEvents.some((row) =>
+        row.id === id || (idempotencyKey && row.user_id === userId && row.idempotency_key === idempotencyKey)
+      )) {
+        throw new Error('UNIQUE constraint failed: member_usage_events');
+      }
+      this.state.memberUsageEvents.push({
+        id,
+        user_id: userId,
+        feature_key: featureKey,
+        quantity,
+        credits_delta: creditsDelta,
+        credit_ledger_id: creditLedgerId,
+        idempotency_key: idempotencyKey,
+        request_hash: requestHash,
+        status,
+        created_at: createdAt,
+        metadata_json: metadataJson,
+      });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('SELECT COALESCE(SUM(credit_cost), 0) AS reserved_credits')) {

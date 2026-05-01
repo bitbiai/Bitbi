@@ -51,10 +51,11 @@ const FOOTER_COPY_TEXT = 'BITBI Studio • Built with love & code • © 2026';
 const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
-let expectedHomepageModelCatalog = null;
+const expectedModelCatalogs = new Map();
 
-async function getExpectedHomepageModelCatalog() {
-  if (expectedHomepageModelCatalog) return expectedHomepageModelCatalog;
+async function getExpectedModelCatalog({ homepage = false } = {}) {
+  const cacheKey = homepage ? 'homepage' : 'shared';
+  if (expectedModelCatalogs.has(cacheKey)) return expectedModelCatalogs.get(cacheKey);
 
   const contractModule = await import(
     pathToFileURL(path.join(__dirname, '..', 'js/shared/admin-ai-contract.mjs')).href
@@ -82,6 +83,7 @@ async function getExpectedHomepageModelCatalog() {
 
   for (const entry of adminImageModels) {
     if (!entry?.id || liveImageIds.has(entry.id)) continue;
+    if (homepage && entry.id === contractModule.FLUX_2_DEV_MODEL_ID) continue;
     imageEntries.push({
       name: entry.label,
       vendor: entry.vendor,
@@ -89,7 +91,7 @@ async function getExpectedHomepageModelCatalog() {
     });
   }
 
-  expectedHomepageModelCatalog = [
+  const expectedCatalog = [
     {
       category: 'IMAGE GENERATION',
       models: imageEntries,
@@ -112,7 +114,8 @@ async function getExpectedHomepageModelCatalog() {
     },
   ];
 
-  return expectedHomepageModelCatalog;
+  expectedModelCatalogs.set(cacheKey, expectedCatalog);
+  return expectedCatalog;
 }
 
 async function expectPathUnchanged(page, expectedPath) {
@@ -122,9 +125,9 @@ async function expectPathUnchanged(page, expectedPath) {
   }).toBe(expectedPath);
 }
 
-async function expectModelsOverlayOpenState(page) {
+async function expectModelsOverlayOpenState(page, { homepage = false } = {}) {
   const overlay = page.locator('.models-overlay');
-  const expectedCatalog = await getExpectedHomepageModelCatalog();
+  const expectedCatalog = await getExpectedModelCatalog({ homepage });
 
   await expect(overlay).toBeVisible();
   await expect(overlay).toHaveClass(/is-active/);
@@ -908,7 +911,7 @@ test.describe('Homepage', () => {
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
-    await expectModelsOverlayOpenState(page);
+    await expectModelsOverlayOpenState(page, { homepage: true });
 
     await page.getByRole('button', { name: 'Close models' }).click();
     await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
@@ -933,7 +936,7 @@ test.describe('Homepage', () => {
     await modelsButton.click();
 
     await expectPathUnchanged(page, '/');
-    await expectModelsOverlayOpenState(page);
+    await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
   test('mobile guest banner appears only for logged-out visitors and keeps the menu CTA behavior', async ({ page }) => {
@@ -2394,7 +2397,7 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Toggle menu' }).click();
     await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
     await expectPathUnchanged(page, '/');
-    await expectModelsOverlayOpenState(page);
+    await expectModelsOverlayOpenState(page, { homepage: true });
   });
 
   test('mobile video modal keeps favorite and close controls above the player surface', async ({ page }) => {

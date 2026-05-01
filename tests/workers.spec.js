@@ -1844,6 +1844,167 @@ test.describe('Phase 2-B billing, entitlements, and credit ledger foundation', (
     expect(failClosedEnv.DB.state.creditLedger).toHaveLength(0);
   });
 
+  test('member daily credit top-up fills to ten once without overwriting manual balances', async () => {
+    const {
+      consumeMemberCredits,
+      getMemberCreditBalance,
+      topUpMemberDailyCredits,
+    } = await loadBillingModule();
+    const dayOne = '2026-05-01T12:00:00.000Z';
+    const dayTwo = '2026-05-02T12:00:00.000Z';
+
+    for (const [userId, startingBalance, expectedGrant] of [
+      ['member-topup-zero', 0, 10],
+      ['member-topup-three', 3, 7],
+      ['member-topup-ten', 10, 0],
+      ['member-topup-high', 25, 0],
+    ]) {
+      const user = createContractUser({ id: userId, role: 'user' });
+      const env = createAuthTestEnv({
+        users: [user],
+        memberCreditLedger: startingBalance > 0 ? [{
+          id: `mcl_seed_${userId}`,
+          user_id: userId,
+          amount: startingBalance,
+          balance_after: startingBalance,
+          entry_type: 'grant',
+          feature_key: null,
+          source: 'manual_admin_grant',
+          idempotency_key: `seed-${userId}`,
+          request_hash: 'seed',
+          created_by_user_id: null,
+          created_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: '{}',
+        }] : [],
+      });
+
+      const first = await topUpMemberDailyCredits({ env, userId, now: dayOne });
+      expect(first.grantedCredits).toBe(expectedGrant);
+      expect(await getMemberCreditBalance(env, userId)).toBe(Math.max(10, startingBalance));
+
+      const rowsAfterFirst = env.DB.state.memberCreditLedger.length;
+      const repeated = await topUpMemberDailyCredits({ env, userId, now: dayOne });
+      expect(repeated.reused).toBe(true);
+      expect(env.DB.state.memberCreditLedger).toHaveLength(rowsAfterFirst);
+    }
+
+    const manualUser = createContractUser({ id: 'member-manual-high', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [manualUser],
+      memberCreditLedger: [{
+        id: 'mcl_manual_high',
+        user_id: manualUser.id,
+        amount: 25,
+        balance_after: 25,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'manual_admin_grant',
+        idempotency_key: 'manual-high',
+        request_hash: 'seed',
+        created_by_user_id: null,
+        created_at: '2026-05-01T00:00:00.000Z',
+        metadata_json: '{}',
+      }],
+    });
+    const topUp = await topUpMemberDailyCredits({ env, userId: manualUser.id, now: dayOne });
+    expect(topUp.grantedCredits).toBe(0);
+    expect(await getMemberCreditBalance(env, manualUser.id)).toBe(25);
+
+    await consumeMemberCredits({
+      env,
+      userId: manualUser.id,
+      featureKey: 'ai.image.generate',
+      credits: 17,
+      quantity: 1,
+    });
+    expect(await getMemberCreditBalance(env, manualUser.id)).toBe(8);
+
+    await topUpMemberDailyCredits({ env, userId: manualUser.id, now: dayOne });
+    expect(await getMemberCreditBalance(env, manualUser.id)).toBe(8);
+
+    const nextDay = await topUpMemberDailyCredits({ env, userId: manualUser.id, now: dayTwo });
+    expect(nextDay.grantedCredits).toBe(2);
+    expect(await getMemberCreditBalance(env, manualUser.id)).toBe(10);
+  });
+
+  test('admin can manually grant member credits without changing organization grant behavior', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('member-credit-admin');
+    const member = createContractUser({ id: 'member-credit-target', role: 'user' });
+    const nonAdmin = createContractUser({ id: 'member-credit-non-admin', role: 'user' });
+    const owner = createContractUser({ id: 'member-credit-owner', role: 'user' });
+    const orgId = 'org_dededededededededededededededede';
+    const env = createAuthTestEnv({
+      ...seedOrgBillingState({ owner, member: nonAdmin, outsider: null, orgId }),
+      users: [admin, member, nonAdmin, owner],
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const denied = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/credits/grant`, 'POST', { amount: 12, reason: 'support credit' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${nonAdminToken}`,
+        'Idempotency-Key': 'member-credit-denied',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+
+    const grant = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/credits/grant`, 'POST', { amount: 12, reason: 'support credit' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'member-credit-grant-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const grantBody = await grant.json();
+    expect(grant.status).toBe(201);
+    expect(grantBody.creditBalance).toBe(12);
+    expect(grantBody.ledgerEntry).toEqual(expect.objectContaining({
+      userId: member.id,
+      amount: 12,
+      balanceAfter: 12,
+      entryType: 'grant',
+    }));
+    expect(JSON.stringify(grantBody)).not.toContain('idempotency_key');
+    expect(env.DB.state.memberCreditLedger).toHaveLength(1);
+
+    const userBilling = await worker.fetch(
+      authJsonRequest(`/api/admin/users/${member.id}/billing`, 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    await expect(userBilling.json()).resolves.toMatchObject({
+      ok: true,
+      billing: {
+        userId: member.id,
+        creditBalance: 12,
+        dailyCreditAllowance: 10,
+      },
+    });
+
+    const orgGrant = await worker.fetch(
+      authJsonRequest(`/api/admin/orgs/${orgId}/credits/grant`, 'POST', { amount: 5, reason: 'org support credit' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'member-credit-org-grant',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const orgGrantBody = await orgGrant.json();
+    expect(orgGrant.status).toBe(201);
+    expect(orgGrantBody.creditBalance).toBe(5);
+    expect(env.DB.state.creditLedger).toHaveLength(1);
+  });
+
   test('credit consumption helper is idempotent and prevents negative balances', async () => {
     const {
       assertOrganizationHasCredits,
@@ -4093,8 +4254,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     };
   }
 
-  test('legacy user-scoped image generation remains uncharged when no organization context is supplied', async () => {
+  test('member user-scoped image generation top-ups and charges credits using shared Flux 1 Schnell pricing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
     const user = createContractUser({ id: 'phase2c-legacy-user', role: 'user' });
     const env = createAuthTestEnv({
       users: [user],
@@ -4120,13 +4282,35 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       ok: true,
       data: { prompt: 'legacy image generation' },
     });
-    expect(body.billing).toBeUndefined();
+    const expectedPricing = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
+      width: 1024,
+      height: 1024,
+      steps: 4,
+    });
+    expect(body.billing).toEqual(expect.objectContaining({
+      user_id: user.id,
+      feature: 'ai.image.generate',
+      credits_charged: expectedPricing.credits,
+      balance_after: 10 - expectedPricing.credits,
+      daily_credit_allowance: 10,
+    }));
     expect(env.DB.state.usageEvents).toHaveLength(0);
     expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.map((row) => row.amount)).toEqual([
+      10,
+      -expectedPricing.credits,
+    ]);
   });
 
-  test('org owner, admin, and member roles can generate images with one credit charged', async () => {
+  test('org owner, admin, and member roles can generate images with shared Flux 1 Schnell pricing charged', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
+    const expectedPricing = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-1-schnell', {
+      width: 1024,
+      height: 1024,
+      steps: 4,
+    });
 
     for (const role of ['owner', 'admin', 'member']) {
       const user = createContractUser({ id: `phase2c-${role}-user`, role: 'user' });
@@ -4151,13 +4335,13 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expect(body.billing).toEqual({
         organization_id: orgId,
         feature: 'ai.image.generate',
-        credits_charged: 1,
-        balance_after: 1,
+        credits_charged: expectedPricing.credits,
+        balance_after: 2 - expectedPricing.credits,
       });
       expect(JSON.stringify(body)).not.toContain('idempotency_key');
       expect(env.DB.state.usageEvents).toHaveLength(1);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
-      expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(1);
+      expect(env.DB.state.creditLedger.at(-1).balance_after).toBe(2 - expectedPricing.credits);
     }
   });
 
@@ -12840,34 +13024,25 @@ test.describe('Worker routes', () => {
     expect(sessionRow.last_seen_at).toBe(touchedAt);
   });
 
-  test('GET /api/ai/quota remains read-only for expired reservations on the hot path', async () => {
+  test('GET /api/ai/quota returns the member credit balance and applies the daily top-up once', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const dayStart = quotaDayStart();
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'quota-read-user', role: 'user' })],
-      aiDailyQuotaUsage: [
-        ...makeConsumedQuotaUsage('quota-read-user', 2, dayStart),
-        {
-          id: 'quota-expired',
-          user_id: 'quota-read-user',
-          day_start: dayStart,
-          slot: 3,
-          status: 'reserved',
-          created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
-          expires_at: new Date(Date.now() - 60_000).toISOString(),
-          consumed_at: null,
-        },
-        {
-          id: 'quota-active',
-          user_id: 'quota-read-user',
-          day_start: dayStart,
-          slot: 4,
-          status: 'reserved',
-          created_at: new Date(Date.now() - 5 * 60_000).toISOString(),
-          expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
-          consumed_at: null,
-        },
-      ],
+      memberCreditLedger: [{
+        id: 'mcl_quota_seed',
+        user_id: 'quota-read-user',
+        amount: 3,
+        balance_after: 3,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_seed',
+        idempotency_key: 'quota-seed',
+        request_hash: 'seed',
+        created_by_user_id: null,
+        created_at: dayStart,
+        metadata_json: '{}',
+      }],
     });
     const token = await seedSession(env, 'quota-read-user');
     env.DB.runCalls.length = 0;
@@ -12885,13 +13060,34 @@ test.describe('Worker routes', () => {
       ok: true,
       data: {
         isAdmin: false,
-        dailyLimit: 10,
-        usedToday: 3,
-        remainingToday: 7,
+        creditBalance: 10,
+        dailyCreditAllowance: 10,
+        dailyTopUp: {
+          grantedCredits: 7,
+          reused: false,
+        },
       },
     });
-    expect(findRunCalls(env.DB, QUOTA_READ_CLEANUP_QUERY)).toHaveLength(0);
-    expect(env.DB.state.aiDailyQuotaUsage.find((row) => row.id === 'quota-expired')).toBeTruthy();
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-read-user')).toHaveLength(2);
+
+    const repeated = await authWorker.fetch(
+      authJsonRequest('/api/ai/quota', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        creditBalance: 10,
+        dailyTopUp: {
+          reused: true,
+        },
+      },
+    });
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-read-user')).toHaveLength(2);
   });
 
   test('admin destructive path: delete user without AI-owned records', async () => {
@@ -19160,8 +19356,9 @@ test.describe('Worker routes', () => {
     ]);
   });
 
-  test('AI generate: concurrent near-limit requests do not exceed the daily cap', async () => {
+  test('AI generate: concurrent member requests do not overdraw credits', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { consumeMemberCredits, topUpMemberDailyCredits } = await loadBillingModule();
     let firstRunStartedResolve;
     let releaseFirstRunResolve;
     const firstRunStarted = new Promise((resolve) => {
@@ -19185,7 +19382,6 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-user', 9),
       aiRun: async () => {
         aiCalls += 1;
         if (aiCalls === 1) {
@@ -19194,6 +19390,14 @@ test.describe('Worker routes', () => {
         }
         return { image: ONE_PIXEL_PNG_DATA_URI };
       },
+    });
+    await topUpMemberDailyCredits({ env, userId: 'quota-user' });
+    await consumeMemberCredits({
+      env,
+      userId: 'quota-user',
+      featureKey: 'ai.image.generate',
+      credits: 9,
+      quantity: 1,
     });
 
     const token = await seedSession(env, 'quota-user');
@@ -19222,28 +19426,30 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
 
-    expect(secondRes.status).toBe(429);
-    await expect(secondRes.json()).resolves.toMatchObject({
-      ok: false,
-      code: 'DAILY_IMAGE_LIMIT_REACHED',
+    expect(secondRes.status).toBe(200);
+    const secondBody = await secondRes.json();
+    expect(secondBody).toMatchObject({
+      ok: true,
+      billing: {
+        credits_charged: 1,
+        balance_after: 0,
+      },
     });
 
     releaseFirstRunResolve();
     const firstRes = await firstPromise;
 
-    expect(firstRes.status).toBe(200);
+    expect(firstRes.status).toBe(402);
     await expect(firstRes.json()).resolves.toMatchObject({
-      ok: true,
-      data: { model: '@cf/black-forest-labs/flux-1-schnell' },
+      ok: false,
+      code: 'insufficient_member_credits',
     });
-    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-user')).toHaveLength(10);
-    expect(
-      env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-user' && row.status === 'reserved')
-    ).toHaveLength(0);
-    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.at(-1).balance_after).toBe(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-user')).toHaveLength(2);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(2);
   });
 
-  test('AI generate: failed model runs return a sanitized top-level error and do not permanently consume quota', async () => {
+  test('AI generate: failed model runs return a sanitized top-level error and do not consume member credits', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -19258,7 +19464,6 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-fail-user', 9),
       aiRun: async () => {
         throw new Error('model failure');
       },
@@ -19283,14 +19488,17 @@ test.describe('Worker routes', () => {
       ok: false,
       error: 'Image generation failed.',
     });
-    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(9);
-    expect(
-      env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-fail-user' && row.status === 'reserved')
-    ).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.at(-1)).toEqual(expect.objectContaining({
+      amount: 10,
+      balance_after: 10,
+      source: 'daily_member_top_up',
+    }));
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(0);
     expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(0);
   });
 
-  test('AI generate: admin users remain exempt from the daily quota', async () => {
+  test('AI generate: admin users remain exempt from member credit charging', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -19305,7 +19513,6 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiDailyQuotaUsage: makeConsumedQuotaUsage('quota-admin', 10),
       aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
     });
 
@@ -19327,7 +19534,8 @@ test.describe('Worker routes', () => {
       ok: true,
       data: { model: '@cf/black-forest-labs/flux-1-schnell' },
     });
-    expect(env.DB.state.aiDailyQuotaUsage.filter((row) => row.user_id === 'quota-admin')).toHaveLength(10);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-admin')).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-admin')).toHaveLength(0);
     expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-admin')).toHaveLength(1);
   });
 
