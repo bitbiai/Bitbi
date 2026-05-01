@@ -542,19 +542,26 @@ function showSection(name) {
         link.classList.toggle('admin-nav__link--active', isActive);
     });
 
-    // Mark the active group and ensure it is expanded
+    // Mark the active group and ensure single-open accordion behavior
     const activeLink = document.querySelector(`.admin-nav__link[data-section="${name}"]`);
     const activeGroup = activeLink?.closest('.admin-nav__group');
-    document.querySelectorAll('.admin-nav__group').forEach(g => {
+    const allGroups = document.querySelectorAll('.admin-nav__group');
+    allGroups.forEach(g => {
         g.classList.toggle('admin-nav__group--active', g === activeGroup);
     });
+    // Always collapse non-active groups so only one group can be expanded.
+    allGroups.forEach(g => {
+        if (g !== activeGroup) setAdminNavGroupExpanded(g, false);
+    });
     if (activeGroup) {
-        // If the user just clicked a child link inside this group, honor the
-        // collapse intent; otherwise (cold deep links, hashchange from elsewhere)
-        // auto-expand the active group.
+        // Auto-expand the active group only for non-dashboard sections (i.e.
+        // direct deep links to #ai-lab, #users, #settings, etc.). Normal admin
+        // entry / #dashboard keeps Overview collapsed even though its content
+        // is visible. Honor a pending click-to-collapse intent in either case.
         const collapseAfterClick = pendingNavLinkCollapseGroup === activeGroup;
         pendingNavLinkCollapseGroup = null;
-        setAdminNavGroupExpanded(activeGroup, !collapseAfterClick);
+        const shouldExpand = name !== 'dashboard' && !collapseAfterClick;
+        setAdminNavGroupExpanded(activeGroup, shouldExpand);
     } else {
         pendingNavLinkCollapseGroup = null;
     }
@@ -594,6 +601,13 @@ function initAdminNavGroups() {
         group.classList.toggle('admin-nav__group--expanded', initiallyExpanded);
         toggle.addEventListener('click', () => {
             const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+            if (!isExpanded) {
+                // Single-open accordion: when opening a group, collapse every
+                // other group so at most one is expanded at a time.
+                groups.forEach((other) => {
+                    if (other !== group) setAdminNavGroupExpanded(other, false);
+                });
+            }
             setAdminNavGroupExpanded(group, !isExpanded);
         });
     });

@@ -24,7 +24,7 @@
     /* ── Admin Navigation ── */
     .admin-nav {
         position: sticky;
-        top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 4rem));
+        top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 3.5rem));
         z-index: 45;
         background: linear-gradient(180deg, rgba(10, 10, 10, 0.92), rgba(10, 10, 10, 0.78));
         backdrop-filter: blur(14px) saturate(140%);
@@ -35,7 +35,7 @@
 
     @media (min-width: 1024px) {
         .admin-nav {
-            top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 5rem));
+            top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 4rem));
         }
     }
 

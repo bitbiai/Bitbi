@@ -5567,18 +5567,45 @@ test.describe('Admin nav accordion behavior', () => {
     await mockAdminAiLab(page);
   });
 
-  test('cold load with no hash auto-expands only the Overview group', async ({ page }) => {
+  test('cold load with no hash keeps every nav group collapsed while Dashboard content is visible', async ({ page }) => {
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    // Dashboard content must be visible even though the Overview dropdown is collapsed.
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
 
     const overviewToggle = page.locator('.admin-nav__group:has(a[data-section="dashboard"]) > .admin-nav__group-toggle');
     const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
     const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
     const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
 
-    await expect(overviewToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(overviewToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('opening one nav group collapses any previously open group (single-open accordion)', async ({ page }) => {
+    await page.goto('/admin/index.html#dashboard');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
+    const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+
+    await usersToggle.click();
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await aiToggle.click();
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
+
+    await systemToggle.click();
+    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
+
+    // Clicking the currently open group toggles it closed.
+    await systemToggle.click();
     await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
