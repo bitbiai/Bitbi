@@ -52,7 +52,6 @@ const REMOVED_FOOTER_FRAGMENT = ['All', 'experiments', 'are', 'mine'].join(' ');
 const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 let expectedHomepageModelCatalog = null;
-const MEMBER_CREDIT_TEXT_MODEL_IDS = new Set(['@cf/meta/llama-3.1-8b-instruct-fast']);
 
 async function getExpectedHomepageModelCatalog() {
   if (expectedHomepageModelCatalog) return expectedHomepageModelCatalog;
@@ -91,14 +90,6 @@ async function getExpectedHomepageModelCatalog() {
   }
 
   expectedHomepageModelCatalog = [
-    {
-      category: 'TEXT GENERATION',
-      models: (models.text || []).map((entry) => ({
-        name: entry.label,
-        vendor: entry.vendor,
-        status: MEMBER_CREDIT_TEXT_MODEL_IDS.has(entry.id) ? 'Requires credits' : 'Coming soon',
-      })),
-    },
     {
       category: 'IMAGE GENERATION',
       models: imageEntries,
@@ -150,6 +141,12 @@ async function expectModelsOverlayOpenState(page) {
   ));
 
   expect(actualCatalog).toEqual(expectedCatalog);
+
+  const renderedCategories = actualCatalog.map((group) => group.category);
+  expect(renderedCategories).toEqual(
+    expect.arrayContaining(['IMAGE GENERATION', 'MUSIC GENERATION', 'VIDEO GENERATION']),
+  );
+  expect(renderedCategories).not.toContain('TEXT GENERATION');
 }
 
 async function dispatchHorizontalTouchSwipe(page, selector, {

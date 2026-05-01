@@ -9,19 +9,13 @@ import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 
 const MODEL_GROUPS = [
-    { task: 'text', category: 'TEXT GENERATION', side: 'left' },
     { task: 'image', category: 'IMAGE GENERATION', side: 'left' },
     { task: 'music', category: 'MUSIC GENERATION', side: 'right' },
     { task: 'video', category: 'VIDEO GENERATION', side: 'right' },
 ];
 
-const MEMBER_CREDIT_TEXT_MODEL_IDS = new Set([
-    '@cf/meta/llama-3.1-8b-instruct-fast',
-]);
-
 const USER_LIVE_MODELS = {
     image: AI_IMAGE_MODELS,
-    text: [],
     music: [],
     video: [],
 };
@@ -60,13 +54,10 @@ function buildModelCatalog() {
 
             for (const model of adminModels) {
                 if (!model?.id || liveIds.has(model.id)) continue;
-                const availability = task === 'text' && MEMBER_CREDIT_TEXT_MODEL_IDS.has(model.id)
-                    ? 'requires-credits'
-                    : 'coming-soon';
                 entries.push({
                     name: model.label || model.id,
                     vendor: model.vendor || '',
-                    availability,
+                    availability: 'coming-soon',
                 });
             }
 
