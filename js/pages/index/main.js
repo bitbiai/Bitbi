@@ -31,12 +31,21 @@ function initHeroBackgroundVideo() {
 
     const mobileQuery = window.matchMedia('(max-width: 639px)');
     const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const HERO_VIDEO_PLAYBACK_RATE = 1.42;
     let activeSource = '';
     let pausedByMenu = false;
 
     video.muted = true;
     video.defaultMuted = true;
     video.playsInline = true;
+    // defaultPlaybackRate persists across video.load(); playbackRate is the
+    // currently-applied rate. Some browsers reset playbackRate when the src
+    // changes, so we also re-apply it inside playVideo() and on loadedmetadata.
+    video.defaultPlaybackRate = HERO_VIDEO_PLAYBACK_RATE;
+    video.playbackRate = HERO_VIDEO_PLAYBACK_RATE;
+    video.addEventListener('loadedmetadata', () => {
+        video.playbackRate = HERO_VIDEO_PLAYBACK_RATE;
+    });
 
     function setVideoActive(active) {
         video.classList.toggle('is-active', !!active);
@@ -71,6 +80,9 @@ function initHeroBackgroundVideo() {
     }
 
     function playVideo() {
+        if (video.playbackRate !== HERO_VIDEO_PLAYBACK_RATE) {
+            video.playbackRate = HERO_VIDEO_PLAYBACK_RATE;
+        }
         const playPromise = video.play();
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {
