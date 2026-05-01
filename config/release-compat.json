@@ -504,8 +504,6 @@
       "/api/orgs/"
     ],
     "protectedMediaPrefixes": [
-      "/api/thumbnails/",
-      "/api/images/",
       "/api/music/",
       "/api/soundlab-thumbs/"
     ]

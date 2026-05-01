@@ -141,7 +141,7 @@ Two R2 buckets serve media — one public, one private:
 | Bucket | Domain | Purpose |
 |--------|--------|---------|
 | Public | `https://pub.bitbi.ai` | Gallery images (thumb/preview/full), Sound Lab audio |
-| Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Exclusive gallery images, exclusive audio, avatars |
+| Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Exclusive Sound Lab audio/artwork, avatars |
 
 **Public R2 base URL** is defined as `const R2_PUBLIC_BASE = 'https://pub.bitbi.ai'` in each module that needs it (`js/shared/audio/audio-library.js`, `js/pages/profile/main.js`). Change it in both places if the domain changes.
 
@@ -150,11 +150,11 @@ Two R2 buckets serve media — one public, one private:
 - Sound Lab audio: `audio/sound-lab/{track-name}.mp3`
 
 **Private R2 key layout** (bucket `bitbi-private-media`, bound as `PRIVATE_MEDIA` in auth worker):
-- Exclusive images: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbs)
-- Exclusive audio: `audio/sound-lab/exclusive-track-01.mp3`
+- Exclusive Sound Lab audio: `audio/sound-lab/{slug}.mp3`
+- Exclusive Sound Lab artwork: `sound-lab/thumbs/{slug}.webp`
 - Avatars: `avatars/{userId}`
 
-Public content loads directly from `pub.bitbi.ai`. Private content routes through the auth worker (`/api/images/*`, `/api/thumbnails/*`, `/api/music/*`) which enforces authentication before proxying from R2.
+Public content loads directly from `pub.bitbi.ai`. Private Sound Lab content routes through the auth worker (`/api/music/*`, `/api/soundlab-thumbs/*`) which enforces authentication before proxying from R2.
 
 ### Pages
 - `index.html` — Main landing page (particle effects, gallery, soundlab, auth-gated sections)
@@ -188,7 +188,7 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Index page initialization** (`js/pages/index/main.js`): Auth is started as a non-blocking promise, visual content (particles, binary rain, navbar) renders first, then `await authReady` gates the auth UI. This ordering is intentional for perceived performance.
 
-**Locked sections** (`js/pages/index/locked-sections.js`): Injects auth-gated placements into the index page — a gallery filter button, an exclusive gallery folder (Little Monster, 15 images), and exclusive soundlab tracks. All listen to `'bitbi:auth-change'` and toggle `data-locked` attribute.
+**Locked sections** (`js/pages/index/locked-sections.js`): Injects auth-gated Sound Lab placements into the index page. The module listens to `'bitbi:auth-change'` and toggles `data-locked` attributes for exclusive tracks.
 
 **Shared module defaults pattern**: `particles.js` and `binary-rain.js` define conservative default configs (e.g. `maxParticles: 35`, `maxCols: 16`). The index page overrides these with heavier settings via its `main.js` (e.g. `maxParticles: 100`, `maxCols: 30`). Subpages use the lighter defaults. Changing defaults only affects subpages; changing index overrides only affects the homepage.
 
@@ -196,11 +196,11 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 ### Gallery
 
-**Data** (`js/shared/gallery-data.js`): Central source of truth for public gallery items. Currently empty — Mempics are fetched from `/api/gallery/mempics` (cursor-paginated, served by `workers/auth/src/routes/gallery.js`), and exclusive/private items (Little Monster) are injected separately by `locked-sections.js`.
+**Data** (`js/shared/gallery-data.js`): Legacy static gallery data module. Mempics are fetched directly from `/api/gallery/mempics` (cursor-paginated, served by `workers/auth/src/routes/gallery.js`).
 
-**Rendering** (`js/pages/index/gallery.js`): Imports `galleryItems` from `gallery-data.js`. Grid cards load **only thumb** images with explicit `width`/`height` and `loading="lazy"`. Modal loads **only preview** images. Full images are opened in a new tab via `window.open()` only on explicit click of the top-left modal action button. The full-link button (`#modalFullLink`) is shown only for public items (those with `item.full.url`) and hidden for exclusive items.
+**Rendering** (`js/pages/index/gallery.js`): Gallery Explore renders public Mempics directly. Grid cards load **only thumb** images with explicit `width`/`height` and `loading="lazy"`. Modal loads **only preview** images. Full images are opened in a new tab via `window.open()` only on explicit click of the top-left modal action button.
 
-**Categories**: Desktop filter bar has one button: Mempics. The Exclusive filter button is injected by `locked-sections.js` and is auth-gated. Default active category is Mempics (no "All" category).
+**Categories**: Gallery Explore no longer has a category selector; it loads public Mempics directly.
 
 **Modal controls**: Two absolutely-positioned buttons inside `.modal-card` — open-full link (`.modal-action--left`, top-left) and close button (`.modal-action--right`, top-right). Both use `.modal-action` base class in `css/components/components.css`.
 
@@ -252,7 +252,7 @@ All workers are CORS-locked to `https://bitbi.ai`. Auth Worker security material
 - GDPR cookie consent uses timezone-based EU detection (no API calls)
 - Legal pages follow German law requirements (§ 5 DDG, § 18 MStV)
 - Auth error messages are in English
-- Protected content (exclusive gallery images, exclusive audio) served from private R2 bucket via auth worker; public content (gallery items 100–108, Sound Lab tracks) served directly from `pub.bitbi.ai`
+- Protected content (exclusive Sound Lab audio/artwork) served from private R2 bucket via auth worker; public content (Mempics and Sound Lab tracks) served directly from public media routes/storage
 - Accessibility: all modals use `focus-trap.js`, keyboard navigation (Escape closes, arrow keys cycle), `prefers-reduced-motion` respected in particles and scroll animations, ARIA attributes on interactive elements
 - Admin date formatting uses German locale (`Intl.DateTimeFormat('de-DE')`)
 - `docs/` contains internal compliance/audit notes — not deployed, not user-facing

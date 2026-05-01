@@ -18729,6 +18729,102 @@ test.describe('Worker routes', () => {
     expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
+  test('protected media routes keep Sound Lab Exclusive available and retire Little Monster gallery media while Mempics still load', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'protected-media-user', role: 'user' }),
+        createContractUser({ id: 'protected-media-artist', role: 'user' }),
+      ],
+      aiImages: [
+        {
+          id: 'abc123ef',
+          user_id: 'protected-media-artist',
+          folder_id: null,
+          r2_key: 'users/protected-media-artist/folders/public/abc123ef.png',
+          prompt: 'Public Mempic',
+          model: '@cf/test-model',
+          steps: 4,
+          seed: 11,
+          created_at: '2026-04-10T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-10T10:00:00.000Z',
+          derivatives_status: 'ready',
+          derivatives_version: 1,
+          thumb_key: 'users/protected-media-artist/derivatives/v1/abc123ef/thumb.webp',
+          medium_key: 'users/protected-media-artist/derivatives/v1/abc123ef/medium.webp',
+        },
+      ],
+      privateMedia: {
+        'images/Little_Monster/little-monster_01.png': {
+          body: new TextEncoder().encode('retired-little-monster-full').buffer,
+          httpMetadata: { contentType: 'image/png' },
+        },
+        'images/Little_Monster/thumbnails/little-monster_01.webp': {
+          body: new TextEncoder().encode('retired-little-monster-thumb').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+        'audio/sound-lab/exclusive-track-01.mp3': {
+          body: new TextEncoder().encode('soundlab-exclusive-audio').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'sound-lab/thumbs/thumb-bitbi.webp': {
+          body: new TextEncoder().encode('soundlab-exclusive-thumb').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+    const token = await seedSession(env, 'protected-media-user');
+    const authHeaders = { Cookie: `bitbi_session=${token}` };
+
+    const retiredThumbRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/thumbnails/little-monster-01', { headers: authHeaders }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(retiredThumbRes.status).toBe(404);
+
+    const retiredImageRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/images/little-monster-01', { headers: authHeaders }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(retiredImageRes.status).toBe(404);
+    expect(env.PRIVATE_MEDIA.getCalls.some((key) => key.includes('Little_Monster'))).toBe(false);
+
+    const soundLabAudioRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/music/exclusive-track-01', { headers: authHeaders }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(soundLabAudioRes.status).toBe(200);
+    expect(soundLabAudioRes.headers.get('content-type')).toContain('audio/mpeg');
+    expect(await soundLabAudioRes.text()).toBe('soundlab-exclusive-audio');
+
+    const soundLabThumbRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/soundlab-thumbs/thumb-bitbi', { headers: authHeaders }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(soundLabThumbRes.status).toBe(200);
+    expect(soundLabThumbRes.headers.get('content-type')).toContain('image/webp');
+
+    const mempicsRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(mempicsRes.status).toBe(200);
+    const mempicsBody = await mempicsRes.json();
+    expect(mempicsBody.data.items).toEqual([
+      expect.objectContaining({
+        id: 'abc123ef',
+        category: 'mempics',
+        title: 'Mempics',
+      }),
+    ]);
+  });
+
   test('public Mempics pagination keeps ordering stable across page boundaries', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -21190,8 +21286,8 @@ test.describe('Worker routes', () => {
         id: 1,
         user_id: subject.id,
         item_type: 'gallery',
-        item_id: 'little-monster-01',
-        title: 'Little Monster',
+        item_id: 'legacy-gallery-01',
+        title: 'Legacy Gallery',
         thumb_url: '/thumb.webp',
         created_at: '2026-04-20T12:00:00.000Z',
       }],

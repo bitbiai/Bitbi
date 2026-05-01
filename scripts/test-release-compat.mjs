@@ -485,8 +485,6 @@ const baseManifest = {
       "/api/orgs/",
     ],
     protectedMediaPrefixes: [
-      "/api/thumbnails/",
-      "/api/images/",
       "/api/music/",
       "/api/soundlab-thumbs/",
     ],
@@ -860,7 +858,7 @@ function createValidContext() {
       if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification();
       if (pathname.startsWith("/api/ai/")) { return handleAI(); }
       if (pathname.startsWith("/api/gallery/")) { return handleGallery(); }
-      if (pathname.startsWith("/api/thumbnails/") || pathname.startsWith("/api/images/") || pathname.startsWith("/api/music/") || pathname.startsWith("/api/soundlab-thumbs/")) { return handleMedia(); }
+      if (pathname.startsWith("/api/music/") || pathname.startsWith("/api/soundlab-thumbs/")) { return handleMedia(); }
     `,
     authAiSource: `
       if (pathname === "/api/ai/quota" && method === "GET") return handleQuota();

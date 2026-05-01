@@ -1,4 +1,5 @@
 const { test, expect, devices } = require('@playwright/test');
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -1670,6 +1671,19 @@ test.describe('Homepage', () => {
     await expect(page.locator('#modalCaption')).toHaveText('Published by Ada Member on 2026-04-12.');
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`);
     await page.locator('.modal-close').click();
+  });
+
+  test('Gallery cleanup keeps Sound Lab Exclusive admin references but removes Little Monster copy', () => {
+    const adminHtml = fs.readFileSync(path.join(process.cwd(), 'admin/index.html'), 'utf8');
+    const adminJs = fs.readFileSync(path.join(process.cwd(), 'js/pages/admin/main.js'), 'utf8');
+    const adminSource = `${adminHtml}\n${adminJs}`;
+
+    expect(adminSource).not.toContain('Little Monster');
+    expect(adminSource).not.toContain('Gallery "Exclusive"');
+    expect(adminSource).not.toContain('Exclusive (Little Monster)');
+    expect(adminSource).toContain('Sound Lab Exclusive');
+    expect(adminSource).toContain('Exclusive audio tracks');
+    expect(adminSource).toContain('Exclusive track thumbnails');
   });
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {

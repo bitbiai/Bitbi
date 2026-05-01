@@ -61,7 +61,7 @@ The registry currently contains 99 auth-worker policies after later Phase 1-F th
 | Admin AI | `/api/admin/ai/*` | Admin auth, production MFA policy, fail-closed admin AI limits, admin JSON limits, AI service/config requirements, debug gate recorded for `/api/admin/ai/test-video`. |
 | Async admin video jobs | `/api/admin/ai/video-jobs`, `/poison`, `/failed`, `/:id`, `/:id/output`, `/:id/poster` | Admin auth, production MFA policy, fail-closed create/status/output/ops limits, queue/R2/AI service config requirements. Literal `poison` and `failed` routes are registered before dynamic `:id` matches. |
 | Member AI studio writes | `/api/ai/generate-image`, folders, image/audio save, bulk operations, publication/rename/delete | User auth, same-origin writes, explicit body limit names, fail-closed route-specific write limits. |
-| Protected media reads | `/api/thumbnails/:id`, `/api/images/:id`, `/api/music/:id`, `/api/soundlab-thumbs/:slug` | User auth/private-media config recorded for read-only protected media. |
+| Protected media reads | `/api/music/:id`, `/api/soundlab-thumbs/:slug` | User auth/private-media config recorded for read-only protected Sound Lab media. |
 | Admin data lifecycle | `/api/admin/data-lifecycle/requests`, `/:id/plan`, `/:id/approve`, `/:id/generate-export`, `/:id/export`, `/:id/execute-safe`, `/exports`, `/exports/:id`, `/exports/cleanup-expired` | Admin auth, production MFA policy, same-origin mutations, fail-closed admin lifecycle limits, lifecycle/archive config requirements, and audit events for privileged lifecycle operations. |
 
 ## Registry Design

@@ -793,7 +793,7 @@ function validateAuthIndexRoutes(manifest, context) {
   );
 
   const actualPrefixes = extractStartsWithPrefixes(context.authIndexSource);
-  const protectedMediaPrefixes = ["/api/thumbnails/", "/api/images/", "/api/music/", "/api/soundlab-thumbs/"];
+  const protectedMediaPrefixes = ["/api/music/", "/api/soundlab-thumbs/"];
   compareExactStringSets(
     contract.delegatedPrefixes || [],
     actualPrefixes.filter((value) => !protectedMediaPrefixes.includes(value)),

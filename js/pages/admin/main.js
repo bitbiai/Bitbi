@@ -1058,8 +1058,7 @@ function loadContent() {
         for (const [key, count] of Object.entries(cats)) {
             html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${catLabels[key] || key}</span><span class="admin-inventory__count">${count}</span></div>`;
         }
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive (Little Monster)</span><span class="admin-inventory__count">15</span></div>`;
-        html += `</div><div class="admin-inventory__total">${galleryItems.length + 15} items total</div>`;
+        html += `</div><div class="admin-inventory__total">${galleryItems.length} items total</div>`;
         galEl.innerHTML = html;
     }
 
@@ -1109,10 +1108,9 @@ function loadMedia() {
     const exclEl = document.getElementById('mediaExclusive');
     if (exclEl) {
         let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster images</span><span class="admin-inventory__count">15</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster thumbnails</span><span class="admin-inventory__count">15</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive audio tracks</span><span class="admin-inventory__count">5</span></div>';
-        html += '</div><div class="admin-inventory__total">35 files &middot; private R2 bucket</div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive track thumbnails</span><span class="admin-inventory__count">5</span></div>';
+        html += '</div><div class="admin-inventory__total">10 Sound Lab files &middot; private R2 bucket</div>';
         exclEl.innerHTML = html;
     }
 }
@@ -1125,15 +1123,13 @@ function loadAccess() {
     const gatingEl = document.getElementById('accessGating');
     if (gatingEl) {
         const gates = [
-            'Gallery "Exclusive" filter category',
-            'Little Monster gallery folder (15 images)',
-            'Exclusive Sound Lab track',
+            'Sound Lab Exclusive tracks',
         ];
         let html = '<div class="admin-inventory">';
         for (const g of gates) {
             html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${g}</span><span class="admin-inventory__meta">Auth required</span></div>`;
         }
-        html += `</div><div class="admin-inventory__total">3 gated placements</div>`;
+        html += `</div><div class="admin-inventory__total">1 gated placement</div>`;
         gatingEl.innerHTML = html;
     }
 
@@ -1150,7 +1146,6 @@ function loadAccess() {
     if (mapEl) {
         let html = '<div class="admin-inventory">';
         html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Gallery (${galleryItems.length} items)</span><span class="badge badge--active">Public</span></div>`;
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Little Monster (15 images)</span><span class="badge badge--admin">Auth</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab (5 tracks)</span><span class="badge badge--active">Public</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks (5)</span><span class="badge badge--admin">Auth</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';

@@ -604,8 +604,6 @@ export const ROUTE_POLICIES = Object.freeze([
     body: { kind: "none", noneReason: "Text asset delete uses the path id only." },
   }),
 
-  safeRead("media.thumbnail.read", "GET", "/api/thumbnails/:id", "media", { config: ["DB", "PRIVATE_MEDIA"] }),
-  safeRead("media.image.read", "GET", "/api/images/:id", "media", { config: ["DB", "PRIVATE_MEDIA"] }),
   safeRead("media.music.read", "GET", "/api/music/:id", "media", { config: ["DB", "PRIVATE_MEDIA"] }),
   safeRead("media.soundlab-thumb.read", "GET", "/api/soundlab-thumbs/:slug", "media", { config: ["DB", "PRIVATE_MEDIA"] }),
 ]);

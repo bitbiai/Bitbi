@@ -301,9 +301,7 @@ export default {
 
     // Protected media
     if (
-      (pathname.startsWith("/api/thumbnails/") ||
-        pathname.startsWith("/api/images/") ||
-        pathname.startsWith("/api/music/") ||
+      (pathname.startsWith("/api/music/") ||
         pathname.startsWith("/api/soundlab-thumbs/")) &&
       method === "GET"
     ) {

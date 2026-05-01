@@ -51,8 +51,7 @@ src/
 │   ├── email.js          ← sendVerificationEmail, sendResetEmail, createAndSendVerificationToken
 │   ├── activity.js       ← queue-backed admin audit / user activity producers + fallback inserts
 │   ├── activity-ingestion.js ← queue consumer batch persistence for audit/activity tables
-│   ├── admin-ai-response.js ← admin-only AI proxy response-code normalization
-│   └── constants.js      ← VALID_MONSTER_IDS
+│   └── admin-ai-response.js ← admin-only AI proxy response-code normalization
 ├── app/
 │   └── route-policy.js   ← high-risk route security metadata + lookup helpers
 └── routes/
@@ -66,7 +65,7 @@ src/
     ├── avatar.js         ← GET/POST/DELETE /api/profile/avatar
     ├── favorites.js      ← GET/POST/DELETE /api/favorites
     ├── ai.js             ← /api/ai/* image studio + quota + cleanup handoff
-    └── media.js          ← GET /api/thumbnails/*, /api/images/*, /api/music/*, /api/soundlab-thumbs/*
+    └── media.js          ← GET /api/music/*, /api/soundlab-thumbs/*
 ```
 
 **Handler signature**: All route handlers receive a context object `{ request, env, url, pathname, method, isSecure }` built once in index.js. Exceptions: `handleHealth()` takes no args; `handleAdmin(ctx)` and `handleMedia(ctx)` do internal sub-routing and return `null` for unmatched paths.
@@ -123,8 +122,6 @@ src/
 - `POST /api/orgs/:id/billing/checkout/live-credit-pack` — create a live Stripe one-time credit-pack Checkout Session for `live_credits_5000` or `live_credits_12000` as a platform admin or active owner of the target organization (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter, `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`, live-like Stripe secret config, and server-side role checks; organization admins are not sufficient)
 - `GET /api/orgs/:id/billing/credits-dashboard` — read sanitized Credits dashboard data for a platform admin or active organization owner, including balance summary, live fixed-pack catalog, checkout config status, recent live purchases, and recent ledger rows
 - `GET /api/orgs/:id/organization-dashboard` — read sanitized Organization dashboard data for a platform admin or active organization owner, including access scope, current organization role, credit balance summary, recent ledger rows, recent `admin_ai_image_test` debits, active member summaries, and platform-admin-not-owner warnings
-- `GET /api/thumbnails/little-monster-NN` — protected thumbnail from R2 (requires auth, NN: 01–15)
-- `GET /api/images/little-monster-NN` — protected full image from R2 (requires auth, NN: 01–15)
 - `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
 - `GET /api/soundlab-thumbs/:slug` — protected Sound Lab thumbnail from R2 (requires auth)
 - `GET /api/admin/me` — admin identity check
@@ -194,7 +191,7 @@ src/
 
 **Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `member_credit_ledger`, `member_usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`
 
-**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected images, protected audio, Sound Lab thumbnails, and avatars. Key layout: `images/Little_Monster/little-monster_NN.png` (full), `images/Little_Monster/thumbnails/little-monster_NN.webp` (thumbnails), `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
+**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected Sound Lab audio, Sound Lab thumbnails, and avatars. Key layout: `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`, temporary generated-image replay/save-reference objects under `tmp/ai-generated/{userId}/{tempId}`, and async admin video job output under `users/{userId}/video-jobs/{jobId}/`. Cleanup may delete expired temporary replay objects only through the approved prefix and attempt-linkage checks; it must not broad-delete `users/` media prefixes.
 
