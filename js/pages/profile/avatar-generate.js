@@ -102,22 +102,32 @@ function setUseEnabled(enabled) {
 
 function clearPreview() {
     if (!$preview) return;
-    $preview.innerHTML = '<div class="profile-avatar-generate__preview-empty">Your avatar will appear here.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'profile-avatar-generate__preview-empty';
+    empty.textContent = 'Your avatar will appear here.';
+    $preview.replaceChildren(empty);
 }
 
 function setPreviewLoading() {
     if (!$preview) return;
-    $preview.innerHTML = '<div class="profile-avatar-generate__preview-loading"><div class="profile-avatar-generate__spinner" aria-hidden="true"></div><span>Creating your avatar…</span></div>';
+    const wrap = document.createElement('div');
+    wrap.className = 'profile-avatar-generate__preview-loading';
+    const spinner = document.createElement('div');
+    spinner.className = 'profile-avatar-generate__spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = 'Creating your avatar…';
+    wrap.append(spinner, label);
+    $preview.replaceChildren(wrap);
 }
 
 function setPreviewImage(dataUrl, alt) {
     if (!$preview) return;
-    $preview.innerHTML = '';
     const img = document.createElement('img');
     img.src = dataUrl;
     img.alt = alt;
     img.className = 'profile-avatar-generate__preview-img';
-    $preview.appendChild(img);
+    $preview.replaceChildren(img);
 }
 
 function resetState() {
