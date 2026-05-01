@@ -516,6 +516,7 @@
         "GET /api/ai/quota",
         "POST /api/ai/generate-image",
         "POST /api/ai/generate-text",
+        "POST /api/ai/generate-music",
         "GET /api/ai/folders",
         "POST /api/ai/folders",
         "GET /api/ai/images",

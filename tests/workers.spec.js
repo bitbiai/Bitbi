@@ -4274,6 +4274,98 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     };
   }
 
+  async function createMemberMusicHarness({
+    user = createContractUser({ id: 'phase2m-music-user', role: 'user' }),
+    creditBalance = 200,
+    missingTables = [],
+    aiRun,
+    aiFolders = [],
+  } = {}) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const aiWorker = await loadWorker('workers/ai/src/index.js');
+    const calls = [];
+    const createdAt = '2026-04-30T12:00:00.000Z';
+    const env = createAuthTestEnv({
+      users: [user],
+      missingTables,
+      aiFolders,
+      memberCreditLedger: creditBalance > 0 ? [{
+        id: `cl_seed_member_music_${user.id}`.slice(0, 120),
+        user_id: user.id,
+        amount: creditBalance,
+        balance_after: creditBalance,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: `seed-member-music-${user.id}`.slice(0, 120),
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: createdAt,
+        metadata_json: '{}',
+      }] : [],
+    });
+    env.AI_LAB = createAiLabServiceBinding(aiWorker, {
+      AI_SERVICE_AUTH_SECRET: env.AI_SERVICE_AUTH_SECRET,
+      SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+      AI: {
+        async run(modelId, payload, options) {
+          calls.push({ modelId, payload, options });
+          if (aiRun) return aiRun(modelId, payload, options, calls);
+          if (modelId === 'minimax/music-2.6') {
+            return {
+              data: {
+                audio: '494433040000000000',
+                status: 2,
+              },
+              trace_id: 'member-music-trace',
+              extra_info: {
+                music_duration: 25364,
+                music_sample_rate: 44100,
+                music_channel: 2,
+                bitrate: 256000,
+                music_size: 813651,
+              },
+            };
+          }
+          return {
+            response: '[Verse]\nNeon tides in the morning\n\n[Chorus]\nWe rise with the signal',
+            usage: { total_tokens: 64 },
+          };
+        },
+      },
+    });
+    const token = await seedSession(env, user.id);
+    return {
+      authWorker,
+      env,
+      token,
+      user,
+      calls,
+    };
+  }
+
+  async function postGenerateMusic({
+    worker,
+    env,
+    token,
+    body = {},
+    idempotencyKey = 'member-music-key-123456',
+  }) {
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    return worker.fetch(
+      authJsonRequest('/api/ai/generate-music', 'POST', {
+        prompt: 'Warm synthwave with bright vocals.',
+        ...body,
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+  }
+
   async function postGenerateText({
     worker,
     env,
@@ -4417,6 +4509,204 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     });
     expect(aiCalls).toBe(0);
     expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+  });
+
+  test('member music generation charges 150 credits, ignores client prices, and saves the audio asset', async () => {
+    const { authWorker, env, token, user, calls } = await createMemberMusicHarness();
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nHold the light inside the wire',
+        price: 1,
+        credits: 1,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        audioUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+        asset: {
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+        },
+      },
+      billing: {
+        user_id: user.id,
+        feature: 'ai.music.generate',
+        credits_charged: 150,
+        price: 150,
+        balance_after: 50,
+        lyrics_generation: 'none',
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.objectContaining({
+      modelId: 'minimax/music-2.6',
+      options: { gateway: { id: 'default' } },
+    }));
+    expect(calls[0].payload).toEqual(expect.objectContaining({
+      lyrics: '[Verse]\nHold the light inside the wire',
+      lyrics_optimizer: false,
+      is_instrumental: false,
+      sample_rate: 44100,
+      bitrate: 256000,
+      format: 'mp3',
+    }));
+
+    const musicConsume = env.DB.state.memberCreditLedger.find((row) =>
+      row.user_id === user.id && row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    );
+    expect(musicConsume).toEqual(expect.objectContaining({
+      amount: -150,
+      balance_after: 50,
+      source: 'member_music_generation',
+    }));
+    expect(env.DB.state.memberUsageEvents.find((row) => row.feature_key === 'ai.music.generate')).toEqual(expect.objectContaining({
+      credits_delta: -150,
+    }));
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    expect(env.DB.state.aiTextAssets[0]).toEqual(expect.objectContaining({
+      user_id: user.id,
+      source_module: 'music',
+      mime_type: 'audio/mpeg',
+    }));
+    expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/audio/');
+    expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+  });
+
+  test('member music generation charges 160 credits only when separate lyrics generation is performed', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness();
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        generateLyrics: true,
+      },
+      idempotencyKey: 'member-music-lyrics-key-123456',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        generatedLyrics: expect.stringContaining('[Verse]'),
+        lyricsPreview: expect.stringContaining('[Verse]'),
+      },
+      billing: {
+        credits_charged: 160,
+        price: 160,
+        balance_after: 40,
+        lyrics_generation: 'separate_call',
+      },
+    });
+
+    expect(calls.map((call) => call.modelId)).toEqual([
+      '@cf/meta/llama-3.1-8b-instruct-fast',
+      'minimax/music-2.6',
+    ]);
+    expect(calls[1].payload).toEqual(expect.objectContaining({
+      lyrics: expect.stringContaining('[Verse]'),
+      lyrics_optimizer: false,
+      is_instrumental: false,
+    }));
+    expect(env.DB.state.memberCreditLedger.find((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    )).toEqual(expect.objectContaining({
+      amount: -160,
+      balance_after: 40,
+    }));
+  });
+
+  test('member music generation blocks insufficient credits before provider invocation', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness({
+      creditBalance: 149,
+    });
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nNot enough credits',
+      },
+    });
+
+    expect(res.status).toBe(402);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'insufficient_member_credits',
+    });
+    expect(calls).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(0);
+  });
+
+  test('member music generation reuses billing idempotency without double-charging retries', async () => {
+    const { authWorker, env, token } = await createMemberMusicHarness();
+    const idempotencyKey = 'member-music-retry-key-123456';
+
+    const first = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nRetry this melody',
+      },
+      idempotencyKey,
+    });
+    expect(first.status).toBe(200);
+
+    const second = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nRetry this melody',
+      },
+      idempotencyKey,
+    });
+    expect(second.status).toBe(200);
+
+    const consumes = env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    );
+    expect(consumes).toHaveLength(1);
+    expect(consumes[0].amount).toBe(-150);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(1);
+  });
+
+  test('member music generation fails closed when personal credit policy storage is unavailable', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness({
+      missingTables: ['member_credit_ledger'],
+      creditBalance: 0,
+    });
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nStorage is unavailable',
+      },
+    });
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ai_usage_policy_unavailable',
+    });
+    expect(calls).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
   });
 
   test('org owner, admin, and member roles can generate images with shared Flux 1 Schnell pricing charged', async () => {

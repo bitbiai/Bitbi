@@ -3900,6 +3900,83 @@ test.describe('Image Studio (authenticated)', () => {
     }));
   });
 
+  test('homepage Sound Lab Create opens MiniMax music generation with live credit pricing', async ({
+    page,
+  }) => {
+    const musicRequests = [];
+    await mockAuthenticatedImageStudio(page, []);
+    await page.route('**/api/ai/generate-music', async (route) => {
+      const body = route.request().postDataJSON();
+      musicRequests.push({
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'],
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            prompt: body.prompt,
+            mode: body.instrumental ? 'instrumental' : 'vocals',
+            lyricsMode: body.generateLyrics ? 'custom' : 'auto',
+            model: { id: 'minimax/music-2.6', label: 'Music 2.6', vendor: 'MiniMax' },
+            mimeType: 'audio/mpeg',
+            audioUrl: '/api/ai/text-assets/soundlab-track-1/file',
+            lyricsPreview: body.generateLyrics ? '[Verse]\nGenerated lyrics' : null,
+            asset: {
+              id: 'soundlab-track-1',
+              title: 'Homepage Sound Lab Track',
+              source_module: 'music',
+              mime_type: 'audio/mpeg',
+              file_url: '/api/ai/text-assets/soundlab-track-1/file',
+            },
+          },
+          billing: {
+            credits_charged: body.generateLyrics ? 160 : 150,
+            balance_after: body.generateLyrics ? 840 : 850,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'sound');
+
+    const createButton = page.locator('#soundlab .video-mode__btn[data-sound-mode="create"]');
+    await expect(createButton).toBeVisible({ timeout: 10_000 });
+    await expect(createButton).not.toContainText('Soon');
+    await expect(createButton).not.toHaveClass(/video-mode__btn--soon/);
+
+    await createButton.click();
+    await expect(page.locator('#soundLabCreate')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#soundLabExplore')).toBeHidden();
+    await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 150 Credits');
+
+    await page.locator('#soundMusicGenerateLyrics').check();
+    await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 160 Credits');
+    await page.locator('#soundMusicGenerateLyrics').uncheck();
+    await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 150 Credits');
+
+    await page.locator('#soundMusicPrompt').fill('A glossy synth pop track for late night coding.');
+    await page.locator('#soundMusicGenerate').click();
+    await expect(page.locator('#soundMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#soundMusicMsg')).toContainText('Music generated and saved.');
+    await expect(page.locator('#soundLabCreate .studio__quota')).toContainText('850 credits available');
+
+    expect(musicRequests).toHaveLength(1);
+    expect(musicRequests[0].idempotencyKey).toMatch(/^soundlab-music-/);
+    expect(musicRequests[0].body).toEqual(expect.objectContaining({
+      prompt: 'A glossy synth pop track for late night coding.',
+      instrumental: false,
+      generateLyrics: false,
+    }));
+    expect(musicRequests[0].body.price).toBeUndefined();
+    expect(musicRequests[0].body.credits).toBeUndefined();
+  });
+
   test('homepage hero-linked models list omits FLUX.2 Dev only from the public overlay', async ({
     page,
   }) => {

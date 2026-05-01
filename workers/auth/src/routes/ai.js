@@ -18,6 +18,7 @@ import {
   handleRenameImage,
   handleSaveImage,
 } from "./ai/images-write.js";
+import { handleGenerateMusic } from "./ai/music-generate.js";
 import { handleGenerateText } from "./ai/text-generate.js";
 import { handleUpdateImagePublication, handleUpdateTextAssetPublication } from "./ai/publication.js";
 import {
@@ -41,6 +42,10 @@ export async function handleAI(ctx) {
   // route-policy: ai.generate-text
   if (pathname === "/api/ai/generate-text" && method === "POST") {
     return handleGenerateText(ctx);
+  }
+  // route-policy: ai.generate-music
+  if (pathname === "/api/ai/generate-music" && method === "POST") {
+    return handleGenerateMusic(ctx);
   }
   if (pathname === "/api/ai/folders" && method === "GET") {
     return handleGetFolders(ctx);

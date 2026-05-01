@@ -512,6 +512,16 @@ export const ROUTE_POLICIES = Object.freeze([
       idempotency: "required; provider execution and text replay are guarded by ai_usage_attempts",
     },
   }),
+  userJsonWrite("ai.generate-music", "POST", "/api/ai/generate-music", "ai-studio", "aiGenerateJson", "ai-generate-music-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "USER_IMAGES"],
+    audit: { event: "ai_generate_music" },
+    sensitivity: "high",
+    billing: {
+      mode: "member-credit-account",
+      feature: "ai.music.generate",
+      idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied",
+    },
+  }),
   policy({
     id: "billing.webhooks.test",
     method: "POST",

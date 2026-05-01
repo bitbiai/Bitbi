@@ -17,6 +17,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
+import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
@@ -394,3 +395,67 @@ try {
         }
     }
 } catch (e) { console.warn('galleryMode:', e); }
+
+/* Sound Lab mode toggle (Explore / Create) */
+try {
+    const modeBtns = document.querySelectorAll('#soundlab .video-mode__btn[data-sound-mode]');
+    const explorePane = document.getElementById('soundLabExplore');
+    const createPane = document.getElementById('soundLabCreate');
+    if (modeBtns.length && explorePane && createPane) {
+        let createInited = false;
+        let currentMode = 'explore';
+        let pendingCreate = false;
+        const createBtn = document.querySelector('#soundlab .video-mode__btn[data-sound-mode="create"]');
+
+        function setSoundMode(mode) {
+            currentMode = mode;
+            pendingCreate = false;
+            modeBtns.forEach(btn => {
+                const active = btn.dataset.soundMode === mode;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-selected', String(active));
+                btn.tabIndex = active ? 0 : -1;
+            });
+            explorePane.style.display = mode === 'explore' ? '' : 'none';
+            createPane.style.display = mode === 'create' ? '' : 'none';
+            if (mode === 'create' && !createInited) {
+                createInited = true;
+                initSoundLabCreate();
+            }
+        }
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.soundMode;
+                if (mode === currentMode) return;
+                if (mode === 'create') {
+                    const { loggedIn } = getAuthState();
+                    if (!loggedIn) {
+                        pendingCreate = true;
+                        openAuthModal('register');
+                        return;
+                    }
+                }
+                setSoundMode(mode);
+            });
+        });
+
+        document.addEventListener('bitbi:auth-change', () => {
+            const { loggedIn } = getAuthState();
+            if (createBtn) {
+                createBtn.classList.toggle('video-mode__btn--locked', !loggedIn);
+            }
+            if (loggedIn && pendingCreate) {
+                setSoundMode('create');
+            }
+            if (!loggedIn && currentMode === 'create') {
+                setSoundMode('explore');
+            }
+        });
+
+        const { loggedIn } = getAuthState();
+        if (createBtn) {
+            createBtn.classList.toggle('video-mode__btn--locked', !loggedIn);
+        }
+    }
+} catch (e) { console.warn('soundLabMode:', e); }

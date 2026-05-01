@@ -5,6 +5,7 @@ export const BILLING_FEATURES = Object.freeze([
   "ai.text.generate",
   "ai.image.generate",
   "ai.video.generate",
+  "ai.music.generate",
   "ai.storage.private",
   "org.members.max",
   "credits.monthly",
@@ -144,7 +145,7 @@ async function buildUsageRequestHash({
   });
 }
 
-async function buildMemberUsageRequestHash({
+export async function buildMemberUsageRequestHash({
   userId,
   featureKey,
   quantity,
@@ -460,7 +461,7 @@ async function fetchUsageByIdempotency(env, { organizationId, idempotencyKey }) 
   ).bind(organizationId, idempotencyKey).first();
 }
 
-async function fetchMemberUsageByIdempotency(env, { userId, idempotencyKey }) {
+export async function fetchMemberUsageByIdempotency(env, { userId, idempotencyKey }) {
   return env.DB.prepare(
     `SELECT id, user_id, feature_key, quantity, credits_delta,
             credit_ledger_id, request_hash, status, created_at

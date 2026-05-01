@@ -419,6 +419,10 @@ export function apiAiGenerateImage(prompt, steps, seed, model) {
     return request('POST', '/ai/generate-image', body);
 }
 
+export function apiAiGenerateMusic(payload, options = {}) {
+    return request('POST', '/ai/generate-music', payload, options);
+}
+
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');
     const d = res.data?.data;

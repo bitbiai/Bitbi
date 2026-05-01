@@ -4,8 +4,11 @@ import {
   assertMemberHasCredits,
   assertOrganizationFeatureEnabled,
   billingErrorResponse,
+  buildMemberUsageRequestHash,
   consumeMemberCredits,
   consumeOrganizationCredits,
+  fetchMemberUsageByIdempotency,
+  getMemberCreditBalance,
   normalizeBillingIdempotencyKey,
   topUpMemberDailyCredits,
 } from "./billing.js";
@@ -42,6 +45,14 @@ export const AI_USAGE_OPERATIONS = Object.freeze({
     credits: 5,
     quantity: 1,
     minRole: "member",
+  }),
+  MEMBER_MUSIC_GENERATE: Object.freeze({
+    id: "member.music.generate",
+    featureKey: "ai.music.generate",
+    credits: 150,
+    quantity: 1,
+    minRole: "member",
+    source: "member_music_generation",
   }),
 });
 
@@ -190,13 +201,53 @@ export async function prepareAiUsagePolicy({
       userId: user?.id || null,
       body,
     });
+    const rawClientIdempotencyKey = request.headers.get("Idempotency-Key");
+    const clientIdempotencyKey = rawClientIdempotencyKey
+      ? normalizeBillingIdempotencyKey(rawClientIdempotencyKey)
+      : null;
+    const idempotencyKey = clientIdempotencyKey
+      ? await buildScopedIdempotencyKey({
+        clientKey: clientIdempotencyKey,
+        route,
+        operation: resolvedOperation,
+        organizationId: null,
+        userId: user?.id || null,
+      })
+      : null;
     return {
       mode: "member",
       organizationId: null,
       featureKey: resolvedOperation.featureKey,
       credits: resolvedOperation.credits,
+      idempotencyKey,
       dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
       async prepareForProvider() {
+        if (idempotencyKey) {
+          const existingUsage = await fetchMemberUsageByIdempotency(env, {
+            userId: user?.id || null,
+            idempotencyKey,
+          });
+          if (existingUsage) {
+            const expectedRequestHash = await buildMemberUsageRequestHash({
+              userId: user?.id || null,
+              featureKey: resolvedOperation.featureKey,
+              quantity: resolvedOperation.quantity || 1,
+              credits: resolvedOperation.credits,
+              requestFingerprint,
+            });
+            if (existingUsage.request_hash !== expectedRequestHash) {
+              throw new BillingError("Idempotency-Key conflicts with a different usage request.", {
+                status: 409,
+                code: "idempotency_conflict",
+              });
+            }
+            return {
+              topUp: null,
+              balanceBefore: await getMemberCreditBalance(env, user?.id || null),
+              idempotentReplay: true,
+            };
+          }
+        }
         const topUp = await topUpMemberDailyCredits({
           env,
           userId: user?.id || null,
@@ -217,13 +268,14 @@ export async function prepareAiUsagePolicy({
           featureKey: resolvedOperation.featureKey,
           quantity: resolvedOperation.quantity || 1,
           credits: resolvedOperation.credits,
+          idempotencyKey,
           requestFingerprint,
           metadata: {
             route,
             operation: resolvedOperation.id,
             ...metadata,
           },
-          source: "member_image_generation",
+          source: resolvedOperation.source || "member_image_generation",
         });
         return {
           user_id: user?.id || null,
