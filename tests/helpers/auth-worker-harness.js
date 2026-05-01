@@ -18,6 +18,130 @@ function countInlinePlaceholders(query, pattern) {
   return (match[1].match(/\?/g) || []).length;
 }
 
+function splitTopLevelCommaList(value) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (quote) {
+      current += ch;
+      if (ch === quote) {
+        if (value[i + 1] === quote) {
+          current += value[i + 1];
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    if (ch === ')' && depth > 0) depth -= 1;
+    if (ch === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function extractParenthesizedAt(query, openIndex) {
+  let depth = 0;
+  let quote = null;
+  for (let i = openIndex; i < query.length; i += 1) {
+    const ch = query[i];
+    if (quote) {
+      if (ch === quote) {
+        if (query[i + 1] === quote) {
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(') {
+      depth += 1;
+      continue;
+    }
+    if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          body: query.slice(openIndex + 1, i),
+          endIndex: i,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function findTopLevelFrom(query, startIndex) {
+  let depth = 0;
+  let quote = null;
+  for (let i = startIndex; i < query.length; i += 1) {
+    const ch = query[i];
+    if (quote) {
+      if (ch === quote) {
+        if (query[i + 1] === quote) {
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    if (ch === ')' && depth > 0) depth -= 1;
+    if (depth === 0 && query.slice(i, i + 6) === ' FROM ') return i;
+  }
+  return -1;
+}
+
+function validateCreditInsertArity(query) {
+  const match = query.match(/^INSERT INTO (member_credit_ledger|member_usage_events|credit_ledger|usage_events) \(/);
+  if (!match) return;
+  const columnsOpen = query.indexOf('(', match[0].length - 1);
+  const columns = extractParenthesizedAt(query, columnsOpen);
+  if (!columns) return;
+  const columnCount = splitTopLevelCommaList(columns.body).length;
+  const suffix = query.slice(columns.endIndex + 1).trim();
+  let valueCount = null;
+  if (suffix.startsWith('VALUES')) {
+    const valuesOpen = query.indexOf('(', columns.endIndex + 1);
+    const values = extractParenthesizedAt(query, valuesOpen);
+    valueCount = values ? splitTopLevelCommaList(values.body).length : null;
+  } else if (suffix.startsWith('SELECT')) {
+    const selectStart = query.indexOf('SELECT', columns.endIndex + 1) + 'SELECT'.length;
+    const fromIndex = findTopLevelFrom(query, selectStart);
+    valueCount = fromIndex > selectStart
+      ? splitTopLevelCommaList(query.slice(selectStart, fromIndex).trim()).length
+      : null;
+  }
+  if (valueCount != null && valueCount !== columnCount) {
+    throw new Error(`D1_ERROR: ${valueCount} values for ${columnCount} columns: SQLITE_ERROR`);
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -661,6 +785,9 @@ class MockD1 {
     if (this.missingTables.has('member_usage_events') && query.includes('member_usage_events')) {
       throw new Error('no such table: member_usage_events');
     }
+
+    validateCreditInsertArity(query);
+
     if (this.missingTables.has('ai_usage_attempts') && query.includes('ai_usage_attempts')) {
       throw new Error('no such table: ai_usage_attempts');
     }

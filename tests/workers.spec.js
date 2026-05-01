@@ -13186,6 +13186,51 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-read-user')).toHaveLength(2);
   });
 
+  test('GET /api/account/credits-dashboard initializes a member with no prior credit rows', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'member-dashboard-empty', email: 'empty-dashboard@example.com', role: 'user' });
+    const env = createAuthTestEnv({ users: [member] });
+    const token = await seedSession(env, member.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/account/credits-dashboard?limit=50', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      dashboard: {
+        account: {
+          userId: member.id,
+          email: 'empty-dashboard@example.com',
+        },
+        balance: {
+          current: 10,
+          dailyAllowance: 10,
+          lifetimeIncoming: 10,
+          lifetimeDailyTopUps: 10,
+          lifetimeConsumed: 0,
+        },
+        dailyTopUp: {
+          grantedCredits: 10,
+          reused: false,
+          dailyAllowance: 10,
+        },
+      },
+    });
+    expect(body.dashboard.transactions).toHaveLength(1);
+    expect(body.dashboard.transactions[0]).toEqual(expect.objectContaining({
+      type: 'daily_top_up',
+      amount: 10,
+      balanceAfter: 10,
+    }));
+  });
+
   test('GET /api/account/credits-dashboard returns only the signed-in member credit ledger and usage details', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const member = createContractUser({ id: 'member-dashboard-user', email: 'member-dashboard@example.com', role: 'user' });

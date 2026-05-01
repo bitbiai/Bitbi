@@ -668,7 +668,7 @@ export async function topUpMemberDailyCredits({
          ?, ?, 
          CASE WHEN latest.balance_after < ? THEN ? - latest.balance_after ELSE 0 END,
          CASE WHEN latest.balance_after < ? THEN ? ELSE latest.balance_after END,
-         ?, ?, ?, ?, ?, ?, ?
+         ?, ?, ?, ?, ?, ?, ?, ?
        FROM (
          SELECT COALESCE((
            SELECT balance_after FROM member_credit_ledger
