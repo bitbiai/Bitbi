@@ -22,9 +22,17 @@
     }
 
     /* ── Admin Navigation ── */
+    /* The admin hero is hidden (display:none above), so .admin-nav is the first
+       in-flow child of <main>. Its sticky `top` paints it below the fixed header,
+       but its *flow* slot would otherwise sit at document y=0 — pulling the
+       active section content up underneath the sticky nav. Reserving a matching
+       margin-block-start using the same JS-driven --admin-nav-top-offset var
+       aligns the flow position with the sticky-displayed position, so siblings
+       (divider + active section) flow directly below the visible nav. */
     .admin-nav {
         position: sticky;
         top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 3.5rem));
+        margin-block-start: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 3.5rem));
         z-index: 45;
         background: linear-gradient(180deg, rgba(10, 10, 10, 0.92), rgba(10, 10, 10, 0.78));
         backdrop-filter: blur(14px) saturate(140%);
@@ -36,6 +44,7 @@
     @media (min-width: 1024px) {
         .admin-nav {
             top: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 4rem));
+            margin-block-start: var(--admin-nav-top-offset, calc(env(safe-area-inset-top, 0px) + 4rem));
         }
     }
 
