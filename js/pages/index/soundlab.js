@@ -132,6 +132,28 @@ export function initSoundLab(revealObserver) {
         const publisherName = typeof publisher?.display_name === 'string'
             ? publisher.display_name.trim()
             : '';
+        const createPublisherRow = () => {
+            if (!publisherName && !publisher?.avatar?.url) return null;
+            const publisherRow = document.createElement('div');
+            publisherRow.className = 'public-media-meta__identity public-media-meta__identity--sound';
+            if (publisher?.avatar?.url) {
+                const avatar = document.createElement('img');
+                avatar.className = 'public-media-meta__avatar';
+                avatar.src = publisher.avatar.url;
+                avatar.alt = '';
+                avatar.loading = 'lazy';
+                avatar.decoding = 'async';
+                avatar.onerror = () => avatar.remove();
+                publisherRow.appendChild(avatar);
+            }
+            if (publisherName) {
+                const name = document.createElement('span');
+                name.className = 'snd-publisher-name';
+                name.textContent = publisherName;
+                publisherRow.appendChild(name);
+            }
+            return publisherRow;
+        };
 
         const hero = document.createElement('div');
         hero.className = 'snd-hero';
@@ -164,6 +186,8 @@ export function initSoundLab(revealObserver) {
         });
         star.style.cssText = 'position:absolute;top:8px;right:8px';
         hero.appendChild(star);
+        const publisherRow = createPublisherRow();
+        if (publisherRow) hero.appendChild(publisherRow);
 
         const row = document.createElement('div');
         row.className = 'snd-player-row';
@@ -196,27 +220,6 @@ export function initSoundLab(revealObserver) {
         title.className = 'snd-title';
         title.textContent = item.title || 'Memtrack';
         titleStack.appendChild(title);
-        if (publisherName || publisher?.avatar?.url) {
-            const publisherRow = document.createElement('div');
-            publisherRow.className = 'public-media-meta__identity public-media-meta__identity--sound';
-            if (publisher?.avatar?.url) {
-                const avatar = document.createElement('img');
-                avatar.className = 'public-media-meta__avatar';
-                avatar.src = publisher.avatar.url;
-                avatar.alt = '';
-                avatar.loading = 'lazy';
-                avatar.decoding = 'async';
-                avatar.onerror = () => avatar.remove();
-                publisherRow.appendChild(avatar);
-            }
-            if (publisherName) {
-                const name = document.createElement('span');
-                name.className = 'snd-publisher-name';
-                name.textContent = publisherName;
-                publisherRow.appendChild(name);
-            }
-            titleStack.appendChild(publisherRow);
-        }
         const time = document.createElement('span');
         time.className = 'snd-time';
         time.style.cssText = "font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0";

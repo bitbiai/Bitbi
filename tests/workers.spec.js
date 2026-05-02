@@ -14028,6 +14028,77 @@ test.describe('Worker routes', () => {
     ).toEqual(validThumbUrls.map(({ stored }) => stored));
   });
 
+  test('favorites: retired Sound Lab bundled tracks are omitted while current Memtracks remain', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'fav-soundlab-user', role: 'user' })],
+      favorites: [
+        {
+          user_id: 'fav-soundlab-user',
+          item_type: 'soundlab',
+          item_id: 'tiny-hearts',
+          title: 'Tiny Hearts',
+          thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-tiny.webp',
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+        {
+          user_id: 'fav-soundlab-user',
+          item_type: 'soundlab',
+          item_id: 'legacy-grok',
+          title: 'Grok’s Groove Remix',
+          thumb_url: '',
+          created_at: '2026-04-10T11:59:00.000Z',
+        },
+        {
+          user_id: 'fav-soundlab-user',
+          item_type: 'soundlab',
+          item_id: 'feedc0de',
+          title: 'Published Member Track',
+          thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
+          created_at: '2026-04-10T11:58:00.000Z',
+        },
+      ],
+    });
+    const token = await seedSession(env, 'fav-soundlab-user');
+
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody).toMatchObject({
+      ok: true,
+      favorites: [expect.objectContaining({
+        item_type: 'soundlab',
+        item_id: 'feedc0de',
+        title: 'Published Member Track',
+        thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
+      })],
+    });
+    expect(listBody.favorites.map((row) => row.item_id)).toEqual(['feedc0de']);
+
+    const addRetiredRes = await authWorker.fetch(
+      authJsonRequest('/api/favorites', 'POST', {
+        item_type: 'soundlab',
+        item_id: 'exclusive-track-01',
+        title: 'Exclusive Track 01',
+        thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-bitbi.webp',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(addRetiredRes.status).toBe(200);
+    await expect(addRetiredRes.json()).resolves.toMatchObject({ ok: true });
+    expect(env.DB.state.favorites.some((row) => row.item_id === 'exclusive-track-01')).toBe(false);
+  });
+
   test('favorites: rejects unsafe thumb_url forms', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

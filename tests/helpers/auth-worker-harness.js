@@ -323,9 +323,29 @@ class MockBucket {
     });
   }
 
-  async get(key) {
+  async get(key, options = {}) {
     this.getCalls.push(key);
-    return this.objects.get(key) || null;
+    const object = this.objects.get(key);
+    if (!object) return null;
+    const range = options?.range;
+    if (!range) return object;
+
+    const start = Math.max(0, Number(range.offset) || 0);
+    const length = Math.max(0, Number(range.length) || 0);
+    const end = length > 0 ? start + length : undefined;
+    let body = object.body;
+    if (body instanceof ArrayBuffer) {
+      body = body.slice(start, end);
+    } else if (body instanceof Uint8Array) {
+      body = body.slice(start, end);
+    } else if (typeof body === 'string') {
+      body = body.slice(start, end);
+    }
+    return {
+      ...object,
+      body,
+      size: body?.byteLength ?? (typeof body === 'string' ? body.length : length),
+    };
   }
 
   async head(key) {
@@ -3748,7 +3768,10 @@ class MockD1 {
       };
     }
 
-    if (query === 'SELECT item_type, item_id, title, created_at FROM favorites WHERE user_id = ? ORDER BY created_at DESC') {
+    if (
+      query === 'SELECT item_type, item_id, title, created_at FROM favorites WHERE user_id = ? ORDER BY created_at DESC'
+      || query === 'SELECT item_type, item_id, title, thumb_url, created_at FROM favorites WHERE user_id = ? ORDER BY created_at DESC'
+    ) {
       const [userId] = bindings;
       const rows = this.state.favorites
         .filter((row) => row.user_id === userId)
@@ -3758,6 +3781,7 @@ class MockD1 {
           item_type: row.item_type,
           item_id: row.item_id,
           title: row.title ?? null,
+          thumb_url: row.thumb_url ?? '',
           created_at: row.created_at ?? null,
         }));
       return { results: rows };

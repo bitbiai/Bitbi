@@ -15,6 +15,33 @@ import {
 const VALID_TYPES = ["gallery", "mempics", "soundlab", "video", "experiments"];
 const MAX_FAVORITES = 100;
 const PUBLIC_FAVORITE_THUMB_ORIGIN = "https://pub.bitbi.ai";
+const RETIRED_SOUNDLAB_ITEM_IDS = new Set([
+  "cosmic-sea",
+  "zufall-und-notwendigkeit",
+  "relativity",
+  "tiny-hearts",
+  "grok",
+  "exclusive-track-01",
+  "burning-slow",
+  "feel-it-all",
+  "the-ones-who-made-the-light",
+  "rooms-i'll-never-live-in",
+  "rooms-i-ll-never-live-in",
+  "rooms-ill-never-live-in",
+]);
+const RETIRED_SOUNDLAB_TITLES = new Set([
+  "cosmic sea",
+  "zufall und notwendigkeit",
+  "relativity",
+  "tiny hearts",
+  "grok",
+  "groks groove remix",
+  "exclusive track 01",
+  "burning slow",
+  "feel it all",
+  "the ones who made the light",
+  "rooms ill never live in",
+]);
 
 function hasControlChars(value) {
   return /[\x00-\x1f\x7f]/.test(value);
@@ -47,6 +74,32 @@ function normalizeFavoriteThumbUrl(value) {
   return `${PUBLIC_FAVORITE_THUMB_ORIGIN}${parsed.pathname}`;
 }
 
+function normalizeRetiredSoundLabValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isCurrentMemtrackThumbUrl(value) {
+  const url = String(value || "").trim();
+  return /^\/api\/gallery\/memtracks\/[a-f0-9]+\/[^/]+\/poster$/i.test(url)
+    || /^\/api\/gallery\/memtracks\/[a-f0-9]+\/poster$/i.test(url);
+}
+
+function isRetiredSoundLabFavorite(row) {
+  if (row?.item_type !== "soundlab") return false;
+  const itemId = String(row.item_id || "").trim().toLowerCase();
+  const normalizedItemId = normalizeRetiredSoundLabValue(itemId);
+  const thumbUrl = String(row.thumb_url || "").trim();
+  if (RETIRED_SOUNDLAB_ITEM_IDS.has(itemId) || RETIRED_SOUNDLAB_TITLES.has(normalizedItemId)) return true;
+  if (thumbUrl.includes("/audio/sound-lab/") || thumbUrl.includes("/sound-lab/thumbs/")) return true;
+  if (isCurrentMemtrackThumbUrl(thumbUrl)) return false;
+  return RETIRED_SOUNDLAB_TITLES.has(normalizeRetiredSoundLabValue(row.title));
+}
+
 export async function handleFavorites(ctx) {
   const { pathname, method } = ctx;
 
@@ -69,7 +122,8 @@ async function handleList(ctx) {
     .bind(session.user.id)
     .all();
 
-  return json({ ok: true, favorites: rows.results || [] });
+  const favorites = (rows.results || []).filter((row) => !isRetiredSoundLabFavorite(row));
+  return json({ ok: true, favorites });
 }
 
 async function handleAdd(ctx) {
@@ -111,6 +165,9 @@ async function handleAdd(ctx) {
   }
   if (typeof thumb_url !== "string" || thumb_url.length > 500 || normalizedThumbUrl === null) {
     return json({ ok: false, error: "Invalid thumb_url." }, { status: 400 });
+  }
+  if (isRetiredSoundLabFavorite({ item_type, item_id, title, thumb_url: normalizedThumbUrl })) {
+    return json({ ok: true });
   }
 
   const existing = await ctx.env.DB.prepare(

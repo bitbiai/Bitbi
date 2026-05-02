@@ -5026,10 +5026,25 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(card).not.toContainText('320000');
     await expect(card).not.toContainText('10.04.2026');
     await expect(card.locator('.studio__asset-audio')).toBeVisible();
+    await expect(card.locator('.studio__asset-badge--sound')).toHaveText('SOUND');
+    await expect(card.locator('.studio__asset-badge--sound')).toHaveCSS('position', 'absolute');
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
+    await expect(card.locator('.studio__image-visibility')).toHaveCSS('position', 'absolute');
+    const soundBadgeBox = await card.locator('.studio__asset-badge--sound').boundingBox();
+    const visibilityBox = await card.locator('.studio__image-visibility').boundingBox();
+    const cardBox = await card.boundingBox();
+    expect(soundBadgeBox?.x).toBeLessThan(visibilityBox?.x || 0);
+    expect(visibilityBox?.width || 0).toBeLessThan((cardBox?.width || 0) / 2);
 
     await card.getByRole('button', { name: 'Publish' }).click();
     await expect(card.locator('.studio__image-visibility')).toHaveText('Public');
+    await expect(card.locator('.studio__image-visibility')).toHaveCSS('position', 'absolute');
+    await expect
+      .poll(async () => {
+        const box = await card.locator('.studio__image-visibility').boundingBox();
+        return Math.round(box?.width || 0);
+      })
+      .toBeLessThan(100);
     await expect(card.locator('.studio__image-publish')).toHaveText('Unpublish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Track published to Memtracks.');
 
@@ -5819,6 +5834,27 @@ test.describe('Profile page (authenticated)', () => {
         },
         {
           item_type: 'soundlab',
+          item_id: 'tiny-hearts',
+          title: 'Tiny Hearts',
+          thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-tiny.webp',
+          created_at: '2026-04-10T11:58:00.000Z',
+        },
+        {
+          item_type: 'soundlab',
+          item_id: 'exclusive-track-01',
+          title: 'Exclusive Track 01',
+          thumb_url: 'https://pub.bitbi.ai/sound-lab/thumbs/thumb-bitbi.webp',
+          created_at: '2026-04-10T11:57:00.000Z',
+        },
+        {
+          item_type: 'soundlab',
+          item_id: 'legacy-grok-favorite',
+          title: 'Grok’s Groove Remix',
+          thumb_url: '',
+          created_at: '2026-04-10T11:56:00.000Z',
+        },
+        {
+          item_type: 'soundlab',
           item_id: 'feedc0de',
           title: 'Published Member Track',
           thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
@@ -5832,6 +5868,12 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:bad-memtrack"] img')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="soundlab:tiny-hearts"]')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="soundlab:exclusive-track-01"]')).toHaveCount(0);
+    await expect(page.locator('[data-fav-key="soundlab:legacy-grok-favorite"]')).toHaveCount(0);
+    await expect(page.locator('[data-favorites-type="soundlab"]')).not.toContainText('Tiny Hearts');
+    await expect(page.locator('[data-favorites-type="soundlab"]')).not.toContainText('Exclusive Track 01');
+    await expect(page.locator('[data-favorites-type="soundlab"]')).not.toContainText('Grok’s Groove Remix');
     await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:feedc0de"] img')).toHaveAttribute('src', /\/api\/gallery\/memtracks\/feedc0de\/vpubposter\/poster$/);
 
     await page.locator('[data-fav-key="soundlab:bad-memtrack"]').click();

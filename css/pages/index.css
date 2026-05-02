@@ -70,8 +70,18 @@
     }
 
     .public-media-meta__identity--sound {
+        position: absolute;
+        inset-inline: 12px;
+        inset-block-end: 10px;
+        z-index: 2;
         gap: 0.5rem;
-        margin-block-start: 0.2rem;
+        max-inline-size: calc(100% - 24px);
+        padding: 0.35rem 0.48rem;
+        border-radius: 999px;
+        background: rgba(6, 12, 20, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
     }
 
     .public-media-meta__avatar {
@@ -1229,6 +1239,10 @@
         letter-spacing: 0.04em;
         text-transform: uppercase;
         color: rgba(255, 255, 255, 0.56);
+    }
+
+    .public-media-meta__identity--sound .snd-publisher-name {
+        color: rgba(255, 255, 255, 0.78);
     }
 
     /* --- Desktop Sound Lab Grid --- */

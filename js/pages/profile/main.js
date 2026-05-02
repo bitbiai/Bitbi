@@ -786,9 +786,62 @@ function renderProfile(profile, account) {
 const PLACEHOLDER_SVG = `<svg width="24" height="24" fill="rgba(255,255,255,0.08)" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>`;
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';
+const RETIRED_SOUNDLAB_ITEM_IDS = new Set([
+    'cosmic-sea',
+    'zufall-und-notwendigkeit',
+    'relativity',
+    'tiny-hearts',
+    'grok',
+    'exclusive-track-01',
+    'burning-slow',
+    'feel-it-all',
+    'the-ones-who-made-the-light',
+    "rooms-i'll-never-live-in",
+    'rooms-i-ll-never-live-in',
+    'rooms-ill-never-live-in',
+]);
+const RETIRED_SOUNDLAB_TITLES = new Set([
+    'cosmic sea',
+    'zufall und notwendigkeit',
+    'relativity',
+    'tiny hearts',
+    'grok',
+    'groks groove remix',
+    'exclusive track 01',
+    'burning slow',
+    'feel it all',
+    'the ones who made the light',
+    'rooms ill never live in',
+]);
 
 function hasFavoriteControlChars(value) {
     return /[\x00-\x1f\x7f]/.test(value);
+}
+
+function normalizeRetiredSoundLabValue(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\u2018\u2019']/g, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
+function isCurrentMemtrackThumbUrl(value) {
+    const url = String(value || '').trim();
+    return /^\/api\/gallery\/memtracks\/[a-f0-9]+\/[^/]+\/poster$/i.test(url)
+        || /^\/api\/gallery\/memtracks\/[a-f0-9]+\/poster$/i.test(url);
+}
+
+function isRetiredSoundLabFavorite(fav) {
+    if (fav?.item_type !== 'soundlab') return false;
+    const itemId = String(fav.item_id || '').trim().toLowerCase();
+    const normalizedItemId = normalizeRetiredSoundLabValue(itemId);
+    const thumbUrl = String(fav.thumb_url || '').trim();
+    if (RETIRED_SOUNDLAB_ITEM_IDS.has(itemId) || RETIRED_SOUNDLAB_TITLES.has(normalizedItemId)) return true;
+    if (thumbUrl.includes('/audio/sound-lab/') || thumbUrl.includes('/sound-lab/thumbs/')) return true;
+    if (isCurrentMemtrackThumbUrl(thumbUrl)) return false;
+    return RETIRED_SOUNDLAB_TITLES.has(normalizeRetiredSoundLabValue(fav.title));
 }
 
 function normalizeFavoriteThumbUrl(value) {
@@ -1224,6 +1277,7 @@ function openVideoInViewer(fav) {
 function renderFavorites(favorites) {
     const groups = { mempics: [], video: [], soundlab: [] };
     for (const f of favorites) {
+        if (isRetiredSoundLabFavorite(f)) continue;
         if (groups[f.item_type]) groups[f.item_type].push(f);
     }
 

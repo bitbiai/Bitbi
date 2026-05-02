@@ -44,20 +44,6 @@ function parseByteRange(rangeHeader, size) {
   };
 }
 
-function sliceInMemoryObjectBody(object, start, end) {
-  const body = object?.body;
-  if (body instanceof ArrayBuffer) {
-    return body.slice(start, end + 1);
-  }
-  if (body instanceof Uint8Array) {
-    return body.slice(start, end + 1);
-  }
-  if (typeof body === "string") {
-    return body.slice(start, end + 1);
-  }
-  return object?.body || null;
-}
-
 function buildUnsatisfiableRangeResponse(size) {
   const headers = new Headers();
   headers.set("Content-Range", `bytes */${Number(size) || 0}`);
@@ -207,7 +193,7 @@ export async function handleGetTextAssetFile(ctx, assetId) {
   }
   if (range) {
     headers.set("Content-Range", `bytes ${range.start}-${range.end}/${range.size}`);
-    return new Response(sliceInMemoryObjectBody(object, range.start, range.end), {
+    return new Response(object.body, {
       status: 206,
       headers,
     });

@@ -2781,14 +2781,15 @@ test.describe('Homepage', () => {
     const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
     await expect(memtrackCard).toBeVisible();
     await expect(memtrackCard.locator('h4')).toHaveText('Public Member Track');
-    await expect(memtrackCard.locator('.public-media-meta__identity--sound')).toBeVisible();
+    await expect(memtrackCard.locator('.snd-hero .public-media-meta__identity--sound')).toBeVisible();
+    await expect(memtrackCard.locator('.snd-player-row .public-media-meta__identity--sound')).toHaveCount(0);
     await expect(memtrackCard.locator('.public-media-meta__avatar')).toBeVisible();
     await expect(memtrackCard.locator('.snd-publisher-name')).toHaveText('Ada Member');
     await expect(memtrackCard).not.toContainText('.mp3');
     await expect(memtrackCard).not.toContainText('audio/mpeg');
     await expect(memtrackCard.locator('.fav-star')).toBeVisible();
     await expect(memtrackCard.locator('.fav-star')).toHaveCSS('position', 'absolute');
-    await expect(memtrackCard.locator('.snd-hero img')).toHaveAttribute(
+    await expect(memtrackCard.locator('.snd-hero > img')).toHaveAttribute(
       'src',
       '/api/gallery/memtracks/feedc0de/vpub/poster',
     );
