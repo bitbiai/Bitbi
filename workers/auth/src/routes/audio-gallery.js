@@ -48,6 +48,54 @@ function parseMetadataJson(raw) {
   }
 }
 
+function parseByteRange(rangeHeader, size) {
+  const totalSize = Number(size);
+  if (!rangeHeader || !Number.isFinite(totalSize) || totalSize <= 0) return null;
+  const value = String(rangeHeader).trim();
+  if (!value.toLowerCase().startsWith("bytes=")) return { invalid: true };
+  const spec = value.slice(6).trim();
+  if (!spec || spec.includes(",")) return { invalid: true };
+  const [rawStart, rawEnd] = spec.split("-");
+  if (rawStart === undefined || rawEnd === undefined) return { invalid: true };
+
+  let start;
+  let end;
+  if (rawStart === "") {
+    if (!/^\d+$/.test(rawEnd)) return { invalid: true };
+    const suffixLength = Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(totalSize - suffixLength, 0);
+    end = totalSize - 1;
+  } else {
+    if (!/^\d+$/.test(rawStart) || (rawEnd !== "" && !/^\d+$/.test(rawEnd))) {
+      return { invalid: true };
+    }
+    start = Number.parseInt(rawStart, 10);
+    end = rawEnd === "" ? totalSize - 1 : Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return { invalid: true };
+  }
+
+  if (start < 0 || end < start || start >= totalSize) return { invalid: true };
+  return {
+    start,
+    end: Math.min(end, totalSize - 1),
+    size: totalSize,
+  };
+}
+
+function buildPublicMemtrackFileHeaders(contentType, size) {
+  const headers = buildPublicMediaHeaders(contentType || "audio/mpeg", size, { immutable: true });
+  headers.set("Accept-Ranges", "bytes");
+  return headers;
+}
+
+function buildPublicUnsatisfiableRangeResponse(size, contentType) {
+  const headers = buildPublicMemtrackFileHeaders(contentType, 0);
+  headers.delete("Content-Length");
+  headers.set("Content-Range", `bytes */${Number(size) || 0}`);
+  return new Response(null, { status: 416, headers });
+}
+
 function toPublicMemtrackRecord(row) {
   const meta = parseMetadataJson(row.metadata_json);
   const version = buildPublicMemtrackVersion(row);
@@ -218,7 +266,7 @@ function hasMatchingPublicPublisherAvatarVersion(row, version) {
 }
 
 async function handleGetMemtrackFile(ctx, trackId, version) {
-  const { env } = ctx;
+  const { env, request } = ctx;
   const row = await getPublicMemtrackRouteRow(env, trackId);
 
   if (!row?.r2_key) {
@@ -233,21 +281,43 @@ async function handleGetMemtrackFile(ctx, trackId, version) {
     return json({ ok: false, error: "Track not found." }, { status: 404 });
   }
 
-  const object = await env.USER_IMAGES.get(row.r2_key);
+  const rangeHeader = request.headers.get("Range");
+  const rangeHead = rangeHeader ? await env.USER_IMAGES.head(row.r2_key) : null;
+  if (rangeHeader && !rangeHead) {
+    return json({ ok: false, error: "Track not found." }, { status: 404 });
+  }
+  const contentType = row.mime_type || rangeHead?.httpMetadata?.contentType || "audio/mpeg";
+  const range = rangeHeader ? parseByteRange(rangeHeader, rangeHead?.size) : null;
+  if (range?.invalid) {
+    return buildPublicUnsatisfiableRangeResponse(rangeHead?.size || 0, contentType);
+  }
+
+  const object = range
+    ? await env.USER_IMAGES.get(row.r2_key, {
+        range: {
+          offset: range.start,
+          length: range.end - range.start + 1,
+        },
+      })
+    : await env.USER_IMAGES.get(row.r2_key);
   if (!object) {
     return json({ ok: false, error: "Track not found." }, { status: 404 });
   }
 
-  return new Response(
-    object.body,
-    {
-      headers: buildPublicMediaHeaders(
-        row.mime_type || object.httpMetadata?.contentType || "audio/mpeg",
-        object.size,
-        { immutable: true }
-      ),
-    }
+  const contentLength = range ? range.end - range.start + 1 : object.size;
+  const headers = buildPublicMemtrackFileHeaders(
+    row.mime_type || object.httpMetadata?.contentType || "audio/mpeg",
+    contentLength
   );
+  if (range) {
+    headers.set("Content-Range", `bytes ${range.start}-${range.end}/${range.size}`);
+    return new Response(object.body, {
+      status: 206,
+      headers,
+    });
+  }
+
+  return new Response(object.body, { headers });
 }
 
 async function handleGetMemtrackPoster(ctx, trackId, version) {

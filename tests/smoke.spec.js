@@ -2780,11 +2780,19 @@ test.describe('Homepage', () => {
 
     const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
     await expect(memtrackCard).toBeVisible();
-    await expect(memtrackCard.locator('h4')).toHaveText('Public Member Track');
-    await expect(memtrackCard.locator('.snd-hero .public-media-meta__identity--sound')).toBeVisible();
+    await expect(memtrackCard.locator('.snd-title')).toHaveText('Public Member Track');
+    const identity = memtrackCard.locator('.snd-hero .video-card__info.snd-hero__info .public-media-meta__identity--sound');
+    await expect(identity).toBeVisible();
+    await expect(identity).toHaveClass(/public-media-meta__identity--video/);
     await expect(memtrackCard.locator('.snd-player-row .public-media-meta__identity--sound')).toHaveCount(0);
-    await expect(memtrackCard.locator('.public-media-meta__avatar')).toBeVisible();
-    await expect(memtrackCard.locator('.snd-publisher-name')).toHaveText('Ada Member');
+    await expect(identity.locator('.public-media-meta__avatar')).toBeVisible();
+    await expect(identity.locator('.snd-publisher-name')).toHaveText('Ada Member');
+    await expect(identity).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    const avatarBox = await identity.locator('.public-media-meta__avatar').boundingBox();
+    const nameBox = await identity.locator('.snd-publisher-name').boundingBox();
+    expect(avatarBox).not.toBeNull();
+    expect(nameBox).not.toBeNull();
+    expect(nameBox.x).toBeGreaterThan(avatarBox.x + avatarBox.width - 1);
     await expect(memtrackCard).not.toContainText('.mp3');
     await expect(memtrackCard).not.toContainText('audio/mpeg');
     await expect(memtrackCard.locator('.fav-star')).toBeVisible();

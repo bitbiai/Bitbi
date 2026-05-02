@@ -19047,6 +19047,31 @@ test.describe('Worker routes', () => {
     expect(publicFileRes.status).toBe(200);
     expect(publicFileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(publicFileRes.headers.get('content-type')).toContain('audio/mpeg');
+    expect(publicFileRes.headers.get('accept-ranges')).toBe('bytes');
+
+    const publicRangeRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemtrackUrl('cab005e1', version, 'file')}`, {
+        headers: { Range: 'bytes=2-5' },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicRangeRes.status).toBe(206);
+    expect(publicRangeRes.headers.get('accept-ranges')).toBe('bytes');
+    expect(publicRangeRes.headers.get('content-range')).toBe('bytes 2-5/8');
+    expect(publicRangeRes.headers.get('content-length')).toBe('4');
+    expect(await publicRangeRes.text()).toBe('dio-');
+
+    const publicInvalidRangeRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemtrackUrl('cab005e1', version, 'file')}`, {
+        headers: { Range: 'bytes=99-120' },
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicInvalidRangeRes.status).toBe(416);
+    expect(publicInvalidRangeRes.headers.get('accept-ranges')).toBe('bytes');
+    expect(publicInvalidRangeRes.headers.get('content-range')).toBe('bytes */8');
 
     const publicPosterRes = await authWorker.fetch(
       new Request(`https://bitbi.ai${buildPublicMemtrackUrl('cab005e1', version, 'poster')}`),

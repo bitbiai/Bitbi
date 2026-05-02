@@ -132,10 +132,13 @@ export function initSoundLab(revealObserver) {
         const publisherName = typeof publisher?.display_name === 'string'
             ? publisher.display_name.trim()
             : '';
-        const createPublisherRow = () => {
+        const createPublisherInfo = () => {
             if (!publisherName && !publisher?.avatar?.url) return null;
+            const info = document.createElement('div');
+            info.className = 'video-card__info snd-hero__info';
+
             const publisherRow = document.createElement('div');
-            publisherRow.className = 'public-media-meta__identity public-media-meta__identity--sound';
+            publisherRow.className = 'public-media-meta__identity public-media-meta__identity--video public-media-meta__identity--sound';
             if (publisher?.avatar?.url) {
                 const avatar = document.createElement('img');
                 avatar.className = 'public-media-meta__avatar';
@@ -147,12 +150,13 @@ export function initSoundLab(revealObserver) {
                 publisherRow.appendChild(avatar);
             }
             if (publisherName) {
-                const name = document.createElement('span');
-                name.className = 'snd-publisher-name';
+                const name = document.createElement('h4');
+                name.className = 'video-card__title snd-publisher-name';
                 name.textContent = publisherName;
                 publisherRow.appendChild(name);
             }
-            return publisherRow;
+            info.appendChild(publisherRow);
+            return info;
         };
 
         const hero = document.createElement('div');
@@ -186,8 +190,8 @@ export function initSoundLab(revealObserver) {
         });
         star.style.cssText = 'position:absolute;top:8px;right:8px';
         hero.appendChild(star);
-        const publisherRow = createPublisherRow();
-        if (publisherRow) hero.appendChild(publisherRow);
+        const publisherInfo = createPublisherInfo();
+        if (publisherInfo) hero.appendChild(publisherInfo);
 
         const row = document.createElement('div');
         row.className = 'snd-player-row';
