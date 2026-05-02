@@ -128,6 +128,10 @@ export function initSoundLab(revealObserver) {
         card.className = 'reveal snd-card snd-card--memtrack';
         card.style.cssText = 'position:relative;background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;overflow:hidden;transition:border-color 0.3s,background-color 0.3s';
         card.dataset.memtrackId = String(item.id || '');
+        const publisher = item.publisher || null;
+        const publisherName = typeof publisher?.display_name === 'string'
+            ? publisher.display_name.trim()
+            : '';
 
         const hero = document.createElement('div');
         hero.className = 'snd-hero';
@@ -186,14 +190,38 @@ export function initSoundLab(revealObserver) {
         metaWrap.style.cssText = 'flex:1;min-width:0';
         const titleRow = document.createElement('div');
         titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px';
+        const titleStack = document.createElement('div');
+        titleStack.className = 'snd-title-stack';
         const title = document.createElement('h4');
-        title.style.cssText = "font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+        title.className = 'snd-title';
         title.textContent = item.title || 'Memtrack';
+        titleStack.appendChild(title);
+        if (publisherName || publisher?.avatar?.url) {
+            const publisherRow = document.createElement('div');
+            publisherRow.className = 'public-media-meta__identity public-media-meta__identity--sound';
+            if (publisher?.avatar?.url) {
+                const avatar = document.createElement('img');
+                avatar.className = 'public-media-meta__avatar';
+                avatar.src = publisher.avatar.url;
+                avatar.alt = '';
+                avatar.loading = 'lazy';
+                avatar.decoding = 'async';
+                avatar.onerror = () => avatar.remove();
+                publisherRow.appendChild(avatar);
+            }
+            if (publisherName) {
+                const name = document.createElement('span');
+                name.className = 'snd-publisher-name';
+                name.textContent = publisherName;
+                publisherRow.appendChild(name);
+            }
+            titleStack.appendChild(publisherRow);
+        }
         const time = document.createElement('span');
         time.className = 'snd-time';
         time.style.cssText = "font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0";
         time.textContent = '0:00';
-        titleRow.append(title, time);
+        titleRow.append(titleStack, time);
 
         const bar = document.createElement('div');
         bar.className = 'snd-bar';

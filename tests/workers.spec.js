@@ -18477,6 +18477,105 @@ test.describe('Worker routes', () => {
     expect(videoRes.headers.get('content-type')).toContain('video/mp4');
   });
 
+  test('AI text asset audio file route returns byte ranges for seekable member playback', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const audioBytes = new TextEncoder().encode('0123456789abcdef');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'seek-audio-user', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'abc777aa',
+          user_id: 'seek-audio-user',
+          folder_id: null,
+          r2_key: 'users/seek-audio-user/folders/unsorted/audio/seekable.mp3',
+          title: 'Seekable Track',
+          file_name: 'seekable-track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: audioBytes.byteLength,
+          preview_text: 'seekable audio',
+          metadata_json: '{}',
+          visibility: 'private',
+          published_at: null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+      userImages: {
+        'users/seek-audio-user/folders/unsorted/audio/seekable.mp3': {
+          body: audioBytes.buffer.slice(0),
+          httpMetadata: { contentType: 'audio/mpeg' },
+          size: audioBytes.byteLength,
+        },
+      },
+    });
+    const token = await seedSession(env, 'seek-audio-user');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc777aa/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        Range: 'bytes=4-7',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(206);
+    expect(res.headers.get('accept-ranges')).toBe('bytes');
+    expect(res.headers.get('content-range')).toBe('bytes 4-7/16');
+    expect(res.headers.get('content-length')).toBe('4');
+    expect(res.headers.get('content-type')).toContain('audio/mpeg');
+    expect(await res.text()).toBe('4567');
+  });
+
+  test('AI text asset file route rejects unsatisfiable byte ranges cleanly', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const audioBytes = new TextEncoder().encode('0123456789abcdef');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'seek-range-user', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'abc777bb',
+          user_id: 'seek-range-user',
+          folder_id: null,
+          r2_key: 'users/seek-range-user/folders/unsorted/audio/seekable.mp3',
+          title: 'Seekable Track',
+          file_name: 'seekable-track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: audioBytes.byteLength,
+          preview_text: 'seekable audio',
+          metadata_json: '{}',
+          visibility: 'private',
+          published_at: null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+      userImages: {
+        'users/seek-range-user/folders/unsorted/audio/seekable.mp3': {
+          body: audioBytes.buffer.slice(0),
+          httpMetadata: { contentType: 'audio/mpeg' },
+          size: audioBytes.byteLength,
+        },
+      },
+    });
+    const token = await seedSession(env, 'seek-range-user');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc777bb/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        Range: 'bytes=99-120',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(416);
+    expect(res.headers.get('accept-ranges')).toBe('bytes');
+    expect(res.headers.get('content-range')).toBe('bytes */16');
+  });
+
   test('AI assets route exposes generated cover poster metadata for music assets when ready', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({

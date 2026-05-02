@@ -4039,6 +4039,7 @@ test.describe('Image Studio (authenticated)', () => {
     await createButton.click();
     await expect(page.locator('#soundLabCreate')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#soundLabExplore')).toBeHidden();
+    await expect(page.locator('#soundLabCreate .sound-create__info')).toHaveText('Music generation can take up to 2 minutes.');
     await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 150 Credits');
 
     await page.locator('#soundMusicGenerateLyrics').check();
@@ -4049,6 +4050,16 @@ test.describe('Image Studio (authenticated)', () => {
     await page.locator('#soundMusicPrompt').fill('A glossy synth pop track for late night coding.');
     await page.locator('#soundMusicGenerate').click();
     await expect(page.locator('#soundMusicPreview audio')).toBeVisible();
+    const generatedAudioSrc = await page.locator('#soundMusicPreview audio').getAttribute('src');
+    await page.locator('#soundMusicPreview audio').evaluate((audio) => {
+      audio.currentTime = 42;
+      audio.dispatchEvent(new Event('seeking'));
+      audio.dispatchEvent(new Event('timeupdate'));
+    });
+    await expect
+      .poll(() => page.locator('#soundMusicPreview audio').evaluate((audio) => audio.currentTime))
+      .toBe(42);
+    await expect(page.locator('#soundMusicPreview audio')).toHaveAttribute('src', generatedAudioSrc);
     await expect(page.locator('#soundMusicPreview .sound-create__cover'))
       .toHaveAttribute('data-cover-state', 'fallback');
     await expect(page.locator('#soundMusicPreview .sound-create__cover img')).toHaveCount(0);
@@ -5009,7 +5020,11 @@ test.describe('Image Studio (authenticated)', () => {
     const card = page.locator('#studioImageGrid [data-asset-id="snd-publish-1"]');
     await expect(card.locator('.studio__asset-cover-bg')).toHaveCount(1);
     await expect(card.locator('.studio__asset-preview')).toHaveCount(0);
+    await expect(card.locator('.studio__asset-meta')).toHaveCount(0);
     await expect(card).not.toContainText('This prompt text should not be rendered');
+    await expect(card).not.toContainText('member-beat.mp3');
+    await expect(card).not.toContainText('320000');
+    await expect(card).not.toContainText('10.04.2026');
     await expect(card.locator('.studio__asset-audio')).toBeVisible();
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
 

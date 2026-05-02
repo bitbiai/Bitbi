@@ -1429,8 +1429,12 @@ test.describe('Homepage', () => {
         const sectionRect = section?.getBoundingClientRect();
         const sectionStyle = section ? window.getComputedStyle(section) : null;
         const headerStyle = header ? window.getComputedStyle(header) : null;
+        const modeRect = section?.querySelector('.video-mode')?.getBoundingClientRect();
+        const contentRect = section?.querySelector('#videoExplore')?.getBoundingClientRect();
         return {
           descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
+          modeHintsPresent: document.querySelectorAll('#gallery .gallery-mode__hint, #video-creations .video-mode__hint, #soundlab .video-mode__hint').length,
+          modeContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
           headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
           dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
@@ -1440,6 +1444,9 @@ test.describe('Homepage', () => {
       });
 
       expect(desktopMetrics.descriptionsPresent).toBe(0);
+      expect(desktopMetrics.modeHintsPresent).toBe(0);
+      expect(desktopMetrics.modeContentGap).toBeGreaterThan(20);
+      expect(desktopMetrics.modeContentGap).toBeLessThan(50);
       expect(desktopMetrics.sectionPaddingTop).toBeGreaterThan(30);
       expect(desktopMetrics.sectionPaddingTop).toBeLessThan(35);
       expect(desktopMetrics.headerMarginBottom).toBeGreaterThan(37);
@@ -1456,8 +1463,12 @@ test.describe('Homepage', () => {
         const sectionRect = section?.getBoundingClientRect();
         const sectionStyle = section ? window.getComputedStyle(section) : null;
         const headerStyle = header ? window.getComputedStyle(header) : null;
+        const modeRect = section?.querySelector('.video-mode')?.getBoundingClientRect();
+        const contentRect = section?.querySelector('#videoExplore')?.getBoundingClientRect();
         return {
           descriptionsPresent: document.querySelectorAll('#gallery .section__desc, #video-creations .section__desc, #soundlab .section__desc').length,
+          modeHintsPresent: document.querySelectorAll('#gallery .gallery-mode__hint, #video-creations .video-mode__hint, #soundlab .video-mode__hint').length,
+          modeContentGap: modeRect && contentRect ? contentRect.top - modeRect.bottom : 0,
           sectionPaddingTop: sectionStyle ? parseFloat(sectionStyle.paddingTop) : 0,
           headerMarginBottom: headerStyle ? parseFloat(headerStyle.marginBottom) : 0,
           dividerVisible: Boolean(before && before.content !== 'none' && parseFloat(before.width) > 0.5),
@@ -1467,6 +1478,8 @@ test.describe('Homepage', () => {
       });
 
       expect(mobileMetrics.descriptionsPresent).toBe(0);
+      expect(mobileMetrics.modeHintsPresent).toBe(0);
+      expect(mobileMetrics.modeContentGap).toBeLessThan(56);
       expect(mobileMetrics.sectionPaddingTop).toBe(48);
       expect(mobileMetrics.headerMarginBottom).toBe(48);
       expect(mobileMetrics.dividerVisible).toBe(true);
@@ -2693,7 +2706,12 @@ test.describe('Homepage', () => {
                 title: 'Public Member Track',
                 caption: 'Published by Ada Member.',
                 category: 'memtracks',
-                publisher: { display_name: 'Ada Member' },
+                publisher: {
+                  display_name: 'Ada Member',
+                  avatar: {
+                    url: '/api/gallery/memtracks/feedc0de/avpub/avatar',
+                  },
+                },
                 file: { url: '/api/gallery/memtracks/feedc0de/vpub/file' },
                 poster: {
                   url: '/api/gallery/memtracks/feedc0de/vpub/poster',
@@ -2711,6 +2729,15 @@ test.describe('Homepage', () => {
     });
 
     await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/avatar')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==', 'base64'),
+        });
+        return;
+      }
+
       if (route.request().url().endsWith('/poster')) {
         await route.fulfill({
           status: 200,
@@ -2754,6 +2781,9 @@ test.describe('Homepage', () => {
     const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
     await expect(memtrackCard).toBeVisible();
     await expect(memtrackCard.locator('h4')).toHaveText('Public Member Track');
+    await expect(memtrackCard.locator('.public-media-meta__identity--sound')).toBeVisible();
+    await expect(memtrackCard.locator('.public-media-meta__avatar')).toBeVisible();
+    await expect(memtrackCard.locator('.snd-publisher-name')).toHaveText('Ada Member');
     await expect(memtrackCard).not.toContainText('.mp3');
     await expect(memtrackCard).not.toContainText('audio/mpeg');
     await expect(memtrackCard.locator('.fav-star')).toBeVisible();

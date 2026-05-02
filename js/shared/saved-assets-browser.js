@@ -89,13 +89,12 @@ function getFileBadge(asset) {
 }
 
 function getFileTitle(asset) {
-    return asset?.title
-        || asset?.file_name
-        || (isAudioAsset(asset)
-            ? 'Saved audio asset'
-            : isVideoAsset(asset)
-                ? 'Saved video asset'
-                : 'Saved asset');
+    if (asset?.title) return asset.title;
+    if (isAudioAsset(asset)) return 'Saved audio asset';
+    return asset?.file_name
+        || (isVideoAsset(asset)
+            ? 'Saved video asset'
+            : 'Saved asset');
 }
 
 function getFilePreview(asset) {
@@ -852,6 +851,14 @@ export function createSavedAssetsBrowser({
         badge.textContent = getFileBadge(asset);
         item.appendChild(badge);
 
+        if (isVideo || isSound) {
+            const isPublished = isPublishedAsset(asset);
+            const visBadge = document.createElement('span');
+            visBadge.className = `studio__image-visibility ${isPublished ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
+            visBadge.textContent = isPublished ? 'Public' : 'Private';
+            item.appendChild(visBadge);
+        }
+
         const title = document.createElement('h3');
         title.className = 'studio__asset-title';
         title.textContent = getFileTitle(asset);
@@ -921,21 +928,15 @@ export function createSavedAssetsBrowser({
             item.appendChild(videoTrigger);
         }
 
-        const meta = document.createElement('div');
-        meta.className = 'studio__asset-meta';
-        meta.textContent = [
-            formatAssetDate(asset.created_at),
-            asset.file_name || '',
-            formatAssetSize(asset.size_bytes),
-        ].filter(Boolean).join(' · ');
-        item.appendChild(meta);
-
-        if (isVideo || isSound) {
-            const isPublished = isPublishedAsset(asset);
-            const visBadge = document.createElement('span');
-            visBadge.className = `studio__image-visibility ${isPublished ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
-            visBadge.textContent = isPublished ? 'Public' : 'Private';
-            item.appendChild(visBadge);
+        if (!isSound) {
+            const meta = document.createElement('div');
+            meta.className = 'studio__asset-meta';
+            meta.textContent = [
+                formatAssetDate(asset.created_at),
+                asset.file_name || '',
+                formatAssetSize(asset.size_bytes),
+            ].filter(Boolean).join(' · ');
+            item.appendChild(meta);
         }
 
         const actions = document.createElement('div');

@@ -9,6 +9,64 @@ import {
 } from "../../lib/ai-image-derivatives.js";
 import { isMissingTextAssetTableError } from "./helpers.js";
 
+function parseByteRange(rangeHeader, size) {
+  const totalSize = Number(size);
+  if (!rangeHeader || !Number.isFinite(totalSize) || totalSize <= 0) return null;
+  const value = String(rangeHeader).trim();
+  if (!value.toLowerCase().startsWith("bytes=")) return { invalid: true };
+  const spec = value.slice(6).trim();
+  if (!spec || spec.includes(",")) return { invalid: true };
+  const [rawStart, rawEnd] = spec.split("-");
+  if (rawStart === undefined || rawEnd === undefined) return { invalid: true };
+
+  let start;
+  let end;
+  if (rawStart === "") {
+    if (!/^\d+$/.test(rawEnd)) return { invalid: true };
+    const suffixLength = Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(totalSize - suffixLength, 0);
+    end = totalSize - 1;
+  } else {
+    if (!/^\d+$/.test(rawStart) || (rawEnd !== "" && !/^\d+$/.test(rawEnd))) {
+      return { invalid: true };
+    }
+    start = Number.parseInt(rawStart, 10);
+    end = rawEnd === "" ? totalSize - 1 : Number.parseInt(rawEnd, 10);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return { invalid: true };
+  }
+
+  if (start < 0 || end < start || start >= totalSize) return { invalid: true };
+  return {
+    start,
+    end: Math.min(end, totalSize - 1),
+    size: totalSize,
+  };
+}
+
+function sliceInMemoryObjectBody(object, start, end) {
+  const body = object?.body;
+  if (body instanceof ArrayBuffer) {
+    return body.slice(start, end + 1);
+  }
+  if (body instanceof Uint8Array) {
+    return body.slice(start, end + 1);
+  }
+  if (typeof body === "string") {
+    return body.slice(start, end + 1);
+  }
+  return object?.body || null;
+}
+
+function buildUnsatisfiableRangeResponse(size) {
+  const headers = new Headers();
+  headers.set("Content-Range", `bytes */${Number(size) || 0}`);
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("Cache-Control", "private, max-age=3600");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(null, { status: 416, headers });
+}
+
 export async function handleGetImageFile(ctx, imageId) {
   const { request, env } = ctx;
   const session = await requireUser(request, env);
@@ -111,21 +169,48 @@ export async function handleGetTextAssetFile(ctx, assetId) {
     return json({ ok: false, error: "Saved asset not found." }, { status: 404 });
   }
 
-  const object = await env.USER_IMAGES.get(row.r2_key);
+  const rangeHeader = request.headers.get("Range");
+  const rangeHead = rangeHeader ? await env.USER_IMAGES.head(row.r2_key) : null;
+  if (rangeHeader && !rangeHead) {
+    return json({ ok: false, error: "Saved asset file not found." }, { status: 404 });
+  }
+  const range = rangeHeader ? parseByteRange(rangeHeader, rangeHead?.size) : null;
+  if (range?.invalid) {
+    return buildUnsatisfiableRangeResponse(rangeHead?.size || 0);
+  }
+
+  const object = range
+    ? await env.USER_IMAGES.get(row.r2_key, {
+        range: {
+          offset: range.start,
+          length: range.end - range.start + 1,
+        },
+      })
+    : await env.USER_IMAGES.get(row.r2_key);
   if (!object) {
     return json({ ok: false, error: "Saved asset file not found." }, { status: 404 });
   }
 
+  const contentLength = range
+    ? range.end - range.start + 1
+    : object.size;
   const headers = new Headers();
   headers.set("Content-Type", row.mime_type || object.httpMetadata?.contentType || "text/plain; charset=utf-8");
   headers.set("Cache-Control", "private, max-age=3600");
-  if (object.size) {
-    headers.set("Content-Length", String(object.size));
+  if (contentLength) {
+    headers.set("Content-Length", String(contentLength));
   }
   headers.set("Accept-Ranges", "bytes");
   headers.set("X-Content-Type-Options", "nosniff");
   if (row.file_name) {
     headers.set("Content-Disposition", `inline; filename=\"${row.file_name}\"`);
+  }
+  if (range) {
+    headers.set("Content-Range", `bytes ${range.start}-${range.end}/${range.size}`);
+    return new Response(sliceInMemoryObjectBody(object, range.start, range.end), {
+      status: 206,
+      headers,
+    });
   }
   return new Response(object.body, { headers });
 }

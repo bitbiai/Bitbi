@@ -619,6 +619,7 @@
     }
 
     .studio__image-item--sound {
+        min-block-size: 16rem;
         background:
             linear-gradient(180deg, rgba(255, 179, 0, 0.12) 0%, rgba(255, 255, 255, 0.02) 100%),
             rgba(255, 255, 255, 0.02);
@@ -658,6 +659,10 @@
     .studio__image-item--sound.studio__image-item--has-cover .studio__asset-title,
     .studio__image-item--sound.studio__image-item--has-cover .studio__asset-meta {
         text-shadow: 0 1px 16px rgba(0, 0, 0, 0.72);
+    }
+
+    .studio__image-item--sound .studio__asset-actions {
+        margin-block-start: 0.15rem;
     }
 
     .studio__image-item--video {

@@ -218,7 +218,6 @@
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="gallery-mode__label">Explore</span>
                         </button>
-                        <span class="gallery-mode__hint">Browse curated AI art</span>
                     </div>
                     <div class="gallery-mode__item">
                         <button class="gallery-mode__btn gallery-mode__btn--create gallery-mode__btn--locked" data-mode="create" role="tab" aria-selected="false" tabindex="-1">
@@ -226,7 +225,6 @@
                             <span class="gallery-mode__label">Create</span>
                             <span class="gallery-mode__lock" aria-hidden="true">&#x1f512;</span>
                         </button>
-                        <span class="gallery-mode__hint">Generate your own</span>
                     </div>
                 </div>
                 <div id="galleryExplore">
@@ -298,7 +296,6 @@
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="video-mode__label">Explore</span>
                         </button>
-                        <span class="video-mode__hint">Browse AI video experiments</span>
                     </div>
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--soon" aria-disabled="true" tabindex="-1">
@@ -306,7 +303,6 @@
                             <span class="video-mode__label">Create</span>
                             <span class="video-mode__badge" aria-label="Coming soon">Soon</span>
                         </button>
-                        <span class="video-mode__hint">AI video generation — coming soon</span>
                     </div>
                 </div>
                 <div id="videoExplore" class="video-explore reveal"></div>
@@ -328,14 +324,12 @@
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="video-mode__label">Explore</span>
                         </button>
-                        <span class="video-mode__hint">Browse sonic experiments</span>
                     </div>
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-sound-mode="create" role="tab" aria-selected="false" tabindex="-1">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
                             <span class="video-mode__label">Create</span>
                         </button>
-                        <span class="video-mode__hint">Generate music</span>
                     </div>
                 </div>
                 <div id="soundLabExplore" class="section__inner section__inner--soundlab">
@@ -372,6 +366,7 @@
                             </div>
                             <div class="studio__card reveal">
                                 <h2 class="studio__card-title">Preview</h2>
+                                <p class="sound-create__info">Music generation can take up to 2 minutes.</p>
                                 <div id="soundMusicPreview" class="studio__preview sound-create__preview">
                                     <div class="studio__preview-empty">Your generated music will appear here</div>
                                 </div>
