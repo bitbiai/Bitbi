@@ -11,7 +11,6 @@ import { handleMe, handleRegister, handleLogin, handleLogout } from "./routes/au
 import { handleForgotPassword, handleValidateReset, handleResetPassword } from "./routes/password.js";
 import { handleVerifyEmail, handleResendVerification, handleRequestReverification } from "./routes/verification.js";
 import { handleAdmin } from "./routes/admin.js";
-import { handleMedia } from "./routes/media.js";
 import { handleAI } from "./routes/ai.js";
 import { handleOrgs } from "./routes/orgs.js";
 import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
@@ -300,16 +299,6 @@ export default {
       if (videoResult) return videoResult;
       const audioResult = await handleAudioGallery(ctx);
       if (audioResult) return audioResult;
-    }
-
-    // Protected media
-    if (
-      (pathname.startsWith("/api/music/") ||
-        pathname.startsWith("/api/soundlab-thumbs/")) &&
-      method === "GET"
-    ) {
-      const result = await handleMedia(ctx);
-      if (result) return result;
     }
 
     return json(

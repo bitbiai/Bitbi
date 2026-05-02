@@ -49,7 +49,6 @@ import {
     getPublicMemtrackVersionFromUrl,
     getPublicMemvidVersionFromUrl,
 } from '../../shared/public-media-contract.mjs';
-import { buildSoundLabTrack, getSoundLabTrackBySlug } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
 import {
     initGlobalAudioManager,
     getGlobalAudioState,
@@ -1060,9 +1059,8 @@ function openMempicInViewer(fav) {
 function openSoundlabInViewer(fav) {
     const title = String(fav.title || '');
     const thumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
-    const baseTrack = getSoundLabTrackBySlug(fav.item_id);
-    const memtrackFileUrl = baseTrack ? '' : buildMemtrackFavoriteFileUrl(fav);
-    if (!baseTrack && !memtrackFileUrl) return;
+    const memtrackFileUrl = buildMemtrackFavoriteFileUrl(fav);
+    if (!memtrackFileUrl) return;
     initGlobalAudioManager();
     if (viewerAudioCleanup) {
         viewerAudioCleanup();
@@ -1127,25 +1125,19 @@ function openSoundlabInViewer(fav) {
 
     openViewer('');
 
-    const track = baseTrack
-        ? buildSoundLabTrack(fav.item_id, {
-            title: title || baseTrack.title,
-            artworkUrl: thumbUrl || baseTrack.artwork,
-            originLabel: 'Profile favorites',
-        })
-        : {
-            id: `memtrack:${fav.item_id}`,
-            slug: `memtrack-${fav.item_id}`,
-            title: title || 'Memtrack',
-            sourceUrl: memtrackFileUrl,
-            src: memtrackFileUrl,
-            artworkUrl: thumbUrl,
-            artwork: thumbUrl,
-            access: 'public',
-            collection: 'memtracks',
-            originLabel: 'Profile favorites',
-            crossOrigin: '',
-        };
+    const track = {
+        id: `memtrack:${fav.item_id}`,
+        slug: `memtrack-${fav.item_id}`,
+        title: title || 'Memtrack',
+        sourceUrl: memtrackFileUrl,
+        src: memtrackFileUrl,
+        artworkUrl: thumbUrl,
+        artwork: thumbUrl,
+        access: 'public',
+        collection: 'memtracks',
+        originLabel: 'Profile favorites',
+        crossOrigin: '',
+    };
     if (!track) return;
 
     const playIcon = document.getElementById('fvPlayIcon');

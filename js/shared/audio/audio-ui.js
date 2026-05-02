@@ -12,10 +12,7 @@ import {
     seekGlobalAudio,
     toggleGlobalAudioMute,
     clearGlobalAudio,
-    playGlobalTrack,
 } from './audio-manager.js?v=__ASSET_VERSION__';
-
-import { getSoundLabTracks, isSoundLabTrackId, buildSoundLabTrack } from './audio-library.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let unsubscribe = null;
@@ -196,20 +193,6 @@ function ensureAudioShell() {
     return shell;
 }
 
-function skipTrack(direction) {
-    const state = getGlobalAudioState();
-    if (!state.trackId || !isSoundLabTrackId(state.trackId)) return;
-
-    const tracks = getSoundLabTracks();
-    const currentIndex = tracks.findIndex(t => t.id === state.trackId);
-    if (currentIndex === -1) return;
-
-    const nextIndex = (currentIndex + direction + tracks.length) % tracks.length;
-    const nextTrack = tracks[nextIndex];
-    const playReady = buildSoundLabTrack(nextTrack.slug, { originLabel: 'Sound Lab' });
-    if (playReady) playGlobalTrack(playReady);
-}
-
 function renderAudioShell(nextState) {
     const shell = document.getElementById('globalAudioShell');
     if (!shell) return;
@@ -261,7 +244,7 @@ function renderAudioShell(nextState) {
         menuIndicator.classList.toggle('is-active', isPlaying);
     }
 
-    const canSkip = hasTrack && isSoundLabTrackId(nextState.trackId);
+    const canSkip = false;
     if (prevBtn) prevBtn.disabled = !canSkip;
     if (nextBtn) nextBtn.disabled = !canSkip;
     if (mobilePrevBtn) mobilePrevBtn.disabled = !canSkip;
@@ -321,16 +304,12 @@ function bindAudioShellEvents() {
 
     const drawer = shell.querySelector('.site-audio__drawer');
     const panel = shell.querySelector('#globalAudioPanel');
-    const prevBtn = shell.querySelector('#globalAudioPrev');
     const playBtn = shell.querySelector('#globalAudioToggle');
-    const nextBtn = shell.querySelector('#globalAudioNext');
     const muteBtn = shell.querySelector('#globalAudioMute');
     const dismissBtn = shell.querySelector('#globalAudioDismiss');
     const progress = shell.querySelector('#globalAudioProgress');
     const handle = shell.querySelector('#globalAudioHandle');
-    const mobilePrevBtn = document.getElementById('globalAudioMobilePrev');
     const mobilePlayBtn = document.getElementById('globalAudioMobileToggle');
-    const mobileNextBtn = document.getElementById('globalAudioMobileNext');
     const mobileProgress = document.getElementById('globalAudioMobileProgress');
 
     const canUseHoverDrawer = () => window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -356,11 +335,6 @@ function bindAudioShellEvents() {
         const nextPercent = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         seekGlobalAudio(nextState.duration * nextPercent);
     };
-
-    prevBtn?.addEventListener('click', () => skipTrack(-1));
-    nextBtn?.addEventListener('click', () => skipTrack(1));
-    mobilePrevBtn?.addEventListener('click', () => skipTrack(-1));
-    mobileNextBtn?.addEventListener('click', () => skipTrack(1));
 
     playBtn?.addEventListener('click', togglePlayback);
     mobilePlayBtn?.addEventListener('click', togglePlayback);

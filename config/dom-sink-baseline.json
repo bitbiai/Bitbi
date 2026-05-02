@@ -14,9 +14,6 @@
     "js/pages/index/gallery.js": {
       "innerHTML": 2
     },
-    "js/pages/index/locked-sections.js": {
-      "innerHTML": 7
-    },
     "js/pages/index/soundlab.js": {
       "innerHTML": 2
     },

@@ -140,21 +140,17 @@ Two R2 buckets serve media — one public, one private:
 
 | Bucket | Domain | Purpose |
 |--------|--------|---------|
-| Public | `https://pub.bitbi.ai` | Gallery images (thumb/preview/full), retired bundled Sound Lab audio pending cleanup |
-| Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Legacy Sound Lab Exclusive import source, avatars |
-
-**Public R2 base URL** is defined as `const R2_PUBLIC_BASE = 'https://pub.bitbi.ai'` in legacy favorite helpers that still need it (`js/shared/audio/audio-library.js`, `js/pages/profile/main.js`). Change it in both places if the domain changes.
+| Public | `https://pub.bitbi.ai` | Gallery images (thumb/preview/full), retired bundled Sound Lab audio pending manual cleanup |
+| Private (`PRIVATE_MEDIA`) | via `/api/*` auth worker routes | Avatars and other protected non-Sound-Lab media |
 
 **Public R2 key layout:**
 - Gallery images: `gallery/[thumbs|previews|full]/ai-creations/{slug}-{width}.webp`
-- Legacy bundled Sound Lab audio pending cleanup: `audio/sound-lab/{track-name}.mp3`
+- Retired bundled Sound Lab audio candidates are listed only in `docs/soundlab-free-exclusive-cleanup.md` for later exact-key manual deletion.
 
 **Private R2 key layout** (bucket `bitbi-private-media`, bound as `PRIVATE_MEDIA` in auth worker):
-- Legacy Sound Lab Exclusive import source: `audio/sound-lab/{slug}.mp3`
-- Legacy Sound Lab Exclusive artwork import source: `sound-lab/thumbs/{slug}.webp`
 - Avatars: `avatars/{userId}`
 
-Current public Sound Lab content loads from `/api/gallery/memtracks` and serves published member music from `USER_IMAGES`. Legacy bundled Free/Exclusive cleanup and import guidance is tracked in `docs/soundlab-free-exclusive-cleanup.md`.
+Current public Sound Lab content loads from `/api/gallery/memtracks` and serves published member music from `USER_IMAGES`. Retired bundled Free/Exclusive cleanup guidance is tracked in `docs/soundlab-free-exclusive-cleanup.md`; no import/migration workflow is used.
 
 ### Pages
 - `index.html` — Main landing page (particle effects, gallery, soundlab, auth-gated sections)
@@ -175,7 +171,7 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `studio-deck.js` (saved-images deck with touch-swipe and modal/lightbox for studio pages), `saved-assets-browser.js` (unified folder/asset browser with bulk operations used by image-studio and other studio pages), `models-overlay.js` (AI model catalog overlay panel), `soft-nav.js` (SPA-like soft navigation for legal pages — keeps audio player and auth alive across page transitions).
 
-**Audio subsystem** (`js/shared/audio/`): Three-module global audio player — `audio-library.js` (track catalog + R2 URL builders), `audio-manager.js` (singleton `<audio>` element, state machine, global playback API), `audio-ui.js` (injects persistent player shell before `<main>` on all pages). The player survives soft-nav transitions. All pages import `initGlobalAudioUI()` from `audio-ui.js`.
+**Audio subsystem** (`js/shared/audio/`): Two-module global audio player — `audio-manager.js` (singleton `<audio>` element, state machine, global playback API) and `audio-ui.js` (injects persistent player shell before `<main>` on all pages). Public Sound Lab tracks are dynamic Memtracks from `/api/gallery/memtracks`; there is no bundled track catalog. The player survives soft-nav transitions. All pages import `initGlobalAudioUI()` from `audio-ui.js`.
 
 **Wallet subsystem** (`js/shared/wallet/`): Ethereum wallet connection via SIWE (Sign-In with Ethereum). Modules: `wallet-config.js` (chain IDs, storage keys), `wallet-connectors.js` (MetaMask/WalletConnect detection), `wallet-state.js` (connection state machine), `wallet-controller.js` (orchestrates connect/disconnect + SIWE link/unlink via auth API), `wallet-ui.js` (connection modal rendering), `wallet-qr.js` (WalletConnect QR display), `wallet-workspace.js` (full wallet management page), `siwe-message.js` (SIWE message construction). Uses the `viem` npm package for address validation and SIWE message parsing (the only non-dev npm dependency).
 
@@ -206,7 +202,7 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Public tracks** (`js/pages/index/soundlab.js`): Sound Lab Explore fetches published member tracks directly from `/api/gallery/memtracks` and renders them without Free/Exclusive category selectors.
 
-**Legacy Free/Exclusive cleanup**: Old bundled Free tracks and old Exclusive private R2 objects are not shown in Sound Lab. Exclusive preservation uses `scripts/soundlab-exclusive-import-plan.mjs` plus the manual checks in `docs/soundlab-free-exclusive-cleanup.md`.
+**Legacy Free/Exclusive cleanup**: Old bundled Free tracks and old Exclusive private R2 objects are not shown in Sound Lab and are not imported into Saved Assets. Manual exact-key R2 cleanup guidance lives in `docs/soundlab-free-exclusive-cleanup.md`.
 
 ### Image Studio
 

@@ -5781,10 +5781,10 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.profile__favorites')).not.toContainText('AI Creations');
   });
 
-  test('soundlab favorites keep the tightened thumb_url guard and render viewer metadata inertly', async ({
+  test('soundlab Memtrack favorites keep the tightened thumb_url guard and render viewer metadata inertly', async ({
     page,
   }) => {
-    await page.route('**/api/soundlab-thumbs/**', async (route) => {
+    await page.route('**/api/gallery/memtracks/**/poster', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'image/png',
@@ -5797,16 +5797,16 @@ test.describe('Profile page (authenticated)', () => {
       favoritesPayload: [
         {
           item_type: 'soundlab',
-          item_id: 'cosmic-sea',
+          item_id: 'bad-memtrack',
           title: 'Bad <b class="xss-soundlab">Track</b>',
-          thumb_url: 'https://user:pass@pub.bitbi.ai/sound-lab/thumbs/thumb-cosmic.webp',
+          thumb_url: 'https://user:pass@pub.bitbi.ai/gallery/thumbs/blocked.webp',
           created_at: '2026-04-10T12:00:00.000Z',
         },
         {
           item_type: 'soundlab',
-          item_id: 'grok',
-          title: "Grok's Groove Remix",
-          thumb_url: '/api/soundlab-thumbs/thumb-bitbi',
+          item_id: 'feedc0de',
+          title: 'Published Member Track',
+          thumb_url: '/api/gallery/memtracks/feedc0de/vpubposter/poster',
           created_at: '2026-04-10T11:59:00.000Z',
         },
       ],
@@ -5816,21 +5816,18 @@ test.describe('Profile page (authenticated)', () => {
     expect(response?.ok()).toBeTruthy();
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:cosmic-sea"] img')).toHaveCount(0);
-    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:grok"] img')).toHaveAttribute('src', /\/api\/soundlab-thumbs\/thumb-bitbi$/);
+    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:bad-memtrack"] img')).toHaveCount(0);
+    await expect(page.locator('[data-favorites-type="soundlab"] [data-fav-key="soundlab:feedc0de"] img')).toHaveAttribute('src', /\/api\/gallery\/memtracks\/feedc0de\/vpubposter\/poster$/);
 
-    await page.locator('[data-fav-key="soundlab:cosmic-sea"]').click();
+    await page.locator('[data-fav-key="soundlab:bad-memtrack"]').click();
+    await expect(page.locator('#favViewer')).not.toHaveClass(/active/);
+
+    await page.locator('[data-fav-key="soundlab:feedc0de"]').click();
     await expect(page.locator('#favViewer')).toHaveClass(/active/);
     await expect(page.locator('#favViewer .xss-soundlab')).toHaveCount(0);
     await expect(page.locator('#favViewer #fvPlay')).toBeVisible();
-    await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText('Bad <b class="xss-soundlab">Track</b>');
-    await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveCount(0);
-    await page.locator('#favViewerClose').click();
-
-    await page.locator('[data-fav-key="soundlab:grok"]').click();
-    await expect(page.locator('#favViewer #fvPlay')).toBeVisible();
-    await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText("Grok's Groove Remix");
-    await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveAttribute('src', /\/api\/soundlab-thumbs\/thumb-bitbi$/);
+    await expect(page.locator('#favViewer .fav-viewer__track-title')).toHaveText('Published Member Track');
+    await expect(page.locator('#favViewer .fav-viewer__player-hero img')).toHaveAttribute('src', /\/api\/gallery\/memtracks\/feedc0de\/vpubposter\/poster$/);
   });
 
   test('mempics and video favorites render in the profile sidebar and open the matching viewer surfaces', async ({

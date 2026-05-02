@@ -13991,11 +13991,11 @@ test.describe('Worker routes', () => {
     const validThumbUrls = [
       { input: '', stored: '' },
       { input: ' /assets/images/1.jpg ', stored: '/assets/images/1.jpg' },
-      { input: ' /api/soundlab-thumbs/thumb-bitbi ', stored: '/api/soundlab-thumbs/thumb-bitbi' },
       { input: ' /api/gallery/mempics/a1b2c3d4/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/thumb' },
       { input: ' /api/gallery/mempics/a1b2c3d4/vpubthumb/thumb ', stored: '/api/gallery/mempics/a1b2c3d4/vpubthumb/thumb' },
       { input: ' /api/gallery/memvids/bada55e1/poster ', stored: '/api/gallery/memvids/bada55e1/poster' },
       { input: ' /api/gallery/memvids/bada55e1/vpubposter/poster ', stored: '/api/gallery/memvids/bada55e1/vpubposter/poster' },
+      { input: ' /api/gallery/memtracks/feedc0de/vpubposter/poster ', stored: '/api/gallery/memtracks/feedc0de/vpubposter/poster' },
       {
         input: ' https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp ',
         stored: 'https://pub.bitbi.ai/gallery/thumbs/ai-creations/crystal-bitbi-b-orbit-480.webp',
@@ -18911,93 +18911,6 @@ test.describe('Worker routes', () => {
     expect(hiddenRes.status).toBe(404);
   });
 
-  test('imported legacy Sound Lab Exclusive music stays private until published into Memtracks', async () => {
-    const { buildPublicMemtrackUrl, buildPublicMemtrackVersion } = await loadPublicMediaContractModule();
-    const authWorker = await loadWorker('workers/auth/src/index.js');
-    const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'exclusive-import-owner', role: 'user' })],
-      aiTextAssets: [
-        {
-          id: '1e9ac0e0',
-          user_id: 'exclusive-import-owner',
-          folder_id: null,
-          r2_key: 'users/exclusive-import-owner/folders/unsorted/audio/legacy-exclusive-track-01.mp3',
-          title: 'Exclusive Track 01',
-          file_name: 'exclusive-track-01.mp3',
-          source_module: 'music',
-          mime_type: 'audio/mpeg',
-          size_bytes: 512000,
-          preview_text: 'Imported legacy Sound Lab exclusive track.',
-          metadata_json: JSON.stringify({
-            imported_from: 'legacy_soundlab_exclusive',
-            legacy_slug: 'exclusive-track-01',
-          }),
-          created_at: '2026-04-12T09:00:00.000Z',
-          visibility: 'private',
-          published_at: null,
-          poster_r2_key: 'users/exclusive-import-owner/derivatives/v1/1e9ac0e0/poster.webp',
-          poster_width: 320,
-          poster_height: 320,
-        },
-      ],
-      userImages: {
-        'users/exclusive-import-owner/folders/unsorted/audio/legacy-exclusive-track-01.mp3': {
-          body: new TextEncoder().encode('legacy-exclusive-audio').buffer,
-          httpMetadata: { contentType: 'audio/mpeg' },
-        },
-        'users/exclusive-import-owner/derivatives/v1/1e9ac0e0/poster.webp': {
-          body: new TextEncoder().encode('legacy-exclusive-poster').buffer,
-          httpMetadata: { contentType: 'image/webp' },
-        },
-      },
-    });
-
-    const hiddenListRes = await authWorker.fetch(
-      new Request('https://bitbi.ai/api/gallery/memtracks?limit=10'),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(hiddenListRes.status).toBe(200);
-    await expect(hiddenListRes.json()).resolves.toMatchObject({
-      ok: true,
-      data: { items: [] },
-    });
-
-    const token = await seedSession(env, 'exclusive-import-owner');
-    const publishRes = await authWorker.fetch(
-      authJsonRequest('/api/ai/text-assets/1e9ac0e0/publication', 'PATCH', {
-        visibility: 'public',
-      }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(publishRes.status).toBe(200);
-
-    const version = buildPublicMemtrackVersion(env.DB.state.aiTextAssets[0]);
-    const publicListRes = await authWorker.fetch(
-      new Request('https://bitbi.ai/api/gallery/memtracks?limit=10'),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(publicListRes.status).toBe(200);
-    await expect(publicListRes.json()).resolves.toMatchObject({
-      ok: true,
-      data: {
-        items: [
-          {
-            id: '1e9ac0e0',
-            title: 'Exclusive Track 01',
-            file: { url: buildPublicMemtrackUrl('1e9ac0e0', version, 'file') },
-            poster: { url: buildPublicMemtrackUrl('1e9ac0e0', version, 'poster') },
-          },
-        ],
-      },
-    });
-  });
-
   test('non-owner cannot publish or unpublish another user’s saved music asset', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -19254,7 +19167,7 @@ test.describe('Worker routes', () => {
     expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
-  test('protected media routes keep legacy Sound Lab Exclusive import-source media available and retire Little Monster gallery media while Mempics still load', async () => {
+  test('retired protected media routes no longer serve old Sound Lab or Little Monster media while Mempics still load', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [
@@ -19289,14 +19202,6 @@ test.describe('Worker routes', () => {
           body: new TextEncoder().encode('retired-little-monster-thumb').buffer,
           httpMetadata: { contentType: 'image/webp' },
         },
-        'audio/sound-lab/exclusive-track-01.mp3': {
-          body: new TextEncoder().encode('soundlab-exclusive-audio').buffer,
-          httpMetadata: { contentType: 'audio/mpeg' },
-        },
-        'sound-lab/thumbs/thumb-bitbi.webp': {
-          body: new TextEncoder().encode('soundlab-exclusive-thumb').buffer,
-          httpMetadata: { contentType: 'image/webp' },
-        },
       },
     });
     const token = await seedSession(env, 'protected-media-user');
@@ -19322,17 +19227,15 @@ test.describe('Worker routes', () => {
       env,
       createExecutionContext().execCtx
     );
-    expect(soundLabAudioRes.status).toBe(200);
-    expect(soundLabAudioRes.headers.get('content-type')).toContain('audio/mpeg');
-    expect(await soundLabAudioRes.text()).toBe('soundlab-exclusive-audio');
+    expect(soundLabAudioRes.status).toBe(404);
 
     const soundLabThumbRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/soundlab-thumbs/thumb-bitbi', { headers: authHeaders }),
       env,
       createExecutionContext().execCtx
     );
-    expect(soundLabThumbRes.status).toBe(200);
-    expect(soundLabThumbRes.headers.get('content-type')).toContain('image/webp');
+    expect(soundLabThumbRes.status).toBe(404);
+    expect(env.PRIVATE_MEDIA.getCalls.some((key) => key.includes('audio/sound-lab') || key.includes('sound-lab/thumbs'))).toBe(false);
 
     const mempicsRes = await authWorker.fetch(
       new Request('https://bitbi.ai/api/gallery/mempics?limit=10'),

@@ -241,8 +241,9 @@ export function initSoundLab(revealObserver) {
             event.stopPropagation();
             event.preventDefault();
             const track = getMemtrackTrack(item);
-            if (!track || currentState.trackId !== track.id || !currentState.duration) return;
-            seekGlobalAudio(getSeekTimeFromPointer(bar, event, currentState.duration));
+            const activeState = getGlobalAudioState();
+            if (!track || activeState.trackId !== track.id || !activeState.duration) return;
+            seekGlobalAudio(getSeekTimeFromPointer(bar, event, activeState.duration));
         });
 
         return card;

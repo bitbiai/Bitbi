@@ -17,7 +17,7 @@ Merge readiness is conditional on committing the full Phase 1-E change set and k
 Implemented:
 
 - Added `workers/auth/src/app/route-policy.js` with declarative policy metadata and `getRoutePolicy(method, pathname)`.
-- Registered high-risk auth-worker route families first: auth/session, wallet SIWE, profile/avatar, favorites, admin users, admin MFA, admin AI, async video jobs, member AI writes, and protected media reads.
+- Registered high-risk auth-worker route families first: auth/session, wallet SIWE, profile/avatar, favorites, admin users, admin MFA, admin AI, async video jobs, and member AI writes.
 - Added `scripts/check-route-policies.mjs` to validate registry fields, mutating dispatch markers, admin/MFA declarations, body policies, fail-closed high-sensitivity limits, and route matching edge cases.
 - Added `ctx.routePolicy` lookup in `workers/auth/src/index.js` for future low-risk instrumentation/enforcement without changing public behavior.
 - Added route-policy markers beside existing mutating dispatch branches in auth route dispatch files.
@@ -61,7 +61,6 @@ The registry currently contains 99 auth-worker policies after later Phase 1-F th
 | Admin AI | `/api/admin/ai/*` | Admin auth, production MFA policy, fail-closed admin AI limits, admin JSON limits, AI service/config requirements, debug gate recorded for `/api/admin/ai/test-video`. |
 | Async admin video jobs | `/api/admin/ai/video-jobs`, `/poison`, `/failed`, `/:id`, `/:id/output`, `/:id/poster` | Admin auth, production MFA policy, fail-closed create/status/output/ops limits, queue/R2/AI service config requirements. Literal `poison` and `failed` routes are registered before dynamic `:id` matches. |
 | Member AI studio writes | `/api/ai/generate-image`, folders, image/audio save, bulk operations, publication/rename/delete | User auth, same-origin writes, explicit body limit names, fail-closed route-specific write limits. |
-| Protected media reads | `/api/music/:id`, `/api/soundlab-thumbs/:slug` | User auth/private-media config recorded for read-only protected Sound Lab media. |
 | Admin data lifecycle | `/api/admin/data-lifecycle/requests`, `/:id/plan`, `/:id/approve`, `/:id/generate-export`, `/:id/export`, `/:id/execute-safe`, `/exports`, `/exports/:id`, `/exports/cleanup-expired` | Admin auth, production MFA policy, same-origin mutations, fail-closed admin lifecycle limits, lifecycle/archive config requirements, and audit events for privileged lifecycle operations. |
 
 ## Registry Design

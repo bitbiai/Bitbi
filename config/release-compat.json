@@ -503,10 +503,7 @@
       "/api/gallery/",
       "/api/orgs/"
     ],
-    "protectedMediaPrefixes": [
-      "/api/music/",
-      "/api/soundlab-thumbs/"
-    ]
+    "protectedMediaPrefixes": []
   },
   "memberAi": {
     "authRoutes": {

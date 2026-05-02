@@ -1,39 +1,24 @@
 # Sound Lab Free / Exclusive Cleanup Note
 
-This note documents the safe cleanup path for the retired bundled Sound Lab Free catalog and the old Sound Lab Exclusive catalog.
-Do not delete R2 objects in this release. Published member music now appears through public Memtracks (`/api/gallery/memtracks`).
+This note documents the safe cleanup path for the retired bundled Sound Lab Free and Exclusive catalogs.
+The old bundled tracks are no longer imported or migrated into Saved Assets.
 
-## Current Product State
+Current Sound Lab behavior:
 
-- Sound Lab Explore no longer renders Free or Exclusive category surfaces.
-- Published member music is listed directly from `ai_text_assets` rows with `source_module = 'music'` and `visibility = 'public'`.
-- Old Exclusive tracks must be imported into one owner account's Saved Assets before any legacy private-media cleanup.
-- Old Exclusive imports should be private/unpublished by default, then published manually if they should appear in Memtracks.
+- Sound Lab Explore lists published member music directly from `/api/gallery/memtracks`.
+- Member Music 2.6 generation, generated music saving, cover thumbnails, Saved Assets playback, publish/unpublish, and public Memtracks remain active.
+- Private/unpublished member music remains private.
+- The old bundled Free and Exclusive Sound Lab categories are retired.
+- No runtime route or script should serve or import the old bundled tracks.
 
-## Legacy Free Track References
+## Manual R2 Cleanup Gate
 
-The old Free tracks were public R2 objects behind `https://pub.bitbi.ai`. The repository does not declare the Cloudflare R2 bucket name for that custom domain; verify the `pub.bitbi.ai` custom-domain bucket in Cloudflare before deletion.
+Do not delete R2 objects as part of a code release. Verify every exact key in Cloudflare R2 first.
+Some candidate keys may not exist in production.
 
-Live D1/favorites verification before deleting Free objects:
+Never broad-delete `audio/sound-lab/` or `sound-lab/thumbs/` unless a bucket listing proves those prefixes contain only the retired objects below.
 
-```sql
-SELECT item_type, item_id, thumb_url, COUNT(*) AS count
-FROM favorites
-WHERE (item_type = 'soundlab' AND item_id IN (
-  'cosmic-sea',
-  'zufall-und-notwendigkeit',
-  'relativity',
-  'tiny-hearts',
-  'grok'
-))
-   OR thumb_url LIKE 'https://pub.bitbi.ai/audio/sound-lab/%'
-   OR thumb_url LIKE 'https://pub.bitbi.ai/sound-lab/thumbs/%'
-GROUP BY item_type, item_id, thumb_url;
-```
-
-If this query returns rows, stale favorites must be cleaned or migrated in a separate reviewed D1 cleanup before deleting the Free objects.
-
-Free-track R2 deletion manifest, only after the live query returns zero rows:
+### Old Free Bundled Objects
 
 ```text
 audio/sound-lab/cosmic-sea.mp3
@@ -48,14 +33,7 @@ sound-lab/thumbs/thumb-tiny.webp
 sound-lab/thumbs/thumb-grok.webp
 ```
 
-## Legacy Exclusive Import
-
-Run the import as an explicit operator step with a reviewed owner user id. Do not hardcode the owner id in runtime code.
-
-Source bucket: `bitbi-private-media` (`PRIVATE_MEDIA`)
-Target bucket: `bitbi-user-images` (`USER_IMAGES`)
-
-Exclusive source objects:
+### Old Exclusive Bundled Objects
 
 ```text
 audio/sound-lab/exclusive-track-01.mp3
@@ -70,22 +48,34 @@ sound-lab/thumbs/thumb-ones.webp
 sound-lab/thumbs/thumb-rooms.webp
 ```
 
-Use `scripts/soundlab-exclusive-import-plan.mjs` to generate a deterministic copy manifest and D1 insert SQL after choosing the owner user id and measuring live source object sizes.
+## Verification Before Deletion
 
-Required verification before removing any legacy Exclusive route/object:
+Before manual deletion, confirm that no live favorites still point at the old bundled paths:
 
 ```sql
-SELECT source_module, visibility, COUNT(*) AS count
-FROM ai_text_assets
-WHERE source_module = 'music'
-  AND json_extract(metadata_json, '$.imported_from') = 'legacy_soundlab_exclusive'
-GROUP BY source_module, visibility;
+SELECT item_type, item_id, thumb_url, COUNT(*) AS count
+FROM favorites
+WHERE (item_type = 'soundlab' AND item_id IN (
+  'cosmic-sea',
+  'zufall-und-notwendigkeit',
+  'relativity',
+  'tiny-hearts',
+  'grok',
+  'exclusive-track-01',
+  'burning-slow',
+  'feel-it-all',
+  'the-ones-who-made-the-light',
+  'rooms-i''ll-never-live-in'
+))
+   OR thumb_url LIKE 'https://pub.bitbi.ai/audio/sound-lab/%'
+   OR thumb_url LIKE 'https://pub.bitbi.ai/sound-lab/thumbs/%'
+   OR thumb_url LIKE '/api/music/%'
+   OR thumb_url LIKE '/api/soundlab-thumbs/%'
+GROUP BY item_type, item_id, thumb_url;
 ```
 
-Expected result after import: five `music` rows with `visibility = 'private'`, each with a `poster_r2_key`. Publish/unpublish then uses the existing Saved Assets music publication controls.
+If this query returns rows, clean or migrate those stale favorites in a separate reviewed D1 cleanup before deleting R2 objects.
 
-## Rollback
+## Do Not Delete
 
-Keep the source R2 objects until the imported Saved Assets have been verified in production and any stale favorites have been handled. If a problem is found, leave the legacy R2 objects and routes in place, delete only the newly inserted `ai_text_assets` rows and their copied `USER_IMAGES` objects from the reviewed import manifest, then rerun the import after correction.
-
-Do not delete generated Music 2.6 assets, Memtracks, Mempics, Memvids, avatars, `USER_IMAGES` user media outside the import manifest, or Sound Lab member-generated tracks.
+Do not delete generated Music 2.6 assets, member Saved Assets, public Memtracks, Mempics, Memvids, avatars, `USER_IMAGES`, or unrelated protected media.

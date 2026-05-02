@@ -484,10 +484,7 @@ const baseManifest = {
       "/api/gallery/",
       "/api/orgs/",
     ],
-    protectedMediaPrefixes: [
-      "/api/music/",
-      "/api/soundlab-thumbs/",
-    ],
+    protectedMediaPrefixes: [],
   },
   memberAi: {
     authRoutes: {
@@ -858,7 +855,6 @@ function createValidContext() {
       if (pathname === "/api/request-reverification" && method === "POST") return handleRequestReverification();
       if (pathname.startsWith("/api/ai/")) { return handleAI(); }
       if (pathname.startsWith("/api/gallery/")) { return handleGallery(); }
-      if (pathname.startsWith("/api/music/") || pathname.startsWith("/api/soundlab-thumbs/")) { return handleMedia(); }
     `,
     authAiSource: `
       if (pathname === "/api/ai/quota" && method === "GET") return handleQuota();

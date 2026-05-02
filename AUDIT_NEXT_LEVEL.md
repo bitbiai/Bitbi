@@ -169,7 +169,7 @@ Phase 1-D completed summary:
 
 Phase 1-E completed summary:
 
-- Added `workers/auth/src/app/route-policy.js` with explicit route metadata for high-risk auth-worker routes across auth/session, wallet SIWE, profile/avatar, favorites, admin users, admin MFA, admin AI, async video jobs, member AI writes, and protected media reads.
+- Added `workers/auth/src/app/route-policy.js` with explicit route metadata for high-risk auth-worker routes across auth/session, wallet SIWE, profile/avatar, favorites, admin users, admin MFA, admin AI, async video jobs, and member AI writes.
 - Added `scripts/check-route-policies.mjs` to prevent new mutating branches in selected auth-worker dispatcher files from existing without a registered policy marker.
 - Added `ctx.routePolicy` lookup in `workers/auth/src/index.js` for future low-risk instrumentation/enforcement without changing route behavior.
 - Integrated `npm run check:route-policies` into package scripts, release planning, release compatibility workflow checks, CI, targeted JS syntax checks, and Worker tests.
@@ -363,7 +363,7 @@ Main execution flows:
 | Admin protection | `workers/auth/src/lib/session.js:187-257`, `workers/auth/src/routes/admin-mfa.js` | Role check plus production MFA enforcement. MFA endpoints lack route-level rate limiting. |
 | Admin AI | `workers/auth/src/routes/admin-ai.js`, `workers/auth/src/lib/admin-ai-proxy.js`, `workers/ai/src/index.js` | Auth worker proxies admin requests to AI worker via service binding. AI worker itself does not verify a signed service credential. |
 | Member AI image generation | `workers/auth/src/routes/ai/images-write.js` | Per-user generation limiter and member credit charging with daily top-up bookkeeping. Generated image payloads are returned to client and later saved. |
-| Private media | `workers/auth/src/routes/media.js`, `workers/auth/src/routes/avatar.js`, `workers/auth/src/routes/ai/files-read.js` | Authenticated ownership checks for private images/music/text assets. |
+| Private media | `workers/auth/src/routes/avatar.js`, `workers/auth/src/routes/ai/files-read.js` | Authenticated ownership checks for private user media and generated asset reads. |
 | Favorites and galleries | `workers/auth/src/routes/favorites.js`, static modules under `js/pages/index/` | Static catalog plus authenticated favorite state. |
 | Wallet/SIWE | `workers/auth/src/routes/wallet.js`, `js/shared/wallet/` | Nonce/challenge flow, address checks, local wallet UI state. |
 | Background work | `workers/auth/src/index.js:300-459` | Cron R2 cleanup and derivative re-enqueue; queue consumer processes activity and derivatives. |
@@ -687,7 +687,6 @@ Affected files:
 | File | Evidence |
 | --- | --- |
 | `js/pages/index/soundlab.js:47` | Large template uses `${tr.artwork}` and `${tr.title}` in `innerHTML`. |
-| `js/pages/index/locked-sections.js:218,326` | Templates insert media URLs/titles into HTML. |
 | `js/shared/soft-nav.js:59` | Copies `newMain.innerHTML` during soft navigation. |
 | `js/pages/admin/ai-lab.js` | Many `innerHTML` sinks in a 4613-line admin file. |
 
@@ -852,7 +851,7 @@ Priority: P1
 | SIWE wallet flow is relatively robust | Nonce, domain, URI, version, chain, statement, timestamp, and signature checks exist in `workers/auth/src/routes/wallet.js`; nonce/verify use fail-closed DO limits. |
 | Contact form has strict origin and fail-closed Durable Object limiter | `workers/contact/src/index.js:70-131`. |
 | Avatar MIME type and magic bytes are checked | `workers/auth/src/routes/avatar.js:311-327`. |
-| Private media access uses authenticated route ownership | `workers/auth/src/routes/media.js`, `workers/auth/src/routes/ai/files-read.js`. |
+| Private media access uses authenticated route ownership | `workers/auth/src/routes/avatar.js`, `workers/auth/src/routes/ai/files-read.js`. |
 
 ## Performance Audit
 

@@ -89,14 +89,6 @@ function normalizeCrossOrigin(sourceUrl, crossOrigin = '') {
     const resolvedSourceUrl = normalizeAssetUrl(sourceUrl);
     if (!resolvedSourceUrl) return '';
 
-    try {
-        const url = new URL(resolvedSourceUrl);
-        const isPublicSoundLabTrack = url.hostname === 'pub.bitbi.ai' && url.pathname.startsWith('/audio/sound-lab/');
-        if (isPublicSoundLabTrack) return '';
-    } catch {
-        return '';
-    }
-
     return crossOrigin === 'use-credentials' || crossOrigin === 'anonymous'
         ? crossOrigin
         : '';

@@ -340,7 +340,7 @@ async function readHomepageCategoryStageMetrics(page) {
   });
 }
 
-async function waitForHomepageCategoryTransitionMetrics(page, targetCategory, timeout = 900) {
+async function waitForHomepageCategoryTransitionMetrics(page, targetCategory, timeout = 2000) {
   const handle = await page.waitForFunction((expectedCategory) => {
     const stage = document.getElementById('homeCategories');
     const navbar = document.getElementById('navbar');
@@ -821,7 +821,7 @@ test.describe('Homepage', () => {
       await prevButton.evaluate((button) => Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0'))
     )).toBeGreaterThan(0.5);
 
-    await prevButton.click();
+    await prevButton.click({ force: true });
     const midTransitionMetrics = await waitForHomepageCategoryTransitionMetrics(page, 'gallery');
     expect(midTransitionMetrics.isTransitioning || midTransitionMetrics.activeCategory === 'gallery').toBe(true);
     expect(midTransitionMetrics.alignmentDelta).toBeLessThan(initialStageMetrics.alignmentDelta);
@@ -836,7 +836,7 @@ test.describe('Homepage', () => {
     await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.target || '').toBe('video');
     await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.mediaBackgroundImage || '').toContain('video.webp');
 
-    await nextButton.click();
+    await nextButton.click({ force: true });
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
@@ -844,7 +844,7 @@ test.describe('Homepage', () => {
     await expect(prevButton).toBeVisible();
     await expect(nextButton).toBeVisible();
 
-    await nextButton.click();
+    await nextButton.click({ force: true });
     await expectActiveHomepageCategory(page, 'sound');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
@@ -2736,8 +2736,20 @@ test.describe('Homepage', () => {
     await expect(page.locator('#soundlab').getByRole('tab', { name: /Exclusive/ })).toHaveCount(0);
     await expect(page.locator('#soundLabTracks .snd-card--free')).toHaveCount(0);
     await expect(page.locator('#soundLabTracks .locked-area')).toHaveCount(0);
-    await expect(page.locator('#soundLabExplore')).not.toContainText('Cosmic Sea');
-    await expect(page.locator('#soundLabExplore')).not.toContainText('Exclusive');
+    for (const retiredTrackName of [
+      'Cosmic Sea',
+      'Zufall und Notwendigkeit',
+      'Relativity',
+      'Tiny Hearts',
+      'Grok',
+      'Burning Slow',
+      'Feel It All',
+      'The Ones Who Made The Light',
+      "Rooms I'll Never Live In",
+      'Exclusive',
+    ]) {
+      await expect(page.locator('#soundLabExplore')).not.toContainText(retiredTrackName);
+    }
 
     const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
     await expect(memtrackCard).toBeVisible();

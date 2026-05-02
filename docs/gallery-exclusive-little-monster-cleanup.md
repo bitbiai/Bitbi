@@ -2,7 +2,7 @@
 
 This note documents the manual cleanup gate for the retired Gallery Exclusive / Little Monster media.
 Do not delete R2 objects until the live D1 verification query returns zero rows.
-Sound Lab Exclusive assets are not part of this cleanup.
+Retired bundled Sound Lab Free / Exclusive cleanup is tracked separately in `docs/soundlab-free-exclusive-cleanup.md`.
 
 ## Live D1 Verification
 
@@ -58,4 +58,4 @@ images/Little_Monster/thumbnails/little-monster_14.webp
 images/Little_Monster/thumbnails/little-monster_15.webp
 ```
 
-Do not delete `audio/sound-lab/*`, `sound-lab/thumbs/*`, `avatars/*`, `USER_IMAGES`, member-generated media, Mempics, or any unrelated protected media.
+Do not delete `avatars/*`, `USER_IMAGES`, member-generated media, Mempics, Memvids, Memtracks, or any unrelated protected media.
