@@ -71,6 +71,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   const adminImageModels = Array.isArray(models.image) ? models.image : [];
   const adminImageById = new Map(adminImageModels.map((entry) => [entry.id, entry]));
   const liveImageIds = new Set();
+  const liveMusicIds = new Set([contractModule.ADMIN_AI_MUSIC_MODEL_ID]);
 
   const imageEntries = liveImageModels.map((entry) => {
     liveImageIds.add(entry.id);
@@ -102,7 +103,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
       models: (models.music || []).map((entry) => ({
         name: entry.label,
         vendor: entry.vendor,
-        status: 'Coming soon',
+        status: liveMusicIds.has(entry.id) ? 'LIVE' : 'Coming soon',
       })),
     },
     {

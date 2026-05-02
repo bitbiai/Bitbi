@@ -3930,6 +3930,7 @@ test.describe('Image Studio (authenticated)', () => {
               source_module: 'music',
               mime_type: 'audio/mpeg',
               file_url: '/api/ai/text-assets/soundlab-track-1/file',
+              poster_url: '/api/ai/text-assets/soundlab-track-1/poster',
             },
           },
           billing: {
@@ -3963,6 +3964,9 @@ test.describe('Image Studio (authenticated)', () => {
     await page.locator('#soundMusicPrompt').fill('A glossy synth pop track for late night coding.');
     await page.locator('#soundMusicGenerate').click();
     await expect(page.locator('#soundMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#soundMusicPreview .sound-create__cover img'))
+      .toHaveAttribute('src', '/api/ai/text-assets/soundlab-track-1/poster');
+    await expect(page.locator('#soundMusicPreview .sound-create__cover-play')).toBeVisible();
     await expect(page.locator('#soundMusicMsg')).toContainText('Music generated and saved.');
     await expect(page.locator('#soundLabCreate .studio__quota')).toContainText('850 credits available');
 
@@ -3988,6 +3992,8 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(overlay).toHaveClass(/is-active/);
     await expect(overlay).toContainText('FLUX.1 Schnell');
     await expect(overlay).toContainText('FLUX.2 Klein 9B');
+    const musicCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Music 2.6' });
+    await expect(musicCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
     await expect.poll(() => overlay.locator('.models-overlay__status').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent?.trim() || ''),

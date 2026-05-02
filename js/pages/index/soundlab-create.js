@@ -113,14 +113,63 @@ function renderResult(data) {
     }
     const title = data?.asset?.title || 'Generated music';
     const lyrics = data?.lyricsPreview || data?.generatedLyrics || '';
+    const coverUrl = data?.asset?.poster_url || data?.coverUrl || '';
 
     const result = document.createElement('div');
     result.className = 'sound-create__result';
+
+    const cover = document.createElement('div');
+    cover.className = 'sound-create__cover';
+    if (coverUrl) {
+        const img = document.createElement('img');
+        img.src = coverUrl;
+        img.alt = '';
+        img.loading = 'lazy';
+        cover.append(img);
+    } else {
+        cover.classList.add('sound-create__cover--fallback');
+    }
 
     const audio = document.createElement('audio');
     audio.controls = true;
     audio.preload = 'metadata';
     audio.src = audioUrl;
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'sound-create__cover-play';
+    play.setAttribute('aria-label', `Play ${title}`);
+    play.textContent = '▶';
+    play.addEventListener('click', async () => {
+        try {
+            if (audio.paused) {
+                await audio.play();
+                play.textContent = '||';
+                play.setAttribute('aria-label', `Pause ${title}`);
+            } else {
+                audio.pause();
+                play.textContent = '▶';
+                play.setAttribute('aria-label', `Play ${title}`);
+            }
+        } catch (error) {
+            console.warn('Sound Lab playback failed:', error);
+        }
+    });
+    audio.addEventListener('pause', () => {
+        play.textContent = '▶';
+        play.setAttribute('aria-label', `Play ${title}`);
+    });
+    audio.addEventListener('ended', () => {
+        play.textContent = '▶';
+        play.setAttribute('aria-label', `Play ${title}`);
+    });
+    audio.addEventListener('play', () => {
+        play.textContent = '||';
+        play.setAttribute('aria-label', `Pause ${title}`);
+    });
+
+    cover.append(play);
+    result.append(cover);
     result.append(audio);
 
     const meta = document.createElement('div');

@@ -4324,6 +4324,9 @@ class MockD1 {
         preview_text: previewText,
         metadata_json: metadataJson,
         created_at: createdAt,
+        poster_r2_key: null,
+        poster_width: null,
+        poster_height: null,
       });
       return { success: true, meta: { changes: 1 } };
     }
@@ -4343,6 +4346,9 @@ class MockD1 {
         preview_text: previewText,
         metadata_json: metadataJson,
         created_at: createdAt,
+        poster_r2_key: null,
+        poster_width: null,
+        poster_height: null,
       });
       return { success: true, meta: { changes: 1 } };
     }
@@ -5269,6 +5275,22 @@ class MockD1 {
             file_name: row.file_name,
             mime_type: row.mime_type,
             source_module: row.source_module,
+          }
+        : null;
+    }
+
+    if (query === "SELECT id, user_id, source_module, poster_r2_key, metadata_json FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'music'") {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) =>
+        item.id === assetId && item.user_id === userId && item.source_module === 'music'
+      );
+      return row
+        ? {
+            id: row.id,
+            user_id: row.user_id,
+            source_module: row.source_module,
+            poster_r2_key: row.poster_r2_key ?? null,
+            metadata_json: row.metadata_json || '{}',
           }
         : null;
     }

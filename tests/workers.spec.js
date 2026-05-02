@@ -4279,6 +4279,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     creditBalance = 200,
     missingTables = [],
     aiRun,
+    coverAiRun,
+    imagesBinding,
     aiFolders = [],
   } = {}) {
     const authWorker = await loadWorker('workers/auth/src/index.js');
@@ -4289,6 +4291,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       users: [user],
       missingTables,
       aiFolders,
+      aiRun: coverAiRun,
+      imagesBinding,
       memberCreditLedger: creditBalance > 0 ? [{
         id: `cl_seed_member_music_${user.id}`.slice(0, 120),
         user_id: user.id,
@@ -4350,19 +4354,21 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     token,
     body = {},
     idempotencyKey = 'member-music-key-123456',
+    executionContext = null,
   }) {
     const headers = {
       Origin: 'https://bitbi.ai',
       Cookie: `bitbi_session=${token}`,
     };
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    const exec = executionContext || createExecutionContext();
     return worker.fetch(
       authJsonRequest('/api/ai/generate-music', 'POST', {
         prompt: 'Warm synthwave with bright vocals.',
         ...body,
       }, headers),
       env,
-      createExecutionContext().execCtx
+      exec.execCtx
     );
   }
 
@@ -4579,6 +4585,144 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     }));
     expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/audio/');
     expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+  });
+
+  test('member music cover generation runs after successful save and attaches a thumbnail without extra credits', async () => {
+    const coverCalls = [];
+    const { authWorker, env, token, user } = await createMemberMusicHarness({
+      coverAiRun: async (modelId, payload) => {
+        coverCalls.push({ modelId, payload });
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const executionContext = createExecutionContext();
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      executionContext,
+      body: {
+        prompt: 'Hip hop drums with warm vinyl texture.',
+        lyrics: '[Verse]\nCover this beat',
+      },
+      idempotencyKey: 'member-music-cover-key-123456',
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      billing: {
+        credits_charged: 150,
+        balance_after: 50,
+      },
+    });
+
+    await executionContext.flush();
+
+    expect(coverCalls).toHaveLength(1);
+    expect(coverCalls[0]).toEqual(expect.objectContaining({
+      modelId: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(coverCalls[0].payload).toEqual({
+      prompt: expect.stringContaining('Hip hop drums with warm vinyl texture.'),
+    });
+    expect(coverCalls[0].payload.prompt).toContain('No words');
+
+    const musicAsset = env.DB.state.aiTextAssets.find((row) => row.user_id === user.id && row.source_module === 'music');
+    expect(musicAsset).toEqual(expect.objectContaining({
+      poster_r2_key: `users/${user.id}/derivatives/v1/${musicAsset.id}/poster.webp`,
+      poster_width: 320,
+      poster_height: 320,
+    }));
+    expect(env.USER_IMAGES.objects.has(musicAsset.poster_r2_key)).toBe(true);
+    const tempKeys = env.USER_IMAGES.putCalls
+      .map((call) => call.key)
+      .filter((key) => key.startsWith('tmp/ai-generated/music-covers/'));
+    expect(tempKeys).toHaveLength(1);
+    expect(env.USER_IMAGES.deleteCalls).toContain(tempKeys[0]);
+    expect(env.USER_IMAGES.objects.has(tempKeys[0])).toBe(false);
+    expect(env.IMAGES.transformCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        transforms: [expect.objectContaining({ width: 320, height: 320, fit: 'scale-down' })],
+        outputOptions: expect.objectContaining({ format: 'image/webp', quality: 82 }),
+      }),
+    ]));
+
+    const consumes = env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    );
+    expect(consumes).toHaveLength(1);
+    expect(consumes[0].amount).toBe(-150);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.image.generate')).toHaveLength(0);
+  });
+
+  test('member music cover failures keep the saved track playable and do not add a credit charge', async () => {
+    const coverCalls = [];
+    const { authWorker, env, token } = await createMemberMusicHarness({
+      coverAiRun: async (modelId, payload) => {
+        coverCalls.push({ modelId, payload });
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+      imagesBinding: { failInfoWith: new Error('thumbnail unavailable') },
+    });
+    const executionContext = createExecutionContext();
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      executionContext,
+      body: {
+        lyrics: '[Verse]\nKeep this audio',
+      },
+      idempotencyKey: 'member-music-cover-failure-key-123456',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        audioUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+      },
+      billing: {
+        credits_charged: 150,
+      },
+    });
+
+    await executionContext.flush();
+
+    expect(coverCalls).toHaveLength(1);
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    expect(env.DB.state.aiTextAssets[0].poster_r2_key).toBeNull();
+    expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+    const consumes = env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    );
+    expect(consumes).toHaveLength(1);
+    expect(consumes[0].amount).toBe(-150);
+  });
+
+  test('member music cover generation is not exposed as a standalone free image route', async () => {
+    const { authWorker, env, token } = await createMemberMusicHarness({
+      coverAiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+    });
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/music-cover', 'POST', {
+        prompt: 'free cover please',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(404);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
   });
 
   test('member music generation charges 160 credits only when separate lyrics generation is performed', async () => {

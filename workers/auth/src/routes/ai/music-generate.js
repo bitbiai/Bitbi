@@ -20,6 +20,7 @@ import {
   WorkerConfigError,
 } from "../../lib/config.js";
 import { fetchGeneratedAudioForSave } from "../../lib/generated-audio-save.js";
+import { scheduleMemberMusicCoverGeneration } from "../../lib/member-music-cover.js";
 import { json } from "../../lib/response.js";
 import {
   BODY_LIMITS,
@@ -624,6 +625,14 @@ export async function handleGenerateMusic(ctx) {
     });
     return respond(policyError.body, { status: policyError.status });
   }
+
+  scheduleMemberMusicCoverGeneration(ctx, {
+    env,
+    userId,
+    assetId: savedAsset.id,
+    styleInput: input.prompt,
+    correlationId,
+  });
 
   return respond({
     ok: true,

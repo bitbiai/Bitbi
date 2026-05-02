@@ -812,13 +812,14 @@ async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentT
   }
 }
 
-async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
+async function processAiTextAssetPosterBytes(env, {
+  userId,
+  assetId,
+  posterBytes,
+  successEvent,
+  failureEvent,
+}) {
   try {
-    const raw = posterBase64.includes(",")
-      ? posterBase64.split(",")[1]
-      : posterBase64;
-    const posterBytes = Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
-
     if (posterBytes.byteLength === 0 || posterBytes.byteLength > POSTER_MAX_BYTES) {
       return null;
     }
@@ -903,7 +904,7 @@ async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",
-      event: "video_poster_saved",
+      event: successEvent,
       asset_id: assetId,
       user_id: userId,
       poster_width: width,
@@ -911,6 +912,33 @@ async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
     });
 
     return { r2Key, width, height };
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: failureEvent,
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      ...getErrorFields(error),
+    });
+    return null;
+  }
+}
+
+async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
+  try {
+    const raw = posterBase64.includes(",")
+      ? posterBase64.split(",")[1]
+      : posterBase64;
+    const posterBytes = Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
+    return processAiTextAssetPosterBytes(env, {
+      userId,
+      assetId,
+      posterBytes,
+      successEvent: "video_poster_saved",
+      failureEvent: "video_poster_save_failed",
+    });
   } catch (error) {
     logDiagnostic({
       service: "bitbi-auth",
@@ -923,4 +951,14 @@ async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
     });
     return null;
   }
+}
+
+export async function processGeneratedMusicCoverPoster(env, { userId, assetId, coverBytes }) {
+  return processAiTextAssetPosterBytes(env, {
+    userId,
+    assetId,
+    posterBytes: coverBytes,
+    successEvent: "music_cover_saved",
+    failureEvent: "music_cover_save_failed",
+  });
 }

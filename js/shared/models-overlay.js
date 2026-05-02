@@ -4,7 +4,10 @@
    the shared site header.
    ============================================================ */
 
-import { listAdminAiCatalog } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
+import {
+    ADMIN_AI_MUSIC_MODEL_ID,
+    listAdminAiCatalog,
+} from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 
@@ -16,7 +19,9 @@ const MODEL_GROUPS = [
 
 const USER_LIVE_MODELS = {
     image: AI_IMAGE_MODELS,
-    music: [],
+    music: [
+        { id: ADMIN_AI_MUSIC_MODEL_ID, label: 'Music 2.6' },
+    ],
     video: [],
 };
 
@@ -26,7 +31,7 @@ export const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
 
 const STATUS_LABELS = {
     included: 'Included',
-    live: 'Live',
+    live: 'LIVE',
     'requires-credits': 'Requires credits',
     'coming-soon': 'Coming soon',
 };
