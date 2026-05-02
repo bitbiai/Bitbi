@@ -77,6 +77,16 @@ export function buildPublicMemvidVersion(row = {}) {
   ]);
 }
 
+export function buildPublicMemtrackVersion(row = {}) {
+  return buildVersionToken([
+    row.published_at || row.created_at || "",
+    row.r2_key || "",
+    row.poster_r2_key || "",
+    row.created_at || "",
+    row.mime_type || "",
+  ]);
+}
+
 export function buildPublicMempicUrl(itemId, version, variant) {
   return buildPublicMediaUrl("mempics", itemId, version, variant);
 }
@@ -85,10 +95,18 @@ export function buildPublicMemvidUrl(itemId, version, variant) {
   return buildPublicMediaUrl("memvids", itemId, version, variant);
 }
 
+export function buildPublicMemtrackUrl(itemId, version, variant) {
+  return buildPublicMediaUrl("memtracks", itemId, version, variant);
+}
+
 export function getPublicMempicVersionFromUrl(value) {
   return parseVersionedPath("mempics", value, "thumb|medium|file")?.version || "";
 }
 
 export function getPublicMemvidVersionFromUrl(value) {
   return parseVersionedPath("memvids", value, "poster|file")?.version || "";
+}
+
+export function getPublicMemtrackVersionFromUrl(value) {
+  return parseVersionedPath("memtracks", value, "poster|file")?.version || "";
 }

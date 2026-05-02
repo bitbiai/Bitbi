@@ -18772,6 +18772,202 @@ test.describe('Worker routes', () => {
     });
   });
 
+  test('owner can publish and unpublish a saved music asset into public Memtracks', async () => {
+    const { buildPublicMemtrackUrl, buildPublicMemtrackVersion } = await loadPublicMediaContractModule();
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'memtrack-owner', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'cab005e1',
+          user_id: 'memtrack-owner',
+          folder_id: null,
+          r2_key: 'users/memtrack-owner/folders/music/cab005e1.mp3',
+          title: 'Neon Drift',
+          file_name: 'neon-drift.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 640000,
+          preview_text: 'A late-night synth track.',
+          metadata_json: JSON.stringify({ duration_seconds: 42 }),
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'private',
+          published_at: null,
+          poster_r2_key: 'users/memtrack-owner/derivatives/v1/cab005e1/poster.webp',
+          poster_width: 320,
+          poster_height: 320,
+        },
+      ],
+      userImages: {
+        'users/memtrack-owner/folders/music/cab005e1.mp3': {
+          body: new TextEncoder().encode('audio-v1').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'users/memtrack-owner/derivatives/v1/cab005e1/poster.webp': {
+          body: new TextEncoder().encode('poster-v1').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'memtrack-owner');
+    const publishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/cab005e1/publication', 'PATCH', {
+        visibility: 'public',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(publishRes.status).toBe(200);
+    await expect(publishRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: 'cab005e1',
+        visibility: 'public',
+        is_public: true,
+        published_at: expect.any(String),
+      },
+    });
+    expect(env.DB.state.aiTextAssets[0]).toMatchObject({
+      id: 'cab005e1',
+      user_id: 'memtrack-owner',
+      source_module: 'music',
+      visibility: 'public',
+    });
+
+    const version = buildPublicMemtrackVersion(env.DB.state.aiTextAssets[0]);
+    const publicListRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memtracks?limit=10'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicListRes.status).toBe(200);
+    await expect(publicListRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: 'cab005e1',
+            title: 'Neon Drift',
+            category: 'memtracks',
+            file: { url: buildPublicMemtrackUrl('cab005e1', version, 'file') },
+            poster: { url: buildPublicMemtrackUrl('cab005e1', version, 'poster') },
+          },
+        ],
+      },
+    });
+
+    const publicFileAliasRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memtracks/cab005e1/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicFileAliasRes.status).toBe(302);
+    expect(publicFileAliasRes.headers.get('location')).toBe(buildPublicMemtrackUrl('cab005e1', version, 'file'));
+
+    const publicFileRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemtrackUrl('cab005e1', version, 'file')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicFileRes.status).toBe(200);
+    expect(publicFileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(publicFileRes.headers.get('content-type')).toContain('audio/mpeg');
+
+    const publicPosterRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemtrackUrl('cab005e1', version, 'poster')}`),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publicPosterRes.status).toBe(200);
+    expect(publicPosterRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    const unpublishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/cab005e1/publication', 'PATCH', {
+        visibility: 'private',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(unpublishRes.status).toBe(200);
+    expect(env.DB.state.aiTextAssets[0]).toMatchObject({
+      visibility: 'private',
+      published_at: null,
+    });
+
+    const hiddenRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/gallery/memtracks/cab005e1/file'),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(hiddenRes.status).toBe(404);
+  });
+
+  test('non-owner cannot publish or unpublish another user’s saved music asset', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: 'memtrack-owner', role: 'user' }),
+        createContractUser({ id: 'memtrack-other', role: 'user' }),
+      ],
+      aiTextAssets: [
+        {
+          id: 'dec0de01',
+          user_id: 'memtrack-owner',
+          folder_id: null,
+          r2_key: 'users/memtrack-owner/folders/music/dec0de01.mp3',
+          title: 'Owner Track',
+          file_name: 'owner-track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 1234,
+          preview_text: '',
+          metadata_json: '{}',
+          created_at: '2026-04-12T09:00:00.000Z',
+          visibility: 'public',
+          published_at: '2026-04-14T10:00:00.000Z',
+        },
+      ],
+    });
+
+    const token = await seedSession(env, 'memtrack-other');
+    const publishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/dec0de01/publication', 'PATCH', {
+        visibility: 'public',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(publishRes.status).toBe(404);
+
+    const unpublishRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/dec0de01/publication', 'PATCH', {
+        visibility: 'private',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(unpublishRes.status).toBe(404);
+    expect(env.DB.state.aiTextAssets[0]).toMatchObject({
+      visibility: 'public',
+      published_at: '2026-04-14T10:00:00.000Z',
+    });
+  });
+
   test('public Mempics listing returns only explicitly published ready images and exposes only safe public fields', async () => {
     const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');

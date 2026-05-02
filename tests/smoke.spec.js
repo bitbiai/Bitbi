@@ -2598,6 +2598,102 @@ test.describe('Homepage', () => {
     expect(laptopLayout).toBeLessThanOrEqual(4);
   });
 
+  test('homepage Sound Lab exposes public Memtracks to logged-out visitors before Free', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+
+    await page.route('**/api/favorites', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, favorites: [] }),
+      });
+    });
+
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'feedc0de',
+                slug: 'memtrack-feedc0de',
+                title: 'Public Member Track',
+                caption: 'Published by Ada Member.',
+                category: 'memtracks',
+                publisher: { display_name: 'Ada Member' },
+                file: { url: '/api/gallery/memtracks/feedc0de/vpub/file' },
+                poster: {
+                  url: '/api/gallery/memtracks/feedc0de/vpub/poster',
+                  w: 320,
+                  h: 320,
+                },
+              },
+            ],
+            has_more: false,
+            next_cursor: null,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/gallery/memtracks/**', async (route) => {
+      if (route.request().url().endsWith('/poster')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/webp',
+          body: Buffer.from('mock-poster'),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'audio/mpeg',
+        body: Buffer.from('mock-audio'),
+      });
+    });
+
+    await page.goto('/');
+    await switchHomepageCategory(page, 'sound');
+
+    const filterButtons = page.locator('#soundlab .snd-filter-btn');
+    await expect
+      .poll(() => filterButtons.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Memtracks', 'Free', 'Exclusive 🔒']);
+
+    await page.locator('#soundlab').getByRole('tab', { name: 'Memtracks' }).click();
+
+    const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
+    await expect(memtrackCard).toBeVisible();
+    await expect(memtrackCard.locator('h4')).toHaveText('Public Member Track');
+    await expect(memtrackCard.locator('.snd-hero img')).toHaveAttribute(
+      'src',
+      '/api/gallery/memtracks/feedc0de/vpub/poster',
+    );
+    await expect(page.locator('#playlistPlayer')).toBeHidden();
+
+    await memtrackCard.locator('.snd-memtrack-play').click();
+    await expect
+      .poll(() => page.evaluate(() => {
+        try {
+          return JSON.parse(localStorage.getItem('bitbi_audio_state_v1') || '{}').trackId || '';
+        } catch {
+          return '';
+        }
+      }))
+      .toBe('memtrack:feedc0de');
+  });
+
 });
 
 // ---------------------------------------------------------------------------

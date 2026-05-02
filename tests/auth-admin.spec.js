@@ -214,15 +214,20 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
       }
       return cloneJson(asset);
     },
-    setImageVisibility(id, visibility) {
+    setAssetVisibility(id, visibility) {
       const asset = assetMap.get(id);
-      if (!asset || asset.asset_type !== 'image') return null;
+      if (!asset || !['image', 'sound', 'audio', 'video'].includes(String(asset.asset_type || ''))) return null;
       asset.visibility = visibility;
       asset.is_public = visibility === 'public';
       asset.published_at = visibility === 'public'
         ? (asset.published_at || '2026-04-12T12:00:00.000Z')
         : null;
       return cloneJson(asset);
+    },
+    setImageVisibility(id, visibility) {
+      const asset = assetMap.get(id);
+      if (!asset || asset.asset_type !== 'image') return null;
+      return this.setAssetVisibility(id, visibility);
     },
     moveAssets(ids, folderId) {
       ids.forEach((id) => {
@@ -1261,6 +1266,33 @@ async function mockAdminAiLab(page, captures = {}) {
   });
 
   await page.route('**/api/ai/text-assets/**', async (route) => {
+    if (route.request().method() === 'PATCH' && /\/api\/ai\/text-assets\/[^/]+\/publication$/.test(new URL(route.request().url()).pathname)) {
+      const assetId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const updated = assetStore.setAssetVisibility(assetId, body.visibility);
+      if (!updated) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Asset not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: updated.id,
+            visibility: updated.visibility,
+            is_public: updated.is_public,
+            published_at: updated.published_at,
+          },
+        }),
+      });
+      return;
+    }
     if (route.request().method() === 'PATCH' && /\/api\/ai\/text-assets\/[^/]+\/rename$/.test(new URL(route.request().url()).pathname)) {
       const assetId = route.request().url().split('/').slice(-2, -1)[0];
       const body = route.request().postDataJSON();
@@ -2059,7 +2091,34 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
     });
   });
 
-  await page.route('**/api/ai/text-assets/*', async (route) => {
+  await page.route('**/api/ai/text-assets/**', async (route) => {
+    if (route.request().method() === 'PATCH' && /\/api\/ai\/text-assets\/[^/]+\/publication$/.test(new URL(route.request().url()).pathname)) {
+      const assetId = route.request().url().split('/').slice(-2, -1)[0];
+      const body = route.request().postDataJSON();
+      const updated = assetStore.setAssetVisibility(assetId, body.visibility);
+      if (!updated) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Asset not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: updated.id,
+            visibility: updated.visibility,
+            is_public: updated.is_public,
+            published_at: updated.published_at,
+          },
+        }),
+      });
+      return;
+    }
     if (route.request().method() !== 'DELETE') {
       await route.fallback();
       return;
@@ -4262,6 +4321,9 @@ test.describe('Image Studio (authenticated)', () => {
             preview_text: 'A short ambient loop saved into the shared folder browser.',
             created_at: '2026-04-10T12:06:00.000Z',
             file_url: '/api/ai/text-assets/snd-1/file',
+            poster_url: '/api/ai/text-assets/snd-1/poster',
+            poster_width: 320,
+            poster_height: 320,
           },
           {
             id: 'vid-1',
@@ -4317,6 +4379,9 @@ test.describe('Image Studio (authenticated)', () => {
               preview_text: 'A short ambient loop saved into the shared folder browser.',
               created_at: '2026-04-10T12:06:00.000Z',
               file_url: '/api/ai/text-assets/snd-1/file',
+              poster_url: '/api/ai/text-assets/snd-1/poster',
+              poster_width: 320,
+              poster_height: 320,
             },
             {
               id: 'vid-1',
@@ -4347,6 +4412,9 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
     await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
     await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-cover-bg')).toHaveCount(1);
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-preview')).toHaveCount(0);
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"]')).not.toContainText('A short ambient loop saved');
     await expect(page.locator('.studio__image-item--video')).toContainText('Launch Walkthrough');
     await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-preview')).toHaveCount(0);
@@ -4767,20 +4835,15 @@ test.describe('Image Studio (authenticated)', () => {
     expect(getCssColorAlpha(videoCardColor)).toBeGreaterThan(0.9);
 
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-preview')).toHaveCount(0);
-    const soundPreviewDisplay = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-preview').evaluate(
-      (node) => getComputedStyle(node).display,
-    );
-    expect(soundPreviewDisplay).not.toBe('none');
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-preview')).toHaveCount(0);
+    await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]')).not.toContainText('A slow gold-tinted synth loop');
 
     const soundCardStructure = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]').evaluate((card) => {
-      const preview = card.querySelector('.studio__asset-preview');
       const indicator = card.querySelector('.studio__asset-play-indicator');
       return {
-        previewNextClass: preview?.nextElementSibling?.className || '',
         indicatorNextClass: indicator?.nextElementSibling?.className || '',
       };
     });
-    expect(soundCardStructure.previewNextClass).toContain('studio__asset-play-indicator');
     expect(soundCardStructure.indicatorNextClass).toContain('studio__asset-audio');
 
     const mobileVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"]').evaluate((card) => {
@@ -4903,6 +4966,62 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
     await expect(card.locator('.studio__image-publish')).toHaveText('Publish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Image removed from Mempics.');
+  });
+
+  test('Saved Assets lets the owner publish and unpublish a saved music track into Memtracks', async ({
+    page,
+  }) => {
+    await mockAuthenticatedImageStudio(page, [], {
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 1,
+      },
+      assetsPayload: {
+        all: [
+          {
+            id: 'snd-publish-1',
+            asset_type: 'sound',
+            folder_id: null,
+            title: 'Member beat',
+            file_name: 'member-beat.mp3',
+            source_module: 'music',
+            mime_type: 'audio/mpeg',
+            size_bytes: 320000,
+            preview_text: 'This prompt text should not be rendered between title and player.',
+            created_at: '2026-04-10T12:00:00.000Z',
+            visibility: 'private',
+            is_public: false,
+            published_at: null,
+            file_url: '/api/ai/text-assets/snd-publish-1/file',
+            poster_url: '/api/ai/text-assets/snd-publish-1/poster',
+            poster_width: 320,
+            poster_height: 320,
+          },
+        ],
+      },
+    });
+
+    await page.goto('/account/image-studio.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    const card = page.locator('#studioImageGrid [data-asset-id="snd-publish-1"]');
+    await expect(card.locator('.studio__asset-cover-bg')).toHaveCount(1);
+    await expect(card.locator('.studio__asset-preview')).toHaveCount(0);
+    await expect(card).not.toContainText('This prompt text should not be rendered');
+    await expect(card.locator('.studio__asset-audio')).toBeVisible();
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
+
+    await card.getByRole('button', { name: 'Publish' }).click();
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Public');
+    await expect(card.locator('.studio__image-publish')).toHaveText('Unpublish');
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Track published to Memtracks.');
+
+    await card.getByRole('button', { name: 'Unpublish' }).click();
+    await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
+    await expect(card.locator('.studio__image-publish')).toHaveText('Publish');
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Track removed from Memtracks.');
   });
 
   test('account Image Studio moves and deletes mixed saved assets with one shared selection flow', async ({

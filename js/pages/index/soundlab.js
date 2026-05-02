@@ -19,6 +19,7 @@ import {
 } from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
 
 const tracks = getSoundLabTracks('public');
+const MEMTRACKS_PAGE_LIMIT = 60;
 
 export function initSoundLab(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
@@ -31,10 +32,19 @@ export function initSoundLab(revealObserver) {
     let activeIdx = null;
     let currentState = getGlobalAudioState();
     let syncDeck = null;
+    let soundCategory = 'free';
+    const memtracksState = {
+        items: [],
+        loaded: false,
+        loading: false,
+        nextCursor: null,
+        hasMore: false,
+        error: '',
+    };
 
     tracks.forEach((tr, idx) => {
         const card = document.createElement('div');
-        card.className = 'reveal snd-card';
+        card.className = 'reveal snd-card snd-card--free';
         card.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;overflow:hidden;transition:border-color 0.3s,background-color 0.3s';
         card.dataset.trackId = tr.id;
         card.dataset.trackIdx = String(idx);
@@ -66,7 +76,9 @@ export function initSoundLab(revealObserver) {
     }
 
     function renderRow(row, idx, state = currentState) {
-        const isActive = state.trackId === tracks[idx].id;
+        const track = tracks[idx];
+        if (!track) return;
+        const isActive = state.trackId === track.id;
         const isPlaying = isActive && state.status === 'playing';
         const progress = isActive && state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
         const timeText = isActive && state.duration > 0
@@ -82,6 +94,230 @@ export function initSoundLab(revealObserver) {
         row.querySelectorAll('.eq-bar').forEach(bar => {
             bar.style.animationPlayState = isPlaying ? 'running' : 'paused';
         });
+    }
+
+    const memtracksStatus = document.createElement('div');
+    memtracksStatus.className = 'snd-memtracks-status';
+    memtracksStatus.hidden = true;
+    ctn.after(memtracksStatus);
+
+    function getMemtrackTrack(item) {
+        if (!item?.id || !item?.file?.url) return null;
+        return {
+            id: `memtrack:${item.id}`,
+            slug: item.slug || `memtrack-${item.id}`,
+            title: item.title || 'Memtrack',
+            src: item.file.url,
+            sourceUrl: item.file.url,
+            artwork: item.poster?.url || '',
+            artworkUrl: item.poster?.url || '',
+            access: 'public',
+            collection: 'memtracks',
+            originLabel: 'Memtracks',
+            crossOrigin: '',
+        };
+    }
+
+    function getCurrentMemtrackIndex(state = currentState) {
+        return memtracksState.items.findIndex(item => state.trackId === `memtrack:${item.id}`);
+    }
+
+    function renderMemtrackCard(row, item, state = currentState) {
+        const track = getMemtrackTrack(item);
+        if (!track) return;
+        const isActive = state.trackId === track.id;
+        const isPlaying = isActive && state.status === 'playing';
+        const progress = isActive && state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
+        const timeText = isActive && state.duration > 0
+            ? `${formatTime(state.currentTime)} / ${formatTime(state.duration)}`
+            : '0:00';
+
+        row.style.borderColor = isActive ? 'rgba(0,240,255,0.2)' : 'rgba(255,255,255,0.06)';
+        row.style.background = isActive ? 'rgba(0,240,255,0.04)' : 'rgba(13,27,42,0.45)';
+        row.querySelector('.snd-prog').style.width = `${progress}%`;
+        row.querySelector('.snd-time').textContent = timeText;
+        row.querySelector('.pi').style.display = isPlaying ? 'none' : '';
+        row.querySelector('.pa').style.display = isPlaying ? '' : 'none';
+        row.querySelectorAll('.eq-bar').forEach(bar => {
+            bar.style.animationPlayState = isPlaying ? 'running' : 'paused';
+        });
+    }
+
+    function renderMemtrackRows(state = currentState) {
+        ctn.querySelectorAll('.snd-card--memtrack').forEach((row) => {
+            const item = memtracksState.items.find(entry => String(entry.id) === row.dataset.memtrackId);
+            if (item) renderMemtrackCard(row, item, state);
+        });
+    }
+
+    function syncMemtracksStatus() {
+        const show = soundCategory === 'memtracks'
+            && (memtracksState.loading || !memtracksState.items.length);
+        memtracksStatus.hidden = !show;
+        if (memtracksState.loading) {
+            memtracksStatus.textContent = 'Loading Memtracks...';
+        } else if (memtracksState.error) {
+            memtracksStatus.textContent = memtracksState.error;
+        } else if (memtracksState.loaded && !memtracksState.items.length) {
+            memtracksStatus.textContent = 'No Memtracks published yet.';
+        } else {
+            memtracksStatus.textContent = '';
+        }
+    }
+
+    function createMemtrackCard(item) {
+        const card = document.createElement('div');
+        card.className = 'reveal snd-card snd-card--memtrack';
+        card.style.cssText = 'background:rgba(13,27,42,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;overflow:hidden;transition:border-color 0.3s,background-color 0.3s;display:none';
+        card.dataset.memtrackId = String(item.id || '');
+
+        const hero = document.createElement('div');
+        hero.className = 'snd-hero';
+        const posterUrl = item.poster?.url || '';
+        if (posterUrl) {
+            const img = document.createElement('img');
+            img.src = posterUrl;
+            img.alt = item.title || 'Memtrack';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.width = Number(item.poster?.w) || 600;
+            img.height = Number(item.poster?.h) || 180;
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+            hero.appendChild(img);
+        } else {
+            const fallback = document.createElement('div');
+            fallback.className = 'snd-memtrack-fallback';
+            fallback.setAttribute('aria-hidden', 'true');
+            fallback.textContent = '\u266B';
+            hero.appendChild(fallback);
+        }
+        const veil = document.createElement('div');
+        veil.style.cssText = 'position:absolute;inset:0;background:linear-gradient(to top,rgba(13,27,42,0.72),transparent)';
+        hero.appendChild(veil);
+
+        const row = document.createElement('div');
+        row.className = 'snd-player-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:14px;padding:16px 20px';
+
+        const playButton = document.createElement('button');
+        playButton.type = 'button';
+        playButton.className = 'snd-play snd-memtrack-play';
+        playButton.setAttribute('aria-label', `Play ${item.title || 'Memtrack'}`);
+        playButton.style.cssText = 'width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s';
+        const playIcon = document.createElement('span');
+        playIcon.className = 'pi';
+        playIcon.setAttribute('aria-hidden', 'true');
+        playIcon.textContent = '\u25B6';
+        playIcon.style.cssText = 'color:#00F0FF;font-size:14px;line-height:1;padding-left:2px';
+        const pauseIcon = document.createElement('span');
+        pauseIcon.className = 'pa';
+        pauseIcon.setAttribute('aria-hidden', 'true');
+        pauseIcon.textContent = '\u275A\u275A';
+        pauseIcon.style.cssText = 'display:none;color:#00F0FF;font-size:13px;line-height:1';
+        playButton.append(playIcon, pauseIcon);
+
+        const metaWrap = document.createElement('div');
+        metaWrap.style.cssText = 'flex:1;min-width:0';
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px';
+        const title = document.createElement('h4');
+        title.style.cssText = "font-family:'Playfair Display',serif;font-weight:600;font-size:14px;color:rgba(255,255,255,0.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+        title.textContent = item.title || 'Memtrack';
+        const time = document.createElement('span');
+        time.className = 'snd-time';
+        time.style.cssText = "font-size:10px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.2);flex-shrink:0";
+        time.textContent = '0:00';
+        titleRow.append(title, time);
+
+        const bar = document.createElement('div');
+        bar.className = 'snd-bar';
+        bar.style.cssText = 'position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;cursor:pointer';
+        const progress = document.createElement('div');
+        progress.className = 'snd-prog';
+        progress.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#00F0FF,#FFB300);border-radius:2px;transition:width 0.1s linear';
+        bar.appendChild(progress);
+        metaWrap.append(titleRow, bar);
+
+        const eq = document.createElement('div');
+        eq.className = 'eq-wrap';
+        eq.style.cssText = 'display:flex;align-items:flex-end;gap:2px;height:32px;flex-shrink:0';
+        ['eqBar1 0.8s 6px', 'eqBar2 0.6s 12px', 'eqBar3 0.7s 4px', 'eqBar1 0.9s 8px', 'eqBar2 0.55s 10px'].forEach((entry) => {
+            const [name, duration, height] = entry.split(' ');
+            const barEl = document.createElement('div');
+            barEl.className = 'eq-bar';
+            barEl.style.cssText = `animation:${name} ${duration} ease-in-out infinite paused;height:${height}`;
+            eq.appendChild(barEl);
+        });
+
+        row.append(playButton, metaWrap, eq);
+        card.append(hero, row);
+
+        const playItem = async () => {
+            const track = getMemtrackTrack(item);
+            if (!track) return;
+            if (currentState.trackId === track.id && currentState.status === 'playing') {
+                pauseGlobalAudio();
+                return;
+            }
+            if (currentState.trackId === track.id) {
+                await resumeGlobalAudio(true);
+                return;
+            }
+            playGlobalTrack(track);
+        };
+        playButton.addEventListener('click', playItem);
+        hero.addEventListener('click', playItem);
+        bar.addEventListener('click', (event) => {
+            const track = getMemtrackTrack(item);
+            if (!track || currentState.trackId !== track.id || !currentState.duration) return;
+            const rect = bar.getBoundingClientRect();
+            seekGlobalAudio(((event.clientX - rect.left) / rect.width) * currentState.duration);
+        });
+
+        return card;
+    }
+
+    async function fetchMemtracks(cursor = null) {
+        const params = new URLSearchParams({ limit: String(MEMTRACKS_PAGE_LIMIT) });
+        if (cursor) params.set('cursor', cursor);
+        const res = await fetch(`/api/gallery/memtracks?${params}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body?.ok) {
+            throw new Error(body?.error || 'Memtracks unavailable.');
+        }
+        return body.data || {};
+    }
+
+    async function ensureMemtracksLoaded() {
+        if (memtracksState.loaded || memtracksState.loading) return;
+        memtracksState.loading = true;
+        syncMemtracksStatus();
+        try {
+            const page = await fetchMemtracks();
+            const items = Array.isArray(page.items) ? page.items : [];
+            memtracksState.items = items;
+            memtracksState.nextCursor = page.next_cursor || null;
+            memtracksState.hasMore = !!page.has_more;
+            memtracksState.error = '';
+            memtracksState.loaded = true;
+            items.forEach((item) => {
+                const card = createMemtrackCard(item);
+                ctn.appendChild(card);
+                if (revealObserver) revealObserver.observe(card);
+            });
+            renderMemtrackRows(currentState);
+        } catch (error) {
+            console.warn('memtracks:', error);
+            memtracksState.error = 'Could not load Memtracks right now.';
+            memtracksState.loaded = true;
+        } finally {
+            memtracksState.loading = false;
+            syncMemtracksStatus();
+            ctn.dispatchEvent(new CustomEvent('snd:category-refresh'));
+        }
     }
 
     plEl.style.cssText = 'background:rgba(13,27,42,0.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,240,255,0.1);border-radius:14px;padding:16px 20px;transition:border-color 0.3s';
@@ -157,8 +393,9 @@ export function initSoundLab(revealObserver) {
         const previousIdx = activeIdx;
         activeIdx = getCurrentPublicIndex(nextState);
         Array.from(ctn.children)
-            .filter(child => !child.classList.contains('locked-area'))
+            .filter(child => child.classList.contains('snd-card--free'))
             .forEach((row, idx) => renderRow(row, idx, nextState));
+        renderMemtrackRows(nextState);
         plUpdate(nextState);
         if (syncDeck && activeIdx !== -1 && activeIdx !== previousIdx) {
             syncDeck(activeIdx);
@@ -309,6 +546,13 @@ export function initSoundLab(revealObserver) {
                     sndLayout();
                     sndSyncDots();
                     if (category === 'free' && wasPlaying) playTrack(deckActive);
+                    if (category === 'memtracks') {
+                        const item = memtracksState.items[deckActive];
+                        const track = getMemtrackTrack(item);
+                        if (track && currentState.trackId?.startsWith('memtrack:') && currentState.status === 'playing') {
+                            playGlobalTrack(track);
+                        }
+                    }
                     if (category === 'exclusive') {
                         ctn.dispatchEvent(new CustomEvent('snd:excl-swipe', { detail: i }));
                     }
@@ -335,19 +579,39 @@ export function initSoundLab(revealObserver) {
         function applyCategory() {
             Array.from(ctn.children).forEach(card => {
                 const isExcl = card.classList.contains('locked-area');
-                card.style.display = (category === 'free') === isExcl ? 'none' : '';
+                const isMemtrack = card.classList.contains('snd-card--memtrack');
+                const isFree = card.classList.contains('snd-card--free');
+                card.style.display = (
+                    (category === 'memtracks' && isMemtrack)
+                    || (category === 'free' && isFree)
+                    || (category === 'exclusive' && isExcl)
+                ) ? '' : 'none';
             });
+            soundCategory = category;
+            syncMemtracksStatus();
+            if (category === 'memtracks') {
+                plEl.style.display = 'none';
+            } else {
+                plEl.style.display = '';
+            }
         }
 
         function switchCategory(nextCategory) {
             if (category === 'exclusive') lastExclDeckIdx = deckActive;
             category = nextCategory;
+            soundCategory = nextCategory;
+            if (nextCategory === 'memtracks') {
+                ensureMemtracksLoaded();
+            }
             applyCategory();
             if (!isDeck) return;
 
             const cards = getCards();
             if (nextCategory === 'free' && activeIdx !== null && activeIdx !== -1 && activeIdx < cards.length) {
                 deckActive = activeIdx;
+            } else if (nextCategory === 'memtracks') {
+                const currentMemtrackIdx = getCurrentMemtrackIndex();
+                deckActive = currentMemtrackIdx >= 0 && currentMemtrackIdx < cards.length ? currentMemtrackIdx : 0;
             } else if (nextCategory === 'exclusive' && lastExclDeckIdx >= 0 && lastExclDeckIdx < cards.length) {
                 deckActive = lastExclDeckIdx;
             } else {
@@ -369,6 +633,13 @@ export function initSoundLab(revealObserver) {
             bar.setAttribute('role', 'tablist');
             bar.setAttribute('aria-label', 'Sound Lab categories');
 
+            const memtracksBtn = document.createElement('button');
+            memtracksBtn.type = 'button';
+            memtracksBtn.className = 'snd-filter-btn';
+            memtracksBtn.textContent = 'Memtracks';
+            memtracksBtn.setAttribute('role', 'tab');
+            memtracksBtn.setAttribute('aria-selected', 'false');
+
             const freeBtn = document.createElement('button');
             freeBtn.type = 'button';
             freeBtn.className = 'snd-filter-btn active';
@@ -388,8 +659,21 @@ export function initSoundLab(revealObserver) {
                 exclBtn.textContent = 'Exclusive';
             }
 
+            memtracksBtn.addEventListener('click', () => {
+                if (category === 'memtracks') return;
+                memtracksBtn.classList.add('active');
+                memtracksBtn.setAttribute('aria-selected', 'true');
+                freeBtn.classList.remove('active');
+                freeBtn.setAttribute('aria-selected', 'false');
+                exclBtn.classList.remove('active');
+                exclBtn.setAttribute('aria-selected', 'false');
+                switchCategory('memtracks');
+            });
+
             freeBtn.addEventListener('click', () => {
                 if (category === 'free') return;
+                memtracksBtn.classList.remove('active');
+                memtracksBtn.setAttribute('aria-selected', 'false');
                 freeBtn.classList.add('active');
                 freeBtn.setAttribute('aria-selected', 'true');
                 exclBtn.classList.remove('active');
@@ -405,11 +689,14 @@ export function initSoundLab(revealObserver) {
                 if (category === 'exclusive') return;
                 exclBtn.classList.add('active');
                 exclBtn.setAttribute('aria-selected', 'true');
+                memtracksBtn.classList.remove('active');
+                memtracksBtn.setAttribute('aria-selected', 'false');
                 freeBtn.classList.remove('active');
                 freeBtn.setAttribute('aria-selected', 'false');
                 switchCategory('exclusive');
             });
 
+            bar.appendChild(memtracksBtn);
             bar.appendChild(freeBtn);
             bar.appendChild(exclBtn);
             ctn.parentElement.insertBefore(bar, ctn);
@@ -419,6 +706,8 @@ export function initSoundLab(revealObserver) {
                 exclBtn.classList.toggle('unlocked', loggedIn);
                 exclBtn.textContent = loggedIn ? 'Exclusive' : 'Exclusive 🔒';
                 if (!loggedIn && category === 'exclusive') {
+                    memtracksBtn.classList.remove('active');
+                    memtracksBtn.setAttribute('aria-selected', 'false');
                     freeBtn.classList.add('active');
                     freeBtn.setAttribute('aria-selected', 'true');
                     exclBtn.classList.remove('active');
@@ -527,6 +816,11 @@ export function initSoundLab(revealObserver) {
             sndSyncDots();
             if (deckActive !== prevActive) {
                 if (wasPlayingOnSwipeStart && category === 'free') playTrack(deckActive);
+                if (wasPlayingOnSwipeStart && category === 'memtracks') {
+                    const item = memtracksState.items[deckActive];
+                    const track = getMemtrackTrack(item);
+                    if (track) playGlobalTrack(track);
+                }
                 if (category === 'exclusive') {
                     ctn.dispatchEvent(new CustomEvent('snd:excl-swipe', { detail: deckActive }));
                 }
@@ -558,6 +852,13 @@ export function initSoundLab(revealObserver) {
                 });
             });
         }).observe(ctn, { childList: true });
+
+        ctn.addEventListener('snd:category-refresh', () => {
+            applyCategory();
+            if (!isDeck) return;
+            sndLayout(true);
+            sndSyncDots();
+        });
 
         createFilterBar();
 

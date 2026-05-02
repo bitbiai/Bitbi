@@ -17,6 +17,7 @@ import { handleOrgs } from "./routes/orgs.js";
 import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
+import { handleAudioGallery } from "./routes/audio-gallery.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
@@ -297,6 +298,8 @@ export default {
       if (result) return result;
       const videoResult = await handleVideoGallery(ctx);
       if (videoResult) return videoResult;
+      const audioResult = await handleAudioGallery(ctx);
+      if (audioResult) return audioResult;
     }
 
     // Protected media

@@ -71,8 +71,12 @@ function isImageAsset(asset) {
     return asset?.asset_type === 'image';
 }
 
-function isPublishedImageAsset(asset) {
+function isPublishedAsset(asset) {
     return String(asset?.visibility || 'private') === 'public';
+}
+
+function isPublishedImageAsset(asset) {
+    return isPublishedAsset(asset);
 }
 
 function getFileBadge(asset) {
@@ -217,6 +221,40 @@ function buildSoundPlayIndicator() {
     }
 
     return indicator;
+}
+
+function buildSoundCoverBackground(asset) {
+    if (!asset?.poster_url) return null;
+    const cover = document.createElement('div');
+    cover.className = 'studio__asset-cover-bg';
+    cover.setAttribute('aria-hidden', 'true');
+    cover.style.backgroundImage = `url("${String(asset.poster_url).replace(/"/g, '%22')}")`;
+    return cover;
+}
+
+function getPublicationLabels(asset) {
+    if (isImageAsset(asset)) {
+        return {
+            publish: 'Image published to Mempics.',
+            unpublish: 'Image removed from Mempics.',
+        };
+    }
+    if (isAudioAsset(asset)) {
+        return {
+            publish: 'Track published to Memtracks.',
+            unpublish: 'Track removed from Memtracks.',
+        };
+    }
+    if (isVideoAsset(asset)) {
+        return {
+            publish: 'Video published to Memvids.',
+            unpublish: 'Video removed from Memvids.',
+        };
+    }
+    return {
+        publish: 'Asset published.',
+        unpublish: 'Asset removed from public view.',
+    };
 }
 
 function normalizeFolders(result) {
@@ -799,10 +837,15 @@ export function createSavedAssetsBrowser({
         const item = document.createElement('article');
         const isSound = isAudioAsset(asset);
         const isVideo = isVideoAsset(asset);
-        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}`;
+        const hasSoundCover = isSound && asset.poster_url;
+        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}${hasSoundCover ? ' studio__image-item--has-cover' : ''}`;
         item.dataset.assetId = asset.id;
         item.dataset.assetType = isSound ? 'sound' : isVideo ? 'video' : 'text';
         item.title = getFileTitle(asset);
+
+        if (hasSoundCover) {
+            item.appendChild(buildSoundCoverBackground(asset));
+        }
 
         const badge = document.createElement('span');
         badge.className = `studio__asset-badge ${isSound ? 'studio__asset-badge--sound' : isVideo ? 'studio__asset-badge--video' : 'studio__asset-badge--text'}`;
@@ -814,7 +857,7 @@ export function createSavedAssetsBrowser({
         title.textContent = getFileTitle(asset);
         item.appendChild(title);
 
-        if (!isVideo) {
+        if (!isVideo && !isSound) {
             const preview = document.createElement('p');
             preview.className = 'studio__asset-preview';
             preview.textContent = getFilePreview(asset);
@@ -887,8 +930,8 @@ export function createSavedAssetsBrowser({
         ].filter(Boolean).join(' · ');
         item.appendChild(meta);
 
-        if (isVideo) {
-            const isPublished = isPublishedImageAsset(asset);
+        if (isVideo || isSound) {
+            const isPublished = isPublishedAsset(asset);
             const visBadge = document.createElement('span');
             visBadge.className = `studio__image-visibility ${isPublished ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
             visBadge.textContent = isPublished ? 'Public' : 'Private';
@@ -898,29 +941,27 @@ export function createSavedAssetsBrowser({
         const actions = document.createElement('div');
         actions.className = 'studio__asset-actions';
 
-        if (isVideo) {
-            const isPublished = isPublishedImageAsset(asset);
+        if (isVideo || isSound) {
+            const isPublished = isPublishedAsset(asset);
             const pubBtn = document.createElement('button');
             pubBtn.type = 'button';
             pubBtn.className = `studio__image-publish studio__image-publish--inline ${isPublished ? 'studio__image-publish--public' : ''}`;
             pubBtn.textContent = isPublished ? 'Unpublish' : 'Publish';
             pubBtn.addEventListener('click', async (event) => {
                 event.stopPropagation();
-                const nextVis = isPublishedImageAsset(asset) ? 'private' : 'public';
+                const nextVis = isPublishedAsset(asset) ? 'private' : 'public';
                 pubBtn.disabled = true;
                 pubBtn.textContent = '\u2026';
                 const result = await updateAssetPublication(asset, nextVis);
                 if (!result.ok) {
                     pubBtn.disabled = false;
-                    pubBtn.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
+                    pubBtn.textContent = isPublishedAsset(asset) ? 'Unpublish' : 'Publish';
                     showMsg(result.error || 'Visibility update failed.', 'error');
                     return;
                 }
                 await refresh();
-                showMsg(
-                    nextVis === 'public' ? 'Video published to Memvids.' : 'Video removed from Memvids.',
-                    'success',
-                );
+                const labels = getPublicationLabels(asset);
+                showMsg(nextVis === 'public' ? labels.publish : labels.unpublish, 'success');
             });
             actions.appendChild(pubBtn);
         }

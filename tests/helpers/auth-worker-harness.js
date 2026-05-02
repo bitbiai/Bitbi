@@ -686,6 +686,15 @@ class MockD1 {
       ...row,
     }));
     this.state.aiImages = (this.state.aiImages || []).map((row) => normalizeAiImageRow(row));
+    this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
+      visibility: 'private',
+      published_at: null,
+      poster_r2_key: null,
+      poster_width: null,
+      poster_height: null,
+      metadata_json: '{}',
+      ...row,
+    }));
     this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
     this._lastChanges = 0;
   }
@@ -4312,6 +4321,8 @@ class MockD1 {
         return { success: true, meta: { changes: 0 } };
       }
       this.state.aiTextAssets.push({
+        visibility: 'private',
+        published_at: null,
         id,
         user_id: userId,
         folder_id: folderId,
@@ -4334,6 +4345,8 @@ class MockD1 {
     if (query.startsWith('INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at) VALUES')) {
       const [id, userId, folderId, r2Key, title, fileName, sourceModule, mimeType, sizeBytes, previewText, metadataJson, createdAt] = bindings;
       this.state.aiTextAssets.push({
+        visibility: 'private',
+        published_at: null,
         id,
         user_id: userId,
         folder_id: folderId,
@@ -4858,8 +4871,12 @@ class MockD1 {
       query.includes('FROM ai_text_assets')
       && query.includes('LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id')
       && query.includes("WHERE ai_text_assets.visibility = 'public'")
-      && query.includes("AND ai_text_assets.source_module = 'video'")
+      && (
+        query.includes("AND ai_text_assets.source_module = 'video'")
+        || query.includes("AND ai_text_assets.source_module = 'music'")
+      )
     ) {
+      const sourceModule = query.includes("AND ai_text_assets.source_module = 'music'") ? 'music' : 'video';
       let index = 0;
       let cursor = null;
       if (query.includes('order_at < ?')) {
@@ -4875,7 +4892,7 @@ class MockD1 {
       }
       const limit = bindings[index];
       let rows = this.state.aiTextAssets
-        .filter((row) => row.visibility === 'public' && row.source_module === 'video')
+        .filter((row) => row.visibility === 'public' && row.source_module === sourceModule)
         .map((row) => ({
           ...row,
           order_at: row.published_at || row.created_at || '',
@@ -4922,6 +4939,20 @@ class MockD1 {
       };
     }
 
+    if (query === "SELECT created_at, published_at, r2_key, mime_type, poster_r2_key FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'music'") {
+      const [assetId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.visibility === 'public' && item.source_module === 'music');
+      return row
+        ? {
+            created_at: row.created_at,
+            published_at: row.published_at,
+            r2_key: row.r2_key,
+            mime_type: row.mime_type,
+            poster_r2_key: row.poster_r2_key ?? null,
+          }
+        : null;
+    }
+
     if (query === "SELECT created_at, published_at, r2_key, mime_type, poster_r2_key FROM ai_text_assets WHERE id = ? AND visibility = 'public' AND source_module = 'video'") {
       const [assetId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.visibility === 'public' && item.source_module === 'video');
@@ -4934,6 +4965,18 @@ class MockD1 {
             poster_r2_key: row.poster_r2_key ?? null,
           }
         : null;
+    }
+
+    if (query === "SELECT ai_text_assets.user_id, profiles.has_avatar, profiles.avatar_updated_at FROM ai_text_assets LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id WHERE ai_text_assets.id = ? AND ai_text_assets.visibility = 'public' AND ai_text_assets.source_module = 'music'") {
+      const [assetId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.visibility === 'public' && item.source_module === 'music');
+      if (!row) return null;
+      const profile = this.state.profiles.find((item) => item.user_id === row.user_id);
+      return {
+        user_id: row.user_id,
+        has_avatar: profile?.has_avatar ?? null,
+        avatar_updated_at: profile?.avatar_updated_at ?? null,
+      };
     }
 
     if (query === "SELECT ai_text_assets.user_id, profiles.has_avatar, profiles.avatar_updated_at FROM ai_text_assets LEFT JOIN profiles ON profiles.user_id = ai_text_assets.user_id WHERE ai_text_assets.id = ? AND ai_text_assets.visibility = 'public' AND ai_text_assets.source_module = 'video'") {
@@ -5277,6 +5320,31 @@ class MockD1 {
             source_module: row.source_module,
           }
         : null;
+    }
+
+    if (query === 'SELECT id, visibility, published_at FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row
+        ? {
+            id: row.id,
+            visibility: row.visibility,
+            published_at: row.published_at,
+          }
+        : null;
+    }
+
+    if (query === 'UPDATE ai_text_assets SET visibility = ?, published_at = ? WHERE id = ? AND user_id = ?') {
+      const [visibility, publishedAt, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.visibility = visibility;
+          row.published_at = publishedAt;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
     }
 
     if (query === "SELECT id, user_id, source_module, poster_r2_key, metadata_json FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'music'") {

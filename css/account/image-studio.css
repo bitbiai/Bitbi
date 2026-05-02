@@ -624,6 +624,42 @@
             rgba(255, 255, 255, 0.02);
     }
 
+    .studio__image-item--sound.studio__image-item--has-cover {
+        background:
+            linear-gradient(180deg, rgba(7, 12, 20, 0.3) 0%, rgba(6, 10, 16, 0.84) 100%),
+            rgba(255, 255, 255, 0.02);
+    }
+
+    .studio__asset-cover-bg {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background-position: center;
+        background-size: cover;
+        transform: scale(1.02);
+        filter: saturate(0.98) contrast(1.02);
+    }
+
+    .studio__asset-cover-bg::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(180deg, rgba(5, 9, 16, 0.16) 0%, rgba(5, 9, 16, 0.72) 64%, rgba(5, 9, 16, 0.9) 100%),
+            radial-gradient(circle at 18% 14%, rgba(255, 179, 0, 0.18), transparent 38%),
+            radial-gradient(circle at 86% 18%, rgba(0, 240, 255, 0.14), transparent 42%);
+    }
+
+    .studio__image-item--sound.studio__image-item--has-cover > :not(.studio__asset-cover-bg) {
+        position: relative;
+        z-index: 1;
+    }
+
+    .studio__image-item--sound.studio__image-item--has-cover .studio__asset-title,
+    .studio__image-item--sound.studio__image-item--has-cover .studio__asset-meta {
+        text-shadow: 0 1px 16px rgba(0, 0, 0, 0.72);
+    }
+
     .studio__image-item--video {
         background:
             linear-gradient(180deg, rgba(255, 94, 91, 0.14) 0%, rgba(255, 255, 255, 0.02) 100%),

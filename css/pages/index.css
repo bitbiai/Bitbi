@@ -1355,6 +1355,27 @@
         color: var(--color-cyan);
     }
 
+    .snd-memtracks-status {
+        margin-block: var(--space-3);
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.48);
+    }
+
+    .snd-memtrack-fallback {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: 2.4rem;
+        color: rgba(255, 179, 0, 0.42);
+        background:
+            radial-gradient(circle at 25% 20%, rgba(255, 179, 0, 0.18), transparent 40%),
+            radial-gradient(circle at 80% 24%, rgba(0, 240, 255, 0.12), transparent 42%),
+            linear-gradient(180deg, rgba(12, 20, 32, 0.98) 0%, rgba(5, 10, 18, 0.98) 100%);
+    }
+
     /* Sound Lab: hide lock overlay (auth is gated via filter bar) */
     #soundLabTracks .locked-area__overlay {
         opacity: 0;
