@@ -14471,6 +14471,36 @@ test.describe('Worker routes', () => {
     expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
   });
 
+  test('shared limiter: member music generation is blocked after twenty-four requests per hour', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'music-rate-user', role: 'user' })],
+      publicRateLimitCounters: [
+        makeActiveRateLimitCounter('ai-generate-music-user', 'music-rate-user', 24, 3_600_000),
+      ],
+    });
+
+    const token = await seedSession(env, 'music-rate-user');
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-music', 'POST', {
+        prompt: 'blocked by music limiter',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+    expect(env.PUBLIC_RATE_LIMITER.fetchCalls.map((call) => call.id)).toContain('ai-generate-music-user:music-rate-user');
+    expect(env.DB.runCalls.some((call) => call.query.includes('rate_limit_counters'))).toBe(false);
+  });
+
   test('shared limiter: sensitive AI generation fails closed when the durable limiter binding is missing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -18253,7 +18283,7 @@ test.describe('Worker routes', () => {
         status: 200,
         headers: {
           'content-type': 'audio/mpeg',
-          'content-length': String(12_000_001),
+          'content-length': String(24_000_001),
         },
       });
     };

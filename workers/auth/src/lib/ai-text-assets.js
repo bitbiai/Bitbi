@@ -421,7 +421,7 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
   }
 }
 
-export const AI_MUSIC_ASSET_MAX_BYTES = 12_000_000;
+export const AI_MUSIC_ASSET_MAX_BYTES = 24_000_000;
 
 async function buildMusicAssetFields(safeTitle, payload, now) {
   let bytes;
