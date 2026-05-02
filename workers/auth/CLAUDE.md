@@ -65,7 +65,7 @@ src/
     ├── avatar.js         ← GET/POST/DELETE /api/profile/avatar
     ├── favorites.js      ← GET/POST/DELETE /api/favorites
     ├── ai.js             ← /api/ai/* image studio + quota + cleanup handoff
-    └── media.js          ← GET /api/music/*, /api/soundlab-thumbs/*
+    └── media.js          ← legacy GET /api/music/*, /api/soundlab-thumbs/* import-source media
 ```
 
 **Handler signature**: All route handlers receive a context object `{ request, env, url, pathname, method, isSecure }` built once in index.js. Exceptions: `handleHealth()` takes no args; `handleAdmin(ctx)` and `handleMedia(ctx)` do internal sub-routing and return `null` for unmatched paths.
@@ -80,7 +80,7 @@ src/
 
 **Email verification**: Token-based flow via Resend API. Verification email sent on registration. Tokens expire after 60 minutes (configured via `addMinutesIso(60)`). Users can resend verification emails. Login is blocked until email is verified (`EMAIL_NOT_VERIFIED` error code).
 
-**Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves images and music only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
+**Protected media**: R2 bucket (`PRIVATE_MEDIA`) serves avatars and legacy protected import-source media only to authenticated users. Media routes return the R2 object with appropriate content-type headers.
 
 **AI Image Studio**: `/api/ai/*` uses the `AI` binding for member image generation, stores saved image blobs in `USER_IMAGES`, stores folder/image metadata in D1, and uses `r2_cleanup_queue` plus the scheduled handler for durable cleanup retries after deletes. `/api/ai/generate-image` without organization context charges the signed-in non-admin member credit balance after successful provider execution. Member balances get at most one UTC-day top-up to 10 credits through `member_credit_ledger`; existing balances of 10 or more receive a zero-credit top-up marker and are not overwritten. Member and organization image charges use the shared server-side image pricing helper. When `organization_id` / `organizationId` is supplied, it requires a valid `Idempotency-Key`, active org membership with `member` or higher role, the `ai.image.generate` entitlement, and sufficient credits before provider execution. Org-scoped image generation creates an `ai_usage_attempts` reservation before provider execution, suppresses same-key duplicate provider calls while pending, finalizes one usage debit only after successful generation, and replays the stored temporary result for same-key/same-body retries when the temp object is still available. `/api/ai/generate-text` is backend-only and org-scoped only: it requires auth, explicit organization context, `Idempotency-Key`, `member` or higher role, the `ai.text.generate` entitlement, and credits. It calls the HMAC-protected `AI_LAB` internal text route and stores bounded generated-text replay metadata in `ai_usage_attempts.metadata_json`; it does not charge admin AI Lab text routes or text asset storage routes. Expired/stuck attempts are handled by bounded scheduled/admin cleanup: stale reservations are released without debits, expired replay metadata is cleared, and expired attempt-linked temporary image replay objects under `tmp/ai-generated/{userId}/{tempId}` are deleted only after strict prefix/user/attempt validation. Cleanup does not delete ledger rows, usage events, attempt rows, saved media, private media, derivatives, video outputs, audit archives, export archives, or unrelated R2 objects.
 
@@ -122,8 +122,8 @@ src/
 - `POST /api/orgs/:id/billing/checkout/live-credit-pack` — create a live Stripe one-time credit-pack Checkout Session for `live_credits_5000` or `live_credits_12000` as a platform admin or active owner of the target organization (requires auth, same-origin, `Idempotency-Key`, fail-closed limiter, `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`, live-like Stripe secret config, and server-side role checks; organization admins are not sufficient)
 - `GET /api/orgs/:id/billing/credits-dashboard` — read sanitized Credits dashboard data for a platform admin or active organization owner, including balance summary, live fixed-pack catalog, checkout config status, recent live purchases, and recent ledger rows
 - `GET /api/orgs/:id/organization-dashboard` — read sanitized Organization dashboard data for a platform admin or active organization owner, including access scope, current organization role, credit balance summary, recent ledger rows, recent `admin_ai_image_test` debits, active member summaries, and platform-admin-not-owner warnings
-- `GET /api/music/exclusive-track-01` — protected music from R2 (requires auth)
-- `GET /api/soundlab-thumbs/:slug` — protected Sound Lab thumbnail from R2 (requires auth)
+- `GET /api/music/exclusive-track-01` — legacy protected Sound Lab Exclusive import-source music from R2 (requires auth)
+- `GET /api/soundlab-thumbs/:slug` — legacy protected Sound Lab Exclusive import-source thumbnail from R2 (requires auth)
 - `GET /api/admin/me` — admin identity check
 - `GET /api/admin/users?search=` — list/search users
 - `PATCH /api/admin/users/:id/role` — change role (user/admin)
@@ -191,7 +191,7 @@ src/
 
 **Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `member_credit_ledger`, `member_usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`
 
-**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores protected Sound Lab audio, Sound Lab thumbnails, and avatars. Key layout: `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
+**R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores avatars and legacy Sound Lab Exclusive import-source audio/thumbnails pending the cleanup/import plan in `docs/soundlab-free-exclusive-cleanup.md`. Key layout: `audio/sound-lab/{slug}.mp3`, `sound-lab/thumbs/{slug}.webp`, `avatars/{userId}`.
 
 **R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved Image Studio renders under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`, temporary generated-image replay/save-reference objects under `tmp/ai-generated/{userId}/{tempId}`, and async admin video job output under `users/{userId}/video-jobs/{jobId}/`. Cleanup may delete expired temporary replay objects only through the approved prefix and attempt-linkage checks; it must not broad-delete `users/` media prefixes.
 

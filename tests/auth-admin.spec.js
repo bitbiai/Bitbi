@@ -8289,19 +8289,46 @@ test.describe('Regression: auth modal form injection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Locked sections — logged-out state
+// Sound Lab public browsing — logged-out state
 // ---------------------------------------------------------------------------
 
-test.describe('Locked sections', () => {
-  test('auth-gated content is locked when logged out', async ({ page }) => {
+test.describe('Sound Lab public browsing', () => {
+  test('Sound Lab shows public tracks without locked Free or Exclusive category cards when logged out', async ({ page }) => {
+    await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: 'feedc0de',
+                slug: 'memtrack-feedc0de',
+                title: 'Public Member Track',
+                category: 'memtracks',
+                file: { url: '/api/gallery/memtracks/feedc0de/vpub/file' },
+                poster: { url: '/api/gallery/memtracks/feedc0de/vpub/poster', w: 320, h: 320 },
+              },
+            ],
+            has_more: false,
+            next_cursor: null,
+            applied_limit: 60,
+          },
+        }),
+      });
+    });
+
     await page.goto('/');
-    // Wait for auth to resolve and locked-sections to update
+    // Wait for auth UI to resolve before checking logged-out public content.
     await expect(page.locator('.site-nav__cta')).toBeVisible({
       timeout: 10_000,
     });
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'sound');
 
-    const locked = page.locator('[data-locked="true"]');
-    await expect(locked.first()).toBeAttached({ timeout: 5_000 });
-    expect(await locked.count()).toBeGreaterThan(0);
+    await expect(page.locator('#soundlab .snd-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .locked-area')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
   });
 });

@@ -20,7 +20,7 @@ const VALID_SOUNDLAB_THUMBS = [
 export async function handleMedia(ctx) {
   const { request, env, pathname } = ctx;
 
-  // GET /api/music/:slug (exclusive tracks)
+  // GET /api/music/:slug (legacy Sound Lab Exclusive import-source tracks)
   if (pathname.startsWith("/api/music/")) {
     const slug = pathname.replace("/api/music/", "");
     if (!VALID_MUSIC_SLUGS.includes(slug)) {
@@ -57,7 +57,7 @@ export async function handleMedia(ctx) {
     return new Response(object.body, { headers });
   }
 
-  // GET /api/soundlab-thumbs/:slug (exclusive track thumbnails)
+  // GET /api/soundlab-thumbs/:slug (legacy Sound Lab Exclusive import-source thumbnails)
   if (pathname.startsWith("/api/soundlab-thumbs/")) {
     const slug = pathname.replace("/api/soundlab-thumbs/", "");
     if (!VALID_SOUNDLAB_THUMBS.includes(slug)) {

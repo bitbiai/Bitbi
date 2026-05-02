@@ -1065,13 +1065,9 @@ function loadContent() {
     // Sound Lab
     const sndEl = document.getElementById('contentSoundlab');
     if (sndEl) {
-        const tracks = ['Cosmic Sea', 'Zufall und Notwendigkeit', 'Relativity', 'Tiny Hearts', "Grok's Groove Remix"];
         let html = '<div class="admin-inventory">';
-        for (const t of tracks) {
-            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${t}</span><span class="admin-inventory__meta">Public</span></div>`;
-        }
-        html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks</span><span class="admin-inventory__count">5</span></div>`;
-        html += `</div><div class="admin-inventory__total">10 tracks total</div>`;
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Published member tracks</span><span class="admin-inventory__meta">Memtracks</span></div>';
+        html += '</div><div class="admin-inventory__total">Sound Lab Explore reads public music from Memtracks.</div>';
         sndEl.innerHTML = html;
     }
 }
@@ -1096,22 +1092,11 @@ function loadMedia() {
 
     const audEl = document.getElementById('mediaAudio');
     if (audEl) {
-        const files = ['cosmic-sea', 'zufall-und-notwendigkeit', 'relativity', 'tiny-hearts', 'grok'];
         let html = '<div class="admin-inventory">';
-        for (const f of files) {
-            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${f}.mp3</span><span class="admin-inventory__meta">MP3</span></div>`;
-        }
-        html += `</div><div class="admin-inventory__total">5 audio files &middot; pub.bitbi.ai</div>`;
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Published music assets</span><span class="admin-inventory__meta">USER_IMAGES</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Public playback</span><span class="admin-inventory__meta">/api/gallery/memtracks</span></div>';
+        html += '</div><div class="admin-inventory__total">Legacy bundled Free tracks are removed from the active Sound Lab UI.</div>';
         audEl.innerHTML = html;
-    }
-
-    const exclEl = document.getElementById('mediaExclusive');
-    if (exclEl) {
-        let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive audio tracks</span><span class="admin-inventory__count">5</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive track thumbnails</span><span class="admin-inventory__count">5</span></div>';
-        html += '</div><div class="admin-inventory__total">10 Sound Lab files &middot; private R2 bucket</div>';
-        exclEl.innerHTML = html;
     }
 }
 
@@ -1122,14 +1107,9 @@ function loadAccess() {
     injectRefNote('sectionAccess');
     const gatingEl = document.getElementById('accessGating');
     if (gatingEl) {
-        const gates = [
-            'Sound Lab Exclusive tracks',
-        ];
         let html = '<div class="admin-inventory">';
-        for (const g of gates) {
-            html += `<div class="admin-inventory__row"><span class="admin-inventory__name">${g}</span><span class="admin-inventory__meta">Auth required</span></div>`;
-        }
-        html += `</div><div class="admin-inventory__total">1 gated placement</div>`;
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab category gates</span><span class="admin-inventory__meta">Removed</span></div>';
+        html += '</div><div class="admin-inventory__total">Sound Lab Explore shows published member tracks directly.</div>';
         gatingEl.innerHTML = html;
     }
 
@@ -1146,8 +1126,7 @@ function loadAccess() {
     if (mapEl) {
         let html = '<div class="admin-inventory">';
         html += `<div class="admin-inventory__row"><span class="admin-inventory__name">Gallery (${galleryItems.length} items)</span><span class="badge badge--active">Public</span></div>`;
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab (5 tracks)</span><span class="badge badge--active">Public</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Exclusive tracks (5)</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab Memtracks</span><span class="badge badge--active">Public when published</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Video Exclusives</span><span class="badge badge--admin">Auth</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Image Studio</span><span class="badge badge--admin">Auth</span></div>';

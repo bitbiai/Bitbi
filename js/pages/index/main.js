@@ -19,7 +19,6 @@ import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
-import { initLockedSections } from './locked-sections.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
 import {
     HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
@@ -321,7 +320,6 @@ await authReady;
 try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 document.dispatchEvent(new CustomEvent('bitbi:homepage-auth-ui-ready'));
-try { initLockedSections(revealObserver); } catch (e) { console.warn('lockedSections:', e); }
 
 /* Load user favorites (updates star button states) */
 loadFavorites().catch(e => console.warn('favorites:', e));

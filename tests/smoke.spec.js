@@ -239,6 +239,60 @@ async function waitForHomepageCategoryStage(page) {
     .not.toContain('is-transitioning');
 }
 
+async function routeDefaultMemtracks(page, {
+  id = 'feedc0de',
+  version = 'vpub',
+  title = 'Public Member Track',
+} = {}) {
+  await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [
+            {
+              id,
+              slug: `memtrack-${id}`,
+              title,
+              caption: 'Published by Ada Member.',
+              category: 'memtracks',
+              publisher: { display_name: 'Ada Member' },
+              file: { url: `/api/gallery/memtracks/${id}/${version}/file` },
+              poster: {
+                url: `/api/gallery/memtracks/${id}/${version}/poster`,
+                w: 320,
+                h: 320,
+              },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+          applied_limit: 60,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/gallery/memtracks/**', async (route) => {
+    if (route.request().url().endsWith('/poster')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/webp',
+        body: Buffer.from('mock-poster'),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'audio/mpeg',
+      body: Buffer.from('mock-audio'),
+    });
+  });
+}
+
 async function waitForHomepageScrollMeasurementReady(page) {
   await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', /^(desktop|stacked)$/);
   await expect(page.locator('#videoGrid')).toHaveCount(1);
@@ -407,6 +461,10 @@ async function expectHomepageHeaderCategoryGlow(page, expectedCategory) {
 // ---------------------------------------------------------------------------
 
 test.describe('Homepage', () => {
+  test.beforeEach(async ({ page }) => {
+    await routeDefaultMemtracks(page);
+  });
+
   test('loads successfully with correct title', async ({ page }) => {
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
@@ -614,6 +672,10 @@ test.describe('Homepage', () => {
       await expect.poll(() => new URL(page.url()).pathname).toBe('/');
       await waitForHomepageCategoryStage(page);
       await expectActiveHomepageCategory(page, target.category);
+      if (target.category === 'sound') {
+        await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
+        await waitForHomepageCategoryStage(page);
+      }
       await waitForHomepageCategoryAlignment(page);
     }
   });
@@ -1674,7 +1736,7 @@ test.describe('Homepage', () => {
     await page.locator('.modal-close').click();
   });
 
-  test('Gallery cleanup keeps Sound Lab Exclusive admin references but removes Little Monster copy', () => {
+  test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {
     const adminHtml = fs.readFileSync(path.join(process.cwd(), 'admin/index.html'), 'utf8');
     const adminJs = fs.readFileSync(path.join(process.cwd(), 'js/pages/admin/main.js'), 'utf8');
     const adminSource = `${adminHtml}\n${adminJs}`;
@@ -1682,9 +1744,11 @@ test.describe('Homepage', () => {
     expect(adminSource).not.toContain('Little Monster');
     expect(adminSource).not.toContain('Gallery "Exclusive"');
     expect(adminSource).not.toContain('Exclusive (Little Monster)');
-    expect(adminSource).toContain('Sound Lab Exclusive');
-    expect(adminSource).toContain('Exclusive audio tracks');
-    expect(adminSource).toContain('Exclusive track thumbnails');
+    expect(adminSource).not.toContain('Sound Lab Exclusive');
+    expect(adminSource).not.toContain('Exclusive audio tracks');
+    expect(adminSource).not.toContain('Exclusive track thumbnails');
+    expect(adminSource).toContain('Published member tracks');
+    expect(adminSource).toContain('Memtracks');
   });
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {
@@ -2598,7 +2662,7 @@ test.describe('Homepage', () => {
     expect(laptopLayout).toBeLessThanOrEqual(4);
   });
 
-  test('homepage Sound Lab exposes public Memtracks to logged-out visitors before Free', async ({ page }) => {
+  test('homepage Sound Lab renders published member tracks directly without Free or Exclusive categories', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
         status: 200,
@@ -2666,16 +2730,22 @@ test.describe('Homepage', () => {
     await page.goto('/');
     await switchHomepageCategory(page, 'sound');
 
-    const filterButtons = page.locator('#soundlab .snd-filter-btn');
-    await expect
-      .poll(() => filterButtons.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Memtracks', 'Free', 'Exclusive 🔒']);
-
-    await page.locator('#soundlab').getByRole('tab', { name: 'Memtracks' }).click();
+    await expect(page.locator('#soundlab .snd-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#soundlab .snd-filter-bar')).toHaveCount(0);
+    await expect(page.locator('#soundlab').getByRole('tab', { name: 'Free' })).toHaveCount(0);
+    await expect(page.locator('#soundlab').getByRole('tab', { name: /Exclusive/ })).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .snd-card--free')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .locked-area')).toHaveCount(0);
+    await expect(page.locator('#soundLabExplore')).not.toContainText('Cosmic Sea');
+    await expect(page.locator('#soundLabExplore')).not.toContainText('Exclusive');
 
     const memtrackCard = page.locator('#soundLabTracks .snd-card--memtrack').first();
     await expect(memtrackCard).toBeVisible();
     await expect(memtrackCard.locator('h4')).toHaveText('Public Member Track');
+    await expect(memtrackCard).not.toContainText('.mp3');
+    await expect(memtrackCard).not.toContainText('audio/mpeg');
+    await expect(memtrackCard.locator('.fav-star')).toBeVisible();
+    await expect(memtrackCard.locator('.fav-star')).toHaveCSS('position', 'absolute');
     await expect(memtrackCard.locator('.snd-hero img')).toHaveAttribute(
       'src',
       '/api/gallery/memtracks/feedc0de/vpub/poster',

@@ -1,6 +1,7 @@
 /* ============================================================
-   BITBI — Shared audio catalog for persistent playback
-   Used by: Sound Lab, profile favorites viewer, global audio manager/UI
+   BITBI — Legacy Sound Lab audio catalog for persistent playback
+   Used by: profile favorites viewer and global audio skip controls for
+   pre-Memtracks Sound Lab favorites while cleanup is pending.
    ============================================================ */
 
 const R2_PUBLIC_BASE = 'https://pub.bitbi.ai';

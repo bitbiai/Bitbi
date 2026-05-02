@@ -43,8 +43,10 @@ import { galleryItems } from '../../shared/gallery-data.js';
 import { formatTime } from '../../shared/format-time.js';
 import {
     buildPublicMempicUrl,
+    buildPublicMemtrackUrl,
     buildPublicMemvidUrl,
     getPublicMempicVersionFromUrl,
+    getPublicMemtrackVersionFromUrl,
     getPublicMemvidVersionFromUrl,
 } from '../../shared/public-media-contract.mjs';
 import { buildSoundLabTrack, getSoundLabTrackBySlug } from '../../shared/audio/audio-library.js?v=__ASSET_VERSION__';
@@ -865,6 +867,14 @@ function buildVideoFavoriteFileUrl(fav) {
     return `/api/gallery/memvids/${encodeURIComponent(String(fav.item_id || ''))}/file`;
 }
 
+function buildMemtrackFavoriteFileUrl(fav) {
+    const version = getPublicMemtrackVersionFromUrl(fav?.thumb_url);
+    if (version) {
+        return buildPublicMemtrackUrl(String(fav.item_id || ''), version, 'file');
+    }
+    return '';
+}
+
 /* ── Viewer overlay ── */
 const $viewer = document.getElementById('favViewer');
 const $viewerBody = $viewer ? $viewer.querySelector('.fav-viewer__body') : null;
@@ -1051,7 +1061,8 @@ function openSoundlabInViewer(fav) {
     const title = String(fav.title || '');
     const thumbUrl = normalizeFavoriteThumbUrl(fav.thumb_url);
     const baseTrack = getSoundLabTrackBySlug(fav.item_id);
-    if (!baseTrack) return;
+    const memtrackFileUrl = baseTrack ? '' : buildMemtrackFavoriteFileUrl(fav);
+    if (!baseTrack && !memtrackFileUrl) return;
     initGlobalAudioManager();
     if (viewerAudioCleanup) {
         viewerAudioCleanup();
@@ -1116,11 +1127,25 @@ function openSoundlabInViewer(fav) {
 
     openViewer('');
 
-    const track = buildSoundLabTrack(fav.item_id, {
-        title: title || baseTrack.title,
-        artworkUrl: thumbUrl || baseTrack.artwork,
-        originLabel: 'Profile favorites',
-    });
+    const track = baseTrack
+        ? buildSoundLabTrack(fav.item_id, {
+            title: title || baseTrack.title,
+            artworkUrl: thumbUrl || baseTrack.artwork,
+            originLabel: 'Profile favorites',
+        })
+        : {
+            id: `memtrack:${fav.item_id}`,
+            slug: `memtrack-${fav.item_id}`,
+            title: title || 'Memtrack',
+            sourceUrl: memtrackFileUrl,
+            src: memtrackFileUrl,
+            artworkUrl: thumbUrl,
+            artwork: thumbUrl,
+            access: 'public',
+            collection: 'memtracks',
+            originLabel: 'Profile favorites',
+            crossOrigin: '',
+        };
     if (!track) return;
 
     const playIcon = document.getElementById('fvPlayIcon');

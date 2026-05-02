@@ -112,6 +112,59 @@ async function dismissCookieBanner(page) {
   }
 }
 
+async function routeDefaultMemtracks(page, {
+  id = 'feedc0de',
+  version = 'vpub',
+  title = 'Public Member Track',
+} = {}) {
+  await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          items: [
+            {
+              id,
+              slug: `memtrack-${id}`,
+              title,
+              caption: 'Published by Ada Member.',
+              category: 'memtracks',
+              publisher: { display_name: 'Ada Member' },
+              file: { url: `/api/gallery/memtracks/${id}/${version}/file` },
+              poster: {
+                url: `/api/gallery/memtracks/${id}/${version}/poster`,
+                w: 320,
+                h: 320,
+              },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+          applied_limit: 60,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/gallery/memtracks/**', async (route) => {
+    if (route.request().url().endsWith('/poster')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'audio/mpeg',
+      body: Buffer.from('mock-audio'),
+    });
+  });
+}
+
 async function openHomepageSoundLab(page) {
   const stage = page.locator('#homeCategories');
   await expect(stage).toBeVisible();
@@ -147,6 +200,10 @@ async function clickSoundLabPlayButton(page, button) {
 }
 
 test.describe('Global audio player', () => {
+  test.beforeEach(async ({ page }) => {
+    await routeDefaultMemtracks(page);
+  });
+
   test('desktop player stays hidden on homepage load until playback starts', async ({ page }) => {
     await installAudioMock(page);
 
@@ -174,22 +231,22 @@ test.describe('Global audio player', () => {
     await expect(page.locator('#globalAudioHandle')).toBeVisible();
     await expect(page.locator('#globalAudioPanel')).not.toBeVisible();
     await openGlobalAudioDrawer(page);
-    await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
+    await expect(page.locator('#globalAudioTitle')).toHaveText('Public Member Track');
     await expect(page.locator('#globalAudioStatus')).toContainText('Playing');
 
     await page.goto('/legal/imprint.html');
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await openGlobalAudioDrawer(page);
-    await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
+    await expect(page.locator('#globalAudioTitle')).toHaveText('Public Member Track');
 
     await page.reload();
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await openGlobalAudioDrawer(page);
-    await expect(page.locator('#globalAudioTitle')).toHaveText('Cosmic Sea');
+    await expect(page.locator('#globalAudioTitle')).toHaveText('Public Member Track');
 
     const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('bitbi_audio_state_v1')));
-    expect(persisted.trackId).toBe('soundlab:cosmic-sea');
-    expect(persisted.title).toBe('Cosmic Sea');
+    expect(persisted.trackId).toBe('memtrack:feedc0de');
+    expect(persisted.title).toBe('Public Member Track');
   });
 
   test('global player controls stay synchronized with Sound Lab cards', async ({ page }) => {
@@ -214,7 +271,7 @@ test.describe('Global audio player', () => {
     await expect(page.locator('#globalAudioStatus')).toContainText('Playing');
   });
 
-  test('public Sound Lab tracks play without forcing anonymous cross-origin mode', async ({ page }) => {
+  test('public Sound Lab Memtracks play without forcing anonymous cross-origin mode', async ({ page }) => {
     await installAudioMock(page);
 
     await page.goto('/');
@@ -222,10 +279,58 @@ test.describe('Global audio player', () => {
     const firstPlay = page.locator('.snd-play').first();
     await clickSoundLabPlayButton(page, firstPlay);
 
-    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.sources.at(-1))).toMatchObject({
-      src: 'https://pub.bitbi.ai/audio/sound-lab/cosmic-sea.mp3',
-      crossOrigin: '',
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.sources.at(-1)?.crossOrigin)).toBe('');
+    await expect
+      .poll(async () => page.evaluate(() => window.__bitbiAudioMock.sources.at(-1)?.src || ''))
+      .toContain('/api/gallery/memtracks/feedc0de/vpub/file');
+  });
+
+  test('Sound Lab timeline seeking does not restart the current Memtrack', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    const firstPlay = page.locator('.snd-play').first();
+    await clickSoundLabPlayButton(page, firstPlay);
+    await expect
+      .poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('bitbi_audio_state_v1') || '{}').duration || 0))
+      .toBeGreaterThan(0);
+
+    const playCallsBeforeSeek = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
+    const bar = page.locator('#soundLabTracks .snd-card--memtrack .snd-bar').first();
+    const box = await bar.boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.click(box.x + box.width * 0.55, box.y + Math.max(1, box.height / 2));
+
+    await expect
+      .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
+      .toBeGreaterThan(100);
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(playCallsBeforeSeek);
+    await expect
+      .poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('bitbi_audio_state_v1') || '{}').trackId || ''))
+      .toBe('memtrack:feedc0de');
+  });
+
+  test('switching homepage sections does not restart the playing Memtrack', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    await clickSoundLabPlayButton(page, page.locator('.snd-play').first());
+    await page.evaluate(() => {
+      window.__bitbiAudioMock.instances[0].currentTime = 83;
     });
+    const playCallsBeforeSwitch = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
+
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'sound');
+
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(playCallsBeforeSwitch);
+    await expect
+      .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
+      .toBe(83);
   });
 
   test('desktop player hides after playback ends and stays hidden on reload when nothing is actively playing', async ({ page }) => {
@@ -280,41 +385,13 @@ test.describe('Global audio player', () => {
     await expect(panel).toBeVisible();
   });
 
-  test('exclusive Sound Lab tracks still render artwork thumbs from the shared catalog', async ({ page }) => {
-    await page.route('**/api/me', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          loggedIn: true,
-          user: {
-            id: 'audio-thumb-user',
-            email: 'audio@example.com',
-            role: 'user',
-          },
-        }),
-      });
-    });
-
-    await page.route('**/api/soundlab-thumbs/**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'image/png',
-        body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
-      });
-    });
-
+  test('Sound Lab no longer renders Free or Exclusive category surfaces', async ({ page }) => {
     await page.goto('/');
     await openHomepageSoundLab(page);
-    await expect
-      .poll(async () => page.locator('#soundLabTracks .excl-thumb').evaluateAll((elements) => (
-        elements.some((element) => {
-          const src = element.getAttribute('src') || '';
-          const display = window.getComputedStyle(element).display;
-          return /\/api\/soundlab-thumbs\/thumb-bitbi$/.test(src) && display !== 'none';
-        })
-      )))
-      .toBe(true);
+    await expect(page.locator('#soundlab .snd-filter-btn')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .snd-card--free')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .locked-area')).toHaveCount(0);
+    await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
   });
 });
 
@@ -323,6 +400,10 @@ test.describe('Global audio player on mobile homepage', () => {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await routeDefaultMemtracks(page);
   });
 
   test('shows the mobile mini player and menu indicator only while audio is actively playing', async ({ page }) => {
@@ -348,7 +429,7 @@ test.describe('Global audio player on mobile homepage', () => {
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
     await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
-    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Cosmic Sea');
+    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
     const placement = await page.evaluate(() => {
       const mobileNav = document.getElementById('mobileNav');
@@ -369,8 +450,8 @@ test.describe('Global audio player on mobile homepage', () => {
       outsideGlobalShell: true,
     });
 
-    await page.locator('#globalAudioMobileNext').click();
-    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Zufall und Notwendigkeit');
+    await expect(page.locator('#globalAudioMobileNext')).toBeDisabled();
+    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
     await page.locator('#globalAudioMobileToggle').click();
     await expect(page.locator('#globalAudioMobileBar')).toBeHidden();

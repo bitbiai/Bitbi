@@ -93,6 +93,7 @@ export function initCategoryCarousel() {
     let pendingCategory = null;
     let transitionTimer = 0;
     let scrollFrame = 0;
+    let contentAlignmentFrame = 0;
     let desktopStageEnabled = false;
 
     function getPanel(category) {
@@ -191,11 +192,35 @@ export function initCategoryCarousel() {
         scrollFrame = 0;
     }
 
+    function stopContentAlignmentWatch() {
+        if (!contentAlignmentFrame) return;
+        window.cancelAnimationFrame(contentAlignmentFrame);
+        contentAlignmentFrame = 0;
+    }
+
     function alignStageToHeaderEdge() {
         stopStageAlignmentAnimation();
         const alignmentDelta = getStageAlignmentDelta();
         if (Math.abs(alignmentDelta) <= 1) return;
         window.scrollBy({ top: alignmentDelta, behavior: 'auto' });
+    }
+
+    function startContentAlignmentWatch(durationMs = 900) {
+        stopContentAlignmentWatch();
+        const stopAt = performance.now() + durationMs;
+        const step = () => {
+            if (!desktopStageEnabled) {
+                contentAlignmentFrame = 0;
+                return;
+            }
+            alignStageToHeaderEdge();
+            if (Math.abs(getStageAlignmentDelta()) <= 1 || performance.now() >= stopAt) {
+                contentAlignmentFrame = 0;
+                return;
+            }
+            contentAlignmentFrame = window.requestAnimationFrame(step);
+        };
+        contentAlignmentFrame = window.requestAnimationFrame(step);
     }
 
     function animateStageAlignment() {
@@ -311,10 +336,14 @@ export function initCategoryCarousel() {
         stage.classList.add('is-ready');
         stage.classList.remove('is-transitioning');
         stage.dataset.stageMode = 'desktop';
-        activeCategory = resolveCategoryFromHash(window.location.hash) || activeCategory || 'video';
+        const hashCategory = resolveCategoryFromHash(window.location.hash);
+        activeCategory = hashCategory || activeCategory || 'video';
         viewport.style.height = '';
         applyCategoryState();
         updateCategoryLinkState();
+        if (hashCategory || activeCategory !== 'video') {
+            startContentAlignmentWatch();
+        }
     }
 
     function syncStageMode() {
@@ -462,8 +491,22 @@ export function initCategoryCarousel() {
         setActiveCategory(nextCategory, { alignStage: true });
     });
 
+    const alignActiveCategoryAfterContentReady = () => {
+        if (!desktopStageEnabled) return;
+        startContentAlignmentWatch();
+    };
+
+    document.addEventListener('bitbi:homepage-category-content-ready', (event) => {
+        if (event?.detail?.category !== activeCategory) return;
+        alignActiveCategoryAfterContentReady();
+    });
+
     bindMediaQueryChange(desktopStageQuery, syncStageMode);
     syncStageMode();
+
+    if (activeCategory === 'sound' && document.querySelector('#soundLabTracks .snd-card--memtrack')) {
+        alignActiveCategoryAfterContentReady();
+    }
 
     if (shouldHonorInitialCategoryHash()) {
         const initialCategoryHash = resolveCategoryFromHash(window.location.hash)

@@ -1179,7 +1179,6 @@
     }
 
     .snd-prog,
-    .excl-prog,
     #plProg {
         height: 3px !important;
         top: 10px !important;
@@ -1208,11 +1207,6 @@
         .snd-hero img {
             position: absolute;
             inset: 0;
-        }
-
-        .snd-card > .locked-area__content {
-            display: flex;
-            flex-direction: column;
         }
 
         #playlistPlayer {
@@ -1261,12 +1255,6 @@
             inset: 0;
         }
 
-        .snd-card > .locked-area__content {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-height: 0;
-        }
     }
 
     /* --- Mobile Sound Lab Deck --- */
@@ -1310,51 +1298,6 @@
         }
     }
 
-    /* --- Sound Lab Filter Bar --- */
-    .snd-filter-bar {
-        display: flex;
-        justify-content: center;
-        gap: 0.625rem;
-        margin-block-end: var(--space-5);
-    }
-
-    .snd-filter-btn {
-        padding: var(--space-2) var(--space-5);
-        border-radius: var(--radius-full);
-        font-size: 0.75rem;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.5);
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        transition: all 0.3s var(--ease-default);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .snd-filter-btn.active {
-        background: rgba(0, 240, 255, 0.12);
-        border-color: rgba(0, 240, 255, 0.4);
-        color: var(--color-cyan);
-    }
-
-    .snd-filter-btn--auth {
-        color: rgba(255, 255, 255, 0.3);
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-    }
-
-    .snd-filter-btn--auth.unlocked {
-        color: rgba(255, 255, 255, 0.5);
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .snd-filter-btn--auth.unlocked.active {
-        background: rgba(0, 240, 255, 0.12);
-        border-color: rgba(0, 240, 255, 0.4);
-        color: var(--color-cyan);
-    }
-
     .snd-memtracks-status {
         margin-block: var(--space-3);
         text-align: center;
@@ -1374,18 +1317,6 @@
             radial-gradient(circle at 25% 20%, rgba(255, 179, 0, 0.18), transparent 40%),
             radial-gradient(circle at 80% 24%, rgba(0, 240, 255, 0.12), transparent 42%),
             linear-gradient(180deg, rgba(12, 20, 32, 0.98) 0%, rgba(5, 10, 18, 0.98) 100%);
-    }
-
-    /* Sound Lab: hide lock overlay (auth is gated via filter bar) */
-    #soundLabTracks .locked-area__overlay {
-        opacity: 0;
-        pointer-events: none;
-    }
-
-    #soundLabTracks .locked-area__content {
-        filter: none;
-        pointer-events: auto;
-        user-select: auto;
     }
 
     /* --- Homepage Category Stage --- */
@@ -2355,7 +2286,7 @@
         body.home-categories-desktop-stage .site-footer::after {
             content: '';
             display: block;
-            block-size: max(3rem, 20vh);
+            block-size: max(6rem, 32vh);
         }
     }
 
