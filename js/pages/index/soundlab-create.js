@@ -4,6 +4,7 @@
 
 import {
     apiAiGenerateMusic,
+    apiAiGetAssets,
     apiAiGetQuota,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
@@ -11,10 +12,13 @@ import { openAuthModal } from '../../shared/auth-modal.js';
 
 const BASE_PRICE = 150;
 const SEPARATE_LYRICS_PRICE = 160;
+const COVER_POLL_INTERVAL_MS = 2000;
+const COVER_POLL_TIMEOUT_MS = 30000;
 
 let initialized = false;
 let creditBalance = null;
 let $prompt, $lyrics, $instrumental, $generateLyrics, $generateBtn, $preview, $msg, $quotaEl;
+let coverPollToken = 0;
 
 function showMsg(el, text, type) {
     el.textContent = text;
@@ -28,6 +32,7 @@ function hideMsg(el) {
 
 function replacePreview(...nodes) {
     if (!$preview) return;
+    coverPollToken += 1;
     $preview.replaceChildren(...nodes);
 }
 
@@ -47,6 +52,71 @@ function renderPreviewLoading() {
     label.textContent = 'Creating your track...';
     loading.append(spinner, label);
     replacePreview(loading);
+}
+
+function applyCoverImage(cover, coverUrl) {
+    if (!cover) return;
+    const currentImg = cover.querySelector('img');
+    if (!coverUrl) {
+        currentImg?.remove();
+        cover.classList.add('sound-create__cover--fallback');
+        cover.dataset.coverState = 'fallback';
+        return;
+    }
+
+    cover.classList.remove('sound-create__cover--fallback');
+    cover.dataset.coverState = 'ready';
+
+    const img = currentImg || document.createElement('img');
+    img.src = coverUrl;
+    img.alt = '';
+    img.loading = 'lazy';
+    if (!currentImg) {
+        const playButton = cover.querySelector('.sound-create__cover-play');
+        cover.insertBefore(img, playButton || null);
+    }
+}
+
+function updateRenderedAssetCover(asset) {
+    if (!$preview || !asset?.id || !asset.poster_url) return false;
+    const result = Array.from($preview.querySelectorAll('.sound-create__result'))
+        .find((node) => node.dataset.assetId === String(asset.id));
+    if (!result) return false;
+    applyCoverImage(result.querySelector('.sound-create__cover'), asset.poster_url);
+    return true;
+}
+
+function startCoverPolling(asset) {
+    const assetId = asset?.id ? String(asset.id) : '';
+    if (!assetId || asset?.poster_url) return;
+
+    const token = ++coverPollToken;
+    const startedAt = Date.now();
+    const folderId = asset.folder_id || null;
+    const onlyUnfoldered = !folderId;
+
+    const poll = async () => {
+        if (token !== coverPollToken) return;
+        try {
+            const page = await apiAiGetAssets(folderId, {
+                onlyUnfoldered,
+                limit: 20,
+            });
+            const updated = (page.assets || []).find((entry) => String(entry?.id || '') === assetId);
+            if (updated?.poster_url) {
+                updateRenderedAssetCover(updated);
+                return;
+            }
+        } catch (error) {
+            console.warn('Sound Lab cover refresh failed:', error);
+        }
+
+        if (token !== coverPollToken) return;
+        if (Date.now() - startedAt >= COVER_POLL_TIMEOUT_MS) return;
+        setTimeout(poll, COVER_POLL_INTERVAL_MS);
+    };
+
+    setTimeout(poll, COVER_POLL_INTERVAL_MS);
 }
 
 function currentPrice() {
@@ -117,18 +187,13 @@ function renderResult(data) {
 
     const result = document.createElement('div');
     result.className = 'sound-create__result';
+    if (data?.asset?.id) {
+        result.dataset.assetId = String(data.asset.id);
+    }
 
     const cover = document.createElement('div');
     cover.className = 'sound-create__cover';
-    if (coverUrl) {
-        const img = document.createElement('img');
-        img.src = coverUrl;
-        img.alt = '';
-        img.loading = 'lazy';
-        cover.append(img);
-    } else {
-        cover.classList.add('sound-create__cover--fallback');
-    }
+    applyCoverImage(cover, coverUrl);
 
     const audio = document.createElement('audio');
     audio.controls = true;
@@ -197,6 +262,7 @@ function renderResult(data) {
     }
 
     replacePreview(result);
+    startCoverPolling(data?.asset);
 }
 
 async function handleGenerate() {

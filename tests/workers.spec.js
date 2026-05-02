@@ -18477,6 +18477,104 @@ test.describe('Worker routes', () => {
     expect(videoRes.headers.get('content-type')).toContain('video/mp4');
   });
 
+  test('AI assets route exposes generated cover poster metadata for music assets when ready', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'music-cover-read-user', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'abca1001',
+          user_id: 'music-cover-read-user',
+          folder_id: null,
+          r2_key: 'users/music-cover-read-user/folders/unsorted/audio/ready.mp3',
+          title: 'Ready Cover Track',
+          file_name: 'ready-cover-track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 204800,
+          preview_text: 'A finished music track with cover art.',
+          metadata_json: '{}',
+          created_at: '2026-04-10T12:08:00.000Z',
+          poster_r2_key: 'users/music-cover-read-user/derivatives/v1/abca1001/poster.webp',
+          poster_width: 320,
+          poster_height: 320,
+        },
+        {
+          id: 'abca1002',
+          user_id: 'music-cover-read-user',
+          folder_id: null,
+          r2_key: 'users/music-cover-read-user/folders/unsorted/audio/pending.mp3',
+          title: 'Pending Cover Track',
+          file_name: 'pending-cover-track.mp3',
+          source_module: 'music',
+          mime_type: 'audio/mpeg',
+          size_bytes: 102400,
+          preview_text: 'A saved music track waiting for cover art.',
+          metadata_json: '{}',
+          created_at: '2026-04-10T12:07:00.000Z',
+          poster_r2_key: null,
+          poster_width: null,
+          poster_height: null,
+        },
+      ],
+      userImages: {
+        'users/music-cover-read-user/folders/unsorted/audio/ready.mp3': {
+          body: new TextEncoder().encode('mock-audio-ready').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'users/music-cover-read-user/folders/unsorted/audio/pending.mp3': {
+          body: new TextEncoder().encode('mock-audio-pending').buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+        },
+        'users/music-cover-read-user/derivatives/v1/abca1001/poster.webp': {
+          body: new TextEncoder().encode('mock-poster').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+    });
+
+    const token = await seedSession(env, 'music-cover-read-user');
+    const listRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets?only_unfoldered=1&limit=20', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.ok).toBe(true);
+    const ready = listBody.data.assets.find((asset) => asset.id === 'abca1001');
+    const pending = listBody.data.assets.find((asset) => asset.id === 'abca1002');
+    expect(ready).toEqual(expect.objectContaining({
+      asset_type: 'sound',
+      source_module: 'music',
+      file_url: '/api/ai/text-assets/abca1001/file',
+      poster_url: '/api/ai/text-assets/abca1001/poster',
+      poster_width: 320,
+      poster_height: 320,
+    }));
+    expect(pending).toEqual(expect.objectContaining({
+      asset_type: 'sound',
+      source_module: 'music',
+      file_url: '/api/ai/text-assets/abca1002/file',
+    }));
+    expect(pending).not.toHaveProperty('poster_url');
+
+    const posterRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abca1001/poster', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(posterRes.status).toBe(200);
+    expect(posterRes.headers.get('content-type')).toContain('image/webp');
+  });
+
   test('owner can publish and unpublish their own saved image asset without changing ownership or folder state', async () => {
     const { buildPublicMempicUrl, buildPublicMempicVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');

@@ -5340,6 +5340,14 @@ class MockD1 {
       return row ? { r2_key: row.r2_key, poster_r2_key: row.poster_r2_key ?? null } : null;
     }
 
+    if (query === 'SELECT poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ? AND poster_r2_key IS NOT NULL') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) =>
+        item.id === assetId && item.user_id === userId && item.poster_r2_key
+      );
+      return row ? { poster_r2_key: row.poster_r2_key } : null;
+    }
+
     if (query === 'DELETE FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
       const before = this.state.aiTextAssets.length;

@@ -3904,13 +3904,40 @@ test.describe('Image Studio (authenticated)', () => {
     page,
   }) => {
     const musicRequests = [];
-    await mockAuthenticatedImageStudio(page, []);
+    const assetStore = createSavedAssetsStore({ folders: [], counts: {}, unfolderedCount: 0 }, {
+      all: [],
+      unfoldered: [],
+      folders: {},
+    });
+    await mockAuthenticatedImageStudio(page, [], { assetStore });
     await page.route('**/api/ai/generate-music', async (route) => {
       const body = route.request().postDataJSON();
       musicRequests.push({
         body,
         idempotencyKey: route.request().headers()['idempotency-key'],
       });
+      const savedAsset = {
+        id: 'soundlab-track-1',
+        asset_type: 'sound',
+        folder_id: null,
+        title: 'Homepage Sound Lab Track',
+        file_name: 'homepage-sound-lab-track.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: 4096,
+        preview_text: body.prompt,
+        created_at: '2026-04-10T12:09:00.000Z',
+        file_url: '/api/ai/text-assets/soundlab-track-1/file',
+      };
+      assetStore.addAsset(savedAsset);
+      setTimeout(() => {
+        assetStore.addAsset({
+          ...savedAsset,
+          poster_url: '/api/ai/text-assets/soundlab-track-1/poster',
+          poster_width: 320,
+          poster_height: 320,
+        });
+      }, 250);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -3930,7 +3957,6 @@ test.describe('Image Studio (authenticated)', () => {
               source_module: 'music',
               mime_type: 'audio/mpeg',
               file_url: '/api/ai/text-assets/soundlab-track-1/file',
-              poster_url: '/api/ai/text-assets/soundlab-track-1/poster',
             },
           },
           billing: {
@@ -3964,8 +3990,14 @@ test.describe('Image Studio (authenticated)', () => {
     await page.locator('#soundMusicPrompt').fill('A glossy synth pop track for late night coding.');
     await page.locator('#soundMusicGenerate').click();
     await expect(page.locator('#soundMusicPreview audio')).toBeVisible();
+    await expect(page.locator('#soundMusicPreview .sound-create__cover'))
+      .toHaveAttribute('data-cover-state', 'fallback');
+    await expect(page.locator('#soundMusicPreview .sound-create__cover img')).toHaveCount(0);
+    await expect(page.locator('#soundMusicPreview .sound-create__cover-play')).toBeVisible();
     await expect(page.locator('#soundMusicPreview .sound-create__cover img'))
       .toHaveAttribute('src', '/api/ai/text-assets/soundlab-track-1/poster');
+    await expect(page.locator('#soundMusicPreview .sound-create__cover'))
+      .toHaveAttribute('data-cover-state', 'ready');
     await expect(page.locator('#soundMusicPreview .sound-create__cover-play')).toBeVisible();
     await expect(page.locator('#soundMusicMsg')).toContainText('Music generated and saved.');
     await expect(page.locator('#soundLabCreate .studio__quota')).toContainText('850 credits available');
