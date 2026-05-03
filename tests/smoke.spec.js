@@ -1187,7 +1187,7 @@ test.describe('Homepage', () => {
     const submit = form.locator('button[type="submit"]');
     const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
     const brand = page.locator('.site-footer__brand');
-    const socialLink = page.locator('.site-footer__social-link[aria-label="X (Twitter)"]');
+    const socialLink = page.locator('#contact .site-footer__social-link[aria-label="X (Twitter)"]');
 
     await expect(trigger).toBeVisible();
     await expect(brand).toBeVisible();
@@ -1206,7 +1206,7 @@ test.describe('Homepage', () => {
       const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
       const contactRoot = document.getElementById('contact');
       const brandEl = document.querySelector('.site-footer__brand');
-      const socialEl = document.querySelector('.site-footer__social-link[aria-label="X (Twitter)"]');
+      const socialEl = document.querySelector('#contact .site-footer__social-link[aria-label="X (Twitter)"]');
       const drawerRect = drawerEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
       const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
@@ -1310,13 +1310,17 @@ test.describe('Homepage', () => {
   test('footer contact drawer stays collapsed by default on mobile and toggles open cleanly', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
+    const rejectAll = page.locator('#ckRejectAll');
+    if (await rejectAll.isVisible().catch(() => false)) {
+      await rejectAll.click({ force: true });
+    }
 
     const trigger = page.locator('#contactDrawerTrigger');
     const panel = page.locator('#contactDrawerPanel');
     const form = page.locator('#contactForm');
     const panelTitle = page.locator('#contactDrawerPanel .contact-drawer__panel-title');
     const brand = page.locator('.site-footer__brand');
-    const socialLink = page.locator('.site-footer__social-link[aria-label="X (Twitter)"]');
+    const socialLink = page.locator('#contact .site-footer__social-link[aria-label="X (Twitter)"]');
 
     await expect(trigger).toBeVisible();
     await expect(brand).toBeVisible();
@@ -1329,21 +1333,34 @@ test.describe('Homepage', () => {
 
     const mobileCollapsedState = await page.evaluate(() => {
       const panelEl = document.getElementById('contactDrawerPanel');
-      const drawerEl = document.querySelector('.contact-drawer');
+      const rowEl = document.querySelector('#contact .site-footer__top');
+      const brandEl = document.querySelector('#contact .site-footer__brand');
       const triggerEl = document.getElementById('contactDrawerTrigger');
+      const socialEl = document.querySelector('#contact .site-footer__social-link[aria-label="X (Twitter)"]');
       const exploreBtnEl = document.querySelector('#video-creations .video-mode__btn--explore');
       const contactRoot = document.getElementById('contact');
-      const drawerRect = drawerEl?.getBoundingClientRect();
+      const rowRect = rowEl?.getBoundingClientRect();
+      const brandRect = brandEl?.getBoundingClientRect();
       const triggerRect = triggerEl?.getBoundingClientRect();
+      const socialRect = socialEl?.getBoundingClientRect();
       const exploreBtnRect = exploreBtnEl?.getBoundingClientRect();
+      const centers = [brandRect, triggerRect, socialRect]
+        .filter(Boolean)
+        .map((rect) => rect.top + (rect.height / 2));
+      const maxCenterSpread = centers.length
+        ? Math.max(...centers) - Math.min(...centers)
+        : 0;
       return {
         panelHeight: Math.round((panelEl?.getBoundingClientRect().height || 0) * 100) / 100,
+        rowHeight: Math.round((rowRect?.height || 0) * 100) / 100,
         triggerHeight: Math.round((triggerRect?.height || 0) * 100) / 100,
         exploreBtnHeight: Math.round((exploreBtnRect?.height || 0) * 100) / 100,
-        triggerCenterOffset: Math.round(Math.abs(
-          ((triggerRect?.left || 0) + ((triggerRect?.width || 0) / 2))
-          - ((drawerRect?.left || 0) + ((drawerRect?.width || 0) / 2))
-        ) * 100) / 100,
+        rowOverflowLeft: Math.round(Math.min(0, rowRect?.left || 0) * 100) / 100,
+        rowOverflowRight: Math.round(Math.max(0, (rowRect?.right || 0) - window.innerWidth) * 100) / 100,
+        sameRowCenterSpread: Math.round(maxCenterSpread * 100) / 100,
+        brandBeforeTrigger: Boolean(brandRect && triggerRect && brandRect.right <= triggerRect.left + 1),
+        triggerBeforeSocial: Boolean(triggerRect && socialRect && triggerRect.right <= socialRect.left + 1),
+        triggerWidth: Math.round((triggerRect?.width || 0) * 100) / 100,
         triggerCount: document.querySelectorAll('#contactDrawerTrigger').length,
         insideFooter: Boolean(contactRoot?.closest('footer')),
         legacyContactSectionCount: document.querySelectorAll('main > section[aria-label="Contact"]').length,
@@ -1352,7 +1369,13 @@ test.describe('Homepage', () => {
     expect(mobileCollapsedState.panelHeight).toBeLessThanOrEqual(2);
     expect(mobileCollapsedState.triggerHeight).toBeLessThanOrEqual(84);
     expect(Math.abs(mobileCollapsedState.triggerHeight - mobileCollapsedState.exploreBtnHeight)).toBeLessThanOrEqual(8);
-    expect(mobileCollapsedState.triggerCenterOffset).toBeLessThanOrEqual(4);
+    expect(mobileCollapsedState.rowOverflowLeft).toBe(0);
+    expect(mobileCollapsedState.rowOverflowRight).toBe(0);
+    expect(mobileCollapsedState.rowHeight).toBeLessThanOrEqual(72);
+    expect(mobileCollapsedState.sameRowCenterSpread).toBeLessThanOrEqual(36);
+    expect(mobileCollapsedState.brandBeforeTrigger).toBe(true);
+    expect(mobileCollapsedState.triggerBeforeSocial).toBe(true);
+    expect(mobileCollapsedState.triggerWidth).toBeLessThanOrEqual(140);
     expect(mobileCollapsedState.triggerCount).toBe(1);
     expect(mobileCollapsedState.insideFooter).toBe(true);
     expect(mobileCollapsedState.legacyContactSectionCount).toBe(0);

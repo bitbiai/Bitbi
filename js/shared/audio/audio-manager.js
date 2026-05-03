@@ -15,6 +15,7 @@ const subscribers = new Set();
 let initialized = false;
 let audioEl = null;
 let persistTimer = null;
+let progressSyncTimer = null;
 let pendingSeekTime = null;
 let lastTimePersistAt = 0;
 let state = createDefaultState();
@@ -72,6 +73,58 @@ function safeNumber(value, fallback = 0) {
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+}
+
+function getAudioCurrentTime(audio = audioEl) {
+    if (!audio || !Number.isFinite(audio.currentTime)) return state.currentTime;
+    return Math.max(0, audio.currentTime);
+}
+
+function getAudioDuration(audio = audioEl) {
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return state.duration;
+    return audio.duration;
+}
+
+function syncAudioProgressFromElement(options = {}) {
+    const audio = audioEl;
+    if (!audio) return;
+
+    const currentTime = getAudioCurrentTime(audio);
+    const duration = getAudioDuration(audio);
+    const force = options.force === true;
+    const nextPatch = {};
+
+    if (force || Math.abs(safeNumber(state.currentTime, 0) - currentTime) >= 0.05) {
+        nextPatch.currentTime = currentTime;
+    }
+
+    if (duration > 0 && (force || Math.abs(safeNumber(state.duration, 0) - duration) >= 0.05)) {
+        nextPatch.duration = duration;
+    }
+
+    if (Object.keys(nextPatch).length === 0) return;
+
+    patchState(nextPatch);
+    schedulePersist(options.persistReason || 'timeupdate');
+}
+
+function stopProgressSyncLoop() {
+    if (!progressSyncTimer) return;
+    window.clearTimeout(progressSyncTimer);
+    progressSyncTimer = null;
+}
+
+function startProgressSyncLoop() {
+    if (progressSyncTimer) return;
+
+    const tick = () => {
+        progressSyncTimer = null;
+        if (!audioEl || !state.sourceUrl || audioEl.paused || state.status !== 'playing') return;
+        syncAudioProgressFromElement({ persistReason: 'timeupdate' });
+        progressSyncTimer = window.setTimeout(tick, 250);
+    };
+
+    progressSyncTimer = window.setTimeout(tick, 250);
 }
 
 function normalizeAssetUrl(value) {
@@ -217,8 +270,8 @@ function ensureAudioElement() {
             pendingSeekTime = null;
         }
         patchState({
-            duration: Number.isFinite(audioEl.duration) ? audioEl.duration : state.duration,
-            currentTime: Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : state.currentTime,
+            duration: getAudioDuration(audioEl),
+            currentTime: getAudioCurrentTime(audioEl),
             status: audioEl.paused ? 'paused' : 'playing',
             error: '',
         });
@@ -228,7 +281,7 @@ function ensureAudioElement() {
     audioEl.addEventListener('durationchange', () => {
         if (!audioEl) return;
         patchState({
-            duration: Number.isFinite(audioEl.duration) ? audioEl.duration : 0,
+            duration: getAudioDuration(audioEl),
         });
         schedulePersist('duration');
     });
@@ -236,7 +289,8 @@ function ensureAudioElement() {
     audioEl.addEventListener('timeupdate', () => {
         if (!audioEl) return;
         patchState({
-            currentTime: Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : state.currentTime,
+            currentTime: getAudioCurrentTime(audioEl),
+            duration: getAudioDuration(audioEl),
         });
         schedulePersist('timeupdate');
     });
@@ -247,14 +301,18 @@ function ensureAudioElement() {
             autoplayBlocked: false,
             error: '',
         });
+        syncAudioProgressFromElement({ force: true, persistReason: 'play' });
+        startProgressSyncLoop();
         schedulePersist('play');
     });
 
     audioEl.addEventListener('pause', () => {
         if (!audioEl) return;
+        stopProgressSyncLoop();
         patchState({
             status: state.autoplayBlocked ? 'blocked' : 'paused',
-            currentTime: Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : state.currentTime,
+            currentTime: getAudioCurrentTime(audioEl),
+            duration: getAudioDuration(audioEl),
         });
         schedulePersist('pause');
     });
@@ -277,11 +335,12 @@ function ensureAudioElement() {
     });
 
     audioEl.addEventListener('ended', () => {
+        stopProgressSyncLoop();
         patchState({
             status: 'paused',
             playIntent: false,
-            currentTime: Number.isFinite(audioEl.duration) ? audioEl.duration : state.currentTime,
-            duration: Number.isFinite(audioEl.duration) ? audioEl.duration : state.duration,
+            currentTime: getAudioDuration(audioEl),
+            duration: getAudioDuration(audioEl),
             endedAt: Date.now(),
         });
         schedulePersist('ended');
@@ -295,6 +354,7 @@ function ensureAudioElement() {
     });
 
     audioEl.addEventListener('error', () => {
+        stopProgressSyncLoop();
         patchState({
             status: 'error',
             playIntent: false,
@@ -317,6 +377,8 @@ async function attemptPlay(userInitiated = false) {
             autoplayBlocked: false,
             error: '',
         });
+        syncAudioProgressFromElement({ force: true, persistReason: 'play' });
+        startProgressSyncLoop();
         schedulePersist('play');
         return true;
     } catch (error) {
@@ -542,7 +604,8 @@ export function seekGlobalAudio(nextTime) {
         pendingSeekTime = numericTime;
     }
     patchState({
-        currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : numericTime,
+        currentTime: getAudioCurrentTime(audio) || numericTime,
+        duration: getAudioDuration(audio),
     });
     schedulePersist('seek');
 }
@@ -583,6 +646,7 @@ export function clearGlobalAudio(options = {}) {
     };
 
     audio.pause();
+    stopProgressSyncLoop();
     audio.removeAttribute('src');
     try { audio.load(); } catch (_) { /* noop */ }
     pendingSeekTime = null;
