@@ -180,12 +180,7 @@ async function openHomepageSoundLab(page) {
   const current = await stage.getAttribute('data-active-category');
   if (current === 'sound') return;
 
-  if (current === 'gallery') {
-    await stage.locator('[data-category-nav="next"]').click();
-    await expect(stage).toHaveAttribute('data-active-category', 'video');
-  }
-
-  await stage.locator('[data-category-nav="next"]').click();
+  await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
   await expect(stage).toHaveAttribute('data-active-category', 'sound');
 }
 
@@ -262,9 +257,10 @@ test.describe('Global audio player', () => {
 
     await page.locator('#globalAudioToggle').click();
     await expect(page.locator('.snd-card').first().locator('.pi')).toBeVisible();
-    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await expect(page.locator('#globalAudioStatus')).toContainText('Paused');
 
-    await clickSoundLabPlayButton(page, firstPlay);
+    await page.locator('#globalAudioToggle').click();
     await expect(page.locator('#globalAudioShell')).toBeVisible();
     await openGlobalAudioDrawer(page);
     await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
@@ -298,9 +294,15 @@ test.describe('Global audio player', () => {
 
     const playCallsBeforeSeek = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
     const bar = page.locator('#soundLabTracks .snd-card--memtrack .snd-bar').first();
-    const box = await bar.boundingBox();
-    expect(box).toBeTruthy();
-    await page.mouse.click(box.x + box.width * 0.55, box.y + Math.max(1, box.height / 2));
+    await bar.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      element.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + (rect.width * 0.55),
+        clientY: rect.top + Math.max(1, rect.height / 2),
+      }));
+    });
 
     await expect
       .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
@@ -333,7 +335,7 @@ test.describe('Global audio player', () => {
       .toBe(83);
   });
 
-  test('desktop player hides after playback ends and stays hidden on reload when nothing is actively playing', async ({ page }) => {
+  test('desktop player stays visible after playback ends and closes only from dismiss control', async ({ page }) => {
     await installAudioMock(page);
 
     await page.goto('/');
@@ -347,11 +349,16 @@ test.describe('Global audio player', () => {
       window.__bitbiAudioMock.instances[0]?.dispatchEvent(new Event('ended'));
     });
 
-    await expect(page.locator('#globalAudioShell')).toBeHidden();
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await openGlobalAudioDrawer(page);
+    await expect(page.locator('#globalAudioStatus')).toContainText('Paused');
     await expect.poll(async () => page.evaluate(() => {
       const snapshot = JSON.parse(localStorage.getItem('bitbi_audio_state_v1'));
       return snapshot?.playIntent ?? null;
     })).toBe(false);
+
+    await page.locator('#globalAudioDismiss').click();
+    await expect(page.locator('#globalAudioShell')).toBeHidden();
 
     await page.reload();
     await expect(page.locator('#globalAudioShell')).toBeHidden();
@@ -406,7 +413,7 @@ test.describe('Global audio player on mobile homepage', () => {
     await routeDefaultMemtracks(page);
   });
 
-  test('shows the mobile mini player and menu indicator only while audio is actively playing', async ({ page }) => {
+  test('shows the mobile mini player from shared playback state until explicit close', async ({ page }) => {
     await installAudioMock(page);
 
     await page.goto('/');
@@ -421,39 +428,54 @@ test.describe('Global audio player on mobile homepage', () => {
     await firstPlay.click();
 
     await expect(page.locator('#globalAudioShell')).toBeHidden();
-    await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
     await expect(page.locator('#globalAudioHandle')).toBeHidden();
     await expect(page.locator('#globalAudioMenuIndicator')).toBeVisible();
     await expect(page.locator('#globalAudioMenuIndicator')).toHaveClass(/is-active/);
-
-    await page.locator('#mobileMenuBtn').click();
-    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
-    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
     await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
     const placement = await page.evaluate(() => {
       const mobileNav = document.getElementById('mobileNav');
-      const footer = mobileNav.querySelector('.mobile-nav__footer');
       const bar = document.getElementById('globalAudioMobileBar');
-      const legal = footer.querySelector('.mobile-nav__legal');
       return {
         insideMobileNav: mobileNav.contains(bar),
-        insideFooter: footer.contains(bar),
-        directlyAboveLegal: bar.nextElementSibling === legal,
+        afterGlobalShell: document.getElementById('globalAudioShell').nextElementSibling === bar,
         outsideGlobalShell: !document.getElementById('globalAudioShell').contains(bar),
       };
     });
     expect(placement).toEqual({
-      insideMobileNav: true,
-      insideFooter: true,
-      directlyAboveLegal: true,
+      insideMobileNav: false,
+      afterGlobalShell: true,
       outsideGlobalShell: true,
     });
 
     await expect(page.locator('#globalAudioMobileNext')).toBeDisabled();
     await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
+    await page.evaluate(() => {
+      window.__bitbiAudioMock.instances[0].currentTime = 61;
+    });
+    await expect(page.locator('#globalAudioMobileStatus')).toContainText('1:01 / 4:05');
+    const playCallsBeforeSeek = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
+    const mobileProgress = page.locator('#globalAudioMobileProgress');
+    const mobileProgressBox = await mobileProgress.boundingBox();
+    expect(mobileProgressBox).toBeTruthy();
+    await page.mouse.click(
+      mobileProgressBox.x + mobileProgressBox.width * 0.72,
+      mobileProgressBox.y + Math.max(1, mobileProgressBox.height / 2),
+    );
+    await expect
+      .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
+      .toBeGreaterThan(170);
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(playCallsBeforeSeek);
+
     await page.locator('#globalAudioMobileToggle').click();
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileStatus')).toContainText('Paused');
+    await expect(page.locator('#globalAudioMenuIndicator')).toBeVisible();
+    await expect(page.locator('#globalAudioMenuIndicator')).not.toHaveClass(/is-active/);
+
+    await page.locator('#globalAudioMobileDismiss').click();
     await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
     await expect(page.locator('#globalAudioMenuIndicator')).toBeHidden();
   });

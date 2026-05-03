@@ -6,6 +6,11 @@
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createStarButton } from '../../shared/favorites.js';
 import { initMobileCardDeck } from '../../shared/studio-deck.js?v=__ASSET_VERSION__';
+import {
+    getMobileMediaGridQuery,
+    openMobileMediaGrid,
+    syncMobileMediaTrigger,
+} from './mobile-media-overlay.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
 const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -20,6 +25,7 @@ export function initVideoGallery() {
 
     let memvidsPromise = null;
     const desktopDrawerQuery = window.matchMedia?.(DESKTOP_PUBLIC_DRAWER_MEDIA);
+    const mobileMediaQuery = getMobileMediaGridQuery();
     const memvidsState = {
         items: [],
         nextCursor: null,
@@ -45,7 +51,8 @@ export function initVideoGallery() {
         dotClass: 'vid-deck-dot',
     });
 
-    const $paginationStatus = document.createElement('div');
+    const $paginationStatus = document.createElement('button');
+    $paginationStatus.type = 'button';
     $paginationStatus.className = 'browse-pagination__status';
     const $drawerToggle = document.createElement('button');
     $drawerToggle.type = 'button';
@@ -106,11 +113,53 @@ export function initVideoGallery() {
         grid.appendChild(el);
     }
 
+    function openMemvidsOverlay() {
+        openMobileMediaGrid({
+            title: 'Memvids',
+            items: memvidsState.items,
+            emptyText: 'No Memvids published yet.',
+            className: 'mobile-media-grid-overlay--video',
+            renderItem(item, index) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--video';
+                button.setAttribute('aria-label', item.title || `Show Memvid ${index + 1}`);
+
+                const poster = item.poster?.url || '';
+                if (poster) {
+                    const img = new Image();
+                    img.src = poster;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    button.appendChild(img);
+                } else {
+                    const fallback = document.createElement('span');
+                    fallback.className = 'mobile-media-grid-overlay__fallback';
+                    fallback.textContent = '\u25b6';
+                    button.appendChild(fallback);
+                }
+
+                const label = document.createElement('span');
+                label.className = 'mobile-media-grid-overlay__item-label';
+                label.textContent = item.title || `Memvid ${index + 1}`;
+                button.appendChild(label);
+
+                button.addEventListener('click', () => {
+                    deck.setActive?.(index);
+                    grid.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+                });
+                return button;
+            },
+        });
+    }
+
     function updateMemvidsPagination(errorMessage = '') {
         if (!$pagination) return;
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Memvids grid' });
             $drawerToggle.hidden = true;
             $drawerToggle.textContent = '';
             $loadMore.hidden = true;
@@ -120,6 +169,7 @@ export function initVideoGallery() {
         }
         if (!memvidsState.items.length) {
             $pagination.style.display = 'none';
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Memvids grid' });
             return;
         }
         const drawerAvailable = hasCollapsedMemvids();
@@ -134,6 +184,10 @@ export function initVideoGallery() {
         } else {
             $paginationStatus.textContent = `Showing all ${visibleCount} Memvids.`;
         }
+        syncMobileMediaTrigger($paginationStatus, {
+            enabled: memvidsState.items.length > 0,
+            label: 'Open all Memvids in a grid',
+        });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
             ? (memvidsDrawerExpanded ? 'Show Less' : 'Show More')
@@ -441,6 +495,7 @@ export function initVideoGallery() {
     $loadMore?.addEventListener('click', () => {
         loadMoreMemvids();
     });
+    $paginationStatus.addEventListener('click', openMemvidsOverlay);
 
     $drawerToggle?.addEventListener('click', () => {
         const nextExpanded = !memvidsDrawerExpanded;
@@ -466,6 +521,9 @@ export function initVideoGallery() {
             memvidsDrawerExpanded = false;
         }
         render();
+    });
+    bindMediaQueryChange(mobileMediaQuery, () => {
+        updateMemvidsPagination();
     });
 
     render();

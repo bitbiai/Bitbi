@@ -3947,6 +3947,8 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
     await expect(page.locator('#galleryStudio .studio__quota')).toContainText('10 credits available');
     await expect(page.locator('#galleryStudio .studio__quota')).not.toContainText('generations');
+    await expect(page.locator('#galStudioGenerate')).toHaveText('Generate · 1 credit');
+    await expect(page.locator('#galStudioGenerate')).toHaveAttribute('aria-label', /estimated cost 1 credit/i);
 
     await page.locator('#galStudioPrompt').fill('homepage legacy model request');
     await page.locator('#galStudioGenerate').click();
@@ -4124,7 +4126,7 @@ test.describe('Image Studio (authenticated)', () => {
     await page.locator('#galStudioPrompt').fill('abort generate request');
     await page.locator('#galStudioGenerate').click();
 
-    await expect(page.locator('#galStudioGenerate')).toHaveText('Generate');
+    await expect(page.locator('#galStudioGenerate')).toHaveText('Generate · 1 credit');
     await expect(page.locator('#galStudioGenerate')).toBeEnabled();
     await expect(page.locator('#galStudioGenMsg')).toContainText(/network error|request cancelled|generation failed/i);
 

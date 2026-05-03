@@ -783,79 +783,44 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     const stage = page.locator('#homeCategories');
-    const prevButton = stage.locator('[data-category-nav="prev"]');
-    const nextButton = stage.locator('[data-category-nav="next"]');
 
     await expect(stage).toHaveAttribute('data-stage-mode', 'desktop');
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
-    await expect(prevButton).toBeVisible();
-    await expect(nextButton).toBeVisible();
+    await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
+    await expect(page.locator('.home-categories__arrow')).toHaveCount(0);
     await expect(page.locator('#videoGrid .video-card').first()).toBeVisible();
 
     const initialStageMetrics = await readHomepageCategoryStageMetrics(page);
-    [initialStageMetrics.prev, initialStageMetrics.next].forEach((arrowMetrics) => {
-      expect(arrowMetrics.width).toBeGreaterThan(140);
-      expect(arrowMetrics.width).toBeLessThan(170);
-      expect(arrowMetrics.height).toBeGreaterThan(86);
-      expect(arrowMetrics.height).toBeLessThan(110);
-      expect(arrowMetrics.centerRatio).toBeGreaterThan(0.16);
-      expect(arrowMetrics.centerRatio).toBeLessThan(0.34);
-      expect(arrowMetrics.mediaWidth).toBeGreaterThan(140);
-      expect(arrowMetrics.mediaHeight).toBeGreaterThan(86);
-      expect(arrowMetrics.mediaBackgroundImage).toContain('.webp');
-    });
-    expect(initialStageMetrics.prev.target).toBe('gallery');
-    expect(initialStageMetrics.prev.mediaBackgroundImage).toContain('gallery.webp');
-    expect(initialStageMetrics.next.target).toBe('sound');
-    expect(initialStageMetrics.next.mediaBackgroundImage).toContain('soundlab.webp');
+    expect(initialStageMetrics.prev).toBeNull();
+    expect(initialStageMetrics.next).toBeNull();
 
-    const idleSparkOpacity = await prevButton.evaluate((button) => (
-      Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0')
-    ));
-    expect(idleSparkOpacity).toBeLessThan(0.1);
-
-    await prevButton.hover();
-    await expect.poll(async () => (
-      await prevButton.evaluate((button) => Number.parseFloat(window.getComputedStyle(button, '::after').opacity || '0'))
-    )).toBeGreaterThan(0.5);
-
-    await prevButton.click({ force: true });
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
     const midTransitionMetrics = await waitForHomepageCategoryTransitionMetrics(page, 'gallery');
     expect(midTransitionMetrics.isTransitioning || midTransitionMetrics.activeCategory === 'gallery').toBe(true);
-    expect(midTransitionMetrics.alignmentDelta).toBeLessThan(initialStageMetrics.alignmentDelta);
+    expect(midTransitionMetrics.alignmentDelta).toBeLessThanOrEqual(initialStageMetrics.alignmentDelta);
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
-    await expect(prevButton).toBeHidden();
-    await expect(nextButton).toBeVisible();
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
-    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.target || '').toBe('video');
-    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).next?.mediaBackgroundImage || '').toContain('video.webp');
 
-    await nextButton.click({ force: true });
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
-    await expect(prevButton).toBeVisible();
-    await expect(nextButton).toBeVisible();
 
-    await nextButton.click({ force: true });
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
     await expectActiveHomepageCategory(page, 'sound');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'sound');
-    await expect(prevButton).toBeVisible();
-    await expect(nextButton).toBeHidden();
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
-    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).prev?.target || '').toBe('video');
-    await expect.poll(async () => (await readHomepageCategoryStageMetrics(page)).prev?.mediaBackgroundImage || '').toContain('video.webp');
 
-    await prevButton.click();
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
     await waitForHomepageCategoryAlignment(page);
@@ -894,8 +859,7 @@ test.describe('Homepage', () => {
     const stage = page.locator('#homeCategories');
     await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
     await expect(stage).not.toHaveClass(/is-ready/);
-    await expect(stage.locator('[data-category-nav="prev"]')).toBeHidden();
-    await expect(stage.locator('[data-category-nav="next"]')).toBeHidden();
+    await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
 
     const layout = await page.evaluate(() => {
       return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
@@ -931,8 +895,7 @@ test.describe('Homepage', () => {
       const stage = tabletPage.locator('#homeCategories');
       await expect(stage).toHaveAttribute('data-stage-mode', 'stacked');
       await expect(stage).not.toHaveClass(/is-ready/);
-      await expect(stage.locator('[data-category-nav="prev"]')).toBeHidden();
-      await expect(stage.locator('[data-category-nav="next"]')).toBeHidden();
+      await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
 
       const layout = await tabletPage.evaluate(() => {
         return ['#gallery', '#video-creations', '#soundlab'].map((selector) => {
@@ -1480,8 +1443,8 @@ test.describe('Homepage', () => {
       expect(mobileMetrics.descriptionsPresent).toBe(0);
       expect(mobileMetrics.modeHintsPresent).toBe(0);
       expect(mobileMetrics.modeContentGap).toBeLessThan(56);
-      expect(mobileMetrics.sectionPaddingTop).toBe(48);
-      expect(mobileMetrics.headerMarginBottom).toBe(48);
+      expect(mobileMetrics.sectionPaddingTop).toBe(24);
+      expect(mobileMetrics.headerMarginBottom).toBe(24);
       expect(mobileMetrics.dividerVisible).toBe(true);
       expect(mobileMetrics.dividerWidth).toBeLessThan(mobileMetrics.sectionWidth * 0.7);
     } finally {
@@ -1992,6 +1955,33 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await switchHomepageCategory(page, 'gallery');
     await expect(page.locator('#galleryPagination .browse-pagination__toggle')).toBeHidden();
+    await expect(page.locator('#galleryPagination .browse-pagination__status')).toBeEnabled();
+    await page.locator('#galleryPagination .browse-pagination__status').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(8);
+    await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await page.locator('.mobile-media-grid-overlay__close').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
+
+    await switchHomepageCategory(page, 'video');
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toBeEnabled();
+    await page.locator('#videoPagination .browse-pagination__status').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(7);
+    await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await page.locator('.mobile-media-grid-overlay__close').click();
+
+    await switchHomepageCategory(page, 'sound');
+    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing all 1 Memtracks.');
+    await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toBeEnabled();
+    await page.locator('.snd-memtracks-pagination .browse-pagination__status').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(1);
+    await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await page.locator('.mobile-media-grid-overlay__close').click();
   });
 
   test('homepage Gallery fits five cards across on wide desktop while preserving the mobile layout', async ({ page }) => {

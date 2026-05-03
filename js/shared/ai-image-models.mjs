@@ -7,13 +7,14 @@ export const AI_IMAGE_MODELS = Object.freeze([
         requestMode: 'json',
         supportsSteps: true,
         supportsSeed: true,
+        estimatedCredits: 1,
     }),
 ]);
 
 const AI_IMAGE_MODEL_MAP = new Map(AI_IMAGE_MODELS.map((model) => [model.id, model]));
 
 export function getAiImageModelOptions() {
-    return AI_IMAGE_MODELS.map(({ id, label }) => ({ id, label }));
+    return AI_IMAGE_MODELS.map(({ id, label, estimatedCredits }) => ({ id, label, estimatedCredits }));
 }
 
 export function getAiImageModelConfig(modelId) {

@@ -4,6 +4,11 @@
 
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createStarButton } from '../../shared/favorites.js';
+import {
+    getMobileMediaGridQuery,
+    openMobileMediaGrid,
+    syncMobileMediaTrigger,
+} from './mobile-media-overlay.js?v=__ASSET_VERSION__';
 
 
 const MEMPICS_CATEGORY = 'mempics';
@@ -31,7 +36,9 @@ export function initGallery() {
     let currentFilter = MEMPICS_CATEGORY;
     let mempicsDrawerExpanded = false;
 
-    const $paginationStatus = document.createElement('div');
+    const mobileMediaQuery = getMobileMediaGridQuery();
+    const $paginationStatus = document.createElement('button');
+    $paginationStatus.type = 'button';
     $paginationStatus.className = 'browse-pagination__status';
     const $drawerToggle = document.createElement('button');
     $drawerToggle.type = 'button';
@@ -90,6 +97,41 @@ export function initGallery() {
         grid.appendChild(empty);
     }
 
+    function openMempicsOverlay() {
+        openMobileMediaGrid({
+            title: 'Mempics',
+            items: mempicsState.items,
+            emptyText: 'No Mempics published yet.',
+            className: 'mobile-media-grid-overlay--gallery',
+            renderItem(item, index) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--image';
+                button.setAttribute('aria-label', item.title || `Show Mempic ${index + 1}`);
+
+                const img = new Image();
+                img.src = item.thumb?.url || item.preview?.url || '';
+                img.alt = '';
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                button.appendChild(img);
+
+                const label = document.createElement('span');
+                label.className = 'mobile-media-grid-overlay__item-label';
+                label.textContent = item.publisher?.display_name || item.title || `Mempic ${index + 1}`;
+                button.appendChild(label);
+
+                button.addEventListener('click', () => {
+                    galActive = index;
+                    galLayout();
+                    galSyncDots();
+                    grid.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+                });
+                return button;
+            },
+        });
+    }
+
     function updateMempicsPagination(filter, errorMessage = '') {
         if (!$pagination) return;
         if (filter !== MEMPICS_CATEGORY) {
@@ -99,6 +141,7 @@ export function initGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Mempics grid' });
             $drawerToggle.hidden = true;
             $drawerToggle.textContent = '';
             $loadMore.hidden = true;
@@ -108,6 +151,7 @@ export function initGallery() {
         }
         if (!mempicsState.items.length) {
             $pagination.style.display = 'none';
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Mempics grid' });
             return;
         }
         const drawerAvailable = hasCollapsedMempics();
@@ -122,6 +166,10 @@ export function initGallery() {
         } else {
             $paginationStatus.textContent = `Showing all ${visibleCount} Mempics.`;
         }
+        syncMobileMediaTrigger($paginationStatus, {
+            enabled: mempicsState.items.length > 0,
+            label: 'Open all Mempics in a grid',
+        });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
             ? (mempicsDrawerExpanded ? 'Show Less' : 'Show More')
@@ -333,6 +381,7 @@ export function initGallery() {
     $loadMore?.addEventListener('click', () => {
         loadMoreMempics();
     });
+    $paginationStatus.addEventListener('click', openMempicsOverlay);
 
     $drawerToggle?.addEventListener('click', () => {
         const nextExpanded = !mempicsDrawerExpanded;
@@ -504,6 +553,9 @@ export function initGallery() {
             mempicsDrawerExpanded = false;
         }
         render(currentFilter);
+    });
+    bindMediaQueryChange(mobileMediaQuery, () => {
+        updateMempicsPagination(currentFilter);
     });
 
     function galEngage() {

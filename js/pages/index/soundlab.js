@@ -5,6 +5,11 @@
 import { formatTime } from '../../shared/format-time.js';
 import { createStarButton } from '../../shared/favorites.js';
 import {
+    getMobileMediaGridQuery,
+    openMobileMediaGrid,
+    syncMobileMediaTrigger,
+} from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import {
     initGlobalAudioManager,
     getGlobalAudioState,
     subscribeGlobalAudioState,
@@ -46,6 +51,7 @@ export function initSoundLab(revealObserver) {
 
     let currentState = getGlobalAudioState();
     let syncDeck = null;
+    const mobileMediaQuery = getMobileMediaGridQuery();
     const memtracksState = {
         items: [],
         loaded: false,
@@ -58,7 +64,14 @@ export function initSoundLab(revealObserver) {
     const statusEl = document.createElement('div');
     statusEl.className = 'snd-memtracks-status';
     statusEl.hidden = true;
-    ctn.after(statusEl);
+    const paginationEl = document.createElement('div');
+    paginationEl.className = 'browse-pagination browse-pagination--mobile-only snd-memtracks-pagination';
+    paginationEl.hidden = true;
+    const paginationStatus = document.createElement('button');
+    paginationStatus.type = 'button';
+    paginationStatus.className = 'browse-pagination__status';
+    paginationEl.appendChild(paginationStatus);
+    ctn.after(paginationEl, statusEl);
 
     function getMemtrackTrack(item) {
         if (!item?.id || !item?.file?.url) return null;
@@ -93,6 +106,63 @@ export function initSoundLab(revealObserver) {
         } else {
             statusEl.textContent = '';
         }
+    }
+
+    function openMemtracksOverlay() {
+        openMobileMediaGrid({
+            title: 'Memtracks',
+            items: memtracksState.items,
+            emptyText: 'No published tracks yet.',
+            className: 'mobile-media-grid-overlay--sound',
+            renderItem(item, index) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--sound';
+                button.setAttribute('aria-label', `Play ${item.title || `Memtrack ${index + 1}`}`);
+
+                const poster = item.poster?.url || '';
+                if (poster) {
+                    const img = new Image();
+                    img.src = poster;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    button.appendChild(img);
+                } else {
+                    const fallback = document.createElement('span');
+                    fallback.className = 'mobile-media-grid-overlay__fallback';
+                    fallback.textContent = '\u266b';
+                    button.appendChild(fallback);
+                }
+
+                const label = document.createElement('span');
+                label.className = 'mobile-media-grid-overlay__item-label';
+                label.textContent = item.title || `Memtrack ${index + 1}`;
+                button.appendChild(label);
+
+                button.addEventListener('click', () => {
+                    const track = getMemtrackTrack(item);
+                    if (!track) return;
+                    playGlobalTrack(track);
+                });
+                return button;
+            },
+        });
+    }
+
+    function syncMemtracksPagination() {
+        const hasItems = memtracksState.items.length > 0;
+        paginationEl.hidden = !hasItems;
+        if (!hasItems) {
+            paginationStatus.textContent = '';
+            syncMobileMediaTrigger(paginationStatus, { enabled: false, label: 'Open Memtracks grid' });
+            return;
+        }
+        paginationStatus.textContent = `Showing all ${memtracksState.items.length} Memtracks.`;
+        syncMobileMediaTrigger(paginationStatus, {
+            enabled: hasItems,
+            label: 'Open all Memtracks in a grid',
+        });
     }
 
     function renderMemtrackCard(row, item, state = currentState) {
@@ -321,6 +391,7 @@ export function initSoundLab(revealObserver) {
             document.dispatchEvent(new CustomEvent('bitbi:homepage-category-content-ready', {
                 detail: { category: 'sound' },
             }));
+            syncMemtracksPagination();
         } catch (error) {
             console.warn('soundLab memtracks:', error);
             memtracksState.error = 'Could not load published tracks right now.';
@@ -328,6 +399,7 @@ export function initSoundLab(revealObserver) {
         } finally {
             memtracksState.loading = false;
             syncStatus();
+            syncMemtracksPagination();
         }
     }
 
@@ -569,6 +641,15 @@ export function initSoundLab(revealObserver) {
     }
 
     syncDeck = initSndDeck();
+    paginationStatus.addEventListener('click', openMemtracksOverlay);
+    if (mobileMediaQuery) {
+        const syncMobileTrigger = () => syncMemtracksPagination();
+        if (typeof mobileMediaQuery.addEventListener === 'function') {
+            mobileMediaQuery.addEventListener('change', syncMobileTrigger);
+        } else if (typeof mobileMediaQuery.addListener === 'function') {
+            mobileMediaQuery.addListener(syncMobileTrigger);
+        }
+    }
     subscribeGlobalAudioState(renderFromState);
     loadMemtracks();
 

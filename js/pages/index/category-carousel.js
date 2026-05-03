@@ -77,7 +77,7 @@ export function initCategoryCarousel() {
         CATEGORY_ORDER.map((key) => [key, Array.from(document.querySelectorAll(`[data-category-link="${key}"]`))]),
     );
 
-    if (!stage || !viewport || !prevButton || !nextButton) return;
+    if (!stage || !viewport) return;
 
     const panels = new Map(
         Array.from(stage.querySelectorAll('[data-category-panel]'))
@@ -126,14 +126,18 @@ export function initCategoryCarousel() {
 
     function updateArrowState() {
         if (!desktopStageEnabled) {
-            prevButton.hidden = true;
-            prevButton.disabled = true;
-            prevButton.removeAttribute('data-category-target');
-            prevButton.removeAttribute('title');
-            nextButton.hidden = true;
-            nextButton.disabled = true;
-            nextButton.removeAttribute('data-category-target');
-            nextButton.removeAttribute('title');
+            if (prevButton) {
+                prevButton.hidden = true;
+                prevButton.disabled = true;
+                prevButton.removeAttribute('data-category-target');
+                prevButton.removeAttribute('title');
+            }
+            if (nextButton) {
+                nextButton.hidden = true;
+                nextButton.disabled = true;
+                nextButton.removeAttribute('data-category-target');
+                nextButton.removeAttribute('title');
+            }
             return;
         }
 
@@ -148,26 +152,26 @@ export function initCategoryCarousel() {
                 ? 'video'
                 : null;
 
-        if (prevTarget) {
+        if (prevButton && prevTarget) {
             prevButton.hidden = false;
             prevButton.disabled = isTransitioning;
             prevButton.dataset.categoryTarget = prevTarget;
             prevButton.setAttribute('aria-label', `Show ${CATEGORY_META[prevTarget].label}`);
             prevButton.title = `Show ${CATEGORY_META[prevTarget].label}`;
-        } else {
+        } else if (prevButton) {
             prevButton.hidden = true;
             prevButton.disabled = true;
             prevButton.removeAttribute('data-category-target');
             prevButton.removeAttribute('title');
         }
 
-        if (nextTarget) {
+        if (nextButton && nextTarget) {
             nextButton.hidden = false;
             nextButton.disabled = isTransitioning;
             nextButton.dataset.categoryTarget = nextTarget;
             nextButton.setAttribute('aria-label', `Show ${CATEGORY_META[nextTarget].label}`);
             nextButton.title = `Show ${CATEGORY_META[nextTarget].label}`;
-        } else {
+        } else if (nextButton) {
             nextButton.hidden = true;
             nextButton.disabled = true;
             nextButton.removeAttribute('data-category-target');
@@ -463,11 +467,11 @@ export function initCategoryCarousel() {
         setActiveCategory(nextCategory, { alignStage: true, clearHash: true });
     }
 
-    prevButton.addEventListener('click', () => {
+    prevButton?.addEventListener('click', () => {
         if (!desktopStageEnabled) return;
         move(-1);
     });
-    nextButton.addEventListener('click', () => {
+    nextButton?.addEventListener('click', () => {
         if (!desktopStageEnabled) return;
         move(1);
     });

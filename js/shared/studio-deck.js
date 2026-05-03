@@ -365,6 +365,13 @@ function _createDeck(grid, {
 
     return {
         refresh() { if (isDeck) renderDeck(); },
+        setActive(index) {
+            const cards = getCards();
+            if (!cards.length) return;
+            active = Math.min(Math.max(Number(index) || 0, 0), cards.length - 1);
+            layout();
+            syncDots();
+        },
         destroy() {
             observer.disconnect();
             mql.removeEventListener('change', handleMediaChange);

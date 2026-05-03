@@ -12,6 +12,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     DEFAULT_AI_IMAGE_MODEL,
+    getAiImageModelConfig,
     getAiImageModelOptions,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 
@@ -93,6 +94,25 @@ function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
     selectEl.value = currentValue;
 }
 
+function getEstimatedImageCredits() {
+    const selectedModel = $model?.value || DEFAULT_AI_IMAGE_MODEL;
+    const config = getAiImageModelConfig(selectedModel);
+    const credits = Number(config?.estimatedCredits);
+    return Number.isFinite(credits) && credits > 0 ? Math.ceil(credits) : 1;
+}
+
+function formatCreditEstimate(credits) {
+    return `${credits} credit${credits === 1 ? '' : 's'}`;
+}
+
+function renderGenerateButtonLabel() {
+    if (!$generateBtn) return;
+    const credits = getEstimatedImageCredits();
+    const label = `Generate \u00b7 ${formatCreditEstimate(credits)}`;
+    $generateBtn.textContent = label;
+    $generateBtn.setAttribute('aria-label', `Generate image, estimated cost ${formatCreditEstimate(credits)}`);
+}
+
 /* ── Folders ── */
 
 async function loadFolders() {
@@ -138,7 +158,7 @@ async function handleGenerate() {
         return;
     } finally {
         $generateBtn.disabled = false;
-        $generateBtn.textContent = 'Generate';
+        renderGenerateButtonLabel();
     }
 
     if (!res.ok) {
@@ -260,6 +280,7 @@ export function initGalleryStudio() {
 
     if (!$prompt || !$generateBtn) return;
     populateModelOptions($model);
+    renderGenerateButtonLabel();
 
     // Quota indicator (inject after the actions row, load from server)
     const $actions = document.querySelector('#galleryStudio .studio__actions');
@@ -268,6 +289,8 @@ export function initGalleryStudio() {
     loadFolders();
 
     $generateBtn.addEventListener('click', handleGenerate);
+    $model?.addEventListener('change', renderGenerateButtonLabel);
+    $steps?.addEventListener('change', renderGenerateButtonLabel);
     $saveBtn.addEventListener('click', handleSave);
     $randomize.addEventListener('click', () => {
         $seed.value = Math.floor(Math.random() * 2147483647);
