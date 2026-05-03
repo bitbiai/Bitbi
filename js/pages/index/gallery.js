@@ -103,7 +103,7 @@ export function initGallery() {
             items: mempicsState.items,
             emptyText: 'No Mempics published yet.',
             className: 'mobile-media-grid-overlay--gallery',
-            renderItem(item, index) {
+            renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--image';
@@ -122,6 +122,25 @@ export function initGallery() {
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
+                    if (typeof openDetail === 'function') {
+                        openDetail({
+                            title: item.title || `Mempic ${index + 1}`,
+                            className: 'mobile-media-detail-overlay--gallery',
+                            renderContent() {
+                                const wrap = document.createElement('div');
+                                wrap.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--image';
+                                const img = new Image();
+                                img.src = item.preview?.url || item.thumb?.url || '';
+                                img.alt = item.title || `Mempic ${index + 1}`;
+                                img.width = Number(item.preview?.w || item.thumb?.w) || 800;
+                                img.height = Number(item.preview?.h || item.thumb?.h) || 800;
+                                img.decoding = 'async';
+                                wrap.appendChild(img);
+                                return wrap;
+                            },
+                        });
+                        return;
+                    }
                     galActive = index;
                     galLayout();
                     galSyncDots();

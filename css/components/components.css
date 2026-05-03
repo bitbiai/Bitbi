@@ -356,6 +356,10 @@
         display: none !important;
     }
 
+    .mobile-nav-panel:not(.open) .site-audio__mobile-bar {
+        visibility: hidden;
+    }
+
     .site-audio__btn {
         position: relative;
         z-index: 1;
@@ -494,26 +498,22 @@
     }
 
     @media (max-width: 1023px) {
-    .site-audio__mobile-bar {
-        position: fixed;
-        inset-inline: max(0.75rem, env(safe-area-inset-left, 0px)) max(0.75rem, env(safe-area-inset-right, 0px));
-        inset-block-start: calc(3.75rem + env(safe-area-inset-top, 0px));
-        z-index: 46;
-        display: grid;
-        gap: 0.55rem;
-        inline-size: auto;
-        margin-block: 0;
-        padding: 0.7rem 0.9rem 0.85rem;
-        border: 1px solid rgba(0, 240, 255, 0.12);
-        border-radius: 1.1rem;
-        background:
-            linear-gradient(180deg, rgba(13, 27, 42, 0.98), rgba(6, 14, 24, 0.98)),
-            rgba(6, 14, 24, 0.98);
-        box-shadow:
-            0 16px 34px rgba(0, 0, 0, 0.28),
-            0 0 22px rgba(0, 240, 255, 0.08);
-        pointer-events: auto;
-    }
+        .site-audio__mobile-bar {
+            display: grid;
+            gap: 0.55rem;
+            inline-size: 100%;
+            margin-block: 0 0.95rem;
+            padding: 0.7rem 0.9rem 0.85rem;
+            border: 1px solid rgba(0, 240, 255, 0.12);
+            border-radius: 1.1rem;
+            background:
+                linear-gradient(180deg, rgba(13, 27, 42, 0.98), rgba(6, 14, 24, 0.98)),
+                rgba(6, 14, 24, 0.98);
+            box-shadow:
+                0 16px 34px rgba(0, 0, 0, 0.28),
+                0 0 22px rgba(0, 240, 255, 0.08);
+            pointer-events: auto;
+        }
     }
 
     .site-audio__mobile-main {

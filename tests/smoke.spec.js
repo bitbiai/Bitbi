@@ -1961,6 +1961,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(8);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--gallery')).toBeVisible();
+    await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
     await page.locator('.mobile-media-grid-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
 
@@ -1971,6 +1976,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(7);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--video video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/memvid-1\/file/);
+    await expect(page.locator('#videoModal')).not.toHaveClass(/active/);
+    await page.locator('.mobile-media-detail-overlay__close').click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();
 
     await switchHomepageCategory(page, 'sound');
@@ -1980,6 +1990,10 @@ test.describe('Homepage', () => {
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(1);
     await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay--sound')).toBeVisible();
+    await expect(page.locator('.mobile-media-detail-overlay__sound-title')).toHaveText('Public Member Track');
+    await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await page.locator('.mobile-media-grid-overlay__close').click();
   });

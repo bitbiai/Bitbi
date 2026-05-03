@@ -413,7 +413,7 @@ test.describe('Global audio player on mobile homepage', () => {
     await routeDefaultMemtracks(page);
   });
 
-  test('shows the mobile mini player from shared playback state until explicit close', async ({ page }) => {
+  test('shows the mobile mini player only inside the menu from shared playback state until explicit close', async ({ page }) => {
     await installAudioMock(page);
 
     await page.goto('/');
@@ -428,26 +428,33 @@ test.describe('Global audio player on mobile homepage', () => {
     await firstPlay.click();
 
     await expect(page.locator('#globalAudioShell')).toBeHidden();
-    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
     await expect(page.locator('#globalAudioHandle')).toBeHidden();
     await expect(page.locator('#globalAudioMenuIndicator')).toBeVisible();
     await expect(page.locator('#globalAudioMenuIndicator')).toHaveClass(/is-active/);
-    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
     const placement = await page.evaluate(() => {
       const mobileNav = document.getElementById('mobileNav');
+      const mobileFooter = document.querySelector('#mobileNav .mobile-nav__footer');
       const bar = document.getElementById('globalAudioMobileBar');
       return {
         insideMobileNav: mobileNav.contains(bar),
+        insideMobileFooter: mobileFooter.contains(bar),
         afterGlobalShell: document.getElementById('globalAudioShell').nextElementSibling === bar,
         outsideGlobalShell: !document.getElementById('globalAudioShell').contains(bar),
       };
     });
     expect(placement).toEqual({
-      insideMobileNav: false,
-      afterGlobalShell: true,
+      insideMobileNav: true,
+      insideMobileFooter: true,
+      afterGlobalShell: false,
       outsideGlobalShell: true,
     });
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
 
     await expect(page.locator('#globalAudioMobileNext')).toBeDisabled();
     await expect(page.locator('#globalAudioMobileTitle')).toHaveText('Public Member Track');
@@ -458,12 +465,15 @@ test.describe('Global audio player on mobile homepage', () => {
     await expect(page.locator('#globalAudioMobileStatus')).toContainText('1:01 / 4:05');
     const playCallsBeforeSeek = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
     const mobileProgress = page.locator('#globalAudioMobileProgress');
-    const mobileProgressBox = await mobileProgress.boundingBox();
-    expect(mobileProgressBox).toBeTruthy();
-    await page.mouse.click(
-      mobileProgressBox.x + mobileProgressBox.width * 0.72,
-      mobileProgressBox.y + Math.max(1, mobileProgressBox.height / 2),
-    );
+    await mobileProgress.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      element.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + (rect.width * 0.72),
+        clientY: rect.top + Math.max(1, rect.height / 2),
+      }));
+    });
     await expect
       .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
       .toBeGreaterThan(170);
@@ -478,5 +488,32 @@ test.describe('Global audio player on mobile homepage', () => {
     await page.locator('#globalAudioMobileDismiss').click();
     await expect(page.locator('#globalAudioMobileBar')).toBeHidden();
     await expect(page.locator('#globalAudioMenuIndicator')).toBeHidden();
+  });
+
+  test('keeps mobile playback state through menu section navigation', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await dismissCookieBanner(page);
+    await openHomepageSoundLab(page);
+    await page.locator('.snd-play').first().click();
+    await page.evaluate(() => {
+      window.__bitbiAudioMock.instances[0].currentTime = 74;
+    });
+    const playCallsBeforeNavigation = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await page.locator('#mobileNav').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(playCallsBeforeNavigation);
+    await expect
+      .poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.currentTime || 0))
+      .toBe(74);
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileStatus')).toContainText('1:14 / 4:05');
   });
 });

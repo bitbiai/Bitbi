@@ -114,7 +114,7 @@ export function initSoundLab(revealObserver) {
             items: memtracksState.items,
             emptyText: 'No published tracks yet.',
             className: 'mobile-media-grid-overlay--sound',
-            renderItem(item, index) {
+            renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--sound';
@@ -143,6 +143,96 @@ export function initSoundLab(revealObserver) {
                 button.addEventListener('click', () => {
                     const track = getMemtrackTrack(item);
                     if (!track) return;
+                    if (typeof openDetail === 'function') {
+                        playGlobalTrack(track);
+                        openDetail({
+                            title: item.title || `Memtrack ${index + 1}`,
+                            className: 'mobile-media-detail-overlay--sound',
+                            renderContent() {
+                                const panel = document.createElement('div');
+                                panel.className = 'mobile-media-detail-overlay__sound';
+
+                                const poster = item.poster?.url || '';
+                                if (poster) {
+                                    const cover = new Image();
+                                    cover.className = 'mobile-media-detail-overlay__sound-cover';
+                                    cover.src = poster;
+                                    cover.alt = '';
+                                    cover.loading = 'lazy';
+                                    cover.decoding = 'async';
+                                    panel.appendChild(cover);
+                                }
+
+                                const content = document.createElement('div');
+                                content.className = 'mobile-media-detail-overlay__sound-content';
+                                const title = document.createElement('h4');
+                                title.className = 'mobile-media-detail-overlay__sound-title';
+                                title.textContent = item.title || `Memtrack ${index + 1}`;
+                                const status = document.createElement('p');
+                                status.className = 'mobile-media-detail-overlay__sound-status';
+                                status.textContent = 'Loading...';
+                                const controls = document.createElement('div');
+                                controls.className = 'mobile-media-detail-overlay__sound-controls';
+                                const play = document.createElement('button');
+                                play.type = 'button';
+                                play.className = 'mobile-media-detail-overlay__sound-play';
+                                play.setAttribute('aria-label', `Pause ${item.title || 'Memtrack'}`);
+                                play.textContent = '\u275A\u275A';
+                                const progress = document.createElement('button');
+                                progress.type = 'button';
+                                progress.className = 'mobile-media-detail-overlay__sound-progress';
+                                progress.setAttribute('aria-label', 'Seek within track');
+                                const fill = document.createElement('span');
+                                fill.className = 'mobile-media-detail-overlay__sound-progress-fill';
+                                progress.appendChild(fill);
+                                controls.append(play, progress);
+                                content.append(title, status, controls);
+                                panel.appendChild(content);
+
+                                const sync = (state) => {
+                                    const isActive = state.trackId === track.id;
+                                    const isPlaying = isActive && state.status === 'playing';
+                                    const duration = Number(state.duration) || 0;
+                                    const currentTime = Number(state.currentTime) || 0;
+                                    const percent = isActive && duration > 0
+                                        ? Math.min(100, (currentTime / duration) * 100)
+                                        : 0;
+                                    play.textContent = isPlaying ? '\u275A\u275A' : '\u25B6';
+                                    play.setAttribute('aria-label', `${isPlaying ? 'Pause' : 'Play'} ${item.title || 'Memtrack'}`);
+                                    status.textContent = isActive && duration > 0
+                                        ? `${isPlaying ? 'Playing' : 'Paused'} \u2022 ${formatTime(currentTime)} / ${formatTime(duration)}`
+                                        : (isActive ? `${isPlaying ? 'Playing' : 'Paused'} \u2022 0:00` : 'Ready');
+                                    fill.style.width = `${percent}%`;
+                                    progress.disabled = !isActive || duration <= 0;
+                                };
+                                const unsubscribeDetail = subscribeGlobalAudioState(sync);
+
+                                play.addEventListener('click', async () => {
+                                    const state = getGlobalAudioState();
+                                    if (state.trackId === track.id && state.status === 'playing') {
+                                        pauseGlobalAudio();
+                                        return;
+                                    }
+                                    if (state.trackId === track.id) {
+                                        await resumeGlobalAudio(true);
+                                        return;
+                                    }
+                                    playGlobalTrack(track);
+                                });
+                                progress.addEventListener('click', (event) => {
+                                    const state = getGlobalAudioState();
+                                    if (state.trackId !== track.id || !state.duration) return;
+                                    seekGlobalAudio(getSeekTimeFromPointer(progress, event, state.duration));
+                                });
+
+                                return {
+                                    node: panel,
+                                    cleanup: unsubscribeDetail,
+                                };
+                            },
+                        });
+                        return;
+                    }
                     playGlobalTrack(track);
                 });
                 return button;

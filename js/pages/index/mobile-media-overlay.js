@@ -3,7 +3,10 @@ import { setupFocusTrap } from '../../shared/focus-trap.js';
 const MOBILE_MEDIA_QUERY = '(max-width: 639px)';
 
 let activeOverlay = null;
+let activeDetailOverlay = null;
 let focusTrapCleanup = null;
+let detailFocusTrapCleanup = null;
+let detailContentCleanup = null;
 let previousBodyOverflow = '';
 
 export function isMobileMediaGridEnabled() {
@@ -34,6 +37,7 @@ function createTextElement(tagName, className, text) {
 
 function closeMobileMediaGrid() {
     if (!activeOverlay) return;
+    closeMobileMediaDetail();
     activeOverlay.remove();
     activeOverlay = null;
     document.body.style.overflow = previousBodyOverflow;
@@ -44,10 +48,86 @@ function closeMobileMediaGrid() {
     }
 }
 
+function closeMobileMediaDetail() {
+    if (!activeDetailOverlay) return;
+    if (typeof detailContentCleanup === 'function') {
+        try {
+            detailContentCleanup();
+        } catch (error) {
+            console.warn('mobile media detail cleanup:', error);
+        }
+    }
+    detailContentCleanup = null;
+    if (detailFocusTrapCleanup) {
+        detailFocusTrapCleanup();
+        detailFocusTrapCleanup = null;
+    }
+    activeDetailOverlay.remove();
+    activeDetailOverlay = null;
+    activeOverlay?.classList.remove('has-detail');
+    activeOverlay?.querySelector('.mobile-media-grid-overlay__close')?.focus();
+}
+
 function handleOverlayKeydown(event) {
     if (event.key !== 'Escape') return;
     event.preventDefault();
+    if (activeDetailOverlay) {
+        closeMobileMediaDetail();
+        return;
+    }
     closeMobileMediaGrid();
+}
+
+function openMobileMediaDetail({
+    title = 'Media detail',
+    className = '',
+    renderContent,
+} = {}) {
+    if (!activeOverlay || typeof renderContent !== 'function') return;
+    closeMobileMediaDetail();
+
+    const detail = document.createElement('div');
+    detail.className = `mobile-media-detail-overlay${className ? ` ${className}` : ''}`;
+    detail.setAttribute('role', 'dialog');
+    detail.setAttribute('aria-modal', 'true');
+    detail.setAttribute('aria-label', title);
+
+    const shell = document.createElement('div');
+    shell.className = 'mobile-media-detail-overlay__shell';
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'mobile-media-detail-overlay__close';
+    close.setAttribute('aria-label', 'Back to media grid');
+    close.textContent = 'Back';
+    close.addEventListener('click', closeMobileMediaDetail);
+
+    const heading = createTextElement('h3', 'mobile-media-detail-overlay__title', title);
+    const body = document.createElement('div');
+    body.className = 'mobile-media-detail-overlay__body';
+
+    const rendered = renderContent({
+        closeDetail: closeMobileMediaDetail,
+        closeGrid: closeMobileMediaGrid,
+    });
+    const node = rendered?.node || rendered;
+    if (node instanceof HTMLElement) {
+        body.appendChild(node);
+    }
+    if (typeof rendered?.cleanup === 'function') {
+        detailContentCleanup = rendered.cleanup;
+    }
+
+    shell.append(close, heading, body);
+    detail.appendChild(shell);
+    detail.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') event.stopPropagation();
+    });
+
+    activeOverlay.appendChild(detail);
+    activeOverlay.classList.add('has-detail');
+    activeDetailOverlay = detail;
+    detailFocusTrapCleanup = setupFocusTrap(detail);
 }
 
 export function openMobileMediaGrid({
@@ -85,7 +165,10 @@ export function openMobileMediaGrid({
         grid.appendChild(createTextElement('p', 'mobile-media-grid-overlay__empty', emptyText));
     } else {
         safeItems.forEach((item, index) => {
-            const node = renderItem(item, index);
+            const node = renderItem(item, index, {
+                openDetail: openMobileMediaDetail,
+                closeGrid: closeMobileMediaGrid,
+            });
             if (node instanceof HTMLElement) {
                 grid.appendChild(node);
             }
@@ -102,4 +185,3 @@ export function openMobileMediaGrid({
     activeOverlay = overlay;
     focusTrapCleanup = setupFocusTrap(overlay);
 }
-

@@ -119,7 +119,7 @@ export function initVideoGallery() {
             items: memvidsState.items,
             emptyText: 'No Memvids published yet.',
             className: 'mobile-media-grid-overlay--video',
-            renderItem(item, index) {
+            renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--video';
@@ -146,6 +146,33 @@ export function initVideoGallery() {
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
+                    if (typeof openDetail === 'function') {
+                        openDetail({
+                            title: item.title || `Memvid ${index + 1}`,
+                            className: 'mobile-media-detail-overlay--video',
+                            renderContent() {
+                                const wrap = document.createElement('div');
+                                wrap.className = 'mobile-media-detail-overlay__media mobile-media-detail-overlay__media--video';
+                                const video = document.createElement('video');
+                                video.controls = true;
+                                video.autoplay = true;
+                                video.playsInline = true;
+                                video.preload = 'auto';
+                                video.src = item.file?.url || '';
+                                if (item.poster?.url) video.poster = item.poster.url;
+                                wrap.appendChild(video);
+                                return {
+                                    node: wrap,
+                                    cleanup() {
+                                        video.pause();
+                                        video.removeAttribute('src');
+                                        try { video.load(); } catch (_) { /* noop */ }
+                                    },
+                                };
+                            },
+                        });
+                        return;
+                    }
                     deck.setActive?.(index);
                     grid.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
                 });

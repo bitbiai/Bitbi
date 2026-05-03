@@ -122,12 +122,17 @@ function buildMobilePlayerMarkup() {
 
 function ensureMobilePlayer() {
     let mobileBar = document.getElementById('globalAudioMobileBar');
-    if (mobileBar) return mobileBar;
+    const host = document.querySelector('#mobileNav .mobile-nav__footer')
+        || document.querySelector('#mobileNav .mobile-nav__inner');
+    if (!host) return mobileBar || null;
 
-    const shell = document.getElementById('globalAudioShell');
-    const main = document.querySelector('main');
-    const parent = shell?.parentNode || main?.parentNode;
-    if (!parent) return null;
+    if (mobileBar) {
+        if (mobileBar.parentNode !== host) {
+            host.prepend(mobileBar);
+        }
+        return mobileBar;
+    }
+
 
     mobileBar = document.createElement('section');
     mobileBar.id = 'globalAudioMobileBar';
@@ -137,13 +142,7 @@ function ensureMobilePlayer() {
     mobileBar.setAttribute('aria-hidden', 'true');
     mobileBar.innerHTML = buildMobilePlayerMarkup();
 
-    if (shell?.parentNode) {
-        parent.insertBefore(mobileBar, shell.nextSibling);
-    } else if (main) {
-        parent.insertBefore(mobileBar, main);
-    } else {
-        parent.appendChild(mobileBar);
-    }
+    host.prepend(mobileBar);
     return mobileBar;
 }
 
