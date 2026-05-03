@@ -60,11 +60,14 @@ function syncPlayButtonState(button, isPlaying) {
 }
 
 function syncProgressControl(progress, fill, progressPercent, enabled) {
+    const normalizedPercent = Math.max(0, Math.min(100, Number(progressPercent) || 0));
     if (fill) {
-        fill.style.width = `${progressPercent}%`;
+        fill.style.width = `${normalizedPercent}%`;
+        fill.style.inlineSize = `${normalizedPercent}%`;
     }
     if (progress) {
         progress.disabled = !enabled;
+        progress.dataset.progressPercent = String(Math.round(normalizedPercent * 100) / 100);
     }
 }
 
@@ -112,6 +115,10 @@ function buildMobilePlayerMarkup() {
             <div class="site-audio__mobile-meta">
                 <div id="globalAudioMobileTitle" class="site-audio__mobile-title">Audio player</div>
                 <div id="globalAudioMobileStatus" class="site-audio__mobile-status" aria-live="polite"></div>
+                <div class="site-audio__mobile-time" aria-label="Playback time">
+                    <span id="globalAudioMobileElapsed">0:00</span>
+                    <span id="globalAudioMobileDuration">0:00</span>
+                </div>
             </div>
         </div>
         <button type="button" id="globalAudioMobileProgress" class="site-audio__mobile-progress" aria-label="Seek within track">
@@ -215,6 +222,8 @@ function renderAudioShell(nextState) {
     const mobilePlayBtn = document.getElementById('globalAudioMobileToggle');
     const mobileProgress = document.getElementById('globalAudioMobileProgress');
     const mobileProgressFill = document.getElementById('globalAudioMobileProgressFill');
+    const mobileElapsed = document.getElementById('globalAudioMobileElapsed');
+    const mobileDuration = document.getElementById('globalAudioMobileDuration');
 
     const prevBtn = shell.querySelector('#globalAudioPrev');
     const nextBtn = shell.querySelector('#globalAudioNext');
@@ -233,6 +242,8 @@ function renderAudioShell(nextState) {
     const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
     const desktopStatusText = buildStatusText(nextState);
     const mobileStatusText = buildStatusText(nextState, { includeOrigin: false });
+    const elapsedText = formatTime(currentTime);
+    const durationText = duration > 0 ? formatTime(duration) : '0:00';
 
     shell.hidden = !showDesktopShell;
     shell.classList.toggle('site-audio--playing', isPlaying);
@@ -259,6 +270,8 @@ function renderAudioShell(nextState) {
         if (status) status.textContent = '';
         if (mobileTitle) mobileTitle.textContent = 'Audio player';
         if (mobileStatus) mobileStatus.textContent = '';
+        if (mobileElapsed) mobileElapsed.textContent = '0:00';
+        if (mobileDuration) mobileDuration.textContent = '0:00';
         syncPlayButtonState(playBtn, false);
         syncPlayButtonState(mobilePlayBtn, false);
         if (muteBtn) {
@@ -278,6 +291,8 @@ function renderAudioShell(nextState) {
     if (status) status.textContent = desktopStatusText;
     if (mobileTitle) mobileTitle.textContent = nextState.title || 'Untitled track';
     if (mobileStatus) mobileStatus.textContent = mobileStatusText;
+    if (mobileElapsed) mobileElapsed.textContent = elapsedText;
+    if (mobileDuration) mobileDuration.textContent = durationText;
 
     syncPlayButtonState(playBtn, isPlaying);
     syncPlayButtonState(mobilePlayBtn, isPlaying);
@@ -287,6 +302,11 @@ function renderAudioShell(nextState) {
     }
     syncProgressControl(progress, progressFill, progressPercent, duration > 0);
     syncProgressControl(mobileProgress, mobileProgressFill, progressPercent, duration > 0);
+    if (mobileProgress) {
+        mobileProgress.setAttribute('aria-label', duration > 0
+            ? `Seek within track, ${elapsedText} of ${durationText}`
+            : `Seek within track, ${elapsedText}`);
+    }
     if (handle) {
         handle.setAttribute('aria-label', shell.classList.contains('is-open') ? 'Hide audio player' : 'Show audio player');
     }

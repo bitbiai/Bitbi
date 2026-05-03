@@ -87,6 +87,7 @@ export function initSoundLab(revealObserver) {
             collection: 'memtracks',
             originLabel: 'Sound Lab',
             crossOrigin: '',
+            durationSeconds: item.duration_seconds,
         };
     }
 

@@ -1,6 +1,31 @@
 const { test, expect } = require('@playwright/test');
 const ONE_PX_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a1sAAAAASUVORK5CYII=';
 
+function buildWavBuffer({ durationSeconds = 4, sampleRate = 8000 } = {}) {
+  const samples = Math.max(1, Math.floor(durationSeconds * sampleRate));
+  const bytesPerSample = 2;
+  const dataSize = samples * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28);
+  buffer.writeUInt16LE(bytesPerSample, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  for (let i = 0; i < samples; i += 1) {
+    const sample = Math.floor(Math.sin((i / sampleRate) * 440 * Math.PI * 2) * 12000);
+    buffer.writeInt16LE(sample, 44 + (i * bytesPerSample));
+  }
+  return buffer;
+}
+
 async function installAudioMock(page) {
   await page.addInitScript(() => {
     class MockAudio extends EventTarget {
@@ -116,6 +141,9 @@ async function routeDefaultMemtracks(page, {
   id = 'feedc0de',
   version = 'vpub',
   title = 'Public Member Track',
+  audioBody = Buffer.from('mock-audio'),
+  audioContentType = 'audio/mpeg',
+  durationSeconds = 245,
 } = {}) {
   await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
     await route.fulfill({
@@ -138,6 +166,7 @@ async function routeDefaultMemtracks(page, {
                 w: 320,
                 h: 320,
               },
+              duration_seconds: durationSeconds,
             },
           ],
           has_more: false,
@@ -159,9 +188,43 @@ async function routeDefaultMemtracks(page, {
     }
     await route.fulfill({
       status: 200,
-      contentType: 'audio/mpeg',
-      body: Buffer.from('mock-audio'),
+      contentType: audioContentType,
+      body: audioBody,
     });
+  });
+}
+
+async function getMobilePlayerMetrics(page) {
+  return page.evaluate(() => {
+    const bar = document.getElementById('globalAudioMobileBar');
+    const status = document.getElementById('globalAudioMobileStatus');
+    const elapsed = document.getElementById('globalAudioMobileElapsed');
+    const duration = document.getElementById('globalAudioMobileDuration');
+    const progress = document.getElementById('globalAudioMobileProgress');
+    const fill = document.getElementById('globalAudioMobileProgressFill');
+    const progressRect = progress?.getBoundingClientRect();
+    const fillRect = fill?.getBoundingClientRect();
+    const progressStyle = progress ? window.getComputedStyle(progress) : null;
+    const fillStyle = fill ? window.getComputedStyle(fill) : null;
+    return {
+      barVisible: !!bar && !bar.hidden && bar.getBoundingClientRect().width > 0 && bar.getBoundingClientRect().height > 0,
+      statusText: status?.textContent || '',
+      elapsedText: elapsed?.textContent || '',
+      durationText: duration?.textContent || '',
+      progressDisabled: !!progress?.disabled,
+      progressWidth: progressRect?.width || 0,
+      progressHeight: progressRect?.height || 0,
+      progressDisplay: progressStyle?.display || '',
+      progressVisibility: progressStyle?.visibility || '',
+      progressOpacity: progressStyle?.opacity || '',
+      progressPointerEvents: progressStyle?.pointerEvents || '',
+      fillWidth: fillRect?.width || 0,
+      fillHeight: fillRect?.height || 0,
+      fillInlineSize: fillStyle?.inlineSize || '',
+      fillStyleWidth: fill?.style.width || '',
+      fillStyleInlineSize: fill?.style.inlineSize || '',
+      progressPercent: Number(progress?.dataset.progressPercent || 0),
+    };
   });
 }
 
@@ -465,9 +528,17 @@ test.describe('Global audio player on mobile homepage', () => {
       audio._duration = 245;
     });
     await expect(page.locator('#globalAudioMobileStatus')).toContainText('1:01 / 4:05');
-    await expect
-      .poll(async () => page.locator('#globalAudioMobileProgressFill').evaluate((element) => parseFloat(element.style.width) || 0))
-      .toBeGreaterThan(20);
+    await expect.poll(async () => {
+      const metrics = await getMobilePlayerMetrics(page);
+      return metrics.progressWidth > 100
+        && metrics.progressHeight >= 8
+        && metrics.fillWidth > 20
+        && metrics.fillHeight >= 8
+        && metrics.fillStyleInlineSize !== ''
+        && metrics.elapsedText === '1:01'
+        && metrics.durationText === '4:05'
+        && !metrics.progressDisabled;
+    }).toBe(true);
     const playCallsBeforeSeek = await page.evaluate(() => window.__bitbiAudioMock.playCalls);
     const mobileProgress = page.locator('#globalAudioMobileProgress');
     await mobileProgress.evaluate((element) => {
@@ -528,8 +599,91 @@ test.describe('Global audio player on mobile homepage', () => {
     await page.locator('#mobileMenuBtn').click();
     await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
     await expect(page.locator('#globalAudioMobileStatus')).toContainText('1:14 / 4:05');
-    await expect
-      .poll(async () => page.locator('#globalAudioMobileProgressFill').evaluate((element) => parseFloat(element.style.width) || 0))
-      .toBeGreaterThan(25);
+    await expect.poll(async () => {
+      const metrics = await getMobilePlayerMetrics(page);
+      return metrics.fillWidth > 20
+        && metrics.progressHeight >= 8
+        && metrics.elapsedText === '1:14'
+        && metrics.durationText === '4:05';
+    }).toBe(true);
+  });
+
+  test('renders a visible mobile timeline that updates from a real audio element', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeAudio = window.Audio;
+      window.__bitbiRealAudioProbe = { instances: [] };
+      window.Audio = function BitbiObservedAudio(...args) {
+        const audio = new NativeAudio(...args);
+        window.__bitbiRealAudioProbe.instances.push(audio);
+        return audio;
+      };
+      window.Audio.prototype = NativeAudio.prototype;
+    });
+    await routeDefaultMemtracks(page, {
+      audioBody: buildWavBuffer({ durationSeconds: 4 }),
+      audioContentType: 'audio/wav',
+      durationSeconds: 4,
+    });
+
+    await page.goto('/');
+    await dismissCookieBanner(page);
+    await openHomepageSoundLab(page);
+    await page.locator('.snd-play').first().click();
+
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveClass(/open/);
+    await expect(page.locator('#globalAudioMobileBar')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileElapsed')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileDuration')).toBeVisible();
+    await expect(page.locator('#globalAudioMobileProgress')).toBeVisible();
+
+    const initialMetrics = await getMobilePlayerMetrics(page);
+    expect(initialMetrics.progressDisplay).not.toBe('none');
+    expect(initialMetrics.progressVisibility).toBe('visible');
+    expect(Number(initialMetrics.progressOpacity)).toBeGreaterThan(0);
+    expect(initialMetrics.progressPointerEvents).not.toBe('none');
+    expect(initialMetrics.progressWidth).toBeGreaterThan(100);
+    expect(initialMetrics.progressHeight).toBeGreaterThanOrEqual(8);
+    expect(initialMetrics.fillHeight).toBeGreaterThanOrEqual(8);
+    expect(initialMetrics.durationText).toBe('0:04');
+    expect(initialMetrics.progressDisabled).toBe(false);
+
+    await expect.poll(async () => {
+      const metrics = await getMobilePlayerMetrics(page);
+      return metrics.elapsedText !== '0:00'
+        && metrics.statusText.includes(metrics.elapsedText)
+        && metrics.fillWidth > 0
+        && metrics.progressPercent > 0;
+    }, { timeout: 5000 }).toBe(true);
+
+    const beforeSeekSources = await page.evaluate(() => {
+      const audio = window.__bitbiRealAudioProbe?.instances?.[0] || null;
+      return {
+        src: audio?.src || '',
+        currentTime: audio?.currentTime || 0,
+      };
+    });
+
+    const mobileProgress = page.locator('#globalAudioMobileProgress');
+    await mobileProgress.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      element.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + (rect.width * 0.75),
+        clientY: rect.top + Math.max(1, rect.height / 2),
+      }));
+    });
+
+    await expect.poll(async () => page.evaluate(() => window.__bitbiRealAudioProbe?.instances?.[0]?.currentTime || 0)).toBeGreaterThan(2.4);
+    const afterSeekSources = await page.evaluate(() => {
+      const audio = window.__bitbiRealAudioProbe?.instances?.[0] || null;
+      return {
+        src: audio?.src || '',
+        currentTime: audio?.currentTime || 0,
+      };
+    });
+    expect(afterSeekSources.src).toBe(beforeSeekSources.src);
+    expect(afterSeekSources.currentTime).toBeGreaterThan(beforeSeekSources.currentTime);
   });
 });

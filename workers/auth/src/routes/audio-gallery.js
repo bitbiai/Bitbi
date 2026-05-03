@@ -98,6 +98,8 @@ function buildPublicUnsatisfiableRangeResponse(size, contentType) {
 
 function toPublicMemtrackRecord(row) {
   const meta = parseMetadataJson(row.metadata_json);
+  const durationMs = Number(meta.duration_ms ?? meta.audio?.duration_ms ?? 0);
+  const durationSeconds = Number(meta.duration_seconds ?? 0);
   const version = buildPublicMemtrackVersion(row);
   const avatarVersion = Number(row.owner_has_avatar) ? buildPublicPublisherAvatarVersion(row.owner_avatar_updated_at) : null;
   const publisher = {
@@ -114,7 +116,9 @@ function toPublicMemtrackRecord(row) {
     file: {
       url: buildPublicMemtrackUrl(row.id, version, "file"),
     },
-    duration_seconds: meta.duration_seconds ?? null,
+    duration_seconds: Number.isFinite(durationSeconds) && durationSeconds > 0
+      ? durationSeconds
+      : (Number.isFinite(durationMs) && durationMs > 0 ? durationMs / 1000 : null),
   };
   if (avatarVersion) {
     record.publisher.avatar = {

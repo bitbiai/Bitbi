@@ -81,8 +81,32 @@ function getAudioCurrentTime(audio = audioEl) {
 }
 
 function getAudioDuration(audio = audioEl) {
-    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return state.duration;
-    return audio.duration;
+    if (!audio) return state.duration;
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    try {
+        if (audio.seekable?.length) {
+            const seekableEnd = audio.seekable.end(audio.seekable.length - 1);
+            if (Number.isFinite(seekableEnd) && seekableEnd > 0) return seekableEnd;
+        }
+    } catch (_) {
+        // Some mobile browsers throw while seek ranges are still settling.
+    }
+    return state.duration;
+}
+
+function getTrackDuration(track = {}) {
+    const candidates = [
+        track.durationSeconds,
+        track.duration_seconds,
+        track.duration,
+        track.durationMs != null ? Number(track.durationMs) / 1000 : null,
+        track.duration_ms != null ? Number(track.duration_ms) / 1000 : null,
+    ];
+    for (const candidate of candidates) {
+        const duration = Number(candidate);
+        if (Number.isFinite(duration) && duration > 0) return duration;
+    }
+    return 0;
 }
 
 function syncAudioProgressFromElement(options = {}) {
@@ -413,6 +437,7 @@ function trackMatchesState(track = {}) {
 function applyTrackToState(track = {}, status = 'paused') {
     const sourceUrl = normalizeAssetUrl(track.sourceUrl || track.src);
     const crossOrigin = normalizeCrossOrigin(sourceUrl, track.crossOrigin);
+    const duration = getTrackDuration(track);
     patchState({
         trackId: typeof track.trackId === 'string' ? track.trackId : (typeof track.id === 'string' ? track.id : ''),
         trackSlug: typeof track.trackSlug === 'string' ? track.trackSlug : (typeof track.slug === 'string' ? track.slug : ''),
@@ -425,6 +450,7 @@ function applyTrackToState(track = {}, status = 'paused') {
         originLabel: typeof track.originLabel === 'string' ? track.originLabel : '',
         crossOrigin,
         status,
+        duration,
         error: '',
     });
 }
@@ -549,7 +575,7 @@ export async function playGlobalTrack(track = {}, options = {}) {
     audio.loop = !!state.loop;
     patchState({
         currentTime: pendingSeekTime,
-        duration: 0,
+        duration: state.duration > 0 ? state.duration : 0,
         playIntent: true,
         autoplayBlocked: false,
         endedAt: 0,

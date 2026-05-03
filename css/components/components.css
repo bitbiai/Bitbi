@@ -548,7 +548,7 @@
     .site-audio__mobile-meta {
         min-inline-size: 0;
         display: grid;
-        gap: 0.08rem;
+        gap: 0.12rem;
         flex: 1;
     }
 
@@ -571,21 +571,38 @@
         text-overflow: ellipsis;
     }
 
+    .site-audio__mobile-time {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.72);
+    }
+
     .site-audio__mobile-progress {
         position: relative;
         inline-size: 100%;
-        block-size: 0.24rem;
+        block-size: 0.58rem;
         border: 0;
         padding: 0;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06)),
+            rgba(255, 255, 255, 0.08);
         overflow: hidden;
         cursor: pointer;
         appearance: none;
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+            0 0 14px rgba(0, 240, 255, 0.06);
     }
 
     .site-audio__mobile-progress:disabled {
         cursor: default;
+        opacity: 0.72;
     }
 
     .site-audio__mobile-progress-fill {
