@@ -17,7 +17,7 @@ const COVER_POLL_TIMEOUT_MS = 30000;
 
 let initialized = false;
 let creditBalance = null;
-let $prompt, $lyrics, $instrumental, $generateLyrics, $generateBtn, $preview, $msg, $quotaEl;
+let $prompt, $lyrics, $instrumental, $generateLyrics, $generateBtn, $preview, $msg, $quotaEl, $costLabel;
 let coverPollToken = 0;
 
 function showMsg(el, text, type) {
@@ -125,7 +125,11 @@ function currentPrice() {
 
 function renderGenerateLabel() {
     if (!$generateBtn) return;
-    $generateBtn.textContent = `Generate Music — ${currentPrice()} Credits`;
+    const price = currentPrice();
+    $generateBtn.textContent = `Generate Music — ${price} Credits`;
+    if ($costLabel) {
+        $costLabel.textContent = `${price} credits`;
+    }
 }
 
 function renderQuota() {
@@ -340,6 +344,7 @@ export function initSoundLabCreate() {
     $generateBtn = document.getElementById('soundMusicGenerate');
     $preview = document.getElementById('soundMusicPreview');
     $msg = document.getElementById('soundMusicMsg');
+    $costLabel = document.getElementById('soundMusicCreditEstimate');
 
     if (!$prompt || !$generateBtn) return;
 

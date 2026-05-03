@@ -30,7 +30,7 @@ const SAVE_REFERENCE_FALLBACK_CODES = new Set([
 
 /* DOM refs (resolved on init) */
 let $prompt, $model, $steps, $seed, $randomize, $generateBtn, $preview, $genMsg;
-let $saveBar, $folderSelect, $saveBtn;
+let $saveBar, $folderSelect, $saveBtn, $costLabel;
 
 /* ── Helpers ── */
 
@@ -111,6 +111,9 @@ function renderGenerateButtonLabel() {
     const label = `Generate \u00b7 ${formatCreditEstimate(credits)}`;
     $generateBtn.textContent = label;
     $generateBtn.setAttribute('aria-label', `Generate image, estimated cost ${formatCreditEstimate(credits)}`);
+    if ($costLabel) {
+        $costLabel.textContent = formatCreditEstimate(credits);
+    }
 }
 
 /* ── Folders ── */
@@ -277,6 +280,7 @@ export function initGalleryStudio() {
     $saveBar       = document.getElementById('galStudioSaveBar');
     $folderSelect  = document.getElementById('galStudioFolderSelect');
     $saveBtn       = document.getElementById('galStudioSaveBtn');
+    $costLabel     = document.getElementById('galStudioCreditEstimate');
 
     if (!$prompt || !$generateBtn) return;
     populateModelOptions($model);

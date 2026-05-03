@@ -3941,6 +3941,10 @@ test.describe('Image Studio (authenticated)', () => {
 
     await page.locator('.gallery-mode__btn[data-mode="create"]').click();
     await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#galleryStudio .creator-create__panel')).toHaveCount(2);
+    await expect(page.locator('#galleryCreateTitle')).toHaveText('FLUX.1 Schnell');
+    await expect(page.locator('#galleryStudio .creator-create__preview .creator-create__empty'))
+      .toContainText('Your generated image will appear here.');
     await expect(page.locator('#galStudioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#galStudioModel option')).toHaveCount(1);
     await expect(page.locator('#galStudioModel')).toContainText('FLUX.1 Schnell');
@@ -3948,8 +3952,17 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioModel')).not.toContainText('FLUX.2 Dev');
     await expect(page.locator('#galleryStudio .studio__quota')).toContainText('10 credits available');
     await expect(page.locator('#galleryStudio .studio__quota')).not.toContainText('generations');
+    await expect(page.locator('#galStudioCreditEstimate')).toHaveText('1 credit');
     await expect(page.locator('#galStudioGenerate')).toHaveText('Generate · 1 credit');
     await expect(page.locator('#galStudioGenerate')).toHaveAttribute('aria-label', /estimated cost 1 credit/i);
+    await expect(page.locator('#galleryStudio .creator-create__select').first())
+      .not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await page.setViewportSize({ width: 390, height: 844 });
+    const galleryMobileLayout = await page.locator('#galleryStudio .creator-create__panel').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width, viewportWidth: window.innerWidth };
+    }));
+    expect(galleryMobileLayout.every((rect) => rect.left >= 0 && rect.right <= rect.viewportWidth + 1 && rect.width > 0)).toBe(true);
 
     await page.locator('#galStudioPrompt').fill('homepage legacy model request');
     await page.locator('#galStudioGenerate').click();
@@ -4042,12 +4055,26 @@ test.describe('Image Studio (authenticated)', () => {
     await createButton.click();
     await expect(page.locator('#soundLabCreate')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#soundLabExplore')).toBeHidden();
+    await expect(page.locator('#soundLabCreate .creator-create__panel')).toHaveCount(2);
+    await expect(page.locator('#soundCreateTitle')).toHaveText('Music 2.6');
+    await expect(page.locator('#soundLabCreate .creator-create__preview .creator-create__empty'))
+      .toContainText('Your generated music will appear here.');
     await expect(page.locator('#soundLabCreate .sound-create__info')).toHaveText('Music generation can take up to 2 minutes.');
+    await expect(page.locator('#soundMusicCreditEstimate')).toHaveText('150 credits');
     await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 150 Credits');
+    await expect(page.locator('#soundLabCreate .creator-create__toggle')).toHaveCount(2);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const soundMobileLayout = await page.locator('#soundLabCreate .creator-create__panel').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width, viewportWidth: window.innerWidth };
+    }));
+    expect(soundMobileLayout.every((rect) => rect.left >= 0 && rect.right <= rect.viewportWidth + 1 && rect.width > 0)).toBe(true);
 
     await page.locator('#soundMusicGenerateLyrics').check();
+    await expect(page.locator('#soundMusicCreditEstimate')).toHaveText('160 credits');
     await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 160 Credits');
     await page.locator('#soundMusicGenerateLyrics').uncheck();
+    await expect(page.locator('#soundMusicCreditEstimate')).toHaveText('150 credits');
     await expect(page.locator('#soundMusicGenerate')).toHaveText('Generate Music — 150 Credits');
 
     await page.locator('#soundMusicPrompt').fill('A glossy synth pop track for late night coding.');

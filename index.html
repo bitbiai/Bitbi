@@ -220,51 +220,88 @@
                     <div id="galleryGrid" class="grid-gallery"></div>
                     <div id="galleryPagination" class="browse-pagination" style="display:none"></div>
                 </div>
-                <div id="galleryStudio" style="display:none">
-                    <div class="studio" style="margin-inline:auto">
-                        <div class="studio__grid">
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">Generate</h2>
-                                <textarea id="galStudioPrompt" class="studio__prompt" placeholder="Describe the image you want to create..." maxlength="1000"></textarea>
-                                <div class="studio__controls">
-                                    <div class="studio__field">
-                                        <label for="galStudioModel" class="studio__field-label">Model</label>
-                                        <select id="galStudioModel" class="studio__field-input"></select>
+                <div id="galleryStudio" class="creator-create gallery-create" style="display:none">
+                    <div class="studio creator-create__studio">
+                        <div class="studio__grid creator-create__shell">
+                            <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="galleryCreateTitle">
+                                <div class="creator-create__panel-head">
+                                    <div>
+                                        <p class="creator-create__eyebrow">Gallery Create</p>
+                                        <h2 id="galleryCreateTitle" class="creator-create__title">FLUX.1 Schnell</h2>
                                     </div>
-                                    <div class="studio__field">
-                                        <label for="galStudioSteps" class="studio__field-label">Steps</label>
-                                        <select id="galStudioSteps" class="studio__field-input">
-                                            <option value="2">2</option>
-                                            <option value="3">3</option>
-                                            <option value="4" selected>4 (default)</option>
-                                            <option value="6">6</option>
-                                            <option value="8">8 (max)</option>
-                                        </select>
+                                    <span class="creator-create__badge">Text to image</span>
+                                </div>
+
+                                <div class="creator-create__group creator-create__group--prompt">
+                                    <label for="galStudioPrompt" class="creator-create__label">Describe your image</label>
+                                    <textarea id="galStudioPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="A luminous glass sculpture in a rain-soaked cyberpunk gallery..." maxlength="1000" rows="6"></textarea>
+                                    <p class="creator-create__help">Describe the subject, setting, style, mood, and lighting.</p>
+                                </div>
+
+                                <div class="creator-create__group">
+                                    <div class="creator-create__group-head">
+                                        <h3 class="creator-create__group-title">Image settings</h3>
+                                        <span class="creator-create__optional">Fast generation</span>
                                     </div>
-                                    <div class="studio__field">
-                                        <label for="galStudioSeed" class="studio__field-label">Seed</label>
-                                        <div class="studio__seed-wrap">
-                                            <input type="number" id="galStudioSeed" class="studio__field-input" placeholder="Random" min="0">
-                                            <button type="button" id="galStudioRandomize" class="studio__randomize" title="Randomize seed" aria-label="Randomize seed">&#x1f3b2;</button>
+                                    <div class="studio__controls creator-create__settings-grid gallery-create__settings-grid">
+                                        <div class="studio__field creator-create__field">
+                                            <label for="galStudioModel" class="studio__field-label creator-create__label">Model</label>
+                                            <select id="galStudioModel" class="studio__field-input creator-create__select"></select>
+                                        </div>
+                                        <div class="studio__field creator-create__field">
+                                            <label for="galStudioSteps" class="studio__field-label creator-create__label">Steps</label>
+                                            <select id="galStudioSteps" class="studio__field-input creator-create__select">
+                                                <option value="2">2</option>
+                                                <option value="3">3</option>
+                                                <option value="4" selected>4 (default)</option>
+                                                <option value="6">6</option>
+                                                <option value="8">8 (max)</option>
+                                            </select>
+                                        </div>
+                                        <div class="studio__field creator-create__field">
+                                            <label for="galStudioSeed" class="studio__field-label creator-create__label">Seed</label>
+                                            <div class="studio__seed-wrap creator-create__seed-wrap">
+                                                <input type="number" id="galStudioSeed" class="studio__field-input creator-create__input" placeholder="Random" min="0">
+                                                <button type="button" id="galStudioRandomize" class="studio__randomize creator-create__icon-btn" title="Randomize seed" aria-label="Randomize seed">&#x1f3b2;</button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="studio__actions">
-                                    <button type="button" id="galStudioGenerate" class="studio__generate-btn">Generate</button>
-                                    <span class="studio__hint">Ctrl+Enter to generate</span>
+
+                                <div class="creator-create__action-card" aria-live="polite">
+                                    <div class="creator-create__cost">
+                                        <span>Estimated cost</span>
+                                        <strong id="galStudioCreditEstimate">1 credit</strong>
+                                    </div>
+                                    <div class="studio__actions">
+                                        <button type="button" id="galStudioGenerate" class="studio__generate-btn creator-create__generate">Generate</button>
+                                        <span class="studio__hint creator-create__hint">Ctrl+Enter</span>
+                                    </div>
                                 </div>
-                                <div id="galStudioGenMsg" class="studio__msg" role="status"></div>
-                                <div id="galStudioSaveBar" class="studio__save-bar">
-                                    <select id="galStudioFolderSelect" class="studio__folder-select"><option value="">Assets</option></select>
-                                    <button type="button" id="galStudioSaveBtn" class="studio__save-btn">Save</button>
+                                <div id="galStudioGenMsg" class="studio__msg creator-create__msg" role="status"></div>
+                                <div id="galStudioSaveBar" class="studio__save-bar creator-create__save-bar">
+                                    <select id="galStudioFolderSelect" class="studio__folder-select creator-create__select"><option value="">Assets</option></select>
+                                    <button type="button" id="galStudioSaveBtn" class="studio__save-btn creator-create__save-btn">Save</button>
                                 </div>
-                            </div>
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">Preview</h2>
-                                <div id="galStudioPreview" class="studio__preview">
-                                    <div class="studio__preview-empty">Your generated image will appear here</div>
+                            </section>
+                            <section class="studio__card creator-create__panel creator-create__panel--preview reveal" aria-labelledby="galleryPreviewTitle">
+                                <div class="creator-create__panel-head">
+                                    <div>
+                                        <p class="creator-create__eyebrow">Result</p>
+                                        <h2 id="galleryPreviewTitle" class="creator-create__title">Preview</h2>
+                                    </div>
+                                    <span class="creator-create__preview-note">Save to Studio</span>
                                 </div>
-                            </div>
+                                <div id="galStudioPreview" class="studio__preview creator-create__preview">
+                                    <div class="studio__preview-empty creator-create__empty">
+                                        <span class="creator-create__empty-icon" aria-hidden="true">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 16-5-5L5 21"/></svg>
+                                        </span>
+                                        <strong>Your generated image will appear here.</strong>
+                                        <span>Save the result into Studio when you are ready.</span>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -464,41 +501,90 @@
                     <div class="card-stack" id="soundLabTracks"></div>
                     <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
                 </div>
-                <div id="soundLabCreate" class="section__inner section__inner--soundlab sound-create" style="display:none">
-                    <div class="studio sound-create__studio">
-                        <div class="studio__grid">
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">Music 2.6</h2>
-                                <textarea id="soundMusicPrompt" class="studio__prompt" placeholder="Describe the track..." maxlength="2000"></textarea>
-                                <div class="studio__controls sound-create__controls">
-                                    <div class="studio__field sound-create__lyrics-field">
-                                        <label for="soundMusicLyrics" class="studio__field-label">Lyrics</label>
-                                        <textarea id="soundMusicLyrics" class="studio__field-input sound-create__lyrics" placeholder="Optional lyrics" maxlength="3500"></textarea>
+                <div id="soundLabCreate" class="section__inner section__inner--soundlab sound-create creator-create" style="display:none">
+                    <div class="studio sound-create__studio creator-create__studio">
+                        <div class="studio__grid creator-create__shell">
+                            <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="soundCreateTitle">
+                                <div class="creator-create__panel-head">
+                                    <div>
+                                        <p class="creator-create__eyebrow">Sound Lab Create</p>
+                                        <h2 id="soundCreateTitle" class="creator-create__title">Music 2.6</h2>
+                                    </div>
+                                    <span class="creator-create__badge">Text to music</span>
+                                </div>
+
+                                <div class="creator-create__group creator-create__group--prompt">
+                                    <label for="soundMusicPrompt" class="creator-create__label">Describe your track</label>
+                                    <textarea id="soundMusicPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="A glossy synth-pop track with warm bass, late-night city energy, and bright vocal hooks..." maxlength="2000" rows="6"></textarea>
+                                    <p class="creator-create__help">Describe style, energy, instruments, vocal feel, and mood.</p>
+                                </div>
+
+                                <div class="creator-create__group">
+                                    <div class="creator-create__group-head">
+                                        <h3 class="creator-create__group-title">Lyrics</h3>
+                                        <span class="creator-create__optional">Optional</span>
+                                    </div>
+                                    <div class="studio__controls sound-create__controls">
+                                        <div class="studio__field sound-create__lyrics-field creator-create__field">
+                                            <label for="soundMusicLyrics" class="studio__field-label creator-create__label">Manual lyrics</label>
+                                            <textarea id="soundMusicLyrics" class="studio__field-input sound-create__lyrics creator-create__textarea" placeholder="Optional lyrics" maxlength="3500" rows="5"></textarea>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="sound-create__toggles">
-                                    <label class="sound-create__toggle">
-                                        <input type="checkbox" id="soundMusicInstrumental">
-                                        <span>Instrumental</span>
-                                    </label>
-                                    <label class="sound-create__toggle">
-                                        <input type="checkbox" id="soundMusicGenerateLyrics">
-                                        <span>Generate lyrics first</span>
-                                    </label>
+
+                                <div class="creator-create__group">
+                                    <h3 class="creator-create__group-title">Music options</h3>
+                                    <div class="sound-create__toggles">
+                                        <label class="sound-create__toggle creator-create__toggle">
+                                            <input type="checkbox" id="soundMusicInstrumental">
+                                            <span class="creator-create__toggle-ui" aria-hidden="true"></span>
+                                            <span class="creator-create__toggle-copy">
+                                                <strong>Instrumental</strong>
+                                                <span>No vocals or lyrics</span>
+                                            </span>
+                                        </label>
+                                        <label class="sound-create__toggle creator-create__toggle">
+                                            <input type="checkbox" id="soundMusicGenerateLyrics">
+                                            <span class="creator-create__toggle-ui" aria-hidden="true"></span>
+                                            <span class="creator-create__toggle-copy">
+                                                <strong>Generate lyrics first</strong>
+                                                <span>Adds the lyrics step</span>
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <div class="studio__actions">
-                                    <button type="button" id="soundMusicGenerate" class="studio__generate-btn">Generate Music — 150 Credits</button>
-                                    <span class="studio__hint">Ctrl+Enter to generate</span>
+
+                                <div class="creator-create__action-card" aria-live="polite">
+                                    <div class="creator-create__cost">
+                                        <span>Estimated cost</span>
+                                        <strong id="soundMusicCreditEstimate">150 credits</strong>
+                                    </div>
+                                    <div class="studio__actions">
+                                        <button type="button" id="soundMusicGenerate" class="studio__generate-btn creator-create__generate">Generate Music — 150 Credits</button>
+                                        <span class="studio__hint creator-create__hint">Ctrl+Enter</span>
+                                    </div>
                                 </div>
-                                <div id="soundMusicMsg" class="studio__msg" role="status"></div>
-                            </div>
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">Preview</h2>
+                                <div id="soundMusicMsg" class="studio__msg creator-create__msg" role="status"></div>
+                            </section>
+                            <section class="studio__card creator-create__panel creator-create__panel--preview reveal" aria-labelledby="soundPreviewTitle">
+                                <div class="creator-create__panel-head">
+                                    <div>
+                                        <p class="creator-create__eyebrow">Result</p>
+                                        <h2 id="soundPreviewTitle" class="creator-create__title">Preview</h2>
+                                    </div>
+                                    <span class="creator-create__preview-note">Saved automatically</span>
+                                </div>
                                 <p class="sound-create__info">Music generation can take up to 2 minutes.</p>
-                                <div id="soundMusicPreview" class="studio__preview sound-create__preview">
-                                    <div class="studio__preview-empty">Your generated music will appear here</div>
+                                <div id="soundMusicPreview" class="studio__preview sound-create__preview creator-create__preview">
+                                    <div class="studio__preview-empty creator-create__empty">
+                                        <span class="creator-create__empty-icon" aria-hidden="true">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                                        </span>
+                                        <strong>Your generated music will appear here.</strong>
+                                        <span>The track saves into Studio with its cover when generation completes.</span>
+                                    </div>
                                 </div>
-                            </div>
+                            </section>
                         </div>
                     </div>
                 </div>
