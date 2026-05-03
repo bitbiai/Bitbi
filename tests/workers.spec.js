@@ -122,6 +122,13 @@ async function loadAdminImageCreditPricingModule() {
   return import(modulePath);
 }
 
+async function loadPixverseV6PricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/pixverse-v6-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -4372,6 +4379,90 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     );
   }
 
+  async function createMemberVideoHarness({
+    user = createContractUser({ id: 'phase2v-video-user', role: 'user' }),
+    creditBalance = 2000,
+    aiRun,
+    fetch,
+  } = {}) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const calls = [];
+    const fetchCalls = [];
+    const createdAt = '2026-05-03T10:00:00.000Z';
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async (modelId, payload, options) => {
+        calls.push({ modelId, payload, options });
+        if (aiRun) return aiRun(modelId, payload, options, calls);
+        return {
+          video_url: 'https://video.example/generated.mp4',
+          poster_url: 'https://video.example/poster.webp',
+        };
+      },
+      fetch: async (url, options) => {
+        fetchCalls.push({ url: String(url), options });
+        if (fetch) return fetch(url, options, fetchCalls);
+        if (String(url).includes('poster')) {
+          return new Response(new Uint8Array([1, 2, 3, 4]), {
+            headers: { 'content-type': 'image/webp', 'content-length': '4' },
+          });
+        }
+        return new Response(new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]), {
+          headers: { 'content-type': 'video/mp4', 'content-length': '8' },
+        });
+      },
+      memberCreditLedger: creditBalance > 0 ? [{
+        id: `cl_seed_member_video_${user.id}`.slice(0, 120),
+        user_id: user.id,
+        amount: creditBalance,
+        balance_after: creditBalance,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: `seed-member-video-${user.id}`.slice(0, 120),
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: createdAt,
+        metadata_json: '{}',
+      }] : [],
+    });
+    const token = await seedSession(env, user.id);
+    return {
+      authWorker,
+      env,
+      token,
+      user,
+      calls,
+      fetchCalls,
+    };
+  }
+
+  async function postGenerateVideo({
+    worker,
+    env,
+    token,
+    body = {},
+    idempotencyKey = 'member-video-key-123456',
+  }) {
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    return worker.fetch(
+      authJsonRequest('/api/ai/generate-video', 'POST', {
+        prompt: 'A neon city timelapse with cinematic motion.',
+        duration: 5,
+        aspect_ratio: '16:9',
+        quality: '720p',
+        generate_audio: true,
+        ...body,
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+  }
+
   async function postGenerateText({
     worker,
     env,
@@ -4515,6 +4606,243 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     });
     expect(aiCalls).toBe(0);
     expect(Array.from(env.USER_IMAGES.objects.keys()).filter((key) => key.startsWith('tmp/ai-generated/'))).toHaveLength(0);
+  });
+
+  test('PixVerse V6 member pricing helper returns the exact rollout credit table', async () => {
+    const { calculatePixverseV6MemberCredits } = await loadPixverseV6PricingModule();
+    const expected = {
+      '360p': {
+        noAudio: [16, 31, 47, 62, 77, 93, 108, 124, 139, 154, 170, 185, 201, 216, 231],
+        withAudio: [22, 44, 65, 87, 108, 130, 151, 173, 194, 216, 238, 259, 281, 302, 324],
+      },
+      '540p': {
+        noAudio: [22, 44, 65, 87, 108, 130, 151, 173, 194, 216, 238, 259, 281, 302, 324],
+        withAudio: [28, 56, 84, 111, 139, 167, 194, 222, 250, 278, 305, 333, 361, 388, 416],
+      },
+      '720p': {
+        noAudio: [28, 56, 84, 111, 139, 167, 194, 222, 250, 278, 305, 333, 361, 388, 416],
+        withAudio: [37, 74, 111, 148, 185, 222, 259, 296, 333, 370, 407, 444, 481, 518, 555],
+      },
+      '1080p': {
+        noAudio: [56, 111, 167, 222, 278, 333, 388, 444, 499, 555, 610, 665, 721, 776, 832],
+        withAudio: [71, 142, 213, 284, 354, 425, 496, 567, 638, 708, 779, 850, 921, 992, 1062],
+      },
+    };
+
+    for (const [quality, values] of Object.entries(expected)) {
+      for (let duration = 1; duration <= 15; duration += 1) {
+        expect(calculatePixverseV6MemberCredits({ duration, quality, generateAudio: false }))
+          .toBe(values.noAudio[duration - 1]);
+        expect(calculatePixverseV6MemberCredits({ duration, quality, generateAudio: true }))
+          .toBe(values.withAudio[duration - 1]);
+      }
+    }
+    expect(() => calculatePixverseV6MemberCredits({ duration: 5, quality: '4k', generateAudio: true }))
+      .toThrow('Unsupported PixVerse V6 quality.');
+    expect(() => calculatePixverseV6MemberCredits({ duration: 16, quality: '720p', generateAudio: true }))
+      .toThrow('Unsupported PixVerse V6 duration.');
+  });
+
+  test('member PixVerse V6 generation charges dynamic credits and saves a video asset', async () => {
+    const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness();
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        duration: 5,
+        quality: '720p',
+        generate_audio: true,
+        seed: 42,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        videoUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+        model: {
+          id: 'pixverse/v6',
+          label: 'PixVerse V6',
+        },
+        duration: 5,
+        quality: '720p',
+        generate_audio: true,
+        asset: {
+          source_module: 'video',
+          mime_type: 'video/mp4',
+        },
+      },
+      billing: {
+        user_id: user.id,
+        feature: 'ai.video.generate',
+        credits_charged: 185,
+        price: 185,
+        balance_after: 1815,
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.objectContaining({
+      modelId: 'pixverse/v6',
+      options: { gateway: { id: 'default' } },
+    }));
+    expect(calls[0].payload).toEqual({
+      prompt: 'A neon city timelapse with cinematic motion.',
+      duration: 5,
+      aspect_ratio: '16:9',
+      quality: '720p',
+      generate_audio: true,
+      seed: 42,
+    });
+    expect(calls[0].payload).not.toHaveProperty('resolution');
+    expect(calls[0].payload).not.toHaveProperty('audio');
+    expect(calls[0].payload).not.toHaveProperty('start_image');
+    expect(calls[0].payload).not.toHaveProperty('end_image');
+    expect(fetchCalls.map((call) => call.url)).toEqual([
+      'https://video.example/generated.mp4',
+      'https://video.example/poster.webp',
+    ]);
+
+    const consume = env.DB.state.memberCreditLedger.find((row) =>
+      row.user_id === user.id && row.feature_key === 'ai.video.generate' && row.entry_type === 'consume'
+    );
+    expect(consume).toEqual(expect.objectContaining({
+      amount: -185,
+      balance_after: 1815,
+      source: 'member_video_generation',
+    }));
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    expect(env.DB.state.aiTextAssets[0]).toEqual(expect.objectContaining({
+      user_id: user.id,
+      source_module: 'video',
+      mime_type: 'video/mp4',
+      visibility: 'private',
+    }));
+    expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/video/');
+    expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+  });
+
+  test('member PixVerse V6 insufficient credits block before provider invocation', async () => {
+    const { authWorker, env, token, calls, fetchCalls } = await createMemberVideoHarness({
+      creditBalance: 100,
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        duration: 15,
+        quality: '1080p',
+        generate_audio: true,
+      },
+    });
+
+    expect(res.status).toBe(402);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'insufficient_member_credits',
+    });
+    expect(calls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.video.generate')).toHaveLength(0);
+  });
+
+  test('member PixVerse V6 provider failures do not permanently charge credits', async () => {
+    const { authWorker, env, token, calls } = await createMemberVideoHarness({
+      aiRun: async () => {
+        throw new Error('provider down');
+      },
+    });
+
+    const res = await postGenerateVideo({ worker: authWorker, env, token });
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'upstream_error',
+    });
+    expect(calls).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.video.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+  });
+
+  test('member PixVerse V6 accepts data URI references and rejects remote image URLs', async () => {
+    const { authWorker, env, token, calls } = await createMemberVideoHarness();
+    const dataUri = 'data:image/png;base64,iVBORw0KGgo=';
+
+    const accepted = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        image_input: dataUri,
+        generate_audio: false,
+        quality: '360p',
+        duration: 1,
+      },
+      idempotencyKey: 'member-video-data-uri-key-123456',
+    });
+    expect(accepted.status).toBe(200);
+    expect(calls[0].payload).toEqual(expect.objectContaining({
+      image_input: dataUri,
+      generate_audio: false,
+      quality: '360p',
+    }));
+
+    const rejected = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        image_input: 'https://example.com/frame.png',
+      },
+      idempotencyKey: 'member-video-remote-url-key-123456',
+    });
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'remote_url_not_allowed',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test('member PixVerse V6 route validation rejects unsupported duration and Vidu fields', async () => {
+    const { authWorker, env, token, calls } = await createMemberVideoHarness();
+
+    const badDuration = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: { duration: 16 },
+      idempotencyKey: 'member-video-bad-duration-key-123456',
+    });
+    expect(badDuration.status).toBe(400);
+    await expect(badDuration.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_duration',
+    });
+
+    const viduField = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: { resolution: '720p' },
+      idempotencyKey: 'member-video-vidu-field-key-123456',
+    });
+    expect(viduField.status).toBe(400);
+    await expect(viduField.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'unsupported_option',
+    });
+    expect(calls).toHaveLength(0);
   });
 
   test('member music generation charges 150 credits, ignores client prices, and saves the audio asset', async () => {

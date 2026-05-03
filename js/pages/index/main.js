@@ -18,6 +18,7 @@ import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
 import { initSoundLabCreate } from './soundlab-create.js?v=__ASSET_VERSION__';
+import { initVideoCreate } from './video-create.js?v=__ASSET_VERSION__';
 import { initAuthNav } from './auth-nav.js';
 import { initContact } from './contact.js?v=__ASSET_VERSION__';
 import {
@@ -393,6 +394,80 @@ try {
         }
     }
 } catch (e) { console.warn('galleryMode:', e); }
+
+/* Video mode toggle (Explore / Create) */
+try {
+    const modeBtns = document.querySelectorAll('#video-creations .video-mode__btn[data-video-mode]');
+    const explorePane = document.getElementById('videoExplore');
+    const paginationPane = document.getElementById('videoPagination');
+    const createPane = document.getElementById('videoCreate');
+    if (modeBtns.length && explorePane && createPane) {
+        let createInited = false;
+        let currentMode = 'explore';
+        let pendingCreate = false;
+        let paginationDisplayBeforeCreate = paginationPane?.style.display || '';
+        const createBtn = document.querySelector('#video-creations .video-mode__btn[data-video-mode="create"]');
+
+        function setVideoMode(mode) {
+            currentMode = mode;
+            pendingCreate = false;
+            modeBtns.forEach(btn => {
+                const active = btn.dataset.videoMode === mode;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-selected', String(active));
+                btn.tabIndex = active ? 0 : -1;
+            });
+            explorePane.style.display = mode === 'explore' ? '' : 'none';
+            if (paginationPane) {
+                if (mode === 'create') {
+                    paginationDisplayBeforeCreate = paginationPane.style.display;
+                    paginationPane.style.display = 'none';
+                } else {
+                    paginationPane.style.display = paginationDisplayBeforeCreate;
+                }
+            }
+            createPane.style.display = mode === 'create' ? '' : 'none';
+            if (mode === 'create' && !createInited) {
+                createInited = true;
+                initVideoCreate();
+            }
+        }
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.videoMode;
+                if (mode === currentMode) return;
+                if (mode === 'create') {
+                    const { loggedIn } = getAuthState();
+                    if (!loggedIn) {
+                        pendingCreate = true;
+                        openAuthModal('register');
+                        return;
+                    }
+                }
+                setVideoMode(mode);
+            });
+        });
+
+        document.addEventListener('bitbi:auth-change', () => {
+            const { loggedIn } = getAuthState();
+            if (createBtn) {
+                createBtn.classList.toggle('video-mode__btn--locked', !loggedIn);
+            }
+            if (loggedIn && pendingCreate) {
+                setVideoMode('create');
+            }
+            if (!loggedIn && currentMode === 'create') {
+                setVideoMode('explore');
+            }
+        });
+
+        const { loggedIn } = getAuthState();
+        if (createBtn) {
+            createBtn.classList.toggle('video-mode__btn--locked', !loggedIn);
+        }
+    }
+} catch (e) { console.warn('videoMode:', e); }
 
 /* Sound Lab mode toggle (Explore / Create) */
 try {

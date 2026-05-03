@@ -4098,11 +4098,94 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(overlay).toContainText('FLUX.2 Klein 9B');
     const musicCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Music 2.6' });
     await expect(musicCard.locator('.models-overlay__status')).toHaveText('LIVE');
+    const videoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'PixVerse V6' });
+    await expect(videoCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
     await expect.poll(() => overlay.locator('.models-overlay__status').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent?.trim() || ''),
     )).not.toContain('Included');
     await expect(overlay).not.toContainText('FLUX.2 Dev');
+  });
+
+  test('homepage Video Create exposes PixVerse V6 with dynamic credit estimates', async ({ page }) => {
+    const videoRequests = [];
+    await mockAuthenticatedImageStudio(page, []);
+    await page.route('**/api/ai/generate-video', async (route) => {
+      const body = route.request().postDataJSON();
+      videoRequests.push({
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'],
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            prompt: body.prompt,
+            model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+            duration: body.duration,
+            aspect_ratio: body.aspect_ratio,
+            quality: body.quality,
+            generate_audio: body.generate_audio,
+            mimeType: 'video/mp4',
+            videoUrl: '/api/ai/text-assets/video-home-1/file',
+            asset: {
+              id: 'video-home-1',
+              title: 'Homepage PixVerse Video',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              file_url: '/api/ai/text-assets/video-home-1/file',
+            },
+          },
+          billing: {
+            credits_charged: body.generate_audio ? 708 : 555,
+            balance_after: 292,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'video');
+
+    const createButton = page.locator('#video-creations .video-mode__btn[data-video-mode="create"]');
+    await expect(createButton).toBeVisible({ timeout: 10_000 });
+    await expect(createButton).not.toContainText('Soon');
+    await expect(createButton).not.toHaveClass(/video-mode__btn--soon/);
+
+    await createButton.click();
+    await expect(page.locator('#videoCreate')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#videoExplore')).toBeHidden();
+    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 185 credits');
+
+    await page.locator('#videoDuration').selectOption('10');
+    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 370 credits');
+    await page.locator('#videoQuality').selectOption('1080p');
+    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 708 credits');
+    await page.locator('#videoGenerateAudio').uncheck();
+    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 555 credits');
+    await expect(page.locator('#videoGenerate')).toHaveAttribute('aria-label', 'Generate PixVerse V6 video for 555 credits');
+
+    await page.locator('#videoPrompt').fill('A dramatic product reveal in a luminous glass studio.');
+    await page.locator('#videoGenerate').click();
+    await expect(page.locator('#videoPreview video')).toBeVisible();
+    await expect(page.locator('#videoPreview video')).toHaveAttribute('src', '/api/ai/text-assets/video-home-1/file');
+    await expect(page.locator('#videoMsg')).toContainText('Video generated and saved.');
+
+    expect(videoRequests).toHaveLength(1);
+    expect(videoRequests[0].idempotencyKey).toMatch(/^video-pixverse-/);
+    expect(videoRequests[0].body).toEqual(expect.objectContaining({
+      prompt: 'A dramatic product reveal in a luminous glass studio.',
+      duration: 10,
+      quality: '1080p',
+      aspect_ratio: '16:9',
+      generate_audio: false,
+    }));
+    expect(videoRequests[0].body.price).toBeUndefined();
+    expect(videoRequests[0].body.credits).toBeUndefined();
   });
 
   test('homepage create studio recovers button state and shows errors when generate/save requests abort', async ({

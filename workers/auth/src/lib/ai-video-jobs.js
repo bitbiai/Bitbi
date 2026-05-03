@@ -58,10 +58,10 @@ const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MAX_ATTEMPTS = 3;
 const JOB_LEASE_MS = 2 * 60 * 1000;
 const MAX_SAFE_ERROR_LENGTH = 240;
-const VIDEO_OUTPUT_MAX_BYTES = 100 * 1024 * 1024;
-const VIDEO_POSTER_MAX_BYTES = 5 * 1024 * 1024;
-const VIDEO_OUTPUT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
-const VIDEO_POSTER_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+export const VIDEO_OUTPUT_MAX_BYTES = 100 * 1024 * 1024;
+export const VIDEO_POSTER_MAX_BYTES = 5 * 1024 * 1024;
+export const VIDEO_OUTPUT_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+export const VIDEO_POSTER_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export function normalizeAiVideoIdempotencyKey(value) {
   const raw = typeof value === "string" ? value.trim() : "";
@@ -797,7 +797,7 @@ async function readResponseBodyLimited(response, maxBytes, label) {
   return merged.buffer;
 }
 
-async function fetchRemoteAsset(env, urlValue, {
+export async function fetchRemoteAsset(env, urlValue, {
   maxBytes,
   allowedContentTypes,
   label,

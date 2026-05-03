@@ -767,6 +767,180 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   };
 }
 
+export async function saveGeneratedVideoAsset(env, {
+  userId,
+  folderId = null,
+  title,
+  videoBytes,
+  mimeType,
+  payload = {},
+  posterBytes = null,
+}) {
+  const safeTitle = cleanInlineText(title).slice(0, 120) || "Generated Video";
+  const now = nowIso();
+  const bytes = videoBytes instanceof Uint8Array ? videoBytes : new Uint8Array(videoBytes || []);
+  if (!bytes.byteLength) {
+    const error = new Error("Video file is empty.");
+    error.status = 409;
+    error.code = "validation_error";
+    throw error;
+  }
+  if (bytes.byteLength > AI_VIDEO_ASSET_MAX_BYTES) {
+    const error = new Error(`Video asset exceeds the ${AI_VIDEO_ASSET_MAX_BYTES} byte limit.`);
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const normalizedMimeType = normalizeVideoMimeType(mimeType);
+  if (!normalizedMimeType) {
+    const error = new Error("Generated video is not a supported video type.");
+    error.status = 409;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  let resolvedFolderId = null;
+  let folderSlug = "unsorted";
+  if (folderId) {
+    const folder = await env.DB.prepare(
+      "SELECT id, slug FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active'"
+    ).bind(folderId, userId).first();
+
+    if (!folder) {
+      const error = new Error("Folder not found.");
+      error.status = 404;
+      error.code = "not_found";
+      throw error;
+    }
+
+    resolvedFolderId = folder.id;
+    folderSlug = folder.slug;
+  }
+
+  const sourceModule = "video";
+  const fileExt = extensionForVideoMimeType(normalizedMimeType);
+  const fileStem = slugifyFileName(safeTitle, sourceModule);
+  const fileName = `${fileStem}.${fileExt}`;
+  const assetId = randomTokenHex(16);
+  const timestamp = Date.now();
+  const r2Key = `users/${userId}/folders/${folderSlug}/video/${timestamp}-${randomTokenHex(4)}-${fileName}`;
+  const previewText = truncatePreview(payload.prompt || "Video generation");
+  const metadataJson = JSON.stringify(
+    sanitizeAssetMetadata(buildVideoMetadata(payload, now, {
+      mimeType: normalizedMimeType,
+      sizeBytes: bytes.byteLength,
+    }), {
+      field: "metadata",
+      ...METADATA_JSON_LIMITS,
+      stringifyNested: true,
+    })
+  );
+
+  try {
+    await env.USER_IMAGES.put(r2Key, bytes, {
+      httpMetadata: {
+        contentType: normalizedMimeType,
+        contentDisposition: `inline; filename="${fileName}"`,
+      },
+    });
+  } catch {
+    const error = new Error("Failed to store video asset.");
+    error.status = 500;
+    error.code = "storage_error";
+    throw error;
+  }
+
+  let insertResult;
+  try {
+    if (resolvedFolderId) {
+      insertResult = await env.DB.prepare(
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
+      ).bind(
+        assetId,
+        userId,
+        resolvedFolderId,
+        r2Key,
+        safeTitle,
+        fileName,
+        sourceModule,
+        normalizedMimeType,
+        bytes.byteLength,
+        previewText,
+        metadataJson,
+        now,
+        resolvedFolderId,
+        userId
+      ).run();
+    } else {
+      insertResult = await env.DB.prepare(
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        assetId,
+        userId,
+        null,
+        r2Key,
+        safeTitle,
+        fileName,
+        sourceModule,
+        normalizedMimeType,
+        bytes.byteLength,
+        previewText,
+        metadataJson,
+        now
+      ).run();
+    }
+  } catch (error) {
+    try {
+      await env.USER_IMAGES.delete(r2Key);
+    } catch {}
+    const next = new Error("Failed to save video asset. The folder may have been deleted.");
+    next.status = 409;
+    next.code = "validation_error";
+    throw next;
+  }
+
+  if (!insertResult?.meta?.changes) {
+    try {
+      await env.USER_IMAGES.delete(r2Key);
+    } catch {}
+    const error = new Error("Folder was deleted. Video asset not saved.");
+    error.status = 404;
+    error.code = "not_found";
+    throw error;
+  }
+
+  const posterResult = posterBytes?.byteLength
+    ? await processAiTextAssetPosterBytes(env, {
+      userId,
+      assetId,
+      posterBytes: posterBytes instanceof Uint8Array ? posterBytes : new Uint8Array(posterBytes),
+      successEvent: "video_poster_saved",
+      failureEvent: "video_poster_save_failed",
+    })
+    : null;
+
+  return {
+    id: assetId,
+    folder_id: resolvedFolderId,
+    title: safeTitle,
+    file_name: fileName,
+    source_module: sourceModule,
+    mime_type: normalizedMimeType,
+    size_bytes: bytes.byteLength,
+    preview_text: previewText,
+    created_at: now,
+    poster_r2_key: posterResult?.r2Key || null,
+    poster_width: posterResult?.width || null,
+    poster_height: posterResult?.height || null,
+    file_url: `/api/ai/text-assets/${assetId}/file`,
+    poster_url: posterResult?.r2Key ? `/api/ai/text-assets/${assetId}/poster` : null,
+  };
+}
+
 async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentType }) {
   try {
     const source = await env.USER_IMAGES.get(sourceKey);

@@ -512,6 +512,7 @@
         "POST /api/ai/generate-image",
         "POST /api/ai/generate-text",
         "POST /api/ai/generate-music",
+        "POST /api/ai/generate-video",
         "GET /api/ai/folders",
         "POST /api/ai/folders",
         "GET /api/ai/images",

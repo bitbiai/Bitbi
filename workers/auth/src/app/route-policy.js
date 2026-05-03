@@ -522,6 +522,16 @@ export const ROUTE_POLICIES = Object.freeze([
       idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied",
     },
   }),
+  userJsonWrite("ai.generate-video", "POST", "/api/ai/generate-video", "ai-studio", "aiGenerateVideoJson", "ai-generate-video-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AI", "USER_IMAGES"],
+    audit: { event: "ai_generate_video" },
+    sensitivity: "high",
+    billing: {
+      mode: "member-credit-account",
+      feature: "ai.video.generate",
+      idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied",
+    },
+  }),
   policy({
     id: "billing.webhooks.test",
     method: "POST",

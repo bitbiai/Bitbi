@@ -6,6 +6,7 @@
 
 import {
     ADMIN_AI_MUSIC_MODEL_ID,
+    ADMIN_AI_VIDEO_MODEL_ID,
     listAdminAiCatalog,
 } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
@@ -22,7 +23,9 @@ const USER_LIVE_MODELS = {
     music: [
         { id: ADMIN_AI_MUSIC_MODEL_ID, label: 'Music 2.6' },
     ],
-    video: [],
+    video: [
+        { id: ADMIN_AI_VIDEO_MODEL_ID, label: 'PixVerse V6' },
+    ],
 };
 
 export const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([

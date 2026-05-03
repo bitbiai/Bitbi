@@ -423,6 +423,10 @@ export function apiAiGenerateMusic(payload, options = {}) {
     return request('POST', '/ai/generate-music', payload, options);
 }
 
+export function apiAiGenerateVideo(payload, options = {}) {
+    return request('POST', '/ai/generate-video', payload, options);
+}
+
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');
     const d = res.data?.data;

@@ -72,6 +72,8 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   const adminImageById = new Map(adminImageModels.map((entry) => [entry.id, entry]));
   const liveImageIds = new Set();
   const liveMusicIds = new Set([contractModule.ADMIN_AI_MUSIC_MODEL_ID]);
+  const liveVideoById = new Map([[contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }]]);
+  const liveVideoIds = new Set(liveVideoById.keys());
 
   const imageEntries = liveImageModels.map((entry) => {
     liveImageIds.add(entry.id);
@@ -109,9 +111,9 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
     {
       category: 'VIDEO GENERATION',
       models: (models.video || []).map((entry) => ({
-        name: entry.label,
+        name: liveVideoById.get(entry.id)?.label || entry.label,
         vendor: entry.vendor,
-        status: 'Coming soon',
+        status: liveVideoIds.has(entry.id) ? 'LIVE' : 'Coming soon',
       })),
     },
   ];
