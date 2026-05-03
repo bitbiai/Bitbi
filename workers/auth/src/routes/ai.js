@@ -23,6 +23,7 @@ import { handleGenerateText } from "./ai/text-generate.js";
 import { handleGenerateVideo } from "./ai/video-generate.js";
 import { handleUpdateImagePublication, handleUpdateTextAssetPublication } from "./ai/publication.js";
 import {
+  handleAttachTextAssetPoster,
   handleDeleteTextAsset,
   handleRenameTextAsset,
   handleSaveAudio,
@@ -125,6 +126,10 @@ export async function handleAI(ctx) {
   const textPosterMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/poster$/);
   if (textPosterMatch && method === "GET") {
     return handleGetTextAssetPoster(ctx, textPosterMatch[1]);
+  }
+  // route-policy: ai.text-assets.poster.attach
+  if (textPosterMatch && method === "POST") {
+    return handleAttachTextAssetPoster(ctx, textPosterMatch[1]);
   }
 
   // DELETE /api/ai/images/:id

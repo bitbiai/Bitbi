@@ -4,7 +4,7 @@ import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
 } from "../../lib/request.js";
-import { saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
+import { attachVideoPosterToAiTextAsset, saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
 import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import {
@@ -20,6 +20,64 @@ import { AiAssetLifecycleError, deleteUserAiTextAsset } from "./lifecycle.js";
 
 const MAX_PROMPT_LENGTH = 1000;
 const MAX_SAVED_FILE_TITLE_LENGTH = 120;
+
+export async function handleAttachTextAssetPoster(ctx, assetId) {
+  const { request, env } = ctx;
+  const correlationId = ctx.correlationId || null;
+  const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
+  const session = await requireUser(request, env);
+  if (session instanceof Response) return session;
+
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "ai-text-asset-write-user",
+    userId: session.user.id,
+    maxRequests: 60,
+    windowMs: 10 * 60_000,
+    component: "ai-text-asset-poster",
+  });
+  if (limited) return limited;
+
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiSaveVideoPosterJson });
+  if (parsed.response) return withCorrelationId(parsed.response, correlationId);
+
+  try {
+    const saved = await attachVideoPosterToAiTextAsset(env, {
+      userId: session.user.id,
+      assetId,
+      posterBase64: parsed.body?.posterBase64,
+    });
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-asset-poster",
+      event: "video_poster_attached",
+      correlationId,
+      user_id: session.user.id,
+      asset_id: assetId,
+      poster_width: saved.poster_width,
+      poster_height: saved.poster_height,
+    });
+
+    return respond({ ok: true, data: saved });
+  } catch (error) {
+    const status = error?.status || 500;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-asset-poster",
+      event: "video_poster_attach_failed",
+      level: status >= 500 ? "error" : "warn",
+      correlationId,
+      user_id: session.user.id,
+      asset_id: assetId,
+      ...getErrorFields(error),
+    });
+    return respond({
+      ok: false,
+      error: error?.message || "Video poster could not be attached.",
+      code: error?.code || (status >= 500 ? "internal_error" : "validation_error"),
+    }, { status });
+  }
+}
 
 export async function handleRenameTextAsset(ctx, assetId) {
   const { request, env } = ctx;

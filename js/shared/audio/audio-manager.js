@@ -19,6 +19,7 @@ let progressSyncTimer = null;
 let pendingSeekTime = null;
 let lastTimePersistAt = 0;
 let state = createDefaultState();
+let pageTransitionSuspended = false;
 
 function createDefaultState() {
     return {
@@ -333,6 +334,7 @@ function ensureAudioElement() {
     audioEl.addEventListener('pause', () => {
         if (!audioEl) return;
         stopProgressSyncLoop();
+        if (pageTransitionSuspended) return;
         patchState({
             status: state.autoplayBlocked ? 'blocked' : 'paused',
             currentTime: getAudioCurrentTime(audioEl),
@@ -515,7 +517,26 @@ function handleAuthChange(event) {
 }
 
 function handlePageHide() {
+    if (audioEl && state.sourceUrl) {
+        syncAudioProgressFromElement({ force: true, persistReason: 'pagehide' });
+    }
     persistNow();
+    if (audioEl && !audioEl.paused && state.playIntent) {
+        pageTransitionSuspended = true;
+        try {
+            audioEl.pause();
+        } catch {
+            // Best effort only: page teardown may reject media operations.
+        }
+    }
+}
+
+function handlePageShow() {
+    if (!pageTransitionSuspended) return;
+    pageTransitionSuspended = false;
+    if (state.playIntent && state.sourceUrl) {
+        attemptPlay(false);
+    }
 }
 
 export function initGlobalAudioManager() {
@@ -528,6 +549,7 @@ export function initGlobalAudioManager() {
 
     document.addEventListener('bitbi:auth-change', handleAuthChange);
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
     window.addEventListener('beforeunload', handlePageHide);
 
     return getGlobalAudioState();

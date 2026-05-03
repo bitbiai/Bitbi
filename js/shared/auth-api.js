@@ -513,6 +513,10 @@ export function apiAiSaveAudio(payload) {
     return request('POST', '/ai/audio/save', payload);
 }
 
+export function apiAiAttachVideoPoster(assetId, posterBase64) {
+    return request('POST', `/ai/text-assets/${encodeURIComponent(assetId)}/poster`, { posterBase64 });
+}
+
 export function apiAiDeleteImage(imageId) {
     return request('DELETE', `/ai/images/${imageId}`);
 }

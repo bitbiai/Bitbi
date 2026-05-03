@@ -3,6 +3,7 @@
    ============================================================ */
 
 import {
+    apiAiAttachVideoPoster,
     apiAiGenerateVideo,
     apiAiGetQuota,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
@@ -92,6 +93,55 @@ function renderPreviewLoading() {
     label.textContent = 'Generating your PixVerse video...';
     loading.append(spinner, label);
     replacePreview(loading);
+}
+
+function captureVideoPosterBase64(video) {
+    if (!video || !video.videoWidth || !video.videoHeight) return '';
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return '';
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/webp', 0.82);
+    } catch (error) {
+        console.warn('Video poster capture failed:', error);
+        return '';
+    }
+}
+
+function attachVideoPosterAfterFrame(data, video) {
+    const assetId = data?.asset?.id;
+    if (!assetId || data?.posterUrl || data?.asset?.poster_url || !video) return;
+
+    let attempted = false;
+    const attemptAttach = async () => {
+        if (attempted) return;
+        const posterBase64 = captureVideoPosterBase64(video);
+        if (!posterBase64) return;
+        attempted = true;
+        const res = await apiAiAttachVideoPoster(assetId, posterBase64);
+        if (!res.ok) {
+            console.warn('Video poster attach failed:', res.error || res.code || 'unknown error');
+            return;
+        }
+        const posterUrl = res.data?.data?.poster_url || res.data?.poster_url || '';
+        if (posterUrl) {
+            video.poster = posterUrl;
+            if (data.asset) data.asset.poster_url = posterUrl;
+            data.posterUrl = posterUrl;
+        }
+    };
+
+    const onFrameReady = () => {
+        attemptAttach();
+    };
+    video.addEventListener('loadeddata', onFrameReady, { once: true });
+    video.addEventListener('canplay', onFrameReady, { once: true });
+    if (video.readyState >= 2) {
+        window.setTimeout(onFrameReady, 0);
+    }
 }
 
 function selectedDuration() {
@@ -239,12 +289,14 @@ function renderResult(data) {
     video.className = 'video-create__player';
     video.controls = true;
     video.playsInline = true;
-    video.preload = 'metadata';
+    const posterUrl = data?.posterUrl || data?.asset?.poster_url || '';
+    video.preload = posterUrl ? 'metadata' : 'auto';
     video.src = videoUrl;
-    if (data?.posterUrl || data?.asset?.poster_url) {
-        video.poster = data.posterUrl || data.asset.poster_url;
+    if (posterUrl) {
+        video.poster = posterUrl;
     }
     result.append(video);
+    attachVideoPosterAfterFrame(data, video);
 
     const meta = document.createElement('div');
     meta.className = 'video-create__result-meta';

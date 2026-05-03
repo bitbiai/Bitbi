@@ -307,6 +307,78 @@ test.describe('Global audio player', () => {
     expect(persisted.title).toBe('Public Member Track');
   });
 
+  test('suspends the outgoing page audio element during navigation without clearing play intent', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    await clickSoundLabPlayButton(page, page.locator('.snd-play').first());
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.paused)).toBe(false);
+
+    await page.evaluate(() => {
+      window.__bitbiAudioMock.instances[0].currentTime = 52;
+    });
+    const before = await page.evaluate(() => ({
+      playCalls: window.__bitbiAudioMock.playCalls,
+      pauseCalls: window.__bitbiAudioMock.pauseCalls,
+    }));
+
+    await page.evaluate(() => {
+      const event = typeof PageTransitionEvent === 'function'
+        ? new PageTransitionEvent('pagehide', { persisted: true })
+        : new Event('pagehide');
+      window.dispatchEvent(event);
+    });
+
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.paused)).toBe(true);
+    expect(await page.evaluate(() => window.__bitbiAudioMock.pauseCalls)).toBe(before.pauseCalls + 1);
+    const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('bitbi_audio_state_v1')));
+    expect(persisted).toEqual(expect.objectContaining({
+      trackId: 'memtrack:feedc0de',
+      playIntent: true,
+      currentTime: 52,
+    }));
+
+    await page.evaluate(() => {
+      const event = typeof PageTransitionEvent === 'function'
+        ? new PageTransitionEvent('pageshow', { persisted: true })
+        : new Event('pageshow');
+      window.dispatchEvent(event);
+    });
+
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances[0]?.paused)).toBe(false);
+    expect(await page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(before.playCalls + 1);
+  });
+
+  test('returning to Sound Lab reuses the shared player for the active track', async ({ page }) => {
+    await installAudioMock(page);
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    await clickSoundLabPlayButton(page, page.locator('.snd-play').first());
+    await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
+
+    await page.goto('/legal/imprint.html');
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+
+    await page.goto('/');
+    await openHomepageSoundLab(page);
+    await expect(page.locator('.snd-card').first().locator('.pa')).toBeVisible();
+
+    const before = await page.evaluate(() => ({
+      playCalls: window.__bitbiAudioMock.playCalls,
+      instances: window.__bitbiAudioMock.instances.length,
+    }));
+    await clickSoundLabPlayButton(page, page.locator('.snd-play').first());
+
+    await expect(page.locator('.snd-card').first().locator('.pi')).toBeVisible();
+    await expect(page.locator('#globalAudioShell')).toBeVisible();
+    await openGlobalAudioDrawer(page);
+    await expect(page.locator('#globalAudioStatus')).toContainText('Paused');
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.playCalls)).toBe(before.playCalls);
+    await expect.poll(async () => page.evaluate(() => window.__bitbiAudioMock.instances.length)).toBe(before.instances);
+  });
+
   test('global player controls stay synchronized with Sound Lab cards', async ({ page }) => {
     await installAudioMock(page);
 

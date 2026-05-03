@@ -941,6 +941,54 @@ export async function saveGeneratedVideoAsset(env, {
   };
 }
 
+export async function attachVideoPosterToAiTextAsset(env, { userId, assetId, posterBase64 }) {
+  const rawPoster = typeof posterBase64 === "string" ? posterBase64.trim() : "";
+  if (!/^data:image\/(?:png|jpe?g|webp);base64,/i.test(rawPoster)) {
+    const error = new Error("Video poster must be a PNG, JPEG, or WebP data URI.");
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, title, file_name, mime_type, source_module FROM ai_text_assets WHERE id = ? AND user_id = ?"
+  ).bind(assetId, userId).first();
+
+  if (!existing) {
+    const error = new Error("Video asset not found.");
+    error.status = 404;
+    error.code = "not_found";
+    throw error;
+  }
+  if (existing.source_module !== "video") {
+    const error = new Error("Poster attachment is only supported for video assets.");
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const posterResult = await processVideoPoster(env, {
+    userId,
+    assetId,
+    posterBase64: rawPoster,
+  });
+
+  if (!posterResult?.r2Key) {
+    const error = new Error("Video poster could not be processed.");
+    error.status = env.IMAGES ? 422 : 503;
+    error.code = env.IMAGES ? "validation_error" : "poster_service_unavailable";
+    throw error;
+  }
+
+  return {
+    id: assetId,
+    poster_r2_key: posterResult.r2Key,
+    poster_width: posterResult.width || null,
+    poster_height: posterResult.height || null,
+    poster_url: `/api/ai/text-assets/${assetId}/poster`,
+  };
+}
+
 async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentType }) {
   try {
     const source = await env.USER_IMAGES.get(sourceKey);

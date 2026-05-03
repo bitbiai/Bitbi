@@ -4721,9 +4721,82 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       source_module: 'video',
       mime_type: 'video/mp4',
       visibility: 'private',
+      poster_r2_key: `users/${user.id}/derivatives/v1/${body.data.asset.id}/poster.webp`,
+      poster_width: 320,
+      poster_height: 320,
     }));
+    expect(body.data.asset.poster_url).toBe(`/api/ai/text-assets/${body.data.asset.id}/poster`);
     expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/video/');
     expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+    expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].poster_r2_key)).toBe(true);
+    expect(env.IMAGES.transformCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        transforms: [expect.objectContaining({ width: 320, height: 320, fit: 'scale-down' })],
+        outputOptions: expect.objectContaining({ format: 'image/webp', quality: 82 }),
+      }),
+    ]));
+  });
+
+  test('member PixVerse V6 video poster can be attached from captured preview frame', async () => {
+    const { authWorker, env, token, user, fetchCalls } = await createMemberVideoHarness({
+      aiRun: async () => ({ video_url: 'https://video.example/generated.mp4' }),
+    });
+
+    const generated = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: 'member-video-no-provider-poster-key-123456',
+    });
+    expect(generated.status).toBe(200);
+    const generatedBody = await generated.json();
+    const assetId = generatedBody.data.asset.id;
+    expect(generatedBody.data.asset.poster_url).toBeNull();
+    expect(fetchCalls.map((call) => call.url)).toEqual(['https://video.example/generated.mp4']);
+
+    const posterBase64 = `data:image/png;base64,${Buffer.from('mock-image:1024x512:image/png').toString('base64')}`;
+    const posterRes = await authWorker.fetch(
+      authJsonRequest(`/api/ai/text-assets/${assetId}/poster`, 'POST', {
+        posterBase64,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(posterRes.status).toBe(200);
+    await expect(posterRes.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        id: assetId,
+        poster_r2_key: `users/${user.id}/derivatives/v1/${assetId}/poster.webp`,
+        poster_width: 320,
+        poster_height: 160,
+        poster_url: `/api/ai/text-assets/${assetId}/poster`,
+      },
+    });
+
+    const row = env.DB.state.aiTextAssets.find((item) => item.id === assetId);
+    expect(row).toEqual(expect.objectContaining({
+      user_id: user.id,
+      source_module: 'video',
+      poster_r2_key: `users/${user.id}/derivatives/v1/${assetId}/poster.webp`,
+      poster_width: 320,
+      poster_height: 160,
+    }));
+    expect(env.USER_IMAGES.objects.has(row.poster_r2_key)).toBe(true);
+
+    const readPoster = await authWorker.fetch(
+      authJsonRequest(`/api/ai/text-assets/${assetId}/poster`, 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(readPoster.status).toBe(200);
+    expect(readPoster.headers.get('content-type')).toBe('image/webp');
   });
 
   test('member PixVerse V6 insufficient credits block before provider invocation', async () => {

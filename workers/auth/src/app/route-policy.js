@@ -608,6 +608,10 @@ export const ROUTE_POLICIES = Object.freeze([
   userJsonWrite("ai.images.rename", "PATCH", "/api/ai/images/:id/rename", "ai-studio", "adminJson", "ai-image-rename-user"),
   safeRead("ai.text-assets.file", "GET", "/api/ai/text-assets/:id/file", "ai-studio"),
   safeRead("ai.text-assets.poster", "GET", "/api/ai/text-assets/:id/poster", "ai-studio"),
+  userJsonWrite("ai.text-assets.poster.attach", "POST", "/api/ai/text-assets/:id/poster", "ai-studio", "aiSaveVideoPosterJson", "ai-text-asset-write-user", {
+    config: REQUIRED_CONFIG.userImages,
+    audit: { event: "video_poster_attached" },
+  }),
   userJsonWrite("ai.text-assets.publication", "PATCH", "/api/ai/text-assets/:id/publication", "ai-studio", "smallJson", "ai-publication-write-user"),
   userJsonWrite("ai.text-assets.rename", "PATCH", "/api/ai/text-assets/:id/rename", "ai-studio", "smallJson", "ai-text-asset-write-user"),
   userJsonWrite("ai.text-assets.delete", "DELETE", "/api/ai/text-assets/:id", "ai-studio", null, "ai-text-asset-write-user", {

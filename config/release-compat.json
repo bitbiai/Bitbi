@@ -532,6 +532,7 @@
         "GET /api/ai/images/:id/medium",
         "GET /api/ai/text-assets/:id/file",
         "GET /api/ai/text-assets/:id/poster",
+        "POST /api/ai/text-assets/:id/poster",
         "DELETE /api/ai/images/:id",
         "PATCH /api/ai/images/:id/publication",
         "PATCH /api/ai/images/:id/rename",
