@@ -2077,6 +2077,10 @@
         display: none;
     }
 
+    #galleryModal:not(.active) #modalFullLink {
+        pointer-events: none;
+    }
+
     .modal-action--left {
         inset-block-start: 0.75rem;
         inset-inline-start: 0.75rem;

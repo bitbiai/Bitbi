@@ -1667,6 +1667,29 @@ test.describe('Homepage', () => {
                   url: `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`,
                 },
               },
+              {
+                id: 'd4c3b2a1',
+                slug: 'mempic-d4c3b2a1',
+                title: 'Second Mempic',
+                caption: 'Published by Ada Member on 2026-04-13.',
+                category: 'mempics',
+                publisher: {
+                  display_name: 'Ada Member',
+                },
+                thumb: {
+                  url: `/api/gallery/mempics/d4c3b2a1/${mempicVersion}/thumb`,
+                  w: 320,
+                  h: 320,
+                },
+                preview: {
+                  url: `/api/gallery/mempics/d4c3b2a1/${mempicVersion}/medium`,
+                  w: 1280,
+                  h: 1280,
+                },
+                full: {
+                  url: `/api/gallery/mempics/d4c3b2a1/${mempicVersion}/file`,
+                },
+              },
             ],
           },
         }),
@@ -1709,7 +1732,41 @@ test.describe('Homepage', () => {
     await expect(page.locator('#modalTitle')).toHaveText('Mempics');
     await expect(page.locator('#modalCaption')).toHaveText('Published by Ada Member on 2026-04-12.');
     await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/a1b2c3d4/${mempicVersion}/file`);
+    await expect(page.locator('#modalFullLink')).toBeVisible();
+    const fullLinkPoint = await page.locator('#modalFullLink').evaluate((link) => {
+      const rect = link.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    });
     await page.locator('.modal-close').click();
+    await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
+    await expect(page.locator('#modalFullLink')).toBeHidden();
+    await expect(page.locator('#modalFullLink')).toHaveAttribute('href', /#$/);
+    await expect(page.locator('a[href*="/api/gallery/mempics/"]')).toHaveCount(0);
+
+    const staleLinkState = await page.evaluate(({ x, y }) => {
+      const link = document.getElementById('modalFullLink');
+      const top = document.elementFromPoint(x, y);
+      return {
+        linkPointerEvents: window.getComputedStyle(link).pointerEvents,
+        topId: top?.id || '',
+        topTitle: top?.getAttribute?.('title') || '',
+        topHref: top?.getAttribute?.('href') || '',
+      };
+    }, fullLinkPoint);
+    expect(staleLinkState.linkPointerEvents).toBe('none');
+    expect(staleLinkState.topId).not.toBe('modalFullLink');
+    expect(staleLinkState.topTitle).not.toBe('Open full size');
+    expect(staleLinkState.topHref).not.toContain('/api/gallery/mempics/');
+    await page.mouse.click(fullLinkPoint.x, fullLinkPoint.y);
+    await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
+
+    const secondMempicCard = page.locator('#galleryGrid .gallery-item:not(.locked-area):visible').nth(1);
+    await secondMempicCard.click();
+    await expect(page.locator('#modalTitle')).toHaveText('Second Mempic');
+    await expect(page.locator('#modalFullLink')).toHaveAttribute('href', `/api/gallery/mempics/d4c3b2a1/${mempicVersion}/file`);
   });
 
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {
@@ -1966,8 +2023,10 @@ test.describe('Homepage', () => {
     await page.locator('.mobile-media-detail-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
+    await expect(page.locator('a[href*="/api/gallery/mempics/"]')).toHaveCount(0);
     await page.locator('.mobile-media-grid-overlay__close').click();
     await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
+    await expect(page.locator('a[href*="/api/gallery/mempics/"]')).toHaveCount(0);
 
     await switchHomepageCategory(page, 'video');
     await expect(page.locator('#videoPagination .browse-pagination__status')).toBeEnabled();
