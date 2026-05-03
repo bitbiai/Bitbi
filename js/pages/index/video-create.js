@@ -34,14 +34,18 @@ let $generateBtn;
 let $preview;
 let $msg;
 let $quotaEl;
+let $creditEstimate;
+let $referenceRemove;
+let $uploadShell;
+let $actionCard;
 
 function showMsg(el, text, type) {
     el.textContent = text;
-    el.className = `studio__msg studio__msg--${type}`;
+    el.className = `studio__msg video-create__msg studio__msg--${type}`;
 }
 
 function hideMsg(el) {
-    el.className = 'studio__msg';
+    el.className = 'studio__msg video-create__msg';
     el.textContent = '';
 }
 
@@ -52,14 +56,36 @@ function replacePreview(...nodes) {
 
 function renderPreviewEmpty(text) {
     const empty = document.createElement('div');
-    empty.className = 'studio__preview-empty';
-    empty.textContent = text;
+    empty.className = 'video-create__empty';
+    const icon = document.createElement('span');
+    icon.className = 'video-create__empty-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    iconSvg.setAttribute('viewBox', '0 0 24 24');
+    iconSvg.setAttribute('fill', 'none');
+    iconSvg.setAttribute('stroke', 'currentColor');
+    iconSvg.setAttribute('stroke-width', '1.6');
+    iconSvg.setAttribute('stroke-linecap', 'round');
+    iconSvg.setAttribute('stroke-linejoin', 'round');
+    const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path1.setAttribute('d', 'M15 10.5 20 7v10l-5-3.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z');
+    const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path2.setAttribute('d', 'M7 9h4');
+    const path3 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path3.setAttribute('d', 'M7 13h2');
+    iconSvg.append(path1, path2, path3);
+    icon.append(iconSvg);
+    const title = document.createElement('strong');
+    title.textContent = text;
+    const copy = document.createElement('span');
+    copy.textContent = 'Adjust the prompt and settings, then generate a new PixVerse clip.';
+    empty.append(icon, title, copy);
     replacePreview(empty);
 }
 
 function renderPreviewLoading() {
     const loading = document.createElement('div');
-    loading.className = 'studio__loading';
+    loading.className = 'video-create__loading';
     const spinner = document.createElement('div');
     spinner.className = 'studio__spinner';
     const label = document.createElement('span');
@@ -93,32 +119,37 @@ function currentPrice() {
 function renderGenerateLabel() {
     if (!$generateBtn) return;
     const price = currentPrice();
-    $generateBtn.textContent = `Generate Video · ${price} credits`;
+    $generateBtn.textContent = 'Generate Video';
     $generateBtn.setAttribute('aria-label', `Generate PixVerse V6 video for ${price} credits`);
+    if ($creditEstimate) {
+        $creditEstimate.textContent = `${price} credits`;
+    }
 }
 
 function renderQuota() {
-    if (!$quotaEl || creditBalance === null) return;
-    $quotaEl.textContent = `${creditBalance} credits available`;
-    $quotaEl.classList.toggle('studio__quota--empty', creditBalance < currentPrice());
+    if (!$quotaEl) return;
+    const hasBalance = typeof creditBalance === 'number';
+    const insufficient = hasBalance && creditBalance < currentPrice();
+    if (!hasBalance) {
+        $quotaEl.textContent = 'Balance unavailable';
+    } else if (insufficient) {
+        $quotaEl.textContent = `${creditBalance} credits available - not enough for this setting`;
+    } else {
+        $quotaEl.textContent = `${creditBalance} credits available`;
+    }
+    $quotaEl.classList.toggle('video-create__balance--empty', insufficient);
+    $actionCard?.classList.toggle('is-insufficient', insufficient);
 }
 
 async function loadQuota() {
     const q = await apiAiGetQuota();
     if (!q || q.isAdmin) {
-        if ($quotaEl) $quotaEl.style.display = 'none';
+        if ($quotaEl) $quotaEl.textContent = 'Admin preview';
         creditBalance = null;
         return;
     }
     creditBalance = typeof q.creditBalance === 'number' ? q.creditBalance : null;
     renderQuota();
-}
-
-function injectQuotaEl(anchorEl) {
-    $quotaEl = document.createElement('div');
-    $quotaEl.className = 'studio__quota';
-    $quotaEl.setAttribute('aria-live', 'polite');
-    anchorEl.after($quotaEl);
 }
 
 function createIdempotencyKey() {
@@ -138,10 +169,21 @@ function renderReferencePreview(fileName) {
     if (!referenceImageDataUri) {
         $imagePreview.textContent = 'Optional image-to-video reference';
         $imagePreview.classList.remove('video-create__reference-preview--ready');
+        $uploadShell?.classList.remove('is-ready');
+        if ($referenceRemove) $referenceRemove.hidden = true;
         return;
     }
-    $imagePreview.textContent = fileName ? `Reference: ${fileName}` : 'Reference image ready';
+    $imagePreview.textContent = fileName ? fileName : 'Reference image ready';
     $imagePreview.classList.add('video-create__reference-preview--ready');
+    $uploadShell?.classList.add('is-ready');
+    if ($referenceRemove) $referenceRemove.hidden = false;
+}
+
+function clearReferenceImage() {
+    referenceImageDataUri = '';
+    if ($imageInput) $imageInput.value = '';
+    renderReferencePreview('');
+    hideMsg($msg);
 }
 
 function readFileAsDataUri(file) {
@@ -205,7 +247,7 @@ function renderResult(data) {
     result.append(video);
 
     const meta = document.createElement('div');
-    meta.className = 'sound-create__result-meta';
+    meta.className = 'video-create__result-meta';
     const strong = document.createElement('strong');
     strong.textContent = title;
     const model = document.createElement('span');
@@ -307,14 +349,15 @@ export function initVideoCreate() {
     $generateBtn = document.getElementById('videoGenerate');
     $preview = document.getElementById('videoPreview');
     $msg = document.getElementById('videoMsg');
+    $quotaEl = document.getElementById('videoCreditBalance');
+    $creditEstimate = document.getElementById('videoCreditEstimate');
+    $referenceRemove = document.getElementById('videoReferenceRemove');
+    $uploadShell = document.querySelector('#videoCreate .video-create__upload-shell');
+    $actionCard = document.querySelector('#videoCreate .video-create__action-card');
 
     if (!$prompt || !$generateBtn) return;
 
-    const $actions = document.querySelector('#videoCreate .studio__actions');
-    if ($actions) {
-        injectQuotaEl($actions);
-        loadQuota();
-    }
+    loadQuota();
 
     renderReferencePreview('');
     renderGenerateLabel();
@@ -325,6 +368,7 @@ export function initVideoCreate() {
     $quality?.addEventListener('change', updatePricingState);
     $audio?.addEventListener('change', updatePricingState);
     $imageInput?.addEventListener('change', handleReferenceImageChange);
+    $referenceRemove?.addEventListener('click', clearReferenceImage);
     $prompt.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();

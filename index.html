@@ -295,90 +295,144 @@
                 </div>
                 <div id="videoExplore" class="video-explore reveal"></div>
                 <div id="videoPagination" class="browse-pagination" style="display:none"></div>
-                <div id="videoCreate" class="section__inner section__inner--soundlab video-create" style="display:none">
-                    <div class="studio video-create__studio">
-                        <div class="studio__grid">
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">PixVerse V6</h2>
-                                <div class="studio__controls video-create__controls">
-                                    <label class="studio__field">
-                                        <span>Prompt</span>
-                                        <textarea id="videoPrompt" maxlength="2048" placeholder="Describe the motion, scene, subject, and camera style" rows="4"></textarea>
-                                    </label>
-                                    <label class="studio__field">
-                                        <span>Negative prompt</span>
-                                        <textarea id="videoNegativePrompt" maxlength="2048" placeholder="Optional: what to avoid" rows="3"></textarea>
-                                    </label>
-                                    <label class="studio__field">
-                                        <span>Reference image</span>
-                                        <input id="videoReferenceImage" type="file" accept="image/*">
-                                        <span id="videoReferencePreview" class="video-create__reference-preview">Optional image-to-video reference</span>
-                                    </label>
-                                    <div class="video-create__options">
-                                        <label class="studio__field">
-                                            <span>Duration</span>
-                                            <select id="videoDuration" aria-label="Video duration">
-                                                <option value="1">1 second</option>
-                                                <option value="2">2 seconds</option>
-                                                <option value="3">3 seconds</option>
-                                                <option value="4">4 seconds</option>
-                                                <option value="5" selected>5 seconds</option>
-                                                <option value="6">6 seconds</option>
-                                                <option value="7">7 seconds</option>
-                                                <option value="8">8 seconds</option>
-                                                <option value="9">9 seconds</option>
-                                                <option value="10">10 seconds</option>
-                                                <option value="11">11 seconds</option>
-                                                <option value="12">12 seconds</option>
-                                                <option value="13">13 seconds</option>
-                                                <option value="14">14 seconds</option>
-                                                <option value="15">15 seconds</option>
-                                            </select>
-                                        </label>
-                                        <label class="studio__field">
-                                            <span>Aspect</span>
-                                            <select id="videoAspectRatio" aria-label="Video aspect ratio">
-                                                <option value="16:9" selected>16:9</option>
-                                                <option value="4:3">4:3</option>
-                                                <option value="1:1">1:1</option>
-                                                <option value="3:4">3:4</option>
-                                                <option value="9:16">9:16</option>
-                                                <option value="2:3">2:3</option>
-                                                <option value="3:2">3:2</option>
-                                                <option value="21:9">21:9</option>
-                                            </select>
-                                        </label>
-                                        <label class="studio__field">
-                                            <span>Quality</span>
-                                            <select id="videoQuality" aria-label="Video quality">
-                                                <option value="360p">360p</option>
-                                                <option value="540p">540p</option>
-                                                <option value="720p" selected>720p</option>
-                                                <option value="1080p">1080p</option>
-                                            </select>
-                                        </label>
-                                        <label class="studio__field">
-                                            <span>Seed</span>
-                                            <input id="videoSeed" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="Optional">
-                                        </label>
+                <div id="videoCreate" class="video-create" style="display:none">
+                    <div class="video-create__shell">
+                        <section class="video-create__panel video-create__panel--controls reveal" aria-labelledby="videoCreateTitle">
+                            <div class="video-create__panel-head">
+                                <div>
+                                    <p class="video-create__eyebrow">Video Create</p>
+                                    <h2 id="videoCreateTitle" class="video-create__title">PixVerse V6</h2>
+                                </div>
+                                <span class="video-create__badge">Text &amp; image to video</span>
+                            </div>
+
+                            <div class="video-create__group video-create__group--prompt">
+                                <label for="videoPrompt" class="video-create__label">Describe your video</label>
+                                <textarea id="videoPrompt" class="video-create__textarea video-create__textarea--prompt" maxlength="2048" placeholder="A cinematic neon city street at night, slow camera push-in, rain reflections, dramatic lighting..." rows="6"></textarea>
+                                <p class="video-create__help">Describe the scene, motion, subject, light, and camera feel.</p>
+                            </div>
+
+                            <div class="video-create__group">
+                                <div class="video-create__group-head">
+                                    <h3 class="video-create__group-title">Creative controls</h3>
+                                    <span class="video-create__optional">Optional</span>
+                                </div>
+                                <div class="video-create__creative-grid">
+                                    <div class="video-create__field">
+                                        <label for="videoNegativePrompt" class="video-create__label">Negative prompt</label>
+                                        <textarea id="videoNegativePrompt" class="video-create__textarea" maxlength="2048" placeholder="Optional: blur, distorted faces, low quality..." rows="3"></textarea>
                                     </div>
-                                    <label class="sound-create__toggle video-create__audio-toggle">
+                                    <div class="video-create__field">
+                                        <label class="video-create__label" for="videoReferenceImage">Reference image</label>
+                                        <div class="video-create__upload-shell">
+                                            <input id="videoReferenceImage" class="video-create__file-input" type="file" accept="image/*">
+                                            <label for="videoReferenceImage" class="video-create__upload">
+                                                <span class="video-create__upload-icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/><path d="M4 19h16"/></svg>
+                                                </span>
+                                                <span class="video-create__upload-copy">
+                                                    <strong>Add reference image</strong>
+                                                    <span id="videoReferencePreview" class="video-create__reference-preview">Optional image-to-video reference</span>
+                                                </span>
+                                            </label>
+                                            <button id="videoReferenceRemove" class="video-create__upload-remove" type="button" hidden>Remove</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="video-create__group">
+                                <h3 class="video-create__group-title">Video settings</h3>
+                                <div class="video-create__settings-grid">
+                                    <label class="video-create__field">
+                                        <span class="video-create__label">Duration</span>
+                                        <select id="videoDuration" class="video-create__select" aria-label="Video duration">
+                                            <option value="1">1 second</option>
+                                            <option value="2">2 seconds</option>
+                                            <option value="3">3 seconds</option>
+                                            <option value="4">4 seconds</option>
+                                            <option value="5" selected>5 seconds</option>
+                                            <option value="6">6 seconds</option>
+                                            <option value="7">7 seconds</option>
+                                            <option value="8">8 seconds</option>
+                                            <option value="9">9 seconds</option>
+                                            <option value="10">10 seconds</option>
+                                            <option value="11">11 seconds</option>
+                                            <option value="12">12 seconds</option>
+                                            <option value="13">13 seconds</option>
+                                            <option value="14">14 seconds</option>
+                                            <option value="15">15 seconds</option>
+                                        </select>
+                                    </label>
+                                    <label class="video-create__field">
+                                        <span class="video-create__label">Aspect</span>
+                                        <select id="videoAspectRatio" class="video-create__select" aria-label="Video aspect ratio">
+                                            <option value="16:9" selected>16:9</option>
+                                            <option value="4:3">4:3</option>
+                                            <option value="1:1">1:1</option>
+                                            <option value="3:4">3:4</option>
+                                            <option value="9:16">9:16</option>
+                                            <option value="2:3">2:3</option>
+                                            <option value="3:2">3:2</option>
+                                            <option value="21:9">21:9</option>
+                                        </select>
+                                    </label>
+                                    <label class="video-create__field">
+                                        <span class="video-create__label">Quality</span>
+                                        <select id="videoQuality" class="video-create__select" aria-label="Video quality">
+                                            <option value="360p">360p</option>
+                                            <option value="540p">540p</option>
+                                            <option value="720p" selected>720p</option>
+                                            <option value="1080p">1080p</option>
+                                        </select>
+                                    </label>
+                                    <label class="video-create__toggle">
                                         <input id="videoGenerateAudio" type="checkbox" checked>
-                                        <span>Generate audio</span>
+                                        <span class="video-create__toggle-ui" aria-hidden="true"></span>
+                                        <span class="video-create__toggle-copy">
+                                            <strong>Audio</strong>
+                                            <span>Generate sound with the clip</span>
+                                        </span>
                                     </label>
-                                    <div class="studio__actions">
-                                        <button id="videoGenerate" type="button" class="studio__btn studio__btn--primary">Generate Video · 185 credits</button>
-                                    </div>
-                                    <div id="videoMsg" class="studio__msg" aria-live="polite"></div>
+                                </div>
+                                <details class="video-create__advanced">
+                                    <summary>Advanced seed</summary>
+                                    <label class="video-create__field">
+                                        <span class="video-create__label">Seed</span>
+                                        <input id="videoSeed" class="video-create__input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="Optional">
+                                    </label>
+                                </details>
+                            </div>
+
+                            <div class="video-create__action-card" aria-live="polite">
+                                <div class="video-create__cost">
+                                    <span>Estimated cost</span>
+                                    <strong id="videoCreditEstimate">185 credits</strong>
+                                </div>
+                                <div id="videoCreditBalance" class="video-create__balance">Checking balance...</div>
+                                <button id="videoGenerate" type="button" class="video-create__generate">Generate Video</button>
+                            </div>
+                            <div id="videoMsg" class="studio__msg video-create__msg" aria-live="polite"></div>
+                        </section>
+
+                        <section class="video-create__panel video-create__panel--preview reveal" aria-labelledby="videoPreviewTitle">
+                            <div class="video-create__panel-head">
+                                <div>
+                                    <p class="video-create__eyebrow">Result</p>
+                                    <h2 id="videoPreviewTitle" class="video-create__title">Preview</h2>
+                                </div>
+                                <span class="video-create__preview-note">Private until published</span>
+                            </div>
+                            <div id="videoPreview" class="video-create__preview">
+                                <div class="video-create__empty">
+                                    <span class="video-create__empty-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10.5 20 7v10l-5-3.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M7 9h4"/><path d="M7 13h2"/></svg>
+                                    </span>
+                                    <strong>Your generated video will appear here.</strong>
+                                    <span>PixVerse clips save into Studio so you can review and publish them later.</span>
                                 </div>
                             </div>
-                            <div class="studio__card reveal">
-                                <h2 class="studio__card-title">Preview</h2>
-                                <div id="videoPreview" class="studio__preview video-create__preview">
-                                    <div class="studio__preview-empty">Your generated video will appear here</div>
-                                </div>
-                            </div>
-                        </div>
+                        </section>
                     </div>
                 </div>
             </div>

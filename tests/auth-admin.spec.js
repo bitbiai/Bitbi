@@ -1883,6 +1883,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
   const imageRequests = options.imageRequests || [];
   const saveImageRequests = options.saveImageRequests || [];
   const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
+  const creditBalance = typeof options.creditBalance === 'number' ? options.creditBalance : 10;
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -1918,7 +1919,7 @@ async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
         ok: true,
         data: {
           isAdmin: false,
-          creditBalance: 10,
+          creditBalance,
           dailyCreditAllowance: 10,
         },
       }),
@@ -4109,7 +4110,7 @@ test.describe('Image Studio (authenticated)', () => {
 
   test('homepage Video Create exposes PixVerse V6 with dynamic credit estimates', async ({ page }) => {
     const videoRequests = [];
-    await mockAuthenticatedImageStudio(page, []);
+    await mockAuthenticatedImageStudio(page, [], { creditBalance: 1200 });
     await page.route('**/api/ai/generate-video', async (route) => {
       const body = route.request().postDataJSON();
       videoRequests.push({
@@ -4159,15 +4160,45 @@ test.describe('Image Studio (authenticated)', () => {
     await createButton.click();
     await expect(page.locator('#videoCreate')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#videoExplore')).toBeHidden();
-    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 185 credits');
+    await expect(page.locator('#videoCreateTitle')).toHaveText('PixVerse V6');
+    await expect(page.locator('#videoCreditEstimate')).toHaveText('185 credits');
+    await expect(page.locator('#videoCreditBalance')).toContainText('1200 credits available');
+    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video');
+    await expect(page.locator('#videoReferenceImage')).toHaveCount(1);
+    await expect(page.locator('.video-create__upload')).toBeVisible();
+    const referenceInputChrome = await page.locator('#videoReferenceImage').evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      return {
+        clipPath: style.clipPath,
+        width: style.width,
+        height: style.height,
+        position: style.position,
+      };
+    });
+    expect(referenceInputChrome).toEqual(expect.objectContaining({
+      clipPath: 'inset(50%)',
+      width: '1px',
+      height: '1px',
+      position: 'absolute',
+    }));
+    await expect(page.locator('#videoPreview .video-create__empty')).toContainText('Your generated video will appear here.');
 
     await page.locator('#videoDuration').selectOption('10');
-    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 370 credits');
+    await expect(page.locator('#videoCreditEstimate')).toHaveText('370 credits');
     await page.locator('#videoQuality').selectOption('1080p');
-    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 708 credits');
+    await expect(page.locator('#videoCreditEstimate')).toHaveText('708 credits');
     await page.locator('#videoGenerateAudio').uncheck();
-    await expect(page.locator('#videoGenerate')).toHaveText('Generate Video · 555 credits');
+    await expect(page.locator('#videoCreditEstimate')).toHaveText('555 credits');
     await expect(page.locator('#videoGenerate')).toHaveAttribute('aria-label', 'Generate PixVerse V6 video for 555 credits');
+    await expect(page.locator('.video-create__select').first()).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#videoCreate')).toBeVisible();
+    const mobileLayout = await page.locator('#videoCreate .video-create__panel').evaluateAll((nodes) => nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width, viewportWidth: window.innerWidth };
+    }));
+    expect(mobileLayout.every((rect) => rect.left >= 0 && rect.right <= rect.viewportWidth + 1 && rect.width > 0)).toBe(true);
 
     await page.locator('#videoPrompt').fill('A dramatic product reveal in a luminous glass studio.');
     await page.locator('#videoGenerate').click();
