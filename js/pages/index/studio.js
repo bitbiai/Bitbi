@@ -1,6 +1,6 @@
 /* ============================================================
-   BITBI — Gallery Studio: inline AI image generation
-   Embedded version of Image Studio for the gallery section.
+   BITBI — Gallery Create: inline AI image generation
+   Homepage creator for the gallery section.
    Lazy-initialized when the user first activates Create mode.
    ============================================================ */
 
@@ -123,7 +123,7 @@ async function loadFolders() {
         const result = await apiAiGetFolders();
         folders = result.folders;
     } catch (e) {
-        console.warn('Studio: Failed to load folders:', e);
+        console.warn('Gallery Create: Failed to load folders:', e);
         folders = [];
     }
     populateFolderOptions($folderSelect);
@@ -256,7 +256,7 @@ async function handleSave() {
         return;
     }
 
-    $genMsg.innerHTML = 'Image saved. <a href="/account/image-studio.html" class="studio__save-link">Open in Image Studio</a>';
+    $genMsg.innerHTML = 'Image saved. <a href="/account/assets-manager.html" class="studio__save-link">Open in Assets Manager</a>';
     $genMsg.className = 'studio__msg studio__msg--success';
     $saveBar.classList.remove('visible');
     currentImageData = null;

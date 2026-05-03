@@ -1,7 +1,7 @@
 /* ============================================================
-   BITBI — Image Studio Page Styles
-   @layer pages — AI image generation UI
-   Used by: account/image-studio.html
+   BITBI — Assets Manager and Shared Saved Asset Styles
+   @layer pages — asset folders, saved media, and homepage creator utilities
+   Used by: account/assets-manager.html and shared saved asset surfaces
    ============================================================ */
 
 @layer pages {
@@ -10,6 +10,131 @@
     .studio {
         max-inline-size: 960px;
         margin-inline: auto;
+    }
+
+    .assets-manager-shell {
+        max-inline-size: min(1180px, calc(100vw - 2rem));
+    }
+
+    .assets-manager {
+        display: grid;
+        gap: var(--space-6);
+    }
+
+    .assets-manager__dashboard {
+        position: relative;
+        overflow: hidden;
+        padding: clamp(1.25rem, 2.4vw, 2rem);
+        border-color: rgba(0, 240, 255, 0.14);
+        background:
+            linear-gradient(145deg, rgba(13, 27, 42, 0.94), rgba(5, 10, 18, 0.9)),
+            radial-gradient(circle at 12% 0%, rgba(0, 240, 255, 0.13), transparent 30%),
+            radial-gradient(circle at 86% 10%, rgba(255, 179, 0, 0.11), transparent 34%);
+        box-shadow: 0 26px 80px rgba(0, 0, 0, 0.32);
+    }
+
+    .assets-manager__dashboard::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        border-radius: inherit;
+        background: linear-gradient(135deg, rgba(0, 240, 255, 0.08), transparent 34%, rgba(255, 179, 0, 0.06));
+        opacity: 0.72;
+    }
+
+    .assets-manager__dashboard > * {
+        position: relative;
+        z-index: 1;
+    }
+
+    .assets-manager__intro {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-5);
+        padding-block-end: var(--space-5);
+        margin-block-end: var(--space-5);
+        border-block-end: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .assets-manager__eyebrow {
+        margin: 0 0 var(--space-2);
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(0, 240, 255, 0.72);
+    }
+
+    .assets-manager__title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(1.55rem, 3vw, 2.35rem);
+        line-height: 1.05;
+        color: rgba(255, 255, 255, 0.94);
+    }
+
+    .assets-manager__copy {
+        max-inline-size: 48rem;
+        margin: var(--space-3) 0 0;
+        color: rgba(255, 255, 255, 0.62);
+        line-height: 1.65;
+    }
+
+    .assets-manager__status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        min-block-size: 2.5rem;
+        padding: 0.7rem 1rem;
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        border-radius: 999px;
+        background: rgba(0, 240, 255, 0.07);
+        color: rgba(0, 240, 255, 0.86);
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .assets-manager__toolbar {
+        padding: var(--space-4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .assets-manager .studio__folder-grid,
+    .assets-manager .studio__image-grid {
+        margin-block-start: var(--space-5);
+    }
+
+    .assets-manager .studio__folder-bar {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    @media (max-width: 720px) {
+        .assets-manager-shell {
+            max-inline-size: min(100%, calc(100vw - 1rem));
+        }
+
+        .assets-manager__intro {
+            flex-direction: column;
+            gap: var(--space-4);
+        }
+
+        .assets-manager__status-pill {
+            inline-size: 100%;
+        }
+
+        .assets-manager__toolbar {
+            padding: var(--space-3);
+        }
     }
 
     .studio__grid {

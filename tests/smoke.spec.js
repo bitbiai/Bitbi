@@ -8,7 +8,7 @@ const MODELS_OVERLAY_PATHS = [
   '/legal/imprint.html',
   '/legal/datenschutz.html',
   '/account/profile.html',
-  '/account/image-studio.html',
+  '/account/assets-manager.html',
   '/admin/index.html',
 ];
 
@@ -18,7 +18,7 @@ const STATIC_SHARED_HEADER_PATHS = [
   '/legal/datenschutz.html',
   '/admin/index.html',
   '/account/profile.html',
-  '/account/image-studio.html',
+  '/account/assets-manager.html',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
@@ -29,7 +29,7 @@ const COMPACT_HERO_PATHS = [
   '/legal/imprint.html',
   '/legal/datenschutz.html',
   '/account/profile.html',
-  '/account/image-studio.html',
+  '/account/assets-manager.html',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
@@ -42,7 +42,7 @@ const FOOTER_COPY_PATHS = [
   '/legal/datenschutz.html',
   '/admin/index.html',
   '/account/profile.html',
-  '/account/image-studio.html',
+  '/account/assets-manager.html',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
@@ -2931,6 +2931,19 @@ test.describe('Legal pages', () => {
       await expect(page.locator('.hero.hero--compact .legal-hero__title')).toBeVisible();
       await expect(page.locator('.hero.hero--compact .legal-hero__desc')).toBeVisible();
       await expect(page.locator('.hero.hero--compact .legal-hero__label, #profileHeroLabel')).toHaveCount(0);
+      await expect(page.locator('.hero.hero--compact .hero__content p')).toHaveCount(1);
+      const compactHeroMetrics = await page.locator('.hero.hero--compact').evaluate((hero) => {
+        const heroStyle = window.getComputedStyle(hero);
+        const title = hero.querySelector('.legal-hero__title');
+        const titleStyle = title ? window.getComputedStyle(title) : null;
+        return {
+          paddingTop: parseFloat(heroStyle.paddingTop),
+          paddingBottom: parseFloat(heroStyle.paddingBottom),
+          titleFontSize: titleStyle ? parseFloat(titleStyle.fontSize) : 0,
+        };
+      });
+      expect(compactHeroMetrics.paddingTop + compactHeroMetrics.paddingBottom).toBeLessThanOrEqual(112);
+      expect(compactHeroMetrics.titleFontSize).toBeLessThanOrEqual(50);
     }
   });
 });

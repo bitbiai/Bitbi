@@ -1116,7 +1116,7 @@ function loadAccess() {
     const rolesEl = document.getElementById('accessRoles');
     if (rolesEl) {
         let html = '<div class="admin-inventory">';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">User</span><span class="admin-inventory__meta">Profile, favorites, Image Studio, view content</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">User</span><span class="admin-inventory__meta">Profile, favorites, Assets Manager, view content</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Admin</span><span class="admin-inventory__meta">All user permissions + user management, audit log</span></div>';
         html += '</div>';
         rolesEl.innerHTML = html;
@@ -1129,7 +1129,7 @@ function loadAccess() {
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Sound Lab Memtracks</span><span class="badge badge--active">Public when published</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Experiments (4)</span><span class="badge badge--active">Public</span></div>';
         html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Video Exclusives</span><span class="badge badge--admin">Auth</span></div>';
-        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Image Studio</span><span class="badge badge--admin">Auth</span></div>';
+        html += '<div class="admin-inventory__row"><span class="admin-inventory__name">Assets Manager</span><span class="badge badge--admin">Auth</span></div>';
         html += '</div>';
         mapEl.innerHTML = html;
     }

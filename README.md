@@ -12,7 +12,7 @@ BITBI is a static creative portfolio and digital playground that brings together
 
 - **AI Creations Gallery** — curated generative visuals and creative imagery
 - **Sound Lab** — ambient textures, sonic sketches, and audio compositions
-- **Image Studio** — AI image generation with folder management
+- **Assets Manager** — saved media and folder management
 - **Contact flow** — privacy-aware contact form setup
 - **Account-related pages** — profile, password reset, email verification, and admin-related flows
 
@@ -47,7 +47,7 @@ BITBI is intentionally lightweight and direct:
 ├── docs/                # Supporting documentation
 ├── fonts/               # Self-hosted fonts
 ├── js/                  # Frontend JavaScript
-├── account/             # Auth flow pages (profile, image-studio, forgot-password, reset-password, verify-email)
+├── account/             # Auth flow pages (profile, assets-manager, forgot-password, reset-password, verify-email)
 ├── admin/               # Admin dashboard
 ├── legal/               # Legal pages (privacy, imprint, datenschutz)
 ├── workers/             # Cloudflare Workers (auth, ai, contact)

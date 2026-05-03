@@ -34,7 +34,7 @@ export function buildTextSaveIntent({
         type: 'text',
         sourceModule: 'text',
         modalTitle: 'Save Text Result',
-        description: 'Save the current text run as a UTF-8 .txt file in your existing Image Studio folder structure.',
+        description: 'Save the current text run as a UTF-8 .txt file in your existing Assets Manager folder structure.',
         confirmLabel: 'Save Text',
         defaultTitle: buildSaveTitle(prompt, 'AI Lab Text'),
         note: 'The auth worker serializes the final .txt server-side and stores it beside your images.',
@@ -64,7 +64,7 @@ export function buildImageSaveIntent({
     return {
         type: 'image',
         modalTitle: 'Save Image',
-        description: 'Save the current image with the same folder logic and backend path used by the existing Image Studio.',
+        description: 'Save the current image with the same folder logic and backend path used by the existing Assets Manager.',
         confirmLabel: 'Save Image',
         defaultTitle: buildSaveTitle(prompt, 'AI Lab Image'),
         note: 'The existing image save endpoint generates the final filename automatically. Only the folder selection is required here.',

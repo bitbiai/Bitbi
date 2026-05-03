@@ -63,14 +63,14 @@ This document proposes four targeted tasks discovered during a quick repo walkth
 ## 4) Test improvement task (add regression test for thrown generate/save errors)
 
 **Issue observed**
-- Existing `Image Studio (authenticated)` Playwright coverage validates successful generation paths and model restrictions.
+- Existing homepage Gallery Create Playwright coverage validates successful generation paths and model restrictions.
 - There is no explicit UI regression test that simulates a thrown fetch/request error and verifies the buttons recover.
 
 **Evidence**
-- `tests/auth-admin.spec.js`: `Image Studio (authenticated)` suite starts at line 1868; generation happy-path checks around lines 1889-1892 and 1921-1923.
+- `tests/auth-admin.spec.js`: homepage Gallery Create checks cover the generation happy path and model restrictions.
 
 **Proposed task**
-- Add one test in `tests/auth-admin.spec.js` that forces `/api/ai/generate-image` (and optionally save endpoint) to fail via route abort/throw.
+- Add one homepage Gallery Create test in `tests/auth-admin.spec.js` that forces `/api/ai/generate-image` (and optionally save endpoint) to fail via route abort/throw.
 - Assert:
   - Button text resets from "Generating…" / "Saving…".
   - Button becomes enabled again.

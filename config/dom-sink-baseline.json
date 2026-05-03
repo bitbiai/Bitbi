@@ -8,9 +8,6 @@
     "js/pages/admin/main.js": {
       "innerHTML": 12
     },
-    "js/pages/image-studio/main.js": {
-      "innerHTML": 6
-    },
     "js/pages/index/gallery.js": {
       "innerHTML": 2
     },

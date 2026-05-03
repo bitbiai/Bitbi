@@ -1337,16 +1337,16 @@
 
     .hero--compact {
         min-block-size: auto;
-        padding-block: calc(4.5rem + env(safe-area-inset-top, 0px)) 2.25rem;
+        padding-block: calc(3.4rem + env(safe-area-inset-top, 0px)) 1.35rem;
         overflow: hidden;
     }
 
     .hero--compact + .section-divider + .section {
-        padding-block-start: 1.5rem;
+        padding-block-start: 0.9rem;
     }
 
     @media (min-width: 1024px) {
-        .hero--compact { padding-block: calc(6rem + env(safe-area-inset-top, 0px)) 3rem; }
+        .hero--compact { padding-block: calc(4.85rem + env(safe-area-inset-top, 0px)) 1.8rem; }
     }
 
     .hero__gradient-overlay {
@@ -1610,25 +1610,25 @@
     .legal-hero__title {
         font-family: var(--font-display);
         font-weight: 900;
-        font-size: 2.25rem;
+        font-size: 1.8rem;
         margin-block-start: 0;
-        margin-block-end: var(--space-3);
+        margin-block-end: var(--space-2);
     }
 
     @media (min-width: 640px) {
-        .legal-hero__title { font-size: 3rem; }
+        .legal-hero__title { font-size: 2.4rem; }
     }
 
     @media (min-width: 1024px) {
-        .legal-hero__title { font-size: 3.75rem; }
+        .legal-hero__title { font-size: 3rem; }
     }
 
     .legal-hero__desc {
         color: rgba(255, 255, 255, 0.35);
-        font-size: 0.875rem;
+        font-size: 0.8rem;
         max-inline-size: 28rem;
         margin-inline: auto;
-        line-height: 1.625;
+        line-height: 1.5;
     }
 
     /* ── Grids ── */

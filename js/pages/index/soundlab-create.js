@@ -260,8 +260,8 @@ function renderResult(data) {
     if (data?.asset?.id) {
         const link = document.createElement('a');
         link.className = 'studio__save-link';
-        link.href = '/account/image-studio.html';
-        link.textContent = 'Open in Studio';
+        link.href = '/account/assets-manager.html';
+        link.textContent = 'Open in Assets Manager';
         result.append(link);
     }
 

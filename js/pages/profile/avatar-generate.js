@@ -3,7 +3,7 @@
    Hardcoded settings (FLUX.1 Schnell, 4 steps, 1024×1024) are
    enforced here, not exposed to the user. Reuses the existing
    /api/ai/generate-image endpoint so member credit charging
-   stays aligned with Image Studio. The Use button re-encodes the already
+   stays aligned with Assets Manager. The Use button re-encodes the already
    generated PNG client-side and calls /api/profile/avatar via
    the existing FormData upload route — no second generation.
    ============================================================ */

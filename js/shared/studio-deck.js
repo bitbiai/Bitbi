@@ -1,5 +1,5 @@
 /* ============================================================
-   BITBI — Studio Saved-Images deck + modal
+   BITBI — Saved Assets deck + modal
    Reuses the gallery's proven mobile-deck layout, touch-swipe
    handling, dot navigation, and modal/lightbox pattern.
    ============================================================ */

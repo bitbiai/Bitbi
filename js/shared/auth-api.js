@@ -397,7 +397,7 @@ export function apiRequestReverification() {
     return request('POST', '/request-reverification');
 }
 
-/* ── Image Studio ── */
+/* ── Assets Manager ── */
 
 export async function apiAiGetQuota() {
     const res = await request('GET', '/ai/quota');

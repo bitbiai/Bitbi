@@ -1869,7 +1869,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   });
 }
 
-async function mockAuthenticatedImageStudio(page, requests = [], options = {}) {
+async function mockAuthenticatedAssetsManager(page, requests = [], options = {}) {
   const folderPayload = options.folderPayload || {
     folders: [],
     counts: {},
@@ -2879,8 +2879,8 @@ test.describe('Account pages (unauthenticated)', () => {
     await expect(page.locator('#profileContent')).not.toBeVisible();
   });
 
-  test('image studio page shows denied state without auth', async ({ page }) => {
-    const response = await page.goto('/account/image-studio.html');
+  test('assets manager page shows denied state without auth', async ({ page }) => {
+    const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     // JS calls /api/me → 404 on local server → shows denied state
     await expect(page.locator('#deniedState')).toBeVisible({
@@ -3891,47 +3891,38 @@ test.describe('Homepage public browse pagination', () => {
   });
 });
 
-test.describe('Image Studio (authenticated)', () => {
+test.describe('Assets Manager (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
   });
 
-  test('account Image Studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
+  test('account Assets Manager focuses on saved assets and does not expose image generation controls', async ({
     page,
   }) => {
     const requests = [];
-    await mockAuthenticatedImageStudio(page, requests);
+    await mockAuthenticatedAssetsManager(page, requests);
 
-    const response = await page.goto('/account/image-studio.html');
+    const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('#studioModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
-    await expect(page.locator('#studioModel option')).toHaveCount(1);
-    await expect(page.locator('#studioModel')).toContainText('FLUX.1 Schnell');
-    await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Klein 9B');
-    await expect(page.locator('#studioModel')).not.toContainText('FLUX.2 Dev');
-    await expect(page.locator('.studio__quota')).toContainText('10 credits available');
-    await expect(page.locator('.studio__quota')).not.toContainText('generations');
-
-    await page.locator('#studioPrompt').fill('legacy model request');
-    await page.locator('#studioGenerate').click();
-    await expect(page.locator('#studioPreview img')).toBeVisible();
-    await expect(page.locator('.studio__quota')).toContainText('9 credits available');
-
-    expect(requests).toEqual([
-      expect.objectContaining({
-        prompt: 'legacy model request',
-        model: '@cf/black-forest-labs/flux-1-schnell',
-      }),
-    ]);
+    await expect(page.locator('.legal-hero__title')).toHaveText('Assets Manager');
+    await expect(page.locator('#studioSavedAssetsCard')).toBeVisible();
+    await expect(page.locator('#studioFolderGrid')).toBeVisible();
+    await expect(page.locator('#studioImageGrid')).toHaveCount(1);
+    await expect(page.locator('#studioPrompt')).toHaveCount(0);
+    await expect(page.locator('#studioModel')).toHaveCount(0);
+    await expect(page.locator('#studioGenerate')).toHaveCount(0);
+    await expect(page.locator('#studioPreview')).toHaveCount(0);
+    await expect(page.locator('#studioSaveBar')).toHaveCount(0);
+    expect(requests).toEqual([]);
   });
 
   test('homepage create studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
     page,
   }) => {
     const requests = [];
-    await mockAuthenticatedImageStudio(page, requests);
+    await mockAuthenticatedAssetsManager(page, requests);
 
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
@@ -3984,7 +3975,7 @@ test.describe('Image Studio (authenticated)', () => {
       unfoldered: [],
       folders: {},
     });
-    await mockAuthenticatedImageStudio(page, [], { assetStore });
+    await mockAuthenticatedAssetsManager(page, [], { assetStore });
     await page.route('**/api/ai/generate-music', async (route) => {
       const body = route.request().postDataJSON();
       musicRequests.push({
@@ -4137,7 +4128,7 @@ test.describe('Image Studio (authenticated)', () => {
 
   test('homepage Video Create exposes PixVerse V6 with dynamic credit estimates', async ({ page }) => {
     const videoRequests = [];
-    await mockAuthenticatedImageStudio(page, [], { creditBalance: 1200 });
+    await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
     await page.route('**/api/ai/generate-video', async (route) => {
       const body = route.request().postDataJSON();
       videoRequests.push({
@@ -4250,7 +4241,7 @@ test.describe('Image Studio (authenticated)', () => {
     page,
   }) => {
     const requests = [];
-    await mockAuthenticatedImageStudio(page, requests);
+    await mockAuthenticatedAssetsManager(page, requests);
 
     await page.unroute('**/api/ai/generate-image');
     await page.route('**/api/ai/generate-image', async (route) => {
@@ -4307,40 +4298,12 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioGenMsg')).toContainText(/network error|request cancelled|save failed/i);
   });
 
-  test('account Image Studio saves fresh generations by reference instead of re-uploading the full image', async ({
-    page,
-  }) => {
-    const requests = [];
-    const saveImageRequests = [];
-    await mockAuthenticatedImageStudio(page, requests, {
-      saveImageRequests,
-      generateSaveReference: 'member-save-reference',
-    });
-
-    await page.goto('/account/image-studio.html');
-    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
-
-    await page.locator('#studioPrompt').fill('Reference-backed save');
-    await page.locator('#studioGenerate').click();
-    await expect(page.locator('#studioPreview img')).toBeVisible();
-    await page.locator('#studioSaveBtn').click();
-
-    expect(saveImageRequests).toHaveLength(1);
-    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
-      save_reference: 'member-save-reference',
-      prompt: 'Reference-backed save',
-      model: '@cf/black-forest-labs/flux-1-schnell',
-    }));
-    expect(saveImageRequests[0].imageData).toBeUndefined();
-    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
-  });
-
   test('homepage create studio saves fresh generations by reference instead of re-uploading the full image', async ({
     page,
   }) => {
     const requests = [];
     const saveImageRequests = [];
-    await mockAuthenticatedImageStudio(page, requests, {
+    await mockAuthenticatedAssetsManager(page, requests, {
       saveImageRequests,
       generateSaveReference: 'homepage-save-reference',
     });
@@ -4367,55 +4330,19 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#galStudioGenMsg')).toContainText('Image saved.');
   });
 
-  test('account Image Studio falls back to the legacy upload path when a save reference expires', async ({
+  test('legacy account manager path redirects to the Assets Manager without old branding', async ({
     page,
   }) => {
-    const saveImageRequests = [];
-    await mockAuthenticatedImageStudio(page, [], {
-      saveImageRequests,
-      generateSaveReference: 'expiring-save-reference',
-      saveImageHandler: async (route, body) => {
-        if (body.save_reference) {
-          await route.fulfill({
-            status: 410,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ok: false,
-              code: 'SAVE_REFERENCE_EXPIRED',
-              error: 'Generated image reference expired. Please generate the image again.',
-            }),
-          });
-          return true;
-        }
-        return false;
-      },
-    });
+    await mockAuthenticatedAssetsManager(page, []);
 
-    await page.goto('/account/image-studio.html');
-    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
-
-    await page.locator('#studioPrompt').fill('Fallback upload save');
-    await page.locator('#studioGenerate').click();
-    await expect(page.locator('#studioPreview img')).toBeVisible();
-    await page.locator('#studioSaveBtn').click();
-    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
-
-    expect(saveImageRequests).toHaveLength(2);
-    expect(saveImageRequests[0]).toEqual(expect.objectContaining({
-      save_reference: 'expiring-save-reference',
-      prompt: 'Fallback upload save',
-    }));
-    expect(saveImageRequests[0].imageData).toBeUndefined();
-    expect(saveImageRequests[1]).toEqual(expect.objectContaining({
-      prompt: 'Fallback upload save',
-      model: '@cf/black-forest-labs/flux-1-schnell',
-    }));
-    expect(saveImageRequests[1].save_reference).toBeUndefined();
-    expect(saveImageRequests[1].imageData).toMatch(/^data:image\/png;base64,/);
-    await expect(page.locator('#studioGenMsg')).toContainText('Image saved.');
+    const response = await page.goto('/account/image-studio.html');
+    expect(response.status()).toBe(200);
+    await expect(page).toHaveURL(/\/account\/assets-manager(?:\.html)?/);
+    await expect(page.locator('.legal-hero__title')).toHaveText('Assets Manager');
+    await expect(page.locator('body')).not.toContainText('Image Studio');
   });
 
-  test('account Image Studio shows mixed saved assets inside the shared folder world', async ({
+  test('account Assets Manager shows mixed saved assets inside the shared folder world', async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -4426,7 +4353,7 @@ test.describe('Image Studio (authenticated)', () => {
       };
     });
 
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [
           { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
@@ -4555,7 +4482,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
 
@@ -4601,7 +4528,7 @@ test.describe('Image Studio (authenticated)', () => {
     await page.locator('#studioImageModal .modal-close').click();
   });
 
-  test('account Image Studio exposes load more for saved assets and appends the next page', async ({
+  test('account Assets Manager exposes load more for saved assets and appends the next page', async ({
     page,
   }) => {
     const manyAssets = Array.from({ length: 61 }, (_, index) => ({
@@ -4621,13 +4548,13 @@ test.describe('Image Studio (authenticated)', () => {
       medium_url: `/api/ai/images/img-page-${index + 1}/medium`,
     }));
 
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       assetsPayload: {
         all: manyAssets,
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
@@ -4641,10 +4568,10 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('.studio__pagination-btn')).toBeHidden();
   });
 
-  test('account Image Studio keeps saved-assets type badges compact on desktop and mobile', async ({
+  test('account Assets Manager keeps saved-assets type badges compact on desktop and mobile', async ({
     page,
   }) => {
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [
           { id: 'folder-badges', name: 'Badge Lab', slug: 'badge-lab', created_at: '2026-04-10T09:00:00.000Z' },
@@ -4793,7 +4720,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(5);
@@ -4832,7 +4759,7 @@ test.describe('Image Studio (authenticated)', () => {
     }
   });
 
-  test('account Image Studio keeps mobile file cards solid and limits sound playback animation to the active card', async ({
+  test('account Assets Manager keeps mobile file cards solid and limits sound playback animation to the active card', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -4843,7 +4770,7 @@ test.describe('Image Studio (authenticated)', () => {
         return null;
       };
     });
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [
           { id: 'folder-mobile-cards', name: 'Mobile Cards', slug: 'mobile-cards', created_at: '2026-04-10T09:00:00.000Z' },
@@ -4968,7 +4895,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
@@ -5064,10 +4991,10 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
   });
 
-  test('account Image Studio lets the owner publish and unpublish a saved image into Mempics', async ({
+  test('account Assets Manager lets the owner publish and unpublish a saved image into Mempics', async ({
     page,
   }) => {
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [],
         counts: {},
@@ -5102,7 +5029,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
@@ -5125,7 +5052,7 @@ test.describe('Image Studio (authenticated)', () => {
   test('Saved Assets lets the owner publish and unpublish a saved music track into Memtracks', async ({
     page,
   }) => {
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [],
         counts: {},
@@ -5156,7 +5083,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
@@ -5197,10 +5124,10 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioGalleryMsg')).toContainText('Track removed from Memtracks.');
   });
 
-  test('account Image Studio moves and deletes mixed saved assets with one shared selection flow', async ({
+  test('account Assets Manager moves and deletes mixed saved assets with one shared selection flow', async ({
     page,
   }) => {
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [
           { id: 'folder-launches', name: 'Launches', slug: 'launches', created_at: '2026-04-10T09:00:00.000Z' },
@@ -5252,7 +5179,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
@@ -5284,7 +5211,7 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioImageGrid')).toContainText('Shared Poster');
   });
 
-  test('account Image Studio gates rename to exactly one selection and renames folders plus saved assets safely', async ({
+  test('account Assets Manager gates rename to exactly one selection and renames folders plus saved assets safely', async ({
     page,
   }) => {
     const folderPayload = {
@@ -5325,7 +5252,7 @@ test.describe('Image Studio (authenticated)', () => {
       ],
     };
     const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       folderPayload,
       assetsPayload,
       assetStore,
@@ -5373,7 +5300,7 @@ test.describe('Image Studio (authenticated)', () => {
       });
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioSelectBtn').click();
@@ -5412,11 +5339,11 @@ test.describe('Image Studio (authenticated)', () => {
     await expect(page.locator('#studioBulkRename')).toBeDisabled();
   });
 
-  test('account Image Studio grid requests thumbs only and uses medium/original for detail fallback', async ({
+  test('account Assets Manager grid requests thumbs only and uses medium/original for detail fallback', async ({
     page,
   }) => {
     const imageRequests = [];
-    await mockAuthenticatedImageStudio(page, [], {
+    await mockAuthenticatedAssetsManager(page, [], {
       imageRequests,
       folderPayload: {
         folders: [],
@@ -5496,7 +5423,7 @@ test.describe('Image Studio (authenticated)', () => {
       },
     });
 
-    await page.goto('/account/image-studio.html');
+    await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').nth(1).click();
@@ -6127,7 +6054,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('.auth-nav__identity-label')).toHaveText('Updated Header Name');
   });
 
-  test('non-admin profile shows Studio, Wallet, and Credits cards in the profile action stack', async ({
+  test('non-admin profile shows Assets Manager, Wallet, and Credits cards in the profile action stack', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -6138,7 +6065,7 @@ test.describe('Profile page (authenticated)', () => {
 
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileWalletCard')).toBeVisible();
-    await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+    await expect(page.locator('#profileStudioCard')).toContainText('Assets Manager');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
     await expect(page.locator('#profileCreditsCard')).toHaveAttribute('href', '/account/credits.html?scope=member');
@@ -6147,7 +6074,7 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('admin profile shows the same compact Studio + Wallet + Credits stack as non-admin users', async ({
+  test('admin profile shows the same compact Assets Manager + Wallet + Credits stack as non-admin users', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'admin', includeProfileAccountId: false });
@@ -6158,7 +6085,7 @@ test.describe('Profile page (authenticated)', () => {
 
     await expect(page.locator('#profileStudioCard')).toBeVisible();
     await expect(page.locator('#profileWalletCard')).toBeVisible();
-    await expect(page.locator('#profileStudioCard')).toContainText('AI Studio');
+    await expect(page.locator('#profileStudioCard')).toContainText('Assets Manager');
     await expect(page.locator('#profileWalletCard')).toContainText('Wallet');
     await expect(page.locator('#profileCreditsCard')).toBeVisible();
     await expect(page.locator('#profileCreditsCard')).toContainText('Credits');
@@ -6249,7 +6176,7 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAdminAiLabCard')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
@@ -6265,7 +6192,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     expect(hasOverflow).toBe(false);
   });
 
-  test('non-admin mobile profile keeps Wallet, Credits, and Studio in the tab bar', async ({
+  test('non-admin mobile profile keeps Wallet, Credits, and Assets Manager in the tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, { role: 'user' });
@@ -6276,12 +6203,12 @@ test.describe('Profile page (authenticated mobile)', () => {
 
     await expect(page.locator('#profileTabBar')).toBeVisible();
     await expect(page.locator('#profileWalletWorkspaceBtn')).toBeVisible();
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
     await expect(page.locator('#profileAiLabView')).toHaveCount(0);
   });
 
-  test('organization owner mobile profile keeps the compact Wallet + Credits + Studio tab bar', async ({
+  test('organization owner mobile profile keeps the compact Wallet + Credits + Assets Manager tab bar', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -6299,7 +6226,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     const response = await page.goto('/account/profile.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Studio']);
+    await expect(page.locator('#profileTabBar .profile-tab-link:visible')).toHaveText(['Wallet', 'Credits', 'Assets Manager']);
     await expect(page.locator('#profileCreditsLink')).toHaveAttribute('href', '/account/credits.html?scope=member');
     await expect(page.locator('#profileOrganizationLink')).toHaveCount(0);
     await expect(page.locator('#profileMobileAiLabLink')).toHaveCount(0);
@@ -6779,7 +6706,7 @@ test.describe('Admin AI Lab', () => {
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('link[href*="css/admin/admin.css?v="]')).toHaveCount(1);
-    await expect(page.locator('link[href*="css/account/image-studio.css?v="]')).toHaveCount(1);
+    await expect(page.locator('link[href*="css/account/assets-manager.css?v="]')).toHaveCount(1);
     await expect(page.locator('script[src*="js/pages/admin/main.js?v="]')).toHaveCount(1);
     await expect(page.locator('#adminHeroTitle')).toHaveText('AI Lab');
     await expect(page.locator('#sectionAiLab')).toBeVisible();

@@ -155,7 +155,7 @@ Current public Sound Lab content loads from `/api/gallery/memtracks` and serves 
 ### Pages
 - `index.html` — Main landing page (particle effects, gallery, soundlab, auth-gated sections)
 - `account/profile.html` — User profile page (avatar upload, account settings, requires auth)
-- `account/image-studio.html` — AI image generation studio (prompt-to-image, folder management, requires auth)
+- `account/assets-manager.html` — saved media and folder management (requires auth)
 - `account/wallet.html` — Ethereum wallet page (connect wallet, SIWE link/unlink, requires auth)
 - `admin/index.html` — Admin dashboard (user management, requires admin role + MFA)
 - `account/forgot-password.html`, `account/reset-password.html`, `account/verify-email.html` — Auth flow pages
@@ -165,17 +165,17 @@ Current public Sound Lab content loads from `/api/gallery/memtracks` and serves 
 
 Vanilla ES6 modules — no frameworks or bundlers.
 
-**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, image-studio, wallet, forgot-password, reset-password, verify-email each have one). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
+**Module system**: `js/shared/` for reusable modules, `js/pages/<page>/main.js` as entry point per page (index, profile, admin, assets-manager, wallet, forgot-password, reset-password, verify-email each have one). The dev server (`npm run dev`) is `npx serve` on port 3000 — plain static file serving, no hot reload.
 
 **Shared `.mjs` contract modules**: Several `.mjs` files in `js/shared/` are imported by both frontend code and Cloudflare Workers — they must remain isomorphic (no DOM, no Node-only APIs). These include `public-media-contract.mjs` (public media URL builders), `admin-ai-contract.mjs` (AI model catalog shared between admin UI and workers), `worker-observability.mjs` (structured logging / correlation IDs), and `ai-image-models.mjs` (AI image model config). Workers import them via relative paths (e.g. `../../../../js/shared/...`).
 
-**Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `studio-deck.js` (saved-images deck with touch-swipe and modal/lightbox for studio pages), `saved-assets-browser.js` (unified folder/asset browser with bulk operations used by image-studio and other studio pages), `models-overlay.js` (AI model catalog overlay panel), `soft-nav.js` (SPA-like soft navigation for legal pages — keeps audio player and auth alive across page transitions).
+**Shared modules** (`js/shared/`): Beyond auth, includes `gallery-data.js` (R2-backed gallery items with thumb/preview/full variants), `particles.js` (canvas particle effects), `binary-rain.js` (matrix-style rain), `binary-footer.js`, `scroll-reveal.js` (intersection observer animations), `focus-trap.js` (modal focus trapping), `cookie-consent.js` (GDPR banner), `make-tags.js` (DOM helpers), `format-time.js`, `navbar.js` (scroll handler + mobile toggle), `auth-nav.js` (sign-in/out button in desktop + mobile nav), `site-header.js` (injects full nav + mobile menu on subpages like profile, admin, legal), `favorites.js` (client-side favorites state + star button factory, API-backed), `studio-deck.js` (saved-assets deck with touch-swipe and modal/lightbox for manager pages), `saved-assets-browser.js` (unified folder/asset browser with bulk operations used by Assets Manager and shared saved-asset surfaces), `models-overlay.js` (AI model catalog overlay panel), `soft-nav.js` (SPA-like soft navigation for legal pages — keeps audio player and auth alive across page transitions).
 
 **Audio subsystem** (`js/shared/audio/`): Two-module global audio player — `audio-manager.js` (singleton `<audio>` element, state machine, global playback API) and `audio-ui.js` (injects persistent player shell before `<main>` on all pages). Public Sound Lab tracks are dynamic Memtracks from `/api/gallery/memtracks`; there is no bundled track catalog. The player survives soft-nav transitions. All pages import `initGlobalAudioUI()` from `audio-ui.js`.
 
 **Wallet subsystem** (`js/shared/wallet/`): Ethereum wallet connection via SIWE (Sign-In with Ethereum). Modules: `wallet-config.js` (chain IDs, storage keys), `wallet-connectors.js` (MetaMask/WalletConnect detection), `wallet-state.js` (connection state machine), `wallet-controller.js` (orchestrates connect/disconnect + SIWE link/unlink via auth API), `wallet-ui.js` (connection modal rendering), `wallet-qr.js` (WalletConnect QR display), `wallet-workspace.js` (full wallet management page), `siwe-message.js` (SIWE message construction). Uses the `viem` npm package for address validation and SIWE message parsing (the only non-dev npm dependency).
 
-**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `video-gallery.js`, `category-carousel.js`, `soundlab.js`, `contact.js`, `smooth-scroll.js`, `studio.js` (inline gallery studio — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation), and `soundlab-create.js` (inline member music generation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
+**Index page modules** (`js/pages/index/`): `main.js` orchestrates initialization order. Sub-modules: `gallery.js`, `video-gallery.js`, `category-carousel.js`, `soundlab.js`, `contact.js`, `smooth-scroll.js`, `studio.js` (Gallery Create — AI image generation embedded in the gallery section, lazy-initialized on Create mode activation), and `soundlab-create.js` (inline member music generation). Note: `navbar.js` and `auth-nav.js` here are pure re-exports from `js/shared/` — this re-export pattern keeps index imports local while the real logic lives in shared modules.
 
 **Auth client** (`js/shared/auth-api.js`, `auth-state.js`, `auth-modal.js`):
 - `auth-state.js` dispatches `CustomEvent('bitbi:auth-change')` on login/logout — this is how all other modules react to auth changes
@@ -204,14 +204,11 @@ Vanilla ES6 modules — no frameworks or bundlers.
 
 **Legacy Free/Exclusive cleanup**: Old bundled Free tracks and old Exclusive private R2 objects are not shown in Sound Lab and are not imported into Saved Assets. Manual exact-key R2 cleanup guidance lives in `docs/soundlab-free-exclusive-cleanup.md`.
 
-### Image Studio
+### Assets Manager
 
-Two entry points for AI image generation — both use the same `js/shared/ai-image-models.mjs` model config and auth-worker AI endpoints:
+The standalone page (`account/assets-manager.html`, `js/pages/assets-manager/main.js`) is the authenticated folder and saved-media manager. It does not host image generation controls; creation happens in the homepage Gallery Create area.
 
-- **Standalone page** (`account/image-studio.html`, `js/pages/image-studio/main.js`): Full-featured studio with folder management, bulk operations, saved-images deck. Requires auth, uses `css/account/image-studio.css`.
-- **Inline gallery studio** (`js/pages/index/studio.js`): Embedded in the gallery section's Create mode. Lazy-initialized on first activation to avoid loading AI dependencies upfront. Uses `apiAiGenerateImage`, `apiAiGetQuota`, `apiAiGetFolders`, `apiAiSaveImage` from `auth-api.js`.
-
-Both share `js/shared/studio-deck.js` for the saved-images lightbox/modal pattern.
+The homepage Gallery Create module (`js/pages/index/studio.js`) uses `js/shared/ai-image-models.mjs` plus `apiAiGenerateImage`, `apiAiGetQuota`, `apiAiGetFolders`, and `apiAiSaveImage` from `auth-api.js`. Assets Manager and the homepage creator both rely on `js/shared/studio-deck.js` / `js/shared/saved-assets-browser.js` for saved-media browsing and lightbox behavior.
 
 ### Favorites
 
@@ -223,7 +220,7 @@ Both share `js/shared/studio-deck.js` for the saved-images lightbox/modal patter
 - `css/base/` — `tokens.css` (design tokens, `@property`, oklch colors), `reset.css`, `base.css` (@font-face, gradients, glass, animations), `utilities.css`
 - `css/components/` — `components.css`, `auth.css` (auth modal, locked-area overlays, auth flow page styles), `wallet.css` (wallet connection modal + wallet nav elements), `cookie-banner.css` (standalone, hardcoded values, no CSS variable dependencies — intentional so game pages don't need tokens.css)
 - `css/pages/` — `index.css` (index page styles), `legal.css` (shared legal page styles)
-- `css/account/` — `profile.css`, `image-studio.css`, `wallet.css` (wallet workspace page), `forgot-password.css`, `reset-password.css`
+- `css/account/` — `profile.css`, `assets-manager.css`, `wallet.css` (wallet workspace page), `forgot-password.css`, `reset-password.css`
 - `css/admin/` — `admin.css`
 - Color palette: `--color-midnight`, `--color-navy`, `--color-cyan`, `--color-gold`, `--color-ember`, `--color-magenta`
 - Typography: Playfair Display (display), Inter (body), JetBrains Mono (code)
