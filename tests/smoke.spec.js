@@ -1178,6 +1178,28 @@ test.describe('Homepage', () => {
     await expect(page.getByRole('button', { name: /Sign in to Generate|Generate/i })).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('1 credit');
     await expect(page.locator('.generate-lab__subtitle')).toHaveCSS('text-align', 'right');
+    const expectLabAccent = async (primary, alt) => {
+      const values = await page.locator('body').evaluate((node) => {
+        const style = window.getComputedStyle(node);
+        return {
+          primary: style.getPropertyValue('--lab-accent-rgb').trim(),
+          alt: style.getPropertyValue('--lab-accent-alt-rgb').trim(),
+        };
+      });
+      expect(values).toEqual({ primary, alt });
+    };
+    await expect(page.locator('#labModelList').getByText('FLUX.1 Schnell')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('FLUX.2 Klein 9B')).toBeVisible();
+    await expectLabAccent('192, 38, 211', '0, 240, 255');
+
+    await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-2-klein-9b');
+    await expect(page.locator('#labCost')).toHaveText('10 credits');
+    await expect(page.locator('#labImageSteps')).toBeDisabled();
+    await expect(page.locator('#labImageSeed')).toBeDisabled();
+    await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#labCost')).toHaveText('1 credit');
+    await expect(page.locator('#labImageSteps')).toBeEnabled();
+    await expect(page.locator('#labImageSeed')).toBeEnabled();
 
     const titleMetrics = await page.locator('#generateLabTitle').evaluate((node) => {
       const box = node.getBoundingClientRect();
@@ -1188,6 +1210,7 @@ test.describe('Homepage', () => {
 
     await page.getByRole('tab', { name: 'Video' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
+    await expectLabAccent('0, 240, 255', '255, 179, 0');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
@@ -1195,6 +1218,7 @@ test.describe('Homepage', () => {
 
     await page.getByRole('tab', { name: 'Music' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'music');
+    await expectLabAccent('255, 179, 0', '0, 240, 255');
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');

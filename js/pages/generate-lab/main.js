@@ -221,6 +221,7 @@ function setBusy(nextBusy, label = '') {
     for (const control of document.querySelectorAll('[data-generate-lab-workspace] input, [data-generate-lab-workspace] select, [data-generate-lab-workspace] textarea')) {
         control.disabled = nextBusy;
     }
+    syncImageOptionState();
     syncMusicOptionState();
     updateActionState();
 }
@@ -409,6 +410,25 @@ function renderSettingsGroups() {
     });
 }
 
+function syncImageOptionState() {
+    const model = selectedModel();
+    const supportsSteps = model.mediaType !== 'image' || model.controls?.supportsSteps === true;
+    const supportsSeed = model.mediaType !== 'image' || model.controls?.supportsSeed === true;
+    const stepsField = refs.imageSteps?.closest('.generate-lab__field');
+    const seedField = refs.imageSeed?.closest('.generate-lab__field');
+
+    if (refs.imageSteps) {
+        refs.imageSteps.disabled = state.busy || !supportsSteps;
+        refs.imageSteps.setAttribute('aria-disabled', refs.imageSteps.disabled ? 'true' : 'false');
+    }
+    if (refs.imageSeed) {
+        refs.imageSeed.disabled = state.busy || !supportsSeed;
+        refs.imageSeed.setAttribute('aria-disabled', refs.imageSeed.disabled ? 'true' : 'false');
+    }
+    stepsField?.classList.toggle('is-disabled', !supportsSteps);
+    seedField?.classList.toggle('is-disabled', !supportsSeed);
+}
+
 function renderEmptyResult() {
     const media = selectedMediaType();
     const marker = el('span', { className: `generate-lab__empty-mark generate-lab__empty-mark--${media.id}`, attrs: { 'aria-hidden': 'true' } });
@@ -434,6 +454,7 @@ function renderAllForSelection({ keepResult = false } = {}) {
     renderModelDetails();
     renderPromptCopy();
     renderSettingsGroups();
+    syncImageOptionState();
     syncMusicOptionState();
     updateActionState();
     if (!keepResult) {
@@ -731,9 +752,14 @@ async function handleSaveImage() {
 }
 
 async function generateImage(prompt) {
-    const model = refs.imageModel?.value || selectedModel().id;
-    const steps = parseOptionalInteger(refs.imageSteps?.value, { min: 1, max: 20 });
-    const seed = parseOptionalInteger(refs.imageSeed?.value, { min: 0 });
+    const currentModel = selectedModel();
+    const model = refs.imageModel?.value || currentModel.id;
+    const steps = currentModel.controls?.supportsSteps === true
+        ? parseOptionalInteger(refs.imageSteps?.value, { min: 1, max: 20 })
+        : null;
+    const seed = currentModel.controls?.supportsSeed === true
+        ? parseOptionalInteger(refs.imageSeed?.value, { min: 0 })
+        : null;
     const res = await apiAiGenerateImage(prompt, steps, seed, model);
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};

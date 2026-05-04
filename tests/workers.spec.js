@@ -16702,9 +16702,12 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('AI generate: public route rejects FLUX.2 Klein 9B so it is not exposed outside admin AI Lab', async () => {
+  test('AI generate: member route allows FLUX.2 Klein 9B through the shared multipart image path', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
     let aiCalls = 0;
+    let capturedModelId = null;
+    let capturedPayload = null;
     const env = createAuthTestEnv({
       users: [
         {
@@ -16718,8 +16721,10 @@ test.describe('Worker routes', () => {
           verification_method: 'email_verified',
         },
       ],
-      aiRun: async () => {
+      aiRun: async (modelId, payload) => {
         aiCalls += 1;
+        capturedModelId = modelId;
+        capturedPayload = payload;
         return { image: ONE_PIXEL_PNG_DATA_URI };
       },
     });
@@ -16739,12 +16744,44 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
 
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: 'Unsupported image model.',
+    const expectedPricing = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
+      width: 1024,
+      height: 1024,
     });
-    expect(aiCalls).toBe(0);
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        model: '@cf/black-forest-labs/flux-2-klein-9b',
+        steps: null,
+        seed: null,
+      },
+      billing: {
+        credits_charged: expectedPricing.credits,
+        balance_after: 10 - expectedPricing.credits,
+      },
+    });
+    expect(aiCalls).toBe(1);
+    expect(capturedModelId).toBe('@cf/black-forest-labs/flux-2-klein-9b');
+    expect(capturedPayload).toEqual(expect.objectContaining({
+      multipart: expect.objectContaining({
+        contentType: expect.stringContaining('multipart/form-data'),
+        body: expect.anything(),
+      }),
+    }));
+    const entries = await readMultipartEntries(capturedPayload.multipart);
+    const fields = Object.fromEntries(
+      entries.filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, String(value)])
+    );
+    expect(fields).toEqual({
+      prompt: 'public klein image attempt',
+      width: '1024',
+      height: '1024',
+    });
+    expect(env.DB.state.memberCreditLedger.map((row) => row.amount)).toEqual([
+      10,
+      -expectedPricing.credits,
+    ]);
   });
 
   test('AI generate: public route rejects FLUX.2 Dev so it is not exposed outside admin AI Lab', async () => {

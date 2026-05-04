@@ -5,10 +5,10 @@
 
 @layer pages {
     body.generate-lab-page {
-        --lab-accent-rgb: 0, 240, 255;
-        --lab-accent-alt-rgb: 255, 170, 0;
-        --lab-accent-ink: rgba(225, 253, 255, 0.94);
-        --lab-accent-solid: #00f0ff;
+        --lab-accent-rgb: 192, 38, 211;
+        --lab-accent-alt-rgb: 0, 240, 255;
+        --lab-accent-ink: rgba(248, 217, 255, 0.94);
+        --lab-accent-solid: #c026d3;
         min-block-size: 100vh;
         overflow-x: hidden;
         background:
@@ -19,17 +19,17 @@
     }
 
     body.generate-lab-page[data-lab-mode="video"] {
+        --lab-accent-rgb: 0, 240, 255;
+        --lab-accent-alt-rgb: 255, 179, 0;
+        --lab-accent-ink: rgba(225, 253, 255, 0.94);
+        --lab-accent-solid: #00f0ff;
+    }
+
+    body.generate-lab-page[data-lab-mode="music"] {
         --lab-accent-rgb: 255, 179, 0;
         --lab-accent-alt-rgb: 0, 240, 255;
         --lab-accent-ink: rgba(255, 234, 184, 0.95);
         --lab-accent-solid: #ffb300;
-    }
-
-    body.generate-lab-page[data-lab-mode="music"] {
-        --lab-accent-rgb: 72, 224, 255;
-        --lab-accent-alt-rgb: 255, 170, 0;
-        --lab-accent-ink: rgba(225, 252, 255, 0.95);
-        --lab-accent-solid: #48e0ff;
     }
 
     .generate-lab {

@@ -7,8 +7,8 @@
 
 import {
     DEFAULT_AI_IMAGE_MODEL,
+    getGenerateLabAiImageModelOptions,
     getAiImageModelConfig,
-    getAiImageModelOptions,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import {
     calculatePixverseV6MemberCredits,
@@ -57,7 +57,7 @@ export const MUSIC_26_MODEL_ID = 'minimax/music-2.6';
 export const MUSIC_BASE_CREDITS = 150;
 export const MUSIC_GENERATED_LYRICS_CREDITS = 160;
 
-const imageModels = getAiImageModelOptions().map((model) => {
+const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
     const config = getAiImageModelConfig(model.id);
     const credits = Math.max(1, Math.ceil(Number(config?.estimatedCredits || model.estimatedCredits || 1)));
     return Object.freeze({
@@ -75,6 +75,10 @@ const imageModels = getAiImageModelOptions().map((model) => {
             config?.supportsSeed ? 'Optional seed' : 'Random seed',
             'Savable to Assets Manager',
         ]),
+        controls: Object.freeze({
+            supportsSteps: config?.supportsSteps === true,
+            supportsSeed: config?.supportsSeed === true,
+        }),
         defaults: Object.freeze({
             model: model.id,
             steps: 4,
