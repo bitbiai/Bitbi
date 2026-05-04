@@ -3,8 +3,8 @@
    Hardcoded settings (FLUX.1 Schnell, 4 steps, 1024×1024) are
    enforced here, not exposed to the user. Reuses the existing
    /api/ai/generate-image endpoint so member credit charging
-   stays aligned with Assets Manager. The Use button re-encodes the already
-   generated PNG client-side and calls /api/profile/avatar via
+   stays aligned with Assets Manager. The Use button resizes the already
+   generated image client-side and calls /api/profile/avatar via
    the existing FormData upload route — no second generation.
    ============================================================ */
 
@@ -21,7 +21,8 @@ export const AVATAR_GENERATION_STEPS = 4;
 export const AVATAR_GENERATION_SIZE = 1024;
 const AVATAR_UPLOAD_SIZE = 512;
 const AVATAR_UPLOAD_QUALITY = 0.9;
-const AVATAR_UPLOAD_MIME = 'image/webp';
+const AVATAR_UPLOAD_PREFERRED_MIME = 'image/webp';
+const AVATAR_UPLOAD_FALLBACK_MIME = 'image/png';
 
 let initialized = false;
 let focusTrapCleanup = null;
@@ -229,6 +230,37 @@ function canvasToBlob(canvas, mime, quality) {
     });
 }
 
+export function normalizeImageMimeType(type) {
+    const normalized = String(type || '').trim().toLowerCase();
+    if (normalized === 'image/webp' || normalized === 'image/jpeg' || normalized === 'image/png') {
+        return normalized;
+    }
+    return AVATAR_UPLOAD_FALLBACK_MIME;
+}
+
+export function extensionFromMimeType(type) {
+    switch (normalizeImageMimeType(type)) {
+        case 'image/webp':
+            return 'webp';
+        case 'image/jpeg':
+            return 'jpg';
+        case 'image/png':
+        default:
+            return 'png';
+    }
+}
+
+function isKnownImageMimeType(type) {
+    const normalized = String(type || '').trim().toLowerCase();
+    return normalized === 'image/webp' || normalized === 'image/jpeg' || normalized === 'image/png';
+}
+
+export function createAvatarUploadFile(blob) {
+    const mimeType = normalizeImageMimeType(blob?.type);
+    const extension = extensionFromMimeType(mimeType);
+    return new File([blob], `avatar.${extension}`, { type: mimeType });
+}
+
 async function reencodeForAvatar(dataUrl) {
     const img = await loadImage(dataUrl);
     const canvas = document.createElement('canvas');
@@ -242,12 +274,13 @@ async function reencodeForAvatar(dataUrl) {
     ctx.drawImage(img, sx, sy, sourceSize, sourceSize, 0, 0, AVATAR_UPLOAD_SIZE, AVATAR_UPLOAD_SIZE);
     let blob;
     try {
-        blob = await canvasToBlob(canvas, AVATAR_UPLOAD_MIME, AVATAR_UPLOAD_QUALITY);
+        blob = await canvasToBlob(canvas, AVATAR_UPLOAD_PREFERRED_MIME, AVATAR_UPLOAD_QUALITY);
         if (!blob || blob.size === 0) throw new Error('Empty blob.');
-        return new File([blob], 'avatar.webp', { type: AVATAR_UPLOAD_MIME });
+        if (!isKnownImageMimeType(blob.type)) throw new Error('Unknown encoded avatar type.');
+        return createAvatarUploadFile(blob);
     } catch {
         const pngBlob = await canvasToBlob(canvas, 'image/png');
-        return new File([pngBlob], 'avatar.png', { type: 'image/png' });
+        return createAvatarUploadFile(pngBlob);
     }
 }
 

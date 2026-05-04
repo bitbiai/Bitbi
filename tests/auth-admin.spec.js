@@ -2297,9 +2297,14 @@ async function mockAuthenticatedProfile(page, {
 
     avatarState.hasAvatar = true;
     avatarState.sourceImageId = null;
+    const multipartBody = route.request().postData() || '';
+    const filename = multipartBody.match(/filename="([^"]+)"/)?.[1] || null;
+    const fileMimeType = multipartBody.match(/Content-Type:\s*([^\r\n]+)/i)?.[1]?.trim() || null;
     avatarRequests.push({
       type: 'upload',
       contentType,
+      filename,
+      fileMimeType,
     });
     await route.fulfill({
       status: 200,
@@ -5698,6 +5703,39 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#avatarGenerateQuota')).toContainText('10 credits available');
   });
 
+  test('avatar generate upload file metadata follows the actual blob MIME type', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    const cases = await page.evaluate(async () => {
+      const {
+        createAvatarUploadFile,
+      } = await import('/js/pages/profile/avatar-generate.js?v=__ASSET_VERSION__');
+
+      return [
+        new Blob(['png'], { type: 'image/png' }),
+        new Blob(['webp'], { type: 'image/webp' }),
+        new Blob(['unknown'], { type: '' }),
+        new Blob(['octets'], { type: 'application/octet-stream' }),
+      ].map((blob) => {
+        const file = createAvatarUploadFile(blob);
+        return {
+          inputType: blob.type,
+          name: file.name,
+          type: file.type,
+        };
+      });
+    });
+
+    expect(cases).toEqual([
+      { inputType: 'image/png', name: 'avatar.png', type: 'image/png' },
+      { inputType: 'image/webp', name: 'avatar.webp', type: 'image/webp' },
+      { inputType: '', name: 'avatar.png', type: 'image/png' },
+      { inputType: 'application/octet-stream', name: 'avatar.png', type: 'image/png' },
+    ]);
+  });
+
   test('avatar generate sends FLUX.1 Schnell with 4 steps and shows member credits', async ({
     page,
   }) => {
@@ -5792,6 +5830,97 @@ test.describe('Profile page (authenticated)', () => {
     expect(avatarRequests).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'saved_asset' }),
+      ])
+    );
+  });
+
+  test('generated avatar Use labels Safari WebP canvas fallback as PNG', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function patchedToBlob(callback, type, quality) {
+        const requestedType = type === 'image/webp' ? 'image/png' : type;
+        return originalToBlob.call(this, callback, requestedType, quality);
+      };
+    });
+
+    const avatarRequests = [];
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      avatarRequests,
+    });
+
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            isAdmin: false,
+            creditBalance: 10,
+            dailyCreditAllowance: 10,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/ai/generate-image', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            mimeType: 'image/png',
+            prompt: body.prompt,
+            model: body.model,
+            steps: body.steps,
+            seed: body.seed,
+          },
+          billing: {
+            credits_charged: 1,
+            balance_after: 9,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await page.locator('#avatarChooseGenerate').click();
+    await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
+
+    await page.locator('#avatarGeneratePrompt').fill('A mobile Safari portrait');
+    await page.locator('#avatarGenerateBtn').click();
+
+    await expect(page.locator('#avatarGenerateUseBtn')).toBeEnabled();
+    await page.locator('#avatarGenerateUseBtn').click();
+
+    await expect(page.locator('#avatarGenerateModal')).toBeHidden();
+    await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+    expect(avatarRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'upload',
+          filename: 'avatar.png',
+          fileMimeType: 'image/png',
+        }),
+      ])
+    );
+    expect(avatarRequests).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'upload',
+          filename: 'avatar.webp',
+          fileMimeType: 'image/webp',
+        }),
       ])
     );
   });
