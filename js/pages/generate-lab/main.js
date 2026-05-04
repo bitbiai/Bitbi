@@ -24,6 +24,8 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { setupFocusTrap } from '../../shared/focus-trap.js';
+import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     GENERATE_LAB_MEDIA_TYPES,
     calculateGenerateLabCredits,
@@ -45,6 +47,8 @@ const COVER_POLL_INTERVAL_MS = 2000;
 const COVER_POLL_TIMEOUT_MS = 30000;
 
 const refs = {};
+let assetsBrowser = null;
+let releaseAssetsOverlayFocus = null;
 const state = {
     loggedIn: false,
     user: null,
@@ -58,6 +62,43 @@ const state = {
     currentImageMeta: null,
     currentResult: null,
     coverPollToken: 0,
+};
+
+const assetsBrowserRefIds = {
+    root: 'labAssetsBrowserRoot',
+    galleryFilter: 'labAssetsFilter',
+    folderGrid: 'labAssetsFolderGrid',
+    folderBack: 'labAssetsFolderBack',
+    folderBackBtn: 'labAssetsFolderBackBtn',
+    assetGrid: 'labAssetsGrid',
+    galleryMsg: 'labAssetsMsg',
+    newFolderBtn: 'labAssetsNewFolderBtn',
+    deleteFolderBtn: 'labAssetsDeleteFolderBtn',
+    newFolderForm: 'labAssetsNewFolderForm',
+    newFolderInput: 'labAssetsNewFolderInput',
+    newFolderSave: 'labAssetsNewFolderSave',
+    newFolderCancel: 'labAssetsNewFolderCancel',
+    deleteFolderForm: 'labAssetsDeleteFolderForm',
+    deleteFolderSelect: 'labAssetsDeleteFolderSelect',
+    deleteFolderConfirm: 'labAssetsDeleteFolderConfirm',
+    deleteFolderCancel: 'labAssetsDeleteFolderCancel',
+    selectBtn: 'labAssetsSelectBtn',
+    mobileActionsToggle: 'labAssetsMobileActionsToggle',
+    mobileActionsMenu: 'labAssetsMobileActionsMenu',
+    bulkBar: 'labAssetsBulkBar',
+    bulkCount: 'labAssetsBulkCount',
+    bulkRename: 'labAssetsBulkRename',
+    bulkMove: 'labAssetsBulkMove',
+    bulkDelete: 'labAssetsBulkDelete',
+    bulkCancel: 'labAssetsBulkCancel',
+    renameForm: 'labAssetsRenameForm',
+    renameInput: 'labAssetsRenameInput',
+    renameConfirm: 'labAssetsRenameConfirm',
+    renameCancel: 'labAssetsRenameCancel',
+    bulkMoveForm: 'labAssetsBulkMoveForm',
+    bulkMoveSelect: 'labAssetsBulkMoveSelect',
+    bulkMoveConfirm: 'labAssetsBulkMoveConfirm',
+    bulkMoveCancel: 'labAssetsBulkMoveCancel',
 };
 
 function byId(id) {
@@ -80,6 +121,44 @@ function el(tag, { className, text, attrs } = {}, ...children) {
     }
     node.append(...children.filter(Boolean));
     return node;
+}
+
+function installHeaderStatusPanel() {
+    const navLinks = document.querySelector('.site-nav__links');
+    if (!navLinks) return;
+
+    let panel = document.getElementById('generateLabHeaderStatus');
+    if (!panel) {
+        panel = el('div', {
+            className: 'generate-lab-header-status',
+            attrs: { id: 'generateLabHeaderStatus', 'aria-live': 'polite' },
+        });
+        panel.append(
+            el('span', {
+                className: 'generate-lab__account-status',
+                text: 'Checking session...',
+                attrs: { id: 'labAccountStatus' },
+            }),
+            el('strong', {
+                className: 'generate-lab__credit-status',
+                text: 'Credits unavailable',
+                attrs: { id: 'labCreditStatus' },
+            }),
+            el('button', {
+                className: 'generate-lab__assets-link',
+                text: 'Assets Manager',
+                attrs: { id: 'labAssetsOpen', type: 'button' },
+            }),
+        );
+    }
+
+    navLinks.replaceChildren(panel);
+    navLinks.classList.add('site-nav__links--empty', 'site-nav__links--generate-lab');
+    refs.accountStatus = byId('labAccountStatus');
+    refs.creditStatus = byId('labCreditStatus');
+    refs.assetsOpen = byId('labAssetsOpen');
+    if (refs.assetsOpen) refs.assetsOpen.onclick = openAssetsOverlay;
+    updateAccountPanel();
 }
 
 function formatCredits(credits) {
@@ -155,6 +234,57 @@ function requireMember() {
         setMessage('Please sign in to generate media.', 'error');
     }
     return false;
+}
+
+function getAssetsBrowserRefs() {
+    return Object.fromEntries(
+        Object.entries(assetsBrowserRefIds).map(([key, id]) => [key, byId(id)]),
+    );
+}
+
+function createAssetsBrowser() {
+    assetsBrowser = createSavedAssetsBrowser({
+        refs: getAssetsBrowserRefs(),
+        emptyStateMessage: 'No saved assets yet. Generate images, videos, or music, then manage them here.',
+        foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
+    });
+    return assetsBrowser;
+}
+
+async function ensureAssetsBrowser() {
+    if (!assetsBrowser) createAssetsBrowser();
+    await assetsBrowser.show();
+}
+
+function closeAssetsOverlay() {
+    if (!refs.assetsOverlay || refs.assetsOverlay.hidden) return;
+    refs.assetsOverlay.hidden = true;
+    refs.assetsOverlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('generate-lab-assets-open');
+    if (releaseAssetsOverlayFocus) {
+        releaseAssetsOverlayFocus();
+        releaseAssetsOverlayFocus = null;
+    }
+}
+
+async function openAssetsOverlay() {
+    if (!requireMember()) return;
+    if (!refs.assetsOverlay) return;
+    refs.assetsOverlay.hidden = false;
+    refs.assetsOverlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('generate-lab-assets-open');
+    releaseAssetsOverlayFocus = setupFocusTrap(refs.assetsOverlayShell || refs.assetsOverlay);
+    refs.assetsOverlayClose?.focus();
+    try {
+        await ensureAssetsBrowser();
+    } catch (error) {
+        console.warn('Generate Lab assets overlay load failed:', error);
+        const msg = byId('labAssetsMsg');
+        if (msg) {
+            msg.textContent = 'Assets could not be loaded. Please try again.';
+            msg.classList.add('studio__msg--error');
+        }
+    }
 }
 
 function updateAccountPanel() {
@@ -293,6 +423,7 @@ function renderLoadingResult(text) {
 }
 
 function renderAllForSelection({ keepResult = false } = {}) {
+    document.body.dataset.labMode = state.mediaType;
     for (const tab of document.querySelectorAll('.generate-lab__media-tab')) {
         const active = tab.dataset.mediaType === state.mediaType;
         tab.classList.toggle('is-active', active);
@@ -509,12 +640,13 @@ function renderVideoResult(data) {
         el('span', { text: 'Saved as a private video asset.' }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
-        el('a', {
+        el('button', {
             className: 'generate-lab__secondary-link',
             text: 'Open in Assets Manager',
-            attrs: { href: '/account/assets-manager.html' },
+            attrs: { type: 'button' },
         }),
     );
+    actions.querySelector('button')?.addEventListener('click', openAssetsOverlay);
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__result-card generate-lab__result-card--video' }, video, meta, actions));
 }
 
@@ -542,12 +674,13 @@ function renderMusicResult(data) {
         el('span', { text: 'Saved as a private music asset.' }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
-        el('a', {
+        el('button', {
             className: 'generate-lab__secondary-link',
             text: 'Open in Assets Manager',
-            attrs: { href: '/account/assets-manager.html' },
+            attrs: { type: 'button' },
         }),
     );
+    actions.querySelector('button')?.addEventListener('click', openAssetsOverlay);
     result.append(cover, audio, meta, actions);
     refs.resultStage?.replaceChildren(result);
     startAudioCoverPolling(data?.asset);
@@ -756,14 +889,15 @@ function renderRecentAssets(assets) {
     }
     const cards = assets.slice(0, 6).map((asset) => {
         const title = asset?.title || asset?.filename || asset?.prompt || 'Saved asset';
-        const card = el('a', {
+        const card = el('button', {
             className: 'generate-lab__recent-card',
-            attrs: { href: '/account/assets-manager.html', 'aria-label': `Open ${title} in Assets Manager` },
+            attrs: { type: 'button', 'aria-label': `Open ${title} in Assets Manager` },
         });
         card.append(
             el('span', { className: 'generate-lab__recent-thumb' }, mediaPreviewForAsset(asset)),
             el('strong', { text: title }),
         );
+        card.addEventListener('click', openAssetsOverlay);
         return card;
     });
     refs.recentAssets.replaceChildren(...cards);
@@ -857,6 +991,17 @@ function bindEvents() {
     refs.musicGenerateLyrics?.addEventListener('change', syncMusicOptionState);
     refs.musicLyrics?.addEventListener('input', syncMusicOptionState);
     refs.generate?.addEventListener('click', handleGenerate);
+    refs.recentAssetsOpen?.addEventListener('click', openAssetsOverlay);
+    refs.assetsOverlayClose?.addEventListener('click', closeAssetsOverlay);
+    refs.assetsOverlay?.addEventListener('click', (event) => {
+        if (event.target.closest('[data-lab-assets-close]')) closeAssetsOverlay();
+    });
+    refs.assetsOverlay?.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeAssetsOverlay();
+        }
+    });
     refs.prompt?.addEventListener('keydown', (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -880,6 +1025,7 @@ function cacheRefs() {
         promptHelp: byId('labPromptHelp'),
         resultStage: byId('labResultStage'),
         recentAssets: byId('labRecentAssets'),
+        recentAssetsOpen: byId('labRecentAssetsOpen'),
         imageModel: byId('labImageModel'),
         imageSteps: byId('labImageSteps'),
         imageSeed: byId('labImageSeed'),
@@ -901,12 +1047,22 @@ function cacheRefs() {
         balance: byId('labBalance'),
         generate: byId('labGenerate'),
         message: byId('labMessage'),
+        assetsOverlay: byId('labAssetsOverlay'),
+        assetsOverlayShell: document.querySelector('.generate-lab-assets-overlay__shell'),
+        assetsOverlayClose: byId('labAssetsOverlayClose'),
     });
 }
 
 async function init() {
     document.documentElement.classList.add('generate-lab-ready');
-    try { initSiteHeader(); } catch (error) { console.warn(error); }
+    try {
+        initSiteHeader({
+            showCategoryLinks: false,
+            enableGlobalAudio: false,
+            homeTarget: 'bitbi-main',
+            homeRel: 'noopener',
+        });
+    } catch (error) { console.warn(error); }
     try { initParticles('heroCanvas'); } catch (error) { console.warn(error); }
     try { initBinaryRain('binaryRain'); } catch (error) { console.warn(error); }
     try { initBinaryFooter('binaryFooter'); } catch (error) { console.warn(error); }
@@ -914,6 +1070,7 @@ async function init() {
     try { initCookieConsent(); } catch (error) { console.warn(error); }
 
     cacheRefs();
+    installHeaderStatusPanel();
     if (!refs.generate || !refs.prompt) return;
 
     if (!getGenerateLabModels().some((model) => model.id === MUSIC_26_MODEL_ID)) {
@@ -925,5 +1082,12 @@ async function init() {
     await loadSession();
     await Promise.all([loadQuota(), loadFolders(), loadRecentAssets()]);
 }
+
+document.addEventListener('bitbi:auth-change', () => {
+    window.setTimeout(() => {
+        installHeaderStatusPanel();
+        loadSession().catch((error) => console.warn('Generate Lab auth refresh failed:', error));
+    }, 0);
+});
 
 init();

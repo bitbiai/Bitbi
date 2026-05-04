@@ -75,18 +75,35 @@ const MOBILE_NAV_HTML = `
     </div>
 </div>`;
 
-export function initSiteHeader() {
+export function initSiteHeader(options = {}) {
+    const showCategoryLinks = options.showCategoryLinks !== false;
+    const enableGlobalAudio = options.enableGlobalAudio !== false;
+    const homeTarget = typeof options.homeTarget === 'string' ? options.homeTarget.trim() : '';
+    const homeRel = typeof options.homeRel === 'string' ? options.homeRel.trim() : '';
     const header = document.querySelector('header');
     if (!header) return;
     const desktopStageQuery = window.matchMedia?.(HOME_DESKTOP_STAGE_MEDIA);
 
     /* 1. Replace header innerHTML with full nav */
     header.innerHTML = NAV_HTML;
+    const logoLink = header.querySelector('.site-nav__logo');
+    if (logoLink && homeTarget) {
+        logoLink.setAttribute('target', homeTarget);
+        if (homeRel) logoLink.setAttribute('rel', homeRel);
+    }
+    if (!showCategoryLinks) {
+        const navLinks = header.querySelector('.site-nav__links');
+        navLinks?.replaceChildren();
+        navLinks?.classList.add('site-nav__links--empty');
+    }
 
     /* 2. Insert mobile nav panel after header */
     document.getElementById('mobileNav')?.remove();
     header.insertAdjacentHTML('afterend', MOBILE_NAV_HTML);
     const mobileNav = document.getElementById('mobileNav');
+    if (!showCategoryLinks) {
+        mobileNav?.querySelectorAll('[data-category-link]').forEach((link) => link.remove());
+    }
 
     const primeHomeCategoryNav = (event) => {
         const anchor = event.target.closest('a[data-category-link]');
@@ -111,7 +128,9 @@ export function initSiteHeader() {
     try { initMobileNav(); } catch (e) { console.warn('mobileNav:', e); }
     try { initModelsOverlay(); } catch (e) { console.warn('modelsOverlay:', e); }
     try { initWalletController(); } catch (e) { console.warn('wallet:', e); }
-    try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio:', e); }
+    if (enableGlobalAudio) {
+        try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio:', e); }
+    }
 
     /* 4. Auth modal container (initAuthModal needs <div id="authModal"> in the DOM) */
     if (!document.getElementById('authModal')) {

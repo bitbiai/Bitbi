@@ -19,7 +19,6 @@ const STATIC_SHARED_HEADER_PATHS = [
   '/admin/index.html',
   '/account/profile.html',
   '/account/assets-manager.html',
-  '/generate-lab/',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
@@ -1083,7 +1082,7 @@ test.describe('Homepage', () => {
     await expect(teaser).toContainText('Open Lab');
     await expect(hero.locator('.hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(teaser).toHaveAttribute('href', '/generate-lab/');
-    await expect(teaser).toHaveAttribute('target', '_blank');
+    await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
 
@@ -1118,35 +1117,141 @@ test.describe('Homepage', () => {
     await expect(teaser).toContainText('Generate Lab');
     await expect(teaser).toContainText('Open Lab');
     await expect(teaser).toHaveAttribute('href', '/generate-lab/');
-    await expect(teaser).toHaveAttribute('target', '_blank');
+    await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
   });
 
   test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-member', email: 'lab@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 900 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
     await page.goto('/generate-lab/');
 
     const workspace = page.locator('.generate-lab__desktop');
     await expect(workspace).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Generate Lab' })).toBeVisible();
+    await expect(page.getByText('Member Workspace')).toHaveCount(0);
+    await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
+    await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
+    await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('target', 'bitbi-main');
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('rel', /noopener/);
+    await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+    await expect(page.locator('#generateLabHeaderStatus')).toBeVisible();
+    await expect(page.locator('#labAccountStatus')).toContainText('Signed in as lab@bitbi.ai');
+    await expect(page.locator('#labCreditStatus')).toHaveText('900 credits');
+    await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Images' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Video' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Music' })).toBeVisible();
     await expect(page.getByLabel('Describe your image')).toBeVisible();
     await expect(page.getByRole('button', { name: /Sign in to Generate|Generate/i })).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('1 credit');
+    await expect(page.locator('.generate-lab__subtitle')).toHaveCSS('text-align', 'right');
+
+    const titleMetrics = await page.locator('#generateLabTitle').evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      return { width: box.width, fontSize: Number.parseFloat(style.fontSize) };
+    });
+    expect(titleMetrics.fontSize).toBeLessThanOrEqual(32);
 
     await page.getByRole('tab', { name: 'Video' }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
 
     await page.getByRole('tab', { name: 'Music' }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'music');
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');
+  });
+
+  test('Generate Lab opens Assets Manager as an in-page overlay', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-assets-member', email: 'assets@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 400 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            folders: [{ id: 'folder-one', name: 'Lab saves' }],
+            counts: { 'folder-one': 1 },
+            unfolderedCount: 0,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    const popupPromise = page.waitForEvent('popup', { timeout: 750 }).catch(() => null);
+    await page.locator('#labAssetsOpen').click();
+    expect(await popupPromise).toBeNull();
+
+    const overlay = page.getByRole('dialog', { name: 'Assets Manager' });
+    await expect(overlay).toBeVisible();
+    await expect(overlay.getByRole('button', { name: 'Close Assets Manager' })).toBeVisible();
+    await expect(overlay.locator('#labAssetsNewFolderBtn')).toBeVisible();
+    await expect(overlay.locator('#labAssetsSelectBtn')).toBeVisible();
+    await overlay.getByRole('button', { name: 'Close Assets Manager' }).click();
+    await expect(overlay).toBeHidden();
   });
 
   test('Generate Lab shows the desktop-optimized message on mobile', async ({ page }) => {

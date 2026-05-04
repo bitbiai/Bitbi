@@ -23,11 +23,12 @@
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/pages/generate-lab.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
-<body class="generate-lab-page">
+<body class="generate-lab-page" data-lab-mode="image">
 
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -35,15 +36,11 @@
 <nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
     <div class="container">
         <div class="site-nav__bar">
-            <a href="/" class="site-nav__logo">
+            <a href="/" class="site-nav__logo" target="bitbi-main" rel="noopener">
                 <span class="site-nav__logo-text gt-hero">BITBI</span>
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
-            <div class="site-nav__links">
-                <a href="/#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
-                <a href="/#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
-                <a href="/#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
-            </div>
+            <div class="site-nav__links site-nav__links--empty"></div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
             </div>
@@ -65,9 +62,6 @@
         <div id="mobileNavAuth" class="mobile-nav__auth"></div>
         <nav class="mobile-nav__section" aria-label="Explore">
             <span class="mobile-nav__label">Explore</span>
-            <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Gallery</a>
-            <a href="/#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
-            <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
             <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
         </nav>
         <nav class="mobile-nav__section" aria-label="Connect">
@@ -86,22 +80,14 @@
             <p class="generate-lab__eyebrow">Generate Lab</p>
             <h1 id="generateLabMobileTitle">Desktop workspace</h1>
             <p>Generate Lab is optimized for desktop creation workflows. Please open it on a desktop or larger screen to use the full image, video, and music workspace.</p>
-            <a href="/" class="generate-lab__mobile-link">Back to BITBI</a>
+            <a href="/" class="generate-lab__mobile-link" target="bitbi-main" rel="noopener">Back to BITBI</a>
         </div>
     </section>
 
     <section class="generate-lab__desktop" data-generate-lab-workspace aria-labelledby="generateLabTitle">
         <div class="generate-lab__topbar reveal">
-            <div>
-                <p class="generate-lab__eyebrow">Member workspace</p>
-                <h1 id="generateLabTitle" class="generate-lab__title gt-gold-cyan">Generate Lab</h1>
-                <p class="generate-lab__subtitle">Create images, videos, and music with BITBI's live member models.</p>
-            </div>
-            <div class="generate-lab__account-panel" aria-live="polite">
-                <span id="labAccountStatus" class="generate-lab__account-status">Checking session...</span>
-                <strong id="labCreditStatus" class="generate-lab__credit-status">Credits unavailable</strong>
-                <a href="/account/assets-manager.html" class="generate-lab__assets-link">Assets Manager</a>
-            </div>
+            <h1 id="generateLabTitle" class="generate-lab__title gt-gold-cyan">Generate Lab</h1>
+            <p class="generate-lab__subtitle">Create images, videos, and music with BITBI's live member models.</p>
         </div>
 
         <div class="generate-lab__workspace reveal">
@@ -139,7 +125,7 @@
                 <div class="generate-lab__recent">
                     <div class="generate-lab__recent-head">
                         <h3>Recent assets</h3>
-                        <a href="/account/assets-manager.html">Manage all</a>
+                        <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Manage all</button>
                     </div>
                     <div id="labRecentAssets" class="generate-lab__recent-grid">
                         <div class="generate-lab__recent-empty">Sign in to load recent assets.</div>
@@ -301,12 +287,92 @@
     </section>
 </main>
 
+<section id="labAssetsOverlay" class="generate-lab-assets-overlay" role="dialog" aria-modal="true" aria-labelledby="labAssetsOverlayTitle" aria-hidden="true" hidden>
+    <div class="generate-lab-assets-overlay__backdrop" data-lab-assets-close aria-hidden="true"></div>
+    <div class="generate-lab-assets-overlay__shell" tabindex="-1">
+        <div class="generate-lab-assets-overlay__head">
+            <div>
+                <p class="assets-manager__eyebrow">Media Library</p>
+                <h2 id="labAssetsOverlayTitle" class="generate-lab-assets-overlay__title">Assets Manager</h2>
+                <p class="generate-lab-assets-overlay__copy">Manage folders, preview saved media, and publish your best work without leaving Generate Lab.</p>
+            </div>
+            <button type="button" id="labAssetsOverlayClose" class="generate-lab-assets-overlay__close" aria-label="Close Assets Manager">Close</button>
+        </div>
+        <div class="generate-lab-assets-overlay__body">
+            <div id="labAssetsBrowserRoot" class="assets-manager">
+                <div class="studio__card assets-manager__dashboard">
+                    <div class="studio__gallery-header assets-manager__toolbar">
+                        <h3 class="studio__card-title">Folders &amp; assets</h3>
+                        <div class="studio__folder-bar">
+                            <select id="labAssetsFilter" class="studio__folder-filter">
+                                <option value="">All Folders</option>
+                            </select>
+                            <button type="button" id="labAssetsNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
+                            <button type="button" id="labAssetsDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
+                            <button type="button" id="labAssetsSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
+                            <div class="studio__mobile-actions" id="labAssetsMobileActions">
+                                <button type="button" class="studio__mobile-actions-toggle" id="labAssetsMobileActionsToggle" aria-label="Asset actions" aria-expanded="false">&#x22EE;</button>
+                                <div class="studio__mobile-actions-menu" id="labAssetsMobileActionsMenu">
+                                    <button type="button" data-action="new-folder">+ Folder</button>
+                                    <button type="button" data-action="delete-folder">&minus; Folder</button>
+                                    <button type="button" data-action="select">Select</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="labAssetsNewFolderForm" class="studio__new-folder-form">
+                        <input type="text" id="labAssetsNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
+                        <button type="button" id="labAssetsNewFolderSave" class="studio__new-folder-save">Create</button>
+                        <button type="button" id="labAssetsNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="labAssetsDeleteFolderForm" class="studio__delete-folder-form">
+                        <select id="labAssetsDeleteFolderSelect" class="studio__delete-folder-select"></select>
+                        <button type="button" id="labAssetsDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
+                        <button type="button" id="labAssetsDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="labAssetsBulkBar" class="studio__bulk-bar">
+                        <span id="labAssetsBulkCount" class="studio__bulk-count">0 selected</span>
+                        <button type="button" id="labAssetsBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
+                        <button type="button" id="labAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
+                        <button type="button" id="labAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
+                        <button type="button" id="labAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                    </div>
+
+                    <div id="labAssetsRenameForm" class="studio__bulk-move-form">
+                        <input type="text" id="labAssetsRenameInput" class="studio__new-folder-input" placeholder="New name" maxlength="1000">
+                        <button type="button" id="labAssetsRenameConfirm" class="studio__new-folder-save">Rename</button>
+                        <button type="button" id="labAssetsRenameCancel" class="studio__new-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="labAssetsBulkMoveForm" class="studio__bulk-move-form">
+                        <select id="labAssetsBulkMoveSelect" class="studio__bulk-move-select"></select>
+                        <button type="button" id="labAssetsBulkMoveConfirm" class="studio__new-folder-save">Move</button>
+                        <button type="button" id="labAssetsBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
+                    </div>
+
+                    <div id="labAssetsMsg" class="studio__msg" role="status"></div>
+                    <div id="labAssetsFolderGrid" class="studio__folder-grid"></div>
+                    <div id="labAssetsFolderBack" class="studio__folder-back">
+                        <button type="button" id="labAssetsFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
+                    </div>
+                    <div id="labAssetsGrid" class="studio__image-grid">
+                        <div class="studio__gallery-empty">Loading saved assets...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <div class="section-divider" aria-hidden="true"></div>
 <footer class="site-footer">
     <div class="site-footer__inner">
         <div class="site-footer__top">
             <div class="site-footer__brand">
-                <a href="/" class="site-footer__brand-name gt-hero">BITBI</a>
+                <a href="/" class="site-footer__brand-name gt-hero" target="bitbi-main" rel="noopener">BITBI</a>
                 <p class="site-footer__tagline">My Digital Playground</p>
             </div>
             <div class="site-footer__social">
