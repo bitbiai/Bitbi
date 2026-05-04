@@ -19,6 +19,7 @@ const STATIC_SHARED_HEADER_PATHS = [
   '/admin/index.html',
   '/account/profile.html',
   '/account/assets-manager.html',
+  '/generate-lab/',
   '/account/forgot-password.html',
   '/account/reset-password.html',
   '/account/verify-email.html',
@@ -1079,9 +1080,12 @@ test.describe('Homepage', () => {
     await expect(hero.getByText('My Digital Playground')).toHaveCount(0);
     await expect(teaser).toBeVisible();
     await expect(teaser).toContainText('Generate Lab');
-    await expect(teaser).toContainText('Coming Soon');
+    await expect(teaser).toContainText('Open Lab');
     await expect(hero.locator('.hero__lab-teaser-icon')).toHaveText('⚗️');
-    await expect(hero.getByRole('link', { name: /Generate Lab/i })).toHaveCount(0);
+    await expect(teaser).toHaveAttribute('href', '/generate-lab/');
+    await expect(teaser).toHaveAttribute('target', '_blank');
+    await expect(teaser).toHaveAttribute('rel', /noopener/);
+    await expect(teaser).toHaveAttribute('rel', /noreferrer/);
 
     const teaserMetrics = await page.evaluate(() => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
@@ -1097,7 +1101,7 @@ test.describe('Homepage', () => {
 
     expect(teaserMetrics.baselineFontSize).toBeGreaterThan(0);
     expect(Math.round((teaserMetrics.teaserFontSize / teaserMetrics.baselineFontSize) * 100)).toBe(110);
-    expect(teaserMetrics.pointerEvents).toBe('none');
+    expect(teaserMetrics.pointerEvents).not.toBe('none');
   });
 
   test('hero falls back cleanly in reduced motion mode', async ({ page }) => {
@@ -1112,8 +1116,47 @@ test.describe('Homepage', () => {
     await expect(heroVideo).toBeHidden();
     await expect(teaser).toBeVisible();
     await expect(teaser).toContainText('Generate Lab');
-    await expect(teaser).toContainText('Coming Soon');
-    await expect(hero.getByRole('link', { name: /Generate Lab/i })).toHaveCount(0);
+    await expect(teaser).toContainText('Open Lab');
+    await expect(teaser).toHaveAttribute('href', '/generate-lab/');
+    await expect(teaser).toHaveAttribute('target', '_blank');
+    await expect(teaser).toHaveAttribute('rel', /noopener/);
+    await expect(teaser).toHaveAttribute('rel', /noreferrer/);
+  });
+
+  test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.goto('/generate-lab/');
+
+    const workspace = page.locator('.generate-lab__desktop');
+    await expect(workspace).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Generate Lab' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Images' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Video' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Music' })).toBeVisible();
+    await expect(page.getByLabel('Describe your image')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sign in to Generate|Generate/i })).toBeVisible();
+    await expect(page.locator('#labCost')).toHaveText('1 credit');
+
+    await page.getByRole('tab', { name: 'Video' }).click();
+    await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
+    await expect(page.getByLabel('Describe your video')).toBeVisible();
+    await expect(page.locator('#labCost')).toHaveText('185 credits');
+    await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
+
+    await page.getByRole('tab', { name: 'Music' }).click();
+    await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
+    await expect(page.getByLabel('Describe your track')).toBeVisible();
+    await expect(page.locator('#labCost')).toHaveText('150 credits');
+  });
+
+  test('Generate Lab shows the desktop-optimized message on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/generate-lab/');
+
+    await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Desktop workspace' })).toBeVisible();
+    await expect(page.getByText('Generate Lab is optimized for desktop creation workflows.')).toBeVisible();
+    await expect(page.locator('.generate-lab__desktop')).toBeHidden();
   });
 
   test('repo footers use the shortened footer sentence and end cleanly', async ({ page }) => {

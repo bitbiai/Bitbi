@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Generate Lab | BITBI</title>
+    <meta name="description" content="Generate Lab is BITBI's desktop workspace for member image, video, and music generation.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0A0A0A">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link rel="canonical" href="https://bitbi.ai/generate-lab/">
+    <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
+    <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
+    <link rel="icon" href="/assets/favicons/android-chrome-512x512.png" sizes="512x512" type="image/png">
+    <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/assets/favicons/site.webmanifest">
+    <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/pages/generate-lab.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
+    <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
+</head>
+<body class="generate-lab-page">
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<header>
+<nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
+    <div class="container">
+        <div class="site-nav__bar">
+            <a href="/" class="site-nav__logo">
+                <span class="site-nav__logo-text gt-hero">BITBI</span>
+                <span class="site-nav__logo-glow" aria-hidden="true"></span>
+            </a>
+            <div class="site-nav__links">
+                <a href="/#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
+                <a href="/#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
+                <a href="/#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
+            </div>
+            <div class="site-nav__actions">
+                <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
+            </div>
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
+                <span class="site-nav__menu-bar" id="bar1"></span>
+                <span class="site-nav__menu-bar" id="bar2"></span>
+                <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
+            </button>
+        </div>
+    </div>
+</nav>
+</header>
+
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+    <div id="frozenBackdrop" class="mobile-nav__backdrop" aria-hidden="true"></div>
+    <div id="frozenRainLayer" class="mobile-nav__rain-layer" aria-hidden="true"></div>
+    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Close menu">&times;</button>
+    <div class="mobile-nav__inner">
+        <div id="mobileNavAuth" class="mobile-nav__auth"></div>
+        <nav class="mobile-nav__section" aria-label="Explore">
+            <span class="mobile-nav__label">Explore</span>
+            <a href="/#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Gallery</a>
+            <a href="/#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
+            <a href="/#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
+            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
+        </nav>
+        <nav class="mobile-nav__section" aria-label="Connect">
+            <span class="mobile-nav__label">Connect</span>
+            <a href="/#contact" class="mobile-nav__link">Contact</a>
+        </nav>
+    </div>
+</div>
+
+<main id="main-content" class="generate-lab" data-generate-lab>
+    <canvas id="heroCanvas" class="generate-lab__canvas" aria-hidden="true"></canvas>
+    <div class="generate-lab__binary-rain" id="binaryRain" aria-hidden="true"></div>
+
+    <section class="generate-lab__mobile-fallback" aria-labelledby="generateLabMobileTitle">
+        <div class="generate-lab__mobile-card">
+            <p class="generate-lab__eyebrow">Generate Lab</p>
+            <h1 id="generateLabMobileTitle">Desktop workspace</h1>
+            <p>Generate Lab is optimized for desktop creation workflows. Please open it on a desktop or larger screen to use the full image, video, and music workspace.</p>
+            <a href="/" class="generate-lab__mobile-link">Back to BITBI</a>
+        </div>
+    </section>
+
+    <section class="generate-lab__desktop" data-generate-lab-workspace aria-labelledby="generateLabTitle">
+        <div class="generate-lab__topbar reveal">
+            <div>
+                <p class="generate-lab__eyebrow">Member workspace</p>
+                <h1 id="generateLabTitle" class="generate-lab__title gt-gold-cyan">Generate Lab</h1>
+                <p class="generate-lab__subtitle">Create images, videos, and music with BITBI's live member models.</p>
+            </div>
+            <div class="generate-lab__account-panel" aria-live="polite">
+                <span id="labAccountStatus" class="generate-lab__account-status">Checking session...</span>
+                <strong id="labCreditStatus" class="generate-lab__credit-status">Credits unavailable</strong>
+                <a href="/account/assets-manager.html" class="generate-lab__assets-link">Assets Manager</a>
+            </div>
+        </div>
+
+        <div class="generate-lab__workspace reveal">
+            <aside class="generate-lab__panel generate-lab__panel--left" aria-label="Generate Lab model selection">
+                <div class="generate-lab__panel-head">
+                    <p class="generate-lab__panel-kicker">Mode</p>
+                    <h2 class="generate-lab__panel-title">Choose output</h2>
+                </div>
+                <div class="generate-lab__media-tabs" role="tablist" aria-label="Media type">
+                    <button type="button" class="generate-lab__media-tab is-active" data-media-type="image" role="tab" aria-selected="true">Images</button>
+                    <button type="button" class="generate-lab__media-tab" data-media-type="video" role="tab" aria-selected="false">Video</button>
+                    <button type="button" class="generate-lab__media-tab" data-media-type="music" role="tab" aria-selected="false">Music</button>
+                </div>
+                <div id="labModelList" class="generate-lab__model-list" aria-label="Models"></div>
+                <div class="generate-lab__model-details" id="labModelDetails" aria-live="polite"></div>
+            </aside>
+
+            <section class="generate-lab__panel generate-lab__panel--stage" aria-labelledby="labComposerTitle">
+                <div class="generate-lab__panel-head generate-lab__panel-head--stage">
+                    <div>
+                        <p class="generate-lab__panel-kicker" id="labComposerEyebrow">Composer</p>
+                        <h2 class="generate-lab__panel-title" id="labComposerTitle">Prompt stage</h2>
+                    </div>
+                    <span id="labModelBadge" class="generate-lab__badge">FLUX.1 Schnell</span>
+                </div>
+
+                <div class="generate-lab__prompt-shell">
+                    <label id="labPromptLabel" for="labPrompt" class="generate-lab__label">Describe your image</label>
+                    <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="7" placeholder="A luminous glass sculpture in a rain-soaked cyberpunk gallery..."></textarea>
+                    <p id="labPromptHelp" class="generate-lab__help">Describe the subject, setting, style, mood, and lighting.</p>
+                </div>
+
+                <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
+
+                <div class="generate-lab__recent">
+                    <div class="generate-lab__recent-head">
+                        <h3>Recent assets</h3>
+                        <a href="/account/assets-manager.html">Manage all</a>
+                    </div>
+                    <div id="labRecentAssets" class="generate-lab__recent-grid">
+                        <div class="generate-lab__recent-empty">Sign in to load recent assets.</div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="generate-lab__panel generate-lab__panel--settings" aria-labelledby="labSettingsTitle">
+                <div class="generate-lab__panel-head">
+                    <p class="generate-lab__panel-kicker">Controls</p>
+                    <h2 id="labSettingsTitle" class="generate-lab__panel-title">Parameters</h2>
+                </div>
+
+                <div class="generate-lab__settings-stack">
+                    <section class="generate-lab__settings-group" data-settings-for="image" aria-label="Image settings">
+                        <label class="generate-lab__field" for="labImageModel">
+                            <span class="generate-lab__label">Model</span>
+                            <select id="labImageModel" class="generate-lab__select"></select>
+                        </label>
+                        <div class="generate-lab__field-grid">
+                            <label class="generate-lab__field" for="labImageSteps">
+                                <span class="generate-lab__label">Steps</span>
+                                <select id="labImageSteps" class="generate-lab__select">
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4" selected>4</option>
+                                    <option value="6">6</option>
+                                    <option value="8">8</option>
+                                </select>
+                            </label>
+                            <label class="generate-lab__field" for="labImageSeed">
+                                <span class="generate-lab__label">Seed</span>
+                                <input id="labImageSeed" class="generate-lab__input" type="number" min="0" placeholder="Random" inputmode="numeric">
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="generate-lab__settings-group" data-settings-for="video" aria-label="Video settings" hidden>
+                        <label class="generate-lab__field" for="labVideoNegative">
+                            <span class="generate-lab__label">Negative prompt</span>
+                            <textarea id="labVideoNegative" class="generate-lab__textarea" maxlength="2048" rows="3" placeholder="Optional: blur, distorted faces, low quality..."></textarea>
+                        </label>
+                        <div class="generate-lab__field">
+                            <label class="generate-lab__label" for="labVideoReference">Reference image</label>
+                            <div class="generate-lab__upload-shell" id="labVideoReferenceShell">
+                                <input id="labVideoReference" class="generate-lab__file-input" type="file" accept="image/*">
+                                <label for="labVideoReference" class="generate-lab__upload">
+                                    <span class="generate-lab__upload-mark" aria-hidden="true"></span>
+                                    <span>
+                                        <strong>Add reference image</strong>
+                                        <span id="labVideoReferenceLabel">Optional image-to-video reference</span>
+                                    </span>
+                                </label>
+                                <button id="labVideoReferenceRemove" class="generate-lab__ghost-btn" type="button" hidden>Remove</button>
+                            </div>
+                        </div>
+                        <div class="generate-lab__field-grid">
+                            <label class="generate-lab__field" for="labVideoDuration">
+                                <span class="generate-lab__label">Duration</span>
+                                <select id="labVideoDuration" class="generate-lab__select">
+                                    <option value="1">1 s</option>
+                                    <option value="2">2 s</option>
+                                    <option value="3">3 s</option>
+                                    <option value="4">4 s</option>
+                                    <option value="5" selected>5 s</option>
+                                    <option value="6">6 s</option>
+                                    <option value="7">7 s</option>
+                                    <option value="8">8 s</option>
+                                    <option value="9">9 s</option>
+                                    <option value="10">10 s</option>
+                                    <option value="11">11 s</option>
+                                    <option value="12">12 s</option>
+                                    <option value="13">13 s</option>
+                                    <option value="14">14 s</option>
+                                    <option value="15">15 s</option>
+                                </select>
+                            </label>
+                            <label class="generate-lab__field" for="labVideoQuality">
+                                <span class="generate-lab__label">Quality</span>
+                                <select id="labVideoQuality" class="generate-lab__select">
+                                    <option value="360p">360p</option>
+                                    <option value="540p">540p</option>
+                                    <option value="720p" selected>720p</option>
+                                    <option value="1080p">1080p</option>
+                                </select>
+                            </label>
+                            <label class="generate-lab__field" for="labVideoAspect">
+                                <span class="generate-lab__label">Aspect</span>
+                                <select id="labVideoAspect" class="generate-lab__select">
+                                    <option value="16:9" selected>16:9</option>
+                                    <option value="4:3">4:3</option>
+                                    <option value="1:1">1:1</option>
+                                    <option value="3:4">3:4</option>
+                                    <option value="9:16">9:16</option>
+                                    <option value="2:3">2:3</option>
+                                    <option value="3:2">3:2</option>
+                                    <option value="21:9">21:9</option>
+                                </select>
+                            </label>
+                            <label class="generate-lab__field" for="labVideoSeed">
+                                <span class="generate-lab__label">Seed</span>
+                                <input id="labVideoSeed" class="generate-lab__input" type="number" min="0" max="2147483647" step="1" placeholder="Optional" inputmode="numeric">
+                            </label>
+                        </div>
+                        <label class="generate-lab__toggle">
+                            <input id="labVideoAudio" type="checkbox" checked>
+                            <span class="generate-lab__toggle-ui" aria-hidden="true"></span>
+                            <span class="generate-lab__toggle-copy">
+                                <strong>Audio</strong>
+                                <span>Generate sound with the clip</span>
+                            </span>
+                        </label>
+                    </section>
+
+                    <section class="generate-lab__settings-group" data-settings-for="music" aria-label="Music settings" hidden>
+                        <label class="generate-lab__field" for="labMusicLyrics">
+                            <span class="generate-lab__label">Manual lyrics</span>
+                            <textarea id="labMusicLyrics" class="generate-lab__textarea" maxlength="3500" rows="5" placeholder="Optional lyrics"></textarea>
+                        </label>
+                        <div class="generate-lab__toggle-grid">
+                            <label class="generate-lab__toggle">
+                                <input id="labMusicInstrumental" type="checkbox">
+                                <span class="generate-lab__toggle-ui" aria-hidden="true"></span>
+                                <span class="generate-lab__toggle-copy">
+                                    <strong>Instrumental</strong>
+                                    <span>No vocals or lyrics</span>
+                                </span>
+                            </label>
+                            <label class="generate-lab__toggle">
+                                <input id="labMusicGenerateLyrics" type="checkbox">
+                                <span class="generate-lab__toggle-ui" aria-hidden="true"></span>
+                                <span class="generate-lab__toggle-copy">
+                                    <strong>Generate lyrics</strong>
+                                    <span>Adds the lyrics step</span>
+                                </span>
+                            </label>
+                        </div>
+                    </section>
+
+                    <label class="generate-lab__field" for="labFolderSelect">
+                        <span class="generate-lab__label">Destination</span>
+                        <select id="labFolderSelect" class="generate-lab__select">
+                            <option value="">Assets</option>
+                        </select>
+                    </label>
+
+                    <div class="generate-lab__action-card">
+                        <div>
+                            <span class="generate-lab__action-label">Estimated cost</span>
+                            <strong id="labCost">1 credit</strong>
+                        </div>
+                        <p id="labBalance" class="generate-lab__balance">Sign in to check credits.</p>
+                        <button id="labGenerate" type="button" class="generate-lab__generate-btn">Generate</button>
+                    </div>
+                    <div id="labMessage" class="generate-lab__message" role="status" aria-live="polite"></div>
+                </div>
+            </aside>
+        </div>
+    </section>
+</main>
+
+<div class="section-divider" aria-hidden="true"></div>
+<footer class="site-footer">
+    <div class="site-footer__inner">
+        <div class="site-footer__top">
+            <div class="site-footer__brand">
+                <a href="/" class="site-footer__brand-name gt-hero">BITBI</a>
+                <p class="site-footer__tagline">My Digital Playground</p>
+            </div>
+            <div class="site-footer__social">
+                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            </div>
+        </div>
+        <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
+        <div class="site-footer__links">
+            <a href="../legal/imprint.html" class="site-footer__link">Imprint / Impressum</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="../legal/privacy.html" class="site-footer__link">Privacy Policy</a> / <a href="../legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie Settings</a>
+        </div>
+        <p class="site-footer__copy">BITBI Studio &bull; Built with love &amp; code &bull; &copy; 2026</p>
+    </div>
+</footer>
+
+<script type="module" src="../js/pages/generate-lab/main.js?v=__ASSET_VERSION__"></script>
+</body>
+</html>
