@@ -8,6 +8,14 @@ import {
   isBillingStorageUnavailableError,
 } from "../lib/billing.js";
 import {
+  StripeBillingError,
+  createStripeLiveMemberCreditPackCheckout,
+  getMemberLiveCreditsPurchaseContext,
+  stripeBillingErrorResponse,
+} from "../lib/stripe-billing.js";
+import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
+import { enforceSensitiveUserRateLimit } from "../lib/sensitive-write-limit.js";
+import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -15,6 +23,9 @@ import {
 function creditsErrorResponse(error, { correlationId = null, userId = null } = {}) {
   if (error instanceof BillingError) {
     return json(billingErrorResponse(error), { status: error.status });
+  }
+  if (error instanceof StripeBillingError) {
+    return json(stripeBillingErrorResponse(error), { status: error.status });
   }
   if (isBillingStorageUnavailableError(error)) {
     logDiagnostic({
@@ -32,12 +43,82 @@ function creditsErrorResponse(error, { correlationId = null, userId = null } = {
   throw error;
 }
 
+function idempotencyKeyOrResponse(request) {
+  try {
+    return {
+      key: request.headers.get("Idempotency-Key"),
+      response: null,
+    };
+  } catch {
+    return {
+      key: null,
+      response: json({ ok: false, error: "A valid Idempotency-Key header is required.", code: "idempotency_key_required" }, { status: 428 }),
+    };
+  }
+}
+
+async function handleMemberLiveCreditPackCheckout(ctx, session) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "account-billing-live-checkout-user",
+    userId: session.user.id,
+    maxRequests: 10,
+    windowMs: 15 * 60_000,
+    component: "account-billing-live-checkout",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.smallJson,
+  });
+  if (parsed.response) return parsed.response;
+
+  try {
+    const result = await createStripeLiveMemberCreditPackCheckout({
+      env: ctx.env,
+      userId: session.user.id,
+      packId: parsed.body?.pack_id || parsed.body?.packId,
+      idempotencyKey: idempotency.key,
+      legalAcceptance: {
+        termsAccepted: parsed.body?.terms_accepted === true || parsed.body?.termsAccepted === true,
+        termsVersion: parsed.body?.terms_version || parsed.body?.termsVersion,
+        immediateDeliveryAccepted: parsed.body?.immediate_delivery_accepted === true || parsed.body?.immediateDeliveryAccepted === true,
+        acceptedAt: parsed.body?.accepted_at || parsed.body?.acceptedAt || null,
+      },
+    });
+    return json({
+      ok: true,
+      reused: result.reused,
+      checkout_url: result.checkout.checkoutUrl,
+      session_id: result.checkout.sessionId,
+      mode: result.checkout.providerMode,
+      checkout_scope: "member",
+      authorization_scope: result.checkout.authorizationScope,
+      credit_pack: result.creditPack,
+      livePaymentProviderEnabled: true,
+    }, { status: result.reused ? 200 : 201 });
+  } catch (error) {
+    return creditsErrorResponse(error, {
+      correlationId: ctx.correlationId,
+      userId: session.user.id,
+    });
+  }
+}
+
 export async function handleAccountCredits(ctx) {
   const { request, env, pathname, method, url, correlationId } = ctx;
-  if (pathname !== "/api/account/credits-dashboard" || method !== "GET") return null;
+  const isDashboard = pathname === "/api/account/credits-dashboard" && method === "GET";
+  const isLiveCheckout = pathname === "/api/account/billing/checkout/live-credit-pack" && method === "POST";
+  if (!isDashboard && !isLiveCheckout) return null;
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
+
+  if (isLiveCheckout) {
+    return handleMemberLiveCreditPackCheckout(ctx, session);
+  }
 
   try {
     const dashboard = await getMemberCreditsDashboard({
@@ -46,6 +127,22 @@ export async function handleAccountCredits(ctx) {
       limit: url.searchParams.get("limit"),
       applyDailyTopUp: true,
     });
+    try {
+      const purchaseContext = await getMemberLiveCreditsPurchaseContext({
+        env,
+        userId: session.user.id,
+        includeConfigNames: session.user.role === "admin",
+        limit: url.searchParams.get("limit"),
+      });
+      dashboard.liveCheckout = purchaseContext.liveCheckout;
+      dashboard.packs = purchaseContext.packs;
+      dashboard.purchaseHistory = purchaseContext.purchaseHistory;
+    } catch (error) {
+      if (!isBillingStorageUnavailableError(error)) throw error;
+      dashboard.liveCheckout = { enabled: false, configured: false, mode: "live", code: "billing_storage_unavailable" };
+      dashboard.packs = [];
+      dashboard.purchaseHistory = [];
+    }
     return json({ ok: true, dashboard });
   } catch (error) {
     return creditsErrorResponse(error, {

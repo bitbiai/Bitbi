@@ -3,6 +3,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import {
     apiAccountCreditsDashboard,
     apiAdminOrganizations,
+    apiCreateMemberLiveCreditPackCheckout,
     apiCreateLiveCreditPackCheckout,
     apiGetMe,
     apiListOrganizations,
@@ -80,7 +81,7 @@ function setMode(mode) {
     if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? 'Member account' : 'Organization';
     if ($subtitle) {
         $subtitle.textContent = activeMode === 'member'
-            ? 'View your personal credit balance, daily top-up status, usage charges, and manual grants.'
+            ? 'View your personal credit balance, buy prepaid credits, and inspect recent usage charges.'
             : 'Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.';
     }
 }
@@ -126,7 +127,9 @@ function formatMoney(amountCents, currency = 'eur') {
 
 function idempotencyKey(packId, organizationId) {
     const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `credits-live:${organizationId}:${packId}:${random}`;
+    return activeMode === 'member'
+        ? `credits-member-live:${packId}:${random}`
+        : `credits-live:${organizationId}:${packId}:${random}`;
 }
 
 function isSafeCheckoutRedirect(value) {
@@ -419,10 +422,13 @@ function renderMemberDashboard(dashboard) {
             : 'Personal member credit account.';
     }
     removeMemberIrrelevantOrgPicker();
-    if ($packsSection) $packsSection.hidden = true;
-    if ($purchasesSection) $purchasesSection.hidden = true;
-    renderLegalBlock(false);
+    if ($packsSection) $packsSection.hidden = false;
+    if ($purchasesSection) $purchasesSection.hidden = false;
+    const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, 'member');
+    renderLegalBlock(checkoutEnabled && Array.isArray(dashboard.packs) && dashboard.packs.length > 0);
     renderSummary(dashboard.balance);
+    renderPacks(dashboard.packs || [], checkoutEnabled);
+    renderPurchases(dashboard.purchaseHistory || []);
     renderLedger(dashboard.transactions);
 }
 
@@ -476,7 +482,8 @@ async function loadDashboard() {
 }
 
 async function startCheckout(packId, button) {
-    if (!selectedOrganizationId || !packId) return;
+    if (!packId) return;
+    if (activeMode !== 'member' && !selectedOrganizationId) return;
     if (!termsAccepted || !immediateDeliveryAccepted) {
         legalError = 'Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.';
         renderLegalBlock(true);
@@ -485,19 +492,25 @@ async function startCheckout(packId, button) {
     const original = button.textContent;
     button.disabled = true;
     button.textContent = 'Creating checkout...';
-    const res = await apiCreateLiveCreditPackCheckout(selectedOrganizationId, {
+    const payload = {
         packId,
         idempotencyKey: idempotencyKey(packId, selectedOrganizationId),
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
         immediateDeliveryAccepted: true,
         acceptedAt: new Date().toISOString(),
-    });
+    };
+    const res = activeMode === 'member'
+        ? await apiCreateMemberLiveCreditPackCheckout(payload)
+        : await apiCreateLiveCreditPackCheckout(selectedOrganizationId, payload);
     if (!res.ok) {
         button.disabled = false;
         button.textContent = original;
         setError(res.error || 'Checkout could not be created.');
-        if (currentDashboard) renderDashboard(currentDashboard);
+        if (currentDashboard) {
+            if (activeMode === 'member') renderMemberDashboard(currentDashboard);
+            else renderDashboard(currentDashboard);
+        }
         return;
     }
     const checkoutUrl = res.data?.checkout_url;

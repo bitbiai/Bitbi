@@ -6,9 +6,7 @@ import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__'
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import {
-    apiAdminOrganizations,
-    apiCreateLiveCreditPackCheckout,
-    apiListOrganizations,
+    apiCreateMemberLiveCreditPackCheckout,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
 const TERMS_VERSION = '2026-05-05';
@@ -48,10 +46,6 @@ let selectedPackId = sessionStorage.getItem(PENDING_PACK_KEY) || 'live_credits_1
 let termsAccepted = false;
 let immediateDeliveryAccepted = false;
 let checkoutBusy = false;
-let organizationsLoading = false;
-let organizationsLoaded = false;
-let eligibleOrganizations = [];
-let selectedOrganizationId = null;
 let inlineMessage = '';
 let inlineMessageTone = 'neutral';
 let lastAuthLoggedIn = false;
@@ -81,9 +75,9 @@ function getSelectedPack() {
     return CREDIT_PACKS.find((pack) => pack.id === selectedPackId) || CREDIT_PACKS[1];
 }
 
-function idempotencyKey(packId, organizationId) {
+function idempotencyKey(packId) {
     const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `pricing-live:${organizationId}:${packId}:${random}`;
+    return `pricing-member-live:${packId}:${random}`;
 }
 
 function isSafeCheckoutRedirect(value) {
@@ -93,52 +87,6 @@ function isSafeCheckoutRedirect(value) {
         return url.origin === 'https://checkout.stripe.com';
     } catch {
         return false;
-    }
-}
-
-function selectedOrg() {
-    return eligibleOrganizations.find((org) => org.id === selectedOrganizationId) || null;
-}
-
-function normalizeOrganizations(data, { platformAdmin = false } = {}) {
-    const orgs = Array.isArray(data?.organizations) ? data.organizations : [];
-    return orgs
-        .filter((org) => org && org.id && org.status === 'active')
-        .filter((org) => platformAdmin || org.role === 'owner')
-        .map((org) => ({
-            id: org.id,
-            name: org.name || org.slug || org.id,
-            role: platformAdmin ? 'platform_admin' : org.role,
-            status: org.status,
-        }));
-}
-
-async function loadEligibleOrganizations(auth) {
-    if (!auth.loggedIn || organizationsLoading) return;
-    organizationsLoading = true;
-    try {
-        const response = auth.user?.role === 'admin'
-            ? await apiAdminOrganizations({ limit: 100 })
-            : await apiListOrganizations({ limit: 100 });
-        if (!response.ok) {
-            throw new Error(response.error || 'Could not load organization access.');
-        }
-        eligibleOrganizations = normalizeOrganizations(response.data, {
-            platformAdmin: auth.user?.role === 'admin',
-        });
-        const pendingOrgStillValid = eligibleOrganizations.some((org) => org.id === selectedOrganizationId);
-        if (!pendingOrgStillValid) {
-            selectedOrganizationId = eligibleOrganizations.length === 1 ? eligibleOrganizations[0].id : null;
-        }
-    } catch (error) {
-        eligibleOrganizations = [];
-        selectedOrganizationId = null;
-        inlineMessage = error?.message || 'Could not load organization access.';
-        inlineMessageTone = 'error';
-    } finally {
-        organizationsLoading = false;
-        organizationsLoaded = true;
-        renderPricingExperience();
     }
 }
 
@@ -280,69 +228,16 @@ function createInfoSection(title, text, bullets = []) {
     return card;
 }
 
-function createOrgSelector(auth) {
+function createCreditDestination(auth) {
     const wrapper = document.createElement('div');
     wrapper.className = 'pricing-org';
 
     if (!auth.loggedIn) {
-        wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Sign in or create an account to choose where credits should be added.'));
+        wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.'));
         return wrapper;
     }
 
-    if (organizationsLoading) {
-        wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Loading organization access…'));
-        return wrapper;
-    }
-
-    if (!eligibleOrganizations.length) {
-        const state = document.createElement('div');
-        state.className = 'pricing-org__state pricing-org__state--warning';
-        state.appendChild(document.createTextNode('Please select or create an organization before buying credits. '));
-        const link = document.createElement('a');
-        link.href = '/account/organization.html';
-        link.textContent = 'Open Organization';
-        state.appendChild(link);
-        wrapper.appendChild(state);
-        return wrapper;
-    }
-
-    if (eligibleOrganizations.length === 1 && selectedOrganizationId) {
-        wrapper.appendChild(createTextElement(
-            'p',
-            'pricing-org__state',
-            `Credits will be added to ${selectedOrg().name} after verified Stripe payment.`,
-        ));
-        return wrapper;
-    }
-
-    const row = document.createElement('div');
-    row.className = 'pricing-org__row';
-    const label = document.createElement('label');
-    label.className = 'pricing-org__field';
-    label.setAttribute('for', 'pricingOrgSelect');
-    label.appendChild(createTextElement('span', '', 'Credit destination'));
-    const select = document.createElement('select');
-    select.id = 'pricingOrgSelect';
-    select.className = 'pricing-org__select';
-    if (eligibleOrganizations.length !== 1) {
-        select.append(new Option('Select organization', ''));
-    }
-    for (const org of eligibleOrganizations) {
-        select.append(new Option(`${org.name}${org.role === 'platform_admin' ? ' · platform admin' : ''}`, org.id));
-    }
-    select.value = selectedOrganizationId || '';
-    select.addEventListener('change', () => {
-        selectedOrganizationId = select.value || null;
-        setInlineMessage(selectedOrganizationId ? 'Organization selected for checkout.' : '', 'neutral');
-    });
-    label.appendChild(select);
-    row.appendChild(label);
-
-    const state = createTextElement('p', 'pricing-org__state', selectedOrg()
-        ? `Credits will be added to ${selectedOrg().name} after verified Stripe payment.`
-        : 'Choose the organization whose credits should be topped up.');
-    row.appendChild(state);
-    wrapper.appendChild(row);
+    wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Credit destination: your BITBI member account. No organization setup or owner role is required.'));
     return wrapper;
 }
 
@@ -436,18 +331,13 @@ async function handleCheckout(auth) {
         setInlineMessage('Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.', 'error');
         return;
     }
-    if (!selectedOrganizationId) {
-        setInlineMessage('Please select or create an organization before buying credits.', 'error');
-        return;
-    }
-
     checkoutBusy = true;
     renderPricingExperience();
     const acceptedAt = new Date().toISOString();
     const pack = getSelectedPack();
-    const response = await apiCreateLiveCreditPackCheckout(selectedOrganizationId, {
+    const response = await apiCreateMemberLiveCreditPackCheckout({
         packId: pack.id,
-        idempotencyKey: idempotencyKey(pack.id, selectedOrganizationId),
+        idempotencyKey: idempotencyKey(pack.id),
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
         immediateDeliveryAccepted: true,
@@ -486,7 +376,7 @@ function renderPricingExperience() {
         grid.appendChild(createPackCard(pack, auth));
     }
     shell.appendChild(grid);
-    shell.appendChild(createOrgSelector(auth));
+    shell.appendChild(createCreditDestination(auth));
     shell.appendChild(createLegalCheckout(auth));
 
     const info = document.createElement('section');
@@ -506,10 +396,6 @@ function renderPricingExperience() {
     shell.appendChild(info);
 
     root.appendChild(shell);
-
-    if (auth.ready && auth.loggedIn && !organizationsLoading && !organizationsLoaded) {
-        loadEligibleOrganizations(auth);
-    }
 }
 
 function handleAuthState() {
@@ -525,9 +411,7 @@ function handleAuthState() {
         }
     }
     if (!auth.loggedIn) {
-        eligibleOrganizations = [];
-        selectedOrganizationId = null;
-        organizationsLoaded = false;
+        checkoutBusy = false;
     }
     renderPricingExperience();
 }

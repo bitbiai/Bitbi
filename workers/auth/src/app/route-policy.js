@@ -163,6 +163,12 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB"],
     notes: "Returns only the authenticated member's personal credit balance and sanitized transaction history.",
   }),
+  userJsonWrite("account.billing.checkout.live-credit-pack", "POST", "/api/account/billing/checkout/live-credit-pack", "billing", "smallJson", "account-billing-live-checkout-user", {
+    config: REQUIRED_CONFIG.stripeLiveCheckout,
+    audit: { event: "stripe_live_member_credit_pack_checkout_created" },
+    sensitivity: "high",
+    notes: "Live Stripe one-time credit-pack checkout for the authenticated member's personal credit balance. Requires active account session, ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Stripe live key and webhook readiness, Idempotency-Key, current terms and immediate-delivery consent, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
+  }),
   safeRead("profile.avatar.read", "GET", "/api/profile/avatar", "profile", {
     config: ["DB", "PRIVATE_MEDIA"],
   }),
@@ -214,7 +220,7 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.stripeLiveCheckout,
     audit: { event: "stripe_live_credit_pack_checkout_created" },
     sensitivity: "high",
-    notes: "Live Stripe one-time credit-pack checkout. Requires platform admin or active organization owner only; organization admin/member/viewer access is denied. Requires ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Stripe live key and webhook readiness, Idempotency-Key, current terms and immediate-delivery consent, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
+    notes: "Live Stripe one-time credit-pack checkout for an organization. Requires platform admin or active organization owner only; organization admin/member/viewer access is denied. Normal members use /api/account/billing/checkout/live-credit-pack for personal credits. Requires ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Stripe live key and webhook readiness, Idempotency-Key, current terms and immediate-delivery consent, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
   }),
   safeRead("orgs.billing.credits-dashboard.read", "GET", "/api/orgs/:id/billing/credits-dashboard", "billing", {
     sensitivity: "high",

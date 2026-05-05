@@ -1,4 +1,4 @@
-import { BillingError, getCreditBalance, grantOrganizationCredits, normalizeBillingIdempotencyKey } from "./billing.js";
+import { BillingError, getCreditBalance, grantMemberCredits, grantOrganizationCredits, normalizeBillingIdempotencyKey } from "./billing.js";
 import {
   BillingEventError,
   BILLING_WEBHOOK_STRIPE_PROVIDER,
@@ -23,6 +23,9 @@ const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CHECKOUT_SESSION_URL_PATTERN = /^https:\/\/checkout\.stripe\.com\/.+/;
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
+const LIVE_MEMBER_AUTH_SCOPE = "member";
+const LIVE_ORGANIZATION_CHECKOUT_SCOPE = "organization";
+const LIVE_MEMBER_CHECKOUT_SCOPE = "member";
 export const BITBI_TERMS_VERSION = "2026-05-05";
 
 export const STRIPE_CREDIT_PACKS = Object.freeze([
@@ -412,6 +415,13 @@ function serializePack(pack) {
   };
 }
 
+export function listStripeLiveCreditPacks() {
+  return STRIPE_LIVE_CREDIT_PACKS
+    .filter((pack) => pack.active)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(serializePack);
+}
+
 function serializeCheckoutRow(row, { includeUrl = false } = {}) {
   if (!row) return null;
   return {
@@ -429,6 +439,35 @@ function serializeCheckoutRow(row, { includeUrl = false } = {}) {
     },
     status: row.status,
     authorizationScope: row.authorization_scope || parseJsonObject(row.metadata_json).authorizationScope || null,
+    paymentStatus: row.payment_status || null,
+    completedAt: row.completed_at || null,
+    grantedAt: row.granted_at || null,
+    failedAt: row.failed_at || null,
+    expiredAt: row.expired_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    checkoutUrl: includeUrl ? (row.checkout_url || null) : undefined,
+  };
+}
+
+function serializeMemberCheckoutRow(row, { includeUrl = false } = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerMode: row.provider_mode,
+    sessionId: row.provider_checkout_session_id || null,
+    organizationId: null,
+    userId: row.user_id,
+    creditPack: {
+      id: row.credit_pack_id,
+      credits: Number(row.credits || 0),
+      amountCents: Number(row.amount_cents || 0),
+      currency: row.currency,
+    },
+    status: row.status,
+    checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+    authorizationScope: row.authorization_scope || LIVE_MEMBER_AUTH_SCOPE,
     paymentStatus: row.payment_status || null,
     completedAt: row.completed_at || null,
     grantedAt: row.granted_at || null,
@@ -483,8 +522,27 @@ async function liveCheckoutRequestFingerprint({ organizationId, userId, pack, au
     provider: "stripe",
     providerMode: STRIPE_MODE_LIVE,
     source: "pricing_page",
+    checkoutScope: LIVE_ORGANIZATION_CHECKOUT_SCOPE,
     authorizationScope,
     organizationId,
+    userId,
+    creditPackId: pack.id,
+    credits: pack.credits,
+    amountCents: pack.amountCents,
+    currency: pack.currency,
+    termsAccepted: legalAcceptance.termsAccepted,
+    termsVersion: legalAcceptance.termsVersion,
+    immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+  });
+}
+
+async function liveMemberCheckoutRequestFingerprint({ userId, pack, legalAcceptance }) {
+  return hashJson({
+    provider: "stripe",
+    providerMode: STRIPE_MODE_LIVE,
+    source: "pricing_page",
+    checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+    authorizationScope: LIVE_MEMBER_AUTH_SCOPE,
     userId,
     creditPackId: pack.id,
     credits: pack.credits,
@@ -511,6 +569,21 @@ async function fetchCheckoutByIdempotency(env, { organizationId, userId, idempot
   ).bind(organizationId, userId, idempotencyKeyHash).first();
 }
 
+async function fetchMemberCheckoutByIdempotency(env, { userId, idempotencyKeyHash }) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_payment_intent_id, user_id, credit_pack_id,
+            credits, amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, member_credit_ledger_entry_id, authorization_scope,
+            payment_status, granted_at, failed_at, expired_at, metadata_json,
+            created_at, updated_at, completed_at
+     FROM billing_member_checkout_sessions
+     WHERE user_id = ? AND idempotency_key_hash = ?
+     LIMIT 1`
+  ).bind(userId, idempotencyKeyHash).first();
+}
+
 async function fetchCheckoutByProviderSession(env, sessionId) {
   return env.DB.prepare(
     `SELECT id, provider, provider_mode, provider_checkout_session_id,
@@ -521,6 +594,21 @@ async function fetchCheckoutByProviderSession(env, sessionId) {
             payment_status, granted_at, failed_at, expired_at, metadata_json,
             created_at, updated_at, completed_at
      FROM billing_checkout_sessions
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?
+     LIMIT 1`
+  ).bind(sessionId).first();
+}
+
+async function fetchMemberCheckoutByProviderSession(env, sessionId) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_payment_intent_id, user_id, credit_pack_id,
+            credits, amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, member_credit_ledger_entry_id, authorization_scope,
+            payment_status, granted_at, failed_at, expired_at, metadata_json,
+            created_at, updated_at, completed_at
+     FROM billing_member_checkout_sessions
      WHERE provider = 'stripe' AND provider_checkout_session_id = ?
      LIMIT 1`
   ).bind(sessionId).first();
@@ -622,10 +710,11 @@ async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) 
 function buildCheckoutForm({
   config,
   pack,
-  organizationId,
+  organizationId = null,
   userId,
   checkoutId,
   authorizationScope = null,
+  checkoutScope = null,
   source = null,
   legalAcceptance = null,
 }) {
@@ -641,13 +730,17 @@ function buildCheckoutForm({
   body.set("line_items[0][price_data][currency]", pack.currency);
   body.set("line_items[0][price_data][unit_amount]", String(pack.amountCents));
   body.set("line_items[0][price_data][product_data][name]", pack.name);
-  body.set("metadata[organization_id]", organizationId);
+  if (organizationId) {
+    body.set("metadata[organization_id]", organizationId);
+  }
   body.set("metadata[user_id]", userId);
   body.set("metadata[pack_id]", pack.id);
   body.set("metadata[credit_pack_id]", pack.id);
   body.set("metadata[credits]", String(pack.credits));
   body.set("metadata[internal_checkout_session_id]", checkoutId);
   body.set("metadata[stripe_mode]", config.mode);
+  body.set("metadata[mode]", config.mode);
+  if (checkoutScope) body.set("metadata[checkout_scope]", checkoutScope);
   if (source) body.set("metadata[source]", source);
   if (authorizationScope) {
     body.set("metadata[authorization_scope]", authorizationScope);
@@ -956,6 +1049,7 @@ export async function createStripeLiveCreditPackCheckout({
     JSON.stringify({
       phase: "2-L",
       source: "pricing_page",
+      checkoutScope: LIVE_ORGANIZATION_CHECKOUT_SCOPE,
       authorizationScope: scope,
       liveBillingEnabled: true,
       asyncPaymentMethodsEnabled: false,
@@ -979,6 +1073,7 @@ export async function createStripeLiveCreditPackCheckout({
         userId: normalizedUserId,
         checkoutId: id,
         authorizationScope: scope,
+        checkoutScope: LIVE_ORGANIZATION_CHECKOUT_SCOPE,
         source: "pricing_page",
         legalAcceptance: acceptance,
       }),
@@ -1000,6 +1095,180 @@ export async function createStripeLiveCreditPackCheckout({
       ? error.message
       : "Stripe Checkout Session could not be created.";
     await markCheckoutSessionFailed(env, { id, errorCode: code, errorMessage: message });
+    throw error;
+  }
+}
+
+async function updateMemberCheckoutSessionAfterStripeCreate(env, {
+  id,
+  stripeSession,
+  now = nowIso(),
+}) {
+  await env.DB.prepare(
+    `UPDATE billing_member_checkout_sessions
+     SET provider_checkout_session_id = ?,
+         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         checkout_url = ?,
+         payment_status = COALESCE(?, payment_status),
+         error_code = NULL,
+         error_message = NULL,
+         updated_at = ?
+     WHERE id = ? AND provider = 'stripe' AND provider_mode = 'live'`
+  ).bind(
+    stripeSession.id,
+    stripeSession.paymentIntent && paymentIntentPatternForMode(STRIPE_MODE_LIVE).test(stripeSession.paymentIntent)
+      ? stripeSession.paymentIntent
+      : null,
+    stripeSession.customer,
+    stripeSession.url,
+    stripeSession.paymentStatus,
+    now,
+    id
+  ).run();
+  return fetchMemberCheckoutByProviderSession(env, stripeSession.id);
+}
+
+async function markMemberCheckoutSessionFailed(env, {
+  id,
+  errorCode,
+  errorMessage,
+  now = nowIso(),
+}) {
+  await env.DB.prepare(
+    `UPDATE billing_member_checkout_sessions
+     SET status = 'failed',
+         error_code = ?,
+         error_message = ?,
+         updated_at = ?,
+         failed_at = COALESCE(failed_at, ?)
+     WHERE id = ?`
+  ).bind(
+    safeString(errorCode, 64),
+    safeString(errorMessage, 256),
+    now,
+    now,
+    id
+  ).run();
+}
+
+export async function createStripeLiveMemberCreditPackCheckout({
+  env,
+  userId,
+  packId,
+  idempotencyKey,
+  legalAcceptance,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const acceptance = normalizeLiveLegalAcceptance(legalAcceptance);
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const pack = getStripeLiveCreditPack(packId);
+  const config = getStripeLiveCheckoutConfig(env);
+  const keyHash = await sha256Hex(`live-member:${normalizedKey}`);
+  const requestHash = await liveMemberCheckoutRequestFingerprint({
+    userId: normalizedUserId,
+    pack,
+    legalAcceptance: acceptance,
+  });
+  const existing = await fetchMemberCheckoutByIdempotency(env, {
+    userId: normalizedUserId,
+    idempotencyKeyHash: keyHash,
+  });
+  if (existing) {
+    if (existing.request_fingerprint_hash !== requestHash) {
+      throw new StripeBillingError("Idempotency-Key conflicts with a different checkout request.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    if (!existing.checkout_url) {
+      throw new StripeBillingError("Stripe Checkout Session could not be created.", {
+        status: 502,
+        code: "stripe_checkout_create_failed",
+      });
+    }
+    return {
+      checkout: serializeMemberCheckoutRow(existing, { includeUrl: true }),
+      creditPack: serializePack(pack),
+      reused: true,
+    };
+  }
+
+  const id = checkoutSessionId();
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO billing_member_checkout_sessions (
+       id, provider, provider_mode, provider_checkout_session_id,
+       provider_payment_intent_id, user_id, credit_pack_id,
+       credits, amount_cents, currency, status, idempotency_key_hash,
+       request_fingerprint_hash, checkout_url, provider_customer_id,
+       authorization_scope, payment_status, metadata_json, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    "stripe",
+    STRIPE_MODE_LIVE,
+    null,
+    null,
+    normalizedUserId,
+    pack.id,
+    pack.credits,
+    pack.amountCents,
+    pack.currency,
+    "created",
+    keyHash,
+    requestHash,
+    null,
+    null,
+    LIVE_MEMBER_AUTH_SCOPE,
+    null,
+    JSON.stringify({
+      phase: "2-M",
+      source: "pricing_page",
+      checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+      authorizationScope: LIVE_MEMBER_AUTH_SCOPE,
+      liveBillingEnabled: true,
+      asyncPaymentMethodsEnabled: false,
+      termsAccepted: true,
+      termsVersion: acceptance.termsVersion,
+      immediateDeliveryAccepted: true,
+      acceptedAt: acceptance.acceptedAt,
+    }),
+    now,
+    now
+  ).run();
+
+  try {
+    const stripeSession = await postStripeCheckoutSession({
+      env,
+      config,
+      body: buildCheckoutForm({
+        config,
+        pack,
+        userId: normalizedUserId,
+        checkoutId: id,
+        authorizationScope: LIVE_MEMBER_AUTH_SCOPE,
+        checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+        source: "pricing_page",
+        legalAcceptance: acceptance,
+      }),
+      idempotencyKey: `bitbi-live-member-${keyHash.slice(0, 36)}`,
+    });
+    const checkout = await updateMemberCheckoutSessionAfterStripeCreate(env, {
+      id,
+      stripeSession,
+    });
+    return {
+      checkout: serializeMemberCheckoutRow(checkout, { includeUrl: true }),
+      creditPack: serializePack(pack),
+      reused: false,
+    };
+  } catch (error) {
+    const code = error instanceof StripeBillingError ? error.code : "stripe_checkout_create_failed";
+    const message = error instanceof StripeBillingError
+      ? error.message
+      : "Stripe Checkout Session could not be created.";
+    await markMemberCheckoutSessionFailed(env, { id, errorCode: code, errorMessage: message });
     throw error;
   }
 }
@@ -1251,9 +1520,18 @@ function normalizeLiveCheckoutCompletion(payload) {
   const metadata = session.metadata && typeof session.metadata === "object" && !Array.isArray(session.metadata)
     ? session.metadata
     : {};
-  const organizationId = normalizeStripeMetadataOrgId(metadata.organization_id || metadata.organizationId);
+  const checkoutScope = safeString(metadata.checkout_scope || metadata.checkoutScope, 32) || LIVE_ORGANIZATION_CHECKOUT_SCOPE;
+  if (![LIVE_ORGANIZATION_CHECKOUT_SCOPE, LIVE_MEMBER_CHECKOUT_SCOPE].includes(checkoutScope)) {
+    throw new StripeBillingError("Stripe live checkout scope is invalid.", {
+      status: 400,
+      code: "stripe_checkout_scope_invalid",
+    });
+  }
+  const organizationId = checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE
+    ? null
+    : normalizeStripeMetadataOrgId(metadata.organization_id || metadata.organizationId);
   const userId = normalizeUserId(metadata.user_id || metadata.userId);
-  const pack = getStripeLiveCreditPack(metadata.credit_pack_id || metadata.creditPackId, { includeLegacy: true });
+  const pack = getStripeLiveCreditPack(metadata.credit_pack_id || metadata.creditPackId || metadata.pack_id || metadata.packId, { includeLegacy: true });
   const metadataCredits = Number(metadata.credits);
   const amountTotal = Number(session.amount_total);
   const currency = safeString(session.currency, 16)?.toLowerCase();
@@ -1274,6 +1552,7 @@ function normalizeLiveCheckoutCompletion(payload) {
     paymentIntent: safeString(session.payment_intent, 128),
     customer: safeString(session.customer, 128),
     paymentStatus: safeString(session.payment_status, 64),
+    checkoutScope,
     organizationId,
     userId,
     pack,
@@ -1366,6 +1645,21 @@ function assertCheckoutMatchesCompletion(checkout, completion) {
   }
 }
 
+function assertMemberCheckoutMatchesCompletion(checkout, completion) {
+  if (
+    checkout.user_id !== completion.userId ||
+    checkout.credit_pack_id !== completion.pack.id ||
+    Number(checkout.credits) !== completion.pack.credits ||
+    Number(checkout.amount_cents) !== completion.pack.amountCents ||
+    String(checkout.currency).toLowerCase() !== completion.pack.currency
+  ) {
+    throw new StripeBillingError("Stripe live member Checkout Session does not match the stored checkout request.", {
+      status: 409,
+      code: "stripe_checkout_session_mismatch",
+    });
+  }
+}
+
 async function requireAdminCreatedCheckoutSession(env, completion) {
   const checkout = await fetchCheckoutByProviderSession(env, completion.sessionId);
   if (!checkout) {
@@ -1386,6 +1680,52 @@ async function requireAdminCreatedCheckoutSession(env, completion) {
     });
   }
   return checkout;
+}
+
+async function upsertCompletedMemberCheckoutSession({
+  env,
+  completion,
+  billingEventId,
+  ledgerEntryId = null,
+}) {
+  const existing = await fetchMemberCheckoutByProviderSession(env, completion.sessionId);
+  const now = nowIso();
+  if (!existing) {
+    throw new StripeBillingError("Stripe live member Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
+  }
+  assertMemberCheckoutMatchesCompletion(existing, completion);
+  await env.DB.prepare(
+    `UPDATE billing_member_checkout_sessions
+     SET status = 'completed',
+         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         billing_event_id = COALESCE(?, billing_event_id),
+         member_credit_ledger_entry_id = COALESCE(?, member_credit_ledger_entry_id),
+         payment_status = COALESCE(?, payment_status),
+         error_code = NULL,
+         error_message = NULL,
+         updated_at = ?,
+         completed_at = COALESCE(completed_at, ?),
+         granted_at = CASE WHEN ? IS NOT NULL THEN COALESCE(granted_at, ?) ELSE granted_at END
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
+  ).bind(
+    completion.paymentIntent && paymentIntentPatternForMode(STRIPE_MODE_LIVE).test(completion.paymentIntent)
+      ? completion.paymentIntent
+      : null,
+    completion.customer,
+    billingEventId,
+    ledgerEntryId,
+    completion.paymentStatus || "paid",
+    now,
+    now,
+    ledgerEntryId,
+    now,
+    completion.sessionId
+  ).run();
+  return fetchMemberCheckoutByProviderSession(env, completion.sessionId);
 }
 
 async function requireLiveAuthorizedCheckoutSession(env, completion) {
@@ -1440,6 +1780,34 @@ async function requireLiveAuthorizedCheckoutSession(env, completion) {
   return { checkout, scope };
 }
 
+async function requireLiveMemberCheckoutSession(env, completion) {
+  const checkout = await fetchMemberCheckoutByProviderSession(env, completion.sessionId);
+  if (!checkout || checkout.provider_mode !== STRIPE_MODE_LIVE) {
+    throw new StripeBillingError("Stripe live member Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
+  }
+  assertMemberCheckoutMatchesCompletion(checkout, completion);
+  const scope = checkout.authorization_scope || parseJsonObject(checkout.metadata_json).authorizationScope;
+  if (scope !== LIVE_MEMBER_AUTH_SCOPE) {
+    throw new StripeBillingError("Stripe live member Checkout Session scope is invalid.", {
+      status: 403,
+      code: "stripe_checkout_scope_invalid",
+    });
+  }
+  const creator = await env.DB.prepare(
+    "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+  ).bind(checkout.user_id).first();
+  if (!creator || creator.status !== "active") {
+    throw new StripeBillingError("Stripe live Checkout Session creator is no longer active.", {
+      status: 403,
+      code: "stripe_checkout_creator_inactive",
+    });
+  }
+  return { checkout, scope: LIVE_MEMBER_AUTH_SCOPE };
+}
+
 function serializeDashboardCheckout(row) {
   const checkout = serializeCheckoutRow(row);
   return {
@@ -1455,6 +1823,21 @@ function serializeDashboardCheckout(row) {
   };
 }
 
+function serializeDashboardMemberCheckout(row) {
+  const checkout = serializeMemberCheckoutRow(row);
+  return {
+    ...checkout,
+    sessionId: row.provider_checkout_session_id
+      ? `${String(row.provider_checkout_session_id).slice(0, 14)}…`
+      : null,
+    paymentIntentId: row.provider_payment_intent_id
+      ? `${String(row.provider_payment_intent_id).slice(0, 13)}…`
+      : null,
+    billingEventId: row.billing_event_id || null,
+    ledgerEntryId: row.member_credit_ledger_entry_id || null,
+  };
+}
+
 function serializeDashboardLedger(row) {
   return {
     id: row.id,
@@ -1465,6 +1848,36 @@ function serializeDashboardLedger(row) {
     source: row.source || null,
     createdByUserId: row.created_by_user_id || null,
     createdAt: row.created_at,
+  };
+}
+
+export async function getMemberLiveCreditsPurchaseContext({
+  env,
+  userId,
+  includeConfigNames = false,
+  limit = 25,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const appliedLimit = Math.min(Math.max(Number.parseInt(String(limit || 25), 10) || 25, 1), 50);
+  const purchaseRows = await env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_payment_intent_id, user_id, credit_pack_id,
+            credits, amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, member_credit_ledger_entry_id, authorization_scope,
+            payment_status, granted_at, failed_at, expired_at, metadata_json,
+            created_at, updated_at, completed_at
+     FROM billing_member_checkout_sessions
+     WHERE user_id = ?
+       AND provider = 'stripe'
+       AND provider_mode = 'live'
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`
+  ).bind(normalizedUserId, appliedLimit).all();
+  return {
+    liveCheckout: getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames }),
+    packs: listStripeLiveCreditPacks(),
+    purchaseHistory: (purchaseRows.results || []).map(serializeDashboardMemberCheckout),
   };
 }
 
@@ -1561,10 +1974,7 @@ export async function getOrganizationCreditsDashboard({
       lifetimeConsumed: Number(consumedRow?.credits || 0),
     },
     liveCheckout: getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames }),
-    packs: STRIPE_LIVE_CREDIT_PACKS
-      .filter((pack) => pack.active)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(serializePack),
+    packs: listStripeLiveCreditPacks(),
     purchaseHistory: (purchaseRows.results || []).map(serializeDashboardCheckout),
     recentLedger: (ledgerRows.results || []).map(serializeDashboardLedger),
   };
@@ -1745,6 +2155,67 @@ export async function handleVerifiedStripeLiveWebhookEvent({
   }
 
   try {
+    if (completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE) {
+      const { checkout: existingCheckout, scope } = await requireLiveMemberCheckoutSession(env, completion);
+      let grant = null;
+      if (!existingCheckout.member_credit_ledger_entry_id) {
+        grant = await grantMemberCredits({
+          env,
+          userId: completion.userId,
+          amount: completion.pack.credits,
+          createdByUserId: completion.userId,
+          idempotencyKey: `stripe_live_member_checkout:${completion.sessionId}:${completion.pack.id}`,
+          source: "stripe_live_checkout",
+          reason: `credit_pack:${completion.pack.id}`,
+        });
+      }
+      const checkout = await upsertCompletedMemberCheckoutSession({
+        env,
+        completion,
+        billingEventId: stored.event.id,
+        ledgerEntryId: grant?.ledgerEntry?.id || existingCheckout.member_credit_ledger_entry_id || null,
+      });
+      const event = await updateBillingProviderEventProcessing(env, {
+        eventId: stored.event.id,
+        processingStatus: "planned",
+        userId: completion.userId,
+        actionType: payload.type,
+        actionStatus: "planned",
+        actionDryRun: false,
+        actionSummary: {
+          sideEffectsEnabled: true,
+          liveBillingEnabled: true,
+          checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+          authorizationScope: scope,
+          creditGrantStatus: existingCheckout.member_credit_ledger_entry_id
+            ? "already_granted"
+            : (grant.reused ? "already_granted" : "granted"),
+          creditPackId: completion.pack.id,
+          credits: completion.pack.credits,
+        },
+      });
+      return {
+        event,
+        duplicate: false,
+        actionPlanned: true,
+        creditGrant: {
+          checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+          userId: completion.userId,
+          creditsGranted: existingCheckout.member_credit_ledger_entry_id ? 0 : completion.pack.credits,
+          balanceAfter: grant?.creditBalance ?? null,
+          reused: Boolean(existingCheckout.member_credit_ledger_entry_id || grant?.reused),
+        },
+        checkout: serializeMemberCheckoutRow(checkout),
+      };
+    }
+
+    if (completion.checkoutScope !== LIVE_ORGANIZATION_CHECKOUT_SCOPE) {
+      throw new StripeBillingError("Stripe live checkout scope is invalid.", {
+        status: 400,
+        code: "stripe_checkout_scope_invalid",
+      });
+    }
+
     const { checkout: existingCheckout, scope } = await requireLiveAuthorizedCheckoutSession(env, completion);
     let grant = null;
     if (!existingCheckout.credit_ledger_entry_id) {

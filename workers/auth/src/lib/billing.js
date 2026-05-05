@@ -40,7 +40,7 @@ export function billingErrorResponse(error) {
 export function isBillingStorageUnavailableError(error) {
   const message = String(error?.message || error || "");
   if (!/(?:no such table|no such column|SQLITE_ERROR|D1_ERROR)/i.test(message)) return false;
-  return /\b(?:member_credit_ledger|member_usage_events|credit_ledger|usage_events|plans|entitlements|organization_subscriptions|billing_provider_events|billing_event_actions|billing_checkout_sessions)\b/i.test(message);
+  return /\b(?:member_credit_ledger|member_usage_events|credit_ledger|usage_events|plans|entitlements|organization_subscriptions|billing_provider_events|billing_event_actions|billing_checkout_sessions|billing_member_checkout_sessions)\b/i.test(message);
 }
 
 export function billingStorageUnavailableResponse() {

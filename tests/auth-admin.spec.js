@@ -2559,6 +2559,50 @@ async function mockPricingAccount(page, {
       },
     }, 201);
   });
+  await page.route('**/api/account/billing/checkout/live-credit-pack', async (route) => {
+    checkoutRequests.push({
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      url: route.request().url(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      checkout_url: checkoutUrl,
+      session_id: 'cs_live_pricing_5000',
+      mode: 'live',
+      checkout_scope: 'member',
+      authorization_scope: 'member',
+      credit_pack: {
+        id: route.request().postDataJSON().pack_id,
+        credits: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 12000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 1999 : 999,
+        currency: 'eur',
+      },
+    }, 201);
+  });
+  await page.route('**/api/account/billing/checkout/live-credit-pack', async (route) => {
+    checkoutRequests.push({
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      url: route.request().url(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      checkout_url: checkoutUrl,
+      session_id: 'cs_live_credits_5000',
+      mode: 'live',
+      checkout_scope: 'member',
+      authorization_scope: 'member',
+      credit_pack: {
+        id: route.request().postDataJSON().pack_id,
+        credits: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 12000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 1999 : 999,
+        currency: 'eur',
+      },
+    }, 201);
+  });
 
   return { checkoutRequests };
 }
@@ -2630,6 +2674,16 @@ async function mockCreditsAccount(page, {
       reused: false,
       dailyAllowance: 10,
     },
+    liveCheckout: {
+      enabled: true,
+      configured: true,
+      mode: 'live',
+    },
+    packs: [
+      { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €' },
+      { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €' },
+    ],
+    purchaseHistory: [],
     transactions: [{
       id: 'mcl_member_usage',
       type: 'usage_charge',
@@ -3488,7 +3542,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-card')).toHaveCount(2);
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Selected pack');
     await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
-    await expect(page.locator('.pricing-org__state')).toContainText('Pricing Test Org');
+    await expect(page.locator('.pricing-org__state')).toContainText('member account');
+    await expect(page.locator('.pricing-org__state')).toContainText('No organization setup');
   });
 
   test('logged-out Pricing CTA opens registration instead of Stripe checkout', async ({ page }) => {
@@ -3573,7 +3628,8 @@ test.describe('Pricing credit-pack rollout', () => {
       terms_version: '2026-05-05',
       immediate_delivery_accepted: true,
     }));
-    expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing-live:/);
+    expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
+    expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing-member-live:/);
   });
 
   test('Pricing success and cancel return states render without granting credits client-side', async ({ page }) => {
@@ -3617,7 +3673,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#creditsEyebrow')).toHaveText('Member credits');
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
-    await expect(page.locator('[data-checkout-pack]')).toHaveCount(0);
+    await expect(page.locator('[data-checkout-pack]')).toHaveCount(2);
   });
 
   test('renders owner credits dashboard, live packs, and safe checkout initiation', async ({ page }) => {
@@ -3683,8 +3739,8 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsLedgerBody')).toContainText('Member support adjustment');
     await expect(page.locator('#creditsOrgPickerWrap')).toHaveCount(0);
     await expect(page.locator('#creditsDashboard')).not.toContainText('Switch organization');
-    await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(0);
-    await expect(page.locator('#creditsPurchasesSection')).toBeHidden();
+    await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
+    await expect(page.locator('#creditsPurchasesSection')).toBeVisible();
   });
 
   test('organization Credits view keeps organization switching only when multiple eligible organizations exist', async ({ page }) => {

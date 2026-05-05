@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0041_add_member_credit_ledger.sql",
+        "latest": "0042_add_member_live_stripe_checkout.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -481,6 +481,7 @@
       "PATCH /api/profile",
       "GET /api/profile/avatar",
       "GET /api/account/credits-dashboard",
+      "POST /api/account/billing/checkout/live-credit-pack",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",

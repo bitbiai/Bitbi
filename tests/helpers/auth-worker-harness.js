@@ -693,6 +693,7 @@ class MockD1 {
       billingProviderEvents: [],
       billingEventActions: [],
       billingCheckoutSessions: [],
+      billingMemberCheckoutSessions: [],
       creditLedger: [],
       usageEvents: [],
       memberCreditLedger: [],
@@ -825,6 +826,9 @@ class MockD1 {
     }
     if (this.missingTables.has('billing_event_actions') && query.includes('billing_event_actions')) {
       throw new Error('no such table: billing_event_actions');
+    }
+    if (this.missingTables.has('billing_member_checkout_sessions') && query.includes('billing_member_checkout_sessions')) {
+      throw new Error('no such table: billing_member_checkout_sessions');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -2392,6 +2396,175 @@ class MockD1 {
         status: membership.status,
         organization_status: organization.status,
       } : null;
+    }
+
+    if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, member_credit_ledger_entry_id, authorization_scope')) {
+      if (query.includes('WHERE user_id = ? AND idempotency_key_hash = ?')) {
+        const [userId, idempotencyKeyHash] = bindings;
+        return deepClone(this.state.billingMemberCheckoutSessions.find((row) =>
+          row.user_id === userId &&
+          row.idempotency_key_hash === idempotencyKeyHash
+        ) || null);
+      }
+      if (query.includes("WHERE provider = 'stripe' AND provider_checkout_session_id = ?")) {
+        const [sessionId] = bindings;
+        return deepClone(this.state.billingMemberCheckoutSessions.find((row) =>
+          row.provider === 'stripe' && row.provider_checkout_session_id === sessionId
+        ) || null);
+      }
+      if (query.includes('WHERE user_id = ?') && query.includes("provider_mode = 'live'")) {
+        const [userId, limit] = bindings;
+        const rows = this.state.billingMemberCheckoutSessions
+          .filter((row) =>
+            row.user_id === userId &&
+            row.provider === 'stripe' &&
+            row.provider_mode === 'live'
+          )
+          .sort((a, b) =>
+            String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+            String(b.id || '').localeCompare(String(a.id || ''))
+          )
+          .slice(0, Number(limit));
+        return { results: deepClone(rows) };
+      }
+    }
+
+    if (query.startsWith('INSERT INTO billing_member_checkout_sessions ( id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, authorization_scope, payment_status, metadata_json, created_at, updated_at ) VALUES')) {
+      const [
+        id,
+        provider,
+        providerMode,
+        providerCheckoutSessionId,
+        providerPaymentIntentId,
+        userId,
+        creditPackId,
+        credits,
+        amountCents,
+        currency,
+        status,
+        idempotencyKeyHash,
+        requestFingerprintHash,
+        checkoutUrl,
+        providerCustomerId,
+        authorizationScope,
+        paymentStatus,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.billingMemberCheckoutSessions.some((row) =>
+        row.id === id ||
+        (providerCheckoutSessionId != null && row.provider === provider && row.provider_checkout_session_id === providerCheckoutSessionId) ||
+        (row.user_id === userId && row.idempotency_key_hash === idempotencyKeyHash)
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_member_checkout_sessions');
+      }
+      this.state.billingMemberCheckoutSessions.push({
+        id,
+        provider,
+        provider_mode: providerMode,
+        provider_checkout_session_id: providerCheckoutSessionId,
+        provider_payment_intent_id: providerPaymentIntentId,
+        user_id: userId,
+        credit_pack_id: creditPackId,
+        credits,
+        amount_cents: amountCents,
+        currency,
+        status,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_fingerprint_hash: requestFingerprintHash,
+        checkout_url: checkoutUrl,
+        provider_customer_id: providerCustomerId,
+        billing_event_id: null,
+        member_credit_ledger_entry_id: null,
+        authorization_scope: authorizationScope,
+        payment_status: paymentStatus,
+        error_code: null,
+        error_message: null,
+        metadata_json: metadataJson,
+        granted_at: null,
+        failed_at: null,
+        expired_at: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE billing_member_checkout_sessions SET provider_checkout_session_id = ?')) {
+      const [
+        sessionId,
+        paymentIntentId,
+        customerId,
+        checkoutUrl,
+        paymentStatus,
+        updatedAt,
+        id,
+      ] = bindings;
+      const row = this.state.billingMemberCheckoutSessions.find((entry) =>
+        entry.id === id && entry.provider === 'stripe' && entry.provider_mode === 'live'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      if (this.state.billingMemberCheckoutSessions.some((entry) =>
+        entry !== row &&
+        entry.provider === 'stripe' &&
+        entry.provider_checkout_session_id === sessionId
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_member_checkout_sessions');
+      }
+      row.provider_checkout_session_id = sessionId;
+      row.provider_payment_intent_id = paymentIntentId || row.provider_payment_intent_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.checkout_url = checkoutUrl;
+      row.payment_status = paymentStatus || row.payment_status;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE billing_member_checkout_sessions SET status = 'failed'")) {
+      const [errorCode, errorMessage, updatedAt, failedAt, id] = bindings;
+      const row = this.state.billingMemberCheckoutSessions.find((entry) => entry.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'failed';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      row.failed_at = row.failed_at || failedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE billing_member_checkout_sessions SET status = 'completed', provider_payment_intent_id = COALESCE")) {
+      const [
+        paymentIntentId,
+        customerId,
+        billingEventId,
+        ledgerEntryId,
+        paymentStatus,
+        updatedAt,
+        completedAt,
+        grantedLedgerEntryId,
+        grantedAt,
+        sessionId,
+      ] = bindings;
+      const row = this.state.billingMemberCheckoutSessions.find((entry) =>
+        entry.provider === 'stripe' && entry.provider_checkout_session_id === sessionId
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'completed';
+      row.provider_payment_intent_id = paymentIntentId || row.provider_payment_intent_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.billing_event_id = billingEventId || row.billing_event_id;
+      row.member_credit_ledger_entry_id = ledgerEntryId || row.member_credit_ledger_entry_id;
+      row.payment_status = paymentStatus || row.payment_status;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      row.completed_at = row.completed_at || completedAt;
+      if (grantedLedgerEntryId) row.granted_at = row.granted_at || grantedAt;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, credit_ledger_entry_id, created_at, updated_at, completed_at FROM billing_checkout_sessions WHERE organization_id = ? AND user_id = ? AND idempotency_key_hash = ?')) {
