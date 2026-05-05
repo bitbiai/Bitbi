@@ -10416,6 +10416,61 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('admin AI GPT Image 2 save references can persist 1536x1024 outputs through the normal save endpoint', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        imagesBinding: {
+          originalInfo: { width: 1536, height: 1024, format: 'image/png' },
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 500 });
+
+      const generateRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'openai/gpt-image-2',
+          prompt: 'Admin GPT Image 2 landscape save by reference',
+          quality: 'high',
+          size: '1536x1024',
+          outputFormat: 'png',
+          background: 'auto',
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-save-ref-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(generateRes.status).toBe(200);
+      const generateBody = await generateRes.json();
+      const saveReference = generateBody?.result?.saveReference;
+      expect(saveReference).toEqual(expect.any(String));
+
+      const saveRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/images/save', 'POST', {
+          save_reference: saveReference,
+          prompt: 'Admin GPT Image 2 landscape save by reference',
+          model: 'openai/gpt-image-2',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(saveRes.status).toBe(201);
+      const saveBody = await saveRes.json();
+      const imageId = saveBody.data.id;
+      const savedRow = env.DB.state.aiImages.find((row) => row.id === imageId);
+      expect(savedRow).toEqual(expect.objectContaining({
+        model: 'openai/gpt-image-2',
+      }));
+      expect(env.IMAGES.infoCalls.at(-1)).toEqual(expect.objectContaining({
+        width: 1536,
+        height: 1024,
+      }));
+      expect(env.USER_IMAGES.objects.has(savedRow.r2_key)).toBe(true);
+      expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages.at(-1)).toMatchObject({
+        image_id: imageId,
+        original_key: savedRow.r2_key,
+        trigger: 'save',
+      });
+    });
+
     test('admin AI image save references cannot be reused across admin accounts', async () => {
       const ownerHarness = await createAdminAiContractHarness({
         user: createAdminUser('admin-image-owner'),
@@ -17702,6 +17757,65 @@ test.describe('Worker routes', () => {
     expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
   });
 
+  test('AI save image accepts GPT Image 2 landscape and portrait dimensions without a resolution cap', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const cases = [
+      {
+        userId: 'artist-gpt-landscape-user',
+        dimensions: { width: 1536, height: 1024 },
+        imageData: `data:image/jpeg;base64,${Buffer.from([0xFF, 0xD8, 0xFF, 0x00]).toString('base64')}`,
+        expectedMimeType: 'image/jpeg',
+      },
+      {
+        userId: 'artist-gpt-portrait-user',
+        dimensions: { width: 1024, height: 1536 },
+        imageData: `data:image/webp;base64,${Buffer.from([
+          0x52, 0x49, 0x46, 0x46,
+          0x00, 0x00, 0x00, 0x00,
+          0x57, 0x45, 0x42, 0x50,
+        ]).toString('base64')}`,
+        expectedMimeType: 'image/webp',
+      },
+    ];
+
+    for (const entry of cases) {
+      const env = createAuthTestEnv({
+        users: [createContractUser({ id: entry.userId, role: 'user' })],
+        imagesBinding: {
+          originalInfo: { ...entry.dimensions, format: entry.expectedMimeType },
+        },
+      });
+      const token = await seedSession(env, entry.userId);
+      const saveRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/images/save', 'POST', {
+          imageData: entry.imageData,
+          prompt: `GPT Image 2 ${entry.dimensions.width}x${entry.dimensions.height}`,
+          model: 'openai/gpt-image-2',
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(saveRes.status).toBe(201);
+      const body = await saveRes.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        data: expect.objectContaining({
+          model: 'openai/gpt-image-2',
+          derivatives_status: 'pending',
+        }),
+      }));
+      expect(env.IMAGES.infoCalls).toHaveLength(1);
+      expect(env.IMAGES.infoCalls[0]).toEqual(expect.objectContaining(entry.dimensions));
+      expect(env.USER_IMAGES.putCalls).toHaveLength(1);
+      expect(env.USER_IMAGES.putCalls[0].options?.httpMetadata?.contentType).toBe(entry.expectedMimeType);
+      expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+    }
+  });
+
   test('AI save image rejects payloads larger than 10 MB before storage or queueing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -17740,20 +17854,17 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.aiImages).toHaveLength(0);
   });
 
-  test('AI save image rejects oversized dimensions before storage or queueing', async () => {
+  test('AI save image rejects invalid image formats before Cloudflare Images inspection or storage', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'artist-oversize-user', role: 'user' })],
-      imagesBinding: {
-        originalInfo: { width: 1025, height: 1024, format: 'image/png' },
-      },
+      users: [createContractUser({ id: 'artist-invalid-format-user', role: 'user' })],
     });
 
-    const token = await seedSession(env, 'artist-oversize-user');
+    const token = await seedSession(env, 'artist-invalid-format-user');
     const saveRes = await authWorker.fetch(
       authJsonRequest('/api/ai/images/save', 'POST', {
-        imageData: ONE_PIXEL_PNG_DATA_URI,
-        prompt: 'oversized dimensions',
+        imageData: `data:image/gif;base64,${Buffer.from('GIF89a').toString('base64')}`,
+        prompt: 'unsupported format image',
         model: '@cf/test-model',
       }, {
         Origin: 'https://bitbi.ai',
@@ -17766,7 +17877,73 @@ test.describe('Worker routes', () => {
     expect(saveRes.status).toBe(400);
     await expect(saveRes.json()).resolves.toMatchObject({
       ok: false,
-      error: 'Saved image must be 1024x1024 pixels or smaller. Received 1025x1024.',
+      error: 'Invalid image format.',
+    });
+    expect(env.IMAGES.infoCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('AI save image rejects missing prompt or image data before storage or queueing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-missing-save-input-user', role: 'user' })],
+    });
+
+    const token = await seedSession(env, 'artist-missing-save-input-user');
+    for (const body of [
+      { imageData: ONE_PIXEL_PNG_DATA_URI, model: '@cf/test-model' },
+      { prompt: 'missing image data', model: '@cf/test-model' },
+    ]) {
+      const saveRes = await authWorker.fetch(
+        authJsonRequest('/api/ai/images/save', 'POST', body, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(saveRes.status).toBe(400);
+      await expect(saveRes.json()).resolves.toMatchObject({
+        ok: false,
+        error: 'Image data and prompt are required.',
+      });
+    }
+    expect(env.IMAGES.infoCalls).toHaveLength(0);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('AI save image rejects invalid inspected dimensions before storage or queueing', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'artist-invalid-dimensions-user', role: 'user' })],
+      imagesBinding: {
+        originalInfo: { width: 0, height: 1024, format: 'image/png' },
+      },
+    });
+
+    const token = await seedSession(env, 'artist-invalid-dimensions-user');
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'invalid dimensions',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(400);
+    await expect(saveRes.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image dimensions could not be inspected.',
     });
     expect(env.IMAGES.infoCalls).toHaveLength(1);
     expect(env.USER_IMAGES.putCalls).toHaveLength(0);

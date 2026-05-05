@@ -41,9 +41,6 @@ const DEFAULT_STEPS = 4;
 const GENERATION_LIMIT = 20;
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_SAVED_AI_IMAGE_WIDTH = 1024;
-const MAX_SAVED_AI_IMAGE_HEIGHT = 1024;
-const MAX_SAVED_AI_IMAGE_PIXELS = 1024 * 1024;
 const MAX_SAVE_REFERENCE_LENGTH = 500;
 
 async function enforceAiImageWriteRateLimit(ctx, userId, {
@@ -824,22 +821,8 @@ export async function handleSaveImage(ctx) {
 
   const width = Number(imageInfo?.width);
   const height = Number(imageInfo?.height);
-  const pixels = width * height;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
     return respond({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
-  }
-  if (
-    width > MAX_SAVED_AI_IMAGE_WIDTH ||
-    height > MAX_SAVED_AI_IMAGE_HEIGHT ||
-    pixels > MAX_SAVED_AI_IMAGE_PIXELS
-  ) {
-    return respond(
-      {
-        ok: false,
-        error: `Saved image must be ${MAX_SAVED_AI_IMAGE_WIDTH}x${MAX_SAVED_AI_IMAGE_HEIGHT} pixels or smaller. Received ${width}x${height}.`,
-      },
-      { status: 400 }
-    );
   }
 
   const imageId = randomTokenHex(16);
