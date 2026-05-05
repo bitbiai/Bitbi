@@ -22,6 +22,13 @@ import {
 } from "../../lib/ai-usage-policy.js";
 import { calculateAiImageCreditCost } from "../../lib/ai-image-credit-pricing.js";
 import aiImageModels from "../../../../../js/shared/ai-image-models.mjs";
+import {
+  GPT_IMAGE_2_BACKGROUND_OPTIONS,
+  GPT_IMAGE_2_MODEL_ID,
+  GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+  GPT_IMAGE_2_QUALITY_OPTIONS,
+  GPT_IMAGE_2_SIZE_OPTIONS,
+} from "../../../../../js/shared/gpt-image-2-pricing.mjs";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
 import { buildAiImageInput, hasControlCharacters, parseBase64Image, toArrayBuffer } from "./helpers.js";
 import {
@@ -41,6 +48,9 @@ const DEFAULT_STEPS = 4;
 const GENERATION_LIMIT = 20;
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const MAX_SAVED_AI_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_PROVIDER_IMAGE_FETCH_BYTES = 25 * 1024 * 1024;
+const GPT_IMAGE_2_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+const GPT_IMAGE_2_REFERENCE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_SAVE_REFERENCE_LENGTH = 500;
 
 async function enforceAiImageWriteRateLimit(ctx, userId, {
@@ -84,6 +94,195 @@ function encodeBytesToBase64(bytes) {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+}
+
+function isGptImage2Model(modelConfig) {
+  return modelConfig?.id === GPT_IMAGE_2_MODEL_ID || modelConfig?.requestMode === "gpt-image-2";
+}
+
+function normalizeGptImage2Option(value, allowed, fallback, field) {
+  const normalized = String(value || "").trim() || fallback;
+  if (!allowed.includes(normalized)) {
+    throw new Error(`Unsupported GPT Image 2 ${field}.`);
+  }
+  return normalized;
+}
+
+function estimateBase64Bytes(base64) {
+  const compact = String(base64 || "").replace(/\s+/g, "");
+  if (!compact) return 0;
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+}
+
+function validateGptImage2ReferenceImages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("referenceImages must be an array.");
+  }
+  if (value.length > 16) {
+    throw new Error("referenceImages must contain at most 16 items.");
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string" || !item.startsWith("data:")) {
+      throw new Error(`referenceImages[${index}] must be a data URI string.`);
+    }
+    const commaIndex = item.indexOf(",");
+    if (commaIndex === -1) {
+      throw new Error(`referenceImages[${index}] is not a valid data URI.`);
+    }
+    const meta = item.slice(0, commaIndex);
+    const mimeMatch = meta.match(/^data:([^;,]+);base64$/i);
+    const mimeType = mimeMatch ? mimeMatch[1].toLowerCase() : "";
+    if (!GPT_IMAGE_2_REFERENCE_IMAGE_TYPES.has(mimeType)) {
+      throw new Error(`referenceImages[${index}] must be a PNG, JPEG, or WebP data URI.`);
+    }
+    const base64 = item.slice(commaIndex + 1);
+    if (estimateBase64Bytes(base64) > GPT_IMAGE_2_REFERENCE_IMAGE_BYTES) {
+      throw new Error(`referenceImages[${index}] exceeds the 10 MB byte size limit.`);
+    }
+    return item;
+  });
+}
+
+function normalizeGptImage2Request(body, prompt, modelConfig) {
+  const quality = normalizeGptImage2Option(
+    body?.quality,
+    modelConfig?.qualityOptions || GPT_IMAGE_2_QUALITY_OPTIONS,
+    modelConfig?.defaultQuality || "medium",
+    "quality"
+  );
+  const size = normalizeGptImage2Option(
+    body?.size,
+    modelConfig?.sizeOptions || GPT_IMAGE_2_SIZE_OPTIONS,
+    modelConfig?.defaultSize || "1024x1024",
+    "size"
+  );
+  const outputFormat = normalizeGptImage2Option(
+    body?.outputFormat ?? body?.output_format,
+    modelConfig?.outputFormatOptions || GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+    modelConfig?.defaultOutputFormat || "png",
+    "output format"
+  );
+  if (String(body?.background || "").trim() === "transparent") {
+    throw new Error("Transparent background is not supported by GPT Image 2.");
+  }
+  const background = normalizeGptImage2Option(
+    body?.background,
+    modelConfig?.backgroundOptions || GPT_IMAGE_2_BACKGROUND_OPTIONS,
+    modelConfig?.defaultBackground || "auto",
+    "background"
+  );
+  const referenceImages = validateGptImage2ReferenceImages(body?.referenceImages);
+  const payload = {
+    prompt,
+    quality,
+    size,
+    output_format: outputFormat,
+    background,
+  };
+  if (referenceImages.length > 0) {
+    payload.images = referenceImages;
+  }
+  return {
+    payload,
+    quality,
+    size,
+    outputFormat,
+    background,
+    referenceImages,
+    referenceImageCount: referenceImages.length,
+  };
+}
+
+function pushImageCandidate(candidates, value) {
+  if (value === undefined || value === null) return;
+  candidates.push(value);
+}
+
+function collectImageCandidates(result) {
+  const candidates = [];
+  if (result && typeof result === "object" && !ArrayBuffer.isView(result) && !(result instanceof ArrayBuffer)) {
+    pushImageCandidate(candidates, result.result?.image);
+    pushImageCandidate(candidates, result.image);
+    if (Array.isArray(result.images) && result.images.length > 0) pushImageCandidate(candidates, result.images[0]);
+    pushImageCandidate(candidates, result.data?.image);
+    if (Array.isArray(result.data) && result.data.length > 0) {
+      pushImageCandidate(candidates, result.data[0]?.url);
+      pushImageCandidate(candidates, result.data[0]?.image);
+      pushImageCandidate(candidates, result.data[0]);
+    } else {
+      pushImageCandidate(candidates, result.data);
+    }
+    if (Array.isArray(result.output) && result.output.length > 0) {
+      pushImageCandidate(candidates, result.output[0]?.image);
+      pushImageCandidate(candidates, result.output[0]);
+    }
+  }
+  pushImageCandidate(candidates, result);
+  return candidates;
+}
+
+function isHttpsUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchProviderImageUrl(env, url) {
+  const fetcher = env.__TEST_FETCH || globalThis.fetch;
+  const response = await fetcher(url, { method: "GET" });
+  if (!response?.ok) {
+    throw new Error("provider_image_fetch_failed");
+  }
+  const mimeType = String(response.headers?.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!GPT_IMAGE_2_REFERENCE_IMAGE_TYPES.has(mimeType)) {
+    throw new Error("provider_image_unsupported_type");
+  }
+  const contentLength = Number(response.headers?.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
+    throw new Error("provider_image_too_large");
+  }
+  const buffer = await response.arrayBuffer();
+  if (!buffer || buffer.byteLength === 0 || buffer.byteLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
+    throw new Error("provider_image_too_large");
+  }
+  return {
+    base64: encodeBytesToBase64(new Uint8Array(buffer)),
+    mimeType,
+    imageUrl: String(url),
+  };
+}
+
+async function extractGeneratedImage(env, result, { allowProviderUrl = false } = {}) {
+  for (const v of collectImageCandidates(result)) {
+    if (typeof v === "string" && v.length > 0) {
+      const parsed = parseBase64Image(v);
+      if (parsed) {
+        return {
+          base64: parsed.base64,
+          mimeType: parsed.mimeType,
+          imageUrl: null,
+        };
+      }
+      if (allowProviderUrl && isHttpsUrl(v)) {
+        return fetchProviderImageUrl(env, v);
+      }
+    }
+
+    const buf = await toArrayBuffer(v);
+    if (buf && buf.byteLength > 0) {
+      return {
+        base64: encodeBytesToBase64(new Uint8Array(buf)),
+        mimeType: "image/png",
+        imageUrl: null,
+      };
+    }
+  }
+  return null;
 }
 
 function decodeDataUriImage(imageData) {
@@ -297,7 +496,7 @@ export async function handleGenerateImage(ctx) {
     return rateLimitResponse();
   }
 
-  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateJson });
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateImageJson });
   if (parsed.response) return withCorrelationId(parsed.response, correlationId);
   const body = parsed.body;
   if (!body || !body.prompt) {
@@ -329,12 +528,36 @@ export async function handleGenerateImage(ctx) {
     seed = Math.floor(Number(body.seed));
     if (isNaN(seed) || seed < 0) seed = null;
   }
-  const aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
-  const imagePricing = calculateAiImageCreditCost(modelConfig.id, {
-    width: 1024,
-    height: 1024,
-    steps: aiRequest.steps,
-  });
+  const gptImage2 = isGptImage2Model(modelConfig);
+  let aiRequest = null;
+  let gptRequest = null;
+  try {
+    if (gptImage2) {
+      gptRequest = normalizeGptImage2Request(body, prompt, modelConfig);
+      aiRequest = {
+        payload: gptRequest.payload,
+        steps: null,
+        seed: null,
+      };
+    } else {
+      aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
+    }
+  } catch (error) {
+    return respond({ ok: false, error: error.message || "Invalid image request." }, { status: 400 });
+  }
+  const imagePricing = calculateAiImageCreditCost(modelConfig.id, gptImage2
+    ? {
+        quality: gptRequest.quality,
+        size: gptRequest.size,
+        outputFormat: gptRequest.outputFormat,
+        background: gptRequest.background,
+        referenceImageCount: gptRequest.referenceImageCount,
+      }
+    : {
+        width: 1024,
+        height: 1024,
+        steps: aiRequest.steps,
+      });
   if (!imagePricing) {
     return respond({ ok: false, error: "Image model pricing is unavailable." }, { status: 503 });
   }
@@ -425,6 +648,7 @@ export async function handleGenerateImage(ctx) {
 
   let base64 = null;
   let mimeType = "image/png";
+  let providerImageUrl = null;
 
   if (usagePolicy.mode === "organization") {
     try {
@@ -449,33 +673,36 @@ export async function handleGenerateImage(ctx) {
   }
 
   try {
-    const result = await env.AI.run(modelConfig.id, aiRequest.payload);
-    const candidates = [];
-    if (result && typeof result === "object" && !ArrayBuffer.isView(result) && !(result instanceof ArrayBuffer)) {
-      if (result.image != null) candidates.push(result.image);
-      if (Array.isArray(result.images) && result.images.length > 0) candidates.push(result.images[0]);
-      if (result.data != null) candidates.push(result.data);
+    const runOptions = gptImage2
+      ? { gateway: { id: env.AI_GATEWAY_ID || "default" } }
+      : undefined;
+    if (gptImage2) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-image",
+        event: "gpt_image_2_provider_request",
+        level: "info",
+        correlationId,
+        user_id: userId,
+        model: modelConfig.id,
+        gateway_id: runOptions.gateway.id,
+        quality: gptRequest.quality,
+        size: gptRequest.size,
+        output_format: gptRequest.outputFormat,
+        background: gptRequest.background,
+        reference_image_count: gptRequest.referenceImageCount,
+        prompt_length: prompt.length,
+        credits: imagePricing.credits,
+      });
     }
-    candidates.push(result);
-
-    for (const v of candidates) {
-      if (base64) break;
-
-      if (typeof v === "string" && v.length > 0) {
-        const parsed = parseBase64Image(v);
-        if (parsed) {
-          base64 = parsed.base64;
-          mimeType = parsed.mimeType;
-          break;
-        }
-      }
-
-      const buf = await toArrayBuffer(v);
-      if (buf && buf.byteLength > 0) {
-        const bytes = new Uint8Array(buf);
-        base64 = encodeBytesToBase64(bytes);
-        break;
-      }
+    const result = gptImage2
+      ? await env.AI.run(modelConfig.id, aiRequest.payload, runOptions)
+      : await env.AI.run(modelConfig.id, aiRequest.payload);
+    const extracted = await extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 });
+    if (extracted) {
+      base64 = extracted.base64;
+      mimeType = extracted.mimeType || mimeType;
+      providerImageUrl = extracted.imageUrl || null;
     }
   } catch (e) {
     if (usagePolicy.mode === "organization") {
@@ -565,6 +792,14 @@ export async function handleGenerateImage(ctx) {
       pricing_source: "ai-image-credit-pricing",
       provider_cost_usd: imagePricing.providerCostUsd,
       pricing_normalized: imagePricing.normalized,
+      ...(gptImage2 ? {
+        quality: gptRequest.quality,
+        size: gptRequest.size,
+        output_format: gptRequest.outputFormat,
+        background: gptRequest.background,
+        reference_image_count: gptRequest.referenceImageCount,
+        pricing_version: imagePricing.formula?.pricingVersion || "gpt-image-2-v1",
+      } : {}),
     });
     if (usagePolicy.mode === "organization") {
       await usagePolicy.markSucceeded({
@@ -659,6 +894,14 @@ export async function handleGenerateImage(ctx) {
       steps: aiRequest.steps,
       seed: aiRequest.seed,
       model: modelConfig.id,
+      ...(gptImage2 ? {
+        quality: gptRequest.quality,
+        size: gptRequest.size,
+        outputFormat: gptRequest.outputFormat,
+        background: gptRequest.background,
+        referenceImageCount: gptRequest.referenceImageCount,
+        imageUrl: providerImageUrl,
+      } : {}),
       ...tempSavePayload,
     },
     ...(billingMetadata ? { billing: billingMetadata } : {}),

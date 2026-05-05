@@ -11,6 +11,10 @@ import {
     getAiImageModelConfig,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import {
+    GPT_IMAGE_2_MODEL_ID,
+    calculateGptImage2CreditCost,
+} from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
+import {
     calculatePixverseV6MemberCredits,
     PIXVERSE_V6_ASPECT_RATIOS,
     PIXVERSE_V6_MAX_DURATION,
@@ -60,6 +64,50 @@ export const MUSIC_GENERATED_LYRICS_CREDITS = 160;
 const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
     const config = getAiImageModelConfig(model.id);
     const credits = Math.max(1, Math.ceil(Number(config?.estimatedCredits || model.estimatedCredits || 1)));
+    if (config?.requestMode === 'gpt-image-2' || model.id === GPT_IMAGE_2_MODEL_ID) {
+        return Object.freeze({
+            id: model.id,
+            displayName: model.label,
+            mediaType: 'image',
+            provider: 'OpenAI',
+            route: '/api/ai/generate-image',
+            outputType: 'image',
+            status: 'NEW',
+            summary: 'OpenAI image generation and editing via Cloudflare AI Gateway.',
+            capabilities: Object.freeze([
+                'Text to image',
+                'Image edit',
+                'Multi-reference',
+                'PNG / WebP / JPEG',
+                'Savable to Assets Manager',
+            ]),
+            controls: Object.freeze({
+                supportsSteps: false,
+                supportsSeed: false,
+                supportsQuality: true,
+                supportsSize: true,
+                supportsOutputFormat: true,
+                supportsBackground: true,
+                supportsReferenceImages: true,
+                maxReferenceImages: 16,
+            }),
+            defaults: Object.freeze({
+                model: model.id,
+                quality: config?.defaultQuality || 'medium',
+                size: config?.defaultSize || '1024x1024',
+                outputFormat: config?.defaultOutputFormat || 'png',
+                background: config?.defaultBackground || 'auto',
+                referenceImages: Object.freeze([]),
+            }),
+            options: Object.freeze({
+                quality: Object.freeze([...(config?.qualityOptions || ['low', 'medium', 'high', 'auto'])]),
+                size: Object.freeze([...(config?.sizeOptions || ['1024x1024', '1024x1536', '1536x1024', 'auto'])]),
+                outputFormat: Object.freeze([...(config?.outputFormatOptions || ['png', 'webp', 'jpeg'])]),
+                background: Object.freeze([...(config?.backgroundOptions || ['auto', 'opaque'])]),
+            }),
+            estimateCredits: (values = {}) => calculateGptImage2CreditCost(values).credits,
+        });
+    }
     return Object.freeze({
         id: model.id,
         displayName: model.label,

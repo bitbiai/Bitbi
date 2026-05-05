@@ -25,6 +25,7 @@ export const BODY_LIMITS = Object.freeze({
   adminJson: 512 * 1024,
   adminVideoJobJson: 512 * 1024,
   aiGenerateJson: 32 * 1024,
+  aiGenerateImageJson: 15 * 1024 * 1024,
   aiGenerateVideoJson: 15 * 1024 * 1024,
   aiSaveImageJson: 15 * 1024 * 1024,
   aiSaveAudioJson: 18 * 1024 * 1024,

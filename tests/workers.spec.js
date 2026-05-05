@@ -122,6 +122,20 @@ async function loadAdminImageCreditPricingModule() {
   return import(modulePath);
 }
 
+async function loadAiImageCreditPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/ai-image-credit-pricing.js')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadAiImageModelsModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/ai-image-models.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAdminAiContractModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/admin-ai-contract.mjs')
@@ -17245,6 +17259,348 @@ test.describe('Worker routes', () => {
       10,
       -expectedPricing.credits,
     ]);
+  });
+
+  test('AI generate: member image registry exposes GPT Image 2 for Generate Lab without changing the default Flux model', async () => {
+    const imageModels = await loadAiImageModelsModule();
+    const options = imageModels.getGenerateLabAiImageModelOptions();
+    const gptModel = imageModels.getAiImageModelConfig('openai/gpt-image-2');
+
+    expect(imageModels.DEFAULT_AI_IMAGE_MODEL).toBe('@cf/black-forest-labs/flux-1-schnell');
+    expect(options.map((entry) => entry.id)).toContain('openai/gpt-image-2');
+    expect(gptModel).toEqual(expect.objectContaining({
+      id: 'openai/gpt-image-2',
+      label: 'GPT Image 2',
+      provider: 'OpenAI',
+      requestMode: 'gpt-image-2',
+      proxied: true,
+      supportsReferenceImages: true,
+      maxReferenceImages: 16,
+      supportsQuality: true,
+      supportsSize: true,
+      supportsOutputFormat: true,
+      supportsBackground: true,
+      supportsTransparentBackground: false,
+    }));
+  });
+
+  test('AI image pricing: member GPT Image 2 uses the shared fixed credit schedule', async () => {
+    const { calculateAiImageCreditCost, isPricedAiImageModel } = await loadAiImageCreditPricingModule();
+    expect(isPricedAiImageModel('openai/gpt-image-2')).toBe(true);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', { quality: 'low', size: '1024x1024' }).credits).toBe(10);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', { quality: 'medium', size: '1024x1024' }).credits).toBe(50);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', { quality: 'medium', size: '1536x1024' }).credits).toBe(40);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', { quality: 'high', size: '1024x1024' }).credits).toBe(200);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', { quality: 'high', size: '1024x1536' }).credits).toBe(150);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', {
+      quality: 'high',
+      size: '1536x1024',
+      referenceImageCount: 2,
+    }).credits).toBe(250);
+    expect(calculateAiImageCreditCost('openai/gpt-image-2', {
+      quality: 'auto',
+      size: '1024x1024',
+      referenceImageCount: 1,
+    }).credits).toBe(250);
+  });
+
+  test('AI generate: member route invokes GPT Image 2 through AI Gateway with mapped references and GPT-only fields', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { calculateAiImageCreditCost } = await loadAiImageCreditPricingModule();
+    const validPng = ONE_PIXEL_PNG_DATA_URI;
+    let capturedModelId = null;
+    let capturedPayload = null;
+    let capturedOptions = null;
+    const user = createContractUser({ id: 'ai-gpt-image-member-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      memberCreditLedger: [{
+        id: 'cl_seed_ai_gpt_image_member_user',
+        user_id: user.id,
+        amount: 300,
+        balance_after: 300,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: 'seed-ai-gpt-image-member-user',
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: nowIso(),
+        metadata_json: '{}',
+      }],
+      aiRun: async (modelId, payload, options) => {
+        capturedModelId = modelId;
+        capturedPayload = payload;
+        capturedOptions = options;
+        return {
+          state: 'Completed',
+          result: { image: ONE_PIXEL_PNG_DATA_URI },
+          gatewayMetadata: { keySource: 'Unified' },
+        };
+      },
+    });
+
+    const token = await seedSession(env, user.id);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'member GPT Image 2 generation',
+        model: 'openai/gpt-image-2',
+        quality: 'high',
+        size: '1536x1024',
+        outputFormat: 'webp',
+        background: 'opaque',
+        referenceImages: [validPng, validPng],
+        steps: 8,
+        seed: 42,
+        width: 512,
+        height: 512,
+        guidance: 7,
+        negativePrompt: 'unsupported',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    const expectedPricing = calculateAiImageCreditCost('openai/gpt-image-2', {
+      quality: 'high',
+      size: '1536x1024',
+      outputFormat: 'webp',
+      background: 'opaque',
+      referenceImageCount: 2,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        imageBase64: expect.any(String),
+        mimeType: 'image/png',
+        prompt: 'member GPT Image 2 generation',
+        model: 'openai/gpt-image-2',
+        steps: null,
+        seed: null,
+        quality: 'high',
+        size: '1536x1024',
+        outputFormat: 'webp',
+        background: 'opaque',
+        referenceImageCount: 2,
+        saveReference: expect.any(String),
+      },
+      billing: {
+        credits_charged: expectedPricing.credits,
+        balance_after: 300 - expectedPricing.credits,
+      },
+    });
+    expect(expectedPricing.credits).toBe(250);
+    expect(capturedModelId).toBe('openai/gpt-image-2');
+    expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    expect(capturedPayload).toEqual({
+      prompt: 'member GPT Image 2 generation',
+      quality: 'high',
+      size: '1536x1024',
+      output_format: 'webp',
+      background: 'opaque',
+      images: [validPng, validPng],
+    });
+    expect(capturedPayload).not.toHaveProperty('referenceImages');
+    expect(capturedPayload).not.toHaveProperty('steps');
+    expect(capturedPayload).not.toHaveProperty('seed');
+    expect(capturedPayload).not.toHaveProperty('width');
+    expect(capturedPayload).not.toHaveProperty('height');
+    expect(capturedPayload).not.toHaveProperty('guidance');
+    expect(capturedPayload).not.toHaveProperty('negativePrompt');
+  });
+
+  test('AI generate: member GPT Image 2 validation rejects unsupported fields before provider calls', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const validPng = ONE_PIXEL_PNG_DATA_URI;
+    const cases = [
+      {
+        name: 'transparent background',
+        body: { background: 'transparent' },
+        error: 'Transparent background is not supported by GPT Image 2.',
+      },
+      {
+        name: 'unsupported quality',
+        body: { quality: 'ultra' },
+        error: 'quality',
+      },
+      {
+        name: 'too many references',
+        body: { referenceImages: Array.from({ length: 17 }, () => validPng) },
+        error: 'at most 16',
+      },
+      {
+        name: 'remote reference',
+        body: { referenceImages: ['https://example.com/reference.png'] },
+        error: 'data URI',
+      },
+      {
+        name: 'unsupported reference MIME',
+        body: { referenceImages: ['data:image/gif;base64,AAAA'] },
+        error: 'PNG, JPEG, or WebP',
+      },
+    ];
+
+    for (const entry of cases) {
+      let aiCalls = 0;
+      const user = createContractUser({ id: `ai-gpt-invalid-${entry.name.replace(/[^a-z]+/g, '-')}`, role: 'user' });
+      const env = createAuthTestEnv({
+        users: [user],
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const token = await seedSession(env, user.id);
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/generate-image', 'POST', {
+          prompt: `invalid ${entry.name}`,
+          model: 'openai/gpt-image-2',
+          quality: 'medium',
+          size: '1024x1024',
+          outputFormat: 'png',
+          background: 'auto',
+          ...entry.body,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status, entry.name).toBe(400);
+      const body = await res.json();
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain(entry.error);
+      expect(aiCalls).toBe(0);
+    }
+  });
+
+  test('AI generate: member GPT Image 2 provider URL outputs are fetched into base64 save references', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'ai-gpt-url-user', role: 'user' });
+    let fetchCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      memberCreditLedger: [{
+        id: 'cl_seed_ai_gpt_url_user',
+        user_id: user.id,
+        amount: 100,
+        balance_after: 100,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: 'seed-ai-gpt-url-user',
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: nowIso(),
+        metadata_json: '{}',
+      }],
+      aiRun: async () => ({ result: { image: 'https://provider.example/gpt-image.png' } }),
+      fetch: async (url) => {
+        fetchCalls += 1;
+        expect(String(url)).toBe('https://provider.example/gpt-image.png');
+        return new Response(Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'), {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+            'content-length': '68',
+          },
+        });
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'url result',
+        model: 'openai/gpt-image-2',
+        quality: 'low',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        imageBase64: ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''),
+        mimeType: 'image/png',
+        model: 'openai/gpt-image-2',
+        imageUrl: 'https://provider.example/gpt-image.png',
+        saveReference: expect.any(String),
+      },
+      billing: {
+        credits_charged: 10,
+        balance_after: 90,
+      },
+    });
+    expect(fetchCalls).toBe(1);
+  });
+
+  test('AI generate: failed GPT Image 2 provider calls do not consume member credits', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'ai-gpt-provider-fail-user', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [user],
+      memberCreditLedger: [{
+        id: 'cl_seed_ai_gpt_provider_fail_user',
+        user_id: user.id,
+        amount: 100,
+        balance_after: 100,
+        entry_type: 'grant',
+        feature_key: null,
+        source: 'test_grant',
+        idempotency_key: 'seed-ai-gpt-provider-fail-user',
+        request_hash: 'seed',
+        created_by_user_id: user.id,
+        created_at: nowIso(),
+        metadata_json: '{}',
+      }],
+      aiRun: async () => {
+        throw new Error('provider failed');
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'failed GPT Image 2',
+        model: 'openai/gpt-image-2',
+        quality: 'medium',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Image generation failed.',
+    });
+    expect(env.DB.state.memberCreditLedger.some((row) => row.amount < 0)).toBe(false);
+    expect(env.DB.state.memberCreditLedger.at(-1)).toEqual(expect.objectContaining({
+      balance_after: 100,
+    }));
   });
 
   test('AI generate: public route rejects FLUX.2 Dev so it is not exposed outside admin AI Lab', async () => {

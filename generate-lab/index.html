@@ -146,7 +146,7 @@
                             <span class="generate-lab__label">Model</span>
                             <select id="labImageModel" class="generate-lab__select"></select>
                         </label>
-                        <div class="generate-lab__field-grid">
+                        <div id="labImageFluxControls" class="generate-lab__field-grid">
                             <label class="generate-lab__field" for="labImageSteps">
                                 <span class="generate-lab__label">Steps</span>
                                 <select id="labImageSteps" class="generate-lab__select">
@@ -161,6 +161,63 @@
                                 <span class="generate-lab__label">Seed</span>
                                 <input id="labImageSeed" class="generate-lab__input" type="number" min="0" placeholder="Random" inputmode="numeric">
                             </label>
+                        </div>
+                        <div id="labImageGptControls" class="generate-lab__gpt-controls" hidden>
+                            <div class="generate-lab__field-grid">
+                                <label class="generate-lab__field" for="labImageQuality">
+                                    <span class="generate-lab__label">Quality</span>
+                                    <select id="labImageQuality" class="generate-lab__select">
+                                        <option value="low">Low</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="auto">Auto</option>
+                                    </select>
+                                </label>
+                                <label class="generate-lab__field" for="labImageSize">
+                                    <span class="generate-lab__label">Size</span>
+                                    <select id="labImageSize" class="generate-lab__select">
+                                        <option value="1024x1024" selected>1024x1024</option>
+                                        <option value="1024x1536">1024x1536</option>
+                                        <option value="1536x1024">1536x1024</option>
+                                        <option value="auto">Auto</option>
+                                    </select>
+                                </label>
+                                <label class="generate-lab__field" for="labImageOutputFormat">
+                                    <span class="generate-lab__label">Output</span>
+                                    <select id="labImageOutputFormat" class="generate-lab__select">
+                                        <option value="png" selected>PNG</option>
+                                        <option value="webp">WebP</option>
+                                        <option value="jpeg">JPEG</option>
+                                    </select>
+                                </label>
+                                <label class="generate-lab__field" for="labImageBackground">
+                                    <span class="generate-lab__label">Background</span>
+                                    <select id="labImageBackground" class="generate-lab__select">
+                                        <option value="auto" selected>Auto</option>
+                                        <option value="opaque">Opaque</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <p class="generate-lab__help">Transparent background is not supported for GPT Image 2.</p>
+                            <p id="labImageAutoCostHint" class="generate-lab__help" hidden>Auto settings are charged at the safe upper-bound credit price.</p>
+                            <section class="generate-lab-ref-images" aria-labelledby="labImageReferenceTitle">
+                                <div class="generate-lab-ref-images__head">
+                                    <div>
+                                        <h3 id="labImageReferenceTitle">Reference images</h3>
+                                        <p>Upload up to 16 PNG, JPEG, or WebP reference images. The first 3 are shown by default; more are optional.</p>
+                                    </div>
+                                    <span id="labImageReferenceCount">0 / 16</span>
+                                </div>
+                                <div id="labImageRefPrimary" class="generate-lab-ref-images__grid generate-lab-ref-images__grid--primary"></div>
+                                <button id="labImageRefToggle" class="generate-lab-ref-images__toggle" type="button" aria-expanded="false" aria-controls="labImageRefExtra">
+                                    <span>More reference images</span>
+                                    <small>Optional: add up to 13 more references</small>
+                                </button>
+                                <div id="labImageRefExtra" class="generate-lab-ref-images__extra" hidden>
+                                    <div id="labImageRefExtraGrid" class="generate-lab-ref-images__grid"></div>
+                                </div>
+                                <p id="labImageReferenceCostHint" class="generate-lab__help" hidden>Reference images increase cost because image inputs are processed at high fidelity.</p>
+                            </section>
                         </div>
                     </section>
 

@@ -492,7 +492,7 @@ export const ROUTE_POLICIES = Object.freeze([
   }),
 
   safeRead("ai.quota.read", "GET", "/api/ai/quota", "ai-studio"),
-  userJsonWrite("ai.generate-image", "POST", "/api/ai/generate-image", "ai-studio", "aiGenerateJson", "ai-generate-user", {
+  userJsonWrite("ai.generate-image", "POST", "/api/ai/generate-image", "ai-studio", "aiGenerateImageJson", "ai-generate-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI", "USER_IMAGES"],
     audit: { event: "ai_generate_image" },
     sensitivity: "high",

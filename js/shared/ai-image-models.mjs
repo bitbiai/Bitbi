@@ -1,3 +1,11 @@
+import {
+    GPT_IMAGE_2_BACKGROUND_OPTIONS,
+    GPT_IMAGE_2_MODEL_ID,
+    GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+    GPT_IMAGE_2_QUALITY_OPTIONS,
+    GPT_IMAGE_2_SIZE_OPTIONS,
+} from './gpt-image-2-pricing.mjs';
+
 export const DEFAULT_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
 export const AI_IMAGE_MODELS = Object.freeze([
@@ -24,6 +32,34 @@ const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
             height: 1024,
         }),
         estimatedCredits: 10,
+    }),
+    Object.freeze({
+        id: GPT_IMAGE_2_MODEL_ID,
+        label: 'GPT Image 2',
+        provider: 'OpenAI',
+        vendor: 'OpenAI',
+        requestMode: 'gpt-image-2',
+        proxied: true,
+        supportsSteps: false,
+        supportsSeed: false,
+        supportsDimensions: false,
+        supportsReferenceImages: true,
+        maxReferenceImages: 16,
+        supportsQuality: true,
+        supportsSize: true,
+        supportsOutputFormat: true,
+        supportsBackground: true,
+        supportsTransparentBackground: false,
+        qualityOptions: GPT_IMAGE_2_QUALITY_OPTIONS,
+        sizeOptions: GPT_IMAGE_2_SIZE_OPTIONS,
+        outputFormatOptions: GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+        backgroundOptions: GPT_IMAGE_2_BACKGROUND_OPTIONS,
+        defaultQuality: 'medium',
+        defaultSize: '1024x1024',
+        defaultOutputFormat: 'png',
+        defaultBackground: 'auto',
+        defaultMimeType: 'image/png',
+        estimatedCredits: 50,
     }),
 ]);
 

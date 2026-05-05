@@ -411,7 +411,12 @@ export function apiAccountCreditsDashboard({ limit } = {}) {
     return request('GET', `/account/credits-dashboard${qs}`);
 }
 
-export function apiAiGenerateImage(prompt, steps, seed, model) {
+export function apiAiGenerateImage(promptOrPayload, steps, seed, model) {
+    if (promptOrPayload && typeof promptOrPayload === 'object' && !Array.isArray(promptOrPayload)) {
+        return request('POST', '/ai/generate-image', promptOrPayload);
+    }
+
+    const prompt = promptOrPayload;
     const body = { prompt };
     if (steps != null) body.steps = steps;
     if (seed != null) body.seed = seed;

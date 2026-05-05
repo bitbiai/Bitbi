@@ -39,6 +39,10 @@ import {
 } from './model-registry.js?v=__ASSET_VERSION__';
 
 const MAX_VIDEO_REFERENCE_BYTES = 10 * 1024 * 1024;
+const MAX_GPT_IMAGE_REFERENCE_BYTES = 10 * 1024 * 1024;
+const GPT_IMAGE_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const GPT_IMAGE_REFERENCE_VISIBLE_SLOTS = 3;
+const GPT_IMAGE_REFERENCE_MAX_SLOTS = 16;
 const SAVE_REFERENCE_FALLBACK_CODES = new Set([
     'INVALID_SAVE_REFERENCE',
     'SAVE_REFERENCE_EXPIRED',
@@ -59,6 +63,8 @@ const state = {
     modelId: getDefaultGenerateLabModel('image').id,
     busy: false,
     videoReferenceDataUri: '',
+    imageReferenceImages: Array.from({ length: GPT_IMAGE_REFERENCE_MAX_SLOTS }, () => null),
+    imageRefsExpanded: false,
     currentImageData: null,
     currentImageMeta: null,
     currentResult: null,
@@ -190,6 +196,18 @@ function selectedMediaType() {
     return getGenerateLabMediaType(state.mediaType);
 }
 
+function isSelectedGptImage2() {
+    const model = selectedModel();
+    return model.mediaType === 'image' && model.controls?.supportsQuality === true && model.controls?.supportsReferenceImages === true;
+}
+
+function selectedImageReferences() {
+    return state.imageReferenceImages
+        .filter(Boolean)
+        .map((entry) => entry.dataUrl)
+        .filter(Boolean);
+}
+
 function currentCreditEstimate() {
     const model = selectedModel();
     if (model.mediaType === 'video') {
@@ -202,6 +220,15 @@ function currentCreditEstimate() {
     if (model.mediaType === 'music') {
         return calculateGenerateLabCredits(model.id, {
             generateLyrics: refs.musicGenerateLyrics?.checked === true && !refs.musicGenerateLyrics.disabled,
+        });
+    }
+    if (model.mediaType === 'image' && model.controls?.supportsQuality) {
+        return calculateGenerateLabCredits(model.id, {
+            quality: refs.imageQuality?.value || model.defaults?.quality,
+            size: refs.imageSize?.value || model.defaults?.size,
+            outputFormat: refs.imageOutputFormat?.value || model.defaults?.outputFormat,
+            background: refs.imageBackground?.value || model.defaults?.background,
+            referenceImageCount: selectedImageReferences().length,
         });
     }
     return calculateGenerateLabCredits(model.id, {});
@@ -310,8 +337,14 @@ function updateAccountPanel() {
 function updateActionState() {
     const price = currentCreditEstimate();
     const insufficient = state.creditBalance !== null && state.creditBalance < price;
+    const gptSelected = isSelectedGptImage2();
+    const referenceCount = selectedImageReferences().length;
+    const usesAutoImageSetting = gptSelected
+        && (refs.imageQuality?.value === 'auto' || refs.imageSize?.value === 'auto');
 
     if (refs.cost) refs.cost.textContent = formatCredits(price);
+    if (refs.imageReferenceCostHint) refs.imageReferenceCostHint.hidden = !(gptSelected && referenceCount > 0);
+    if (refs.imageAutoCostHint) refs.imageAutoCostHint.hidden = !usesAutoImageSetting;
     if (refs.balance) {
         if (!state.loggedIn) {
             refs.balance.textContent = 'Sign in to check credits and generate.';
@@ -413,11 +446,15 @@ function renderSettingsGroups() {
 
 function syncImageOptionState() {
     const model = selectedModel();
-    const supportsSteps = model.mediaType !== 'image' || model.controls?.supportsSteps === true;
-    const supportsSeed = model.mediaType !== 'image' || model.controls?.supportsSeed === true;
+    const isImage = model.mediaType === 'image';
+    const supportsSteps = !isImage || model.controls?.supportsSteps === true;
+    const supportsSeed = !isImage || model.controls?.supportsSeed === true;
+    const supportsGptControls = isImage && model.controls?.supportsQuality === true;
     const stepsField = refs.imageSteps?.closest('.generate-lab__field');
     const seedField = refs.imageSeed?.closest('.generate-lab__field');
 
+    if (refs.imageFluxControls) refs.imageFluxControls.hidden = supportsGptControls;
+    if (refs.imageGptControls) refs.imageGptControls.hidden = !supportsGptControls;
     if (refs.imageSteps) {
         refs.imageSteps.disabled = state.busy || !supportsSteps;
         refs.imageSteps.setAttribute('aria-disabled', refs.imageSteps.disabled ? 'true' : 'false');
@@ -428,6 +465,12 @@ function syncImageOptionState() {
     }
     stepsField?.classList.toggle('is-disabled', !supportsSteps);
     seedField?.classList.toggle('is-disabled', !supportsSeed);
+    for (const control of [refs.imageQuality, refs.imageSize, refs.imageOutputFormat, refs.imageBackground]) {
+        if (!control) continue;
+        control.disabled = state.busy || !supportsGptControls;
+        control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
+    }
+    renderImageReferenceSlots();
 }
 
 function renderEmptyResult() {
@@ -474,6 +517,137 @@ function readFileAsDataUri(file) {
         reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
         reader.readAsDataURL(file);
     });
+}
+
+function getImageReferenceLabel(index) {
+    return `Reference image ${index + 1}`;
+}
+
+function clearImageReference(index) {
+    state.imageReferenceImages[index] = null;
+    renderImageReferenceSlots();
+    updateActionState();
+}
+
+async function handleImageReferenceChange(index, input) {
+    const file = input?.files?.[0] || null;
+    if (!file) {
+        clearImageReference(index);
+        return;
+    }
+    if (!GPT_IMAGE_REFERENCE_MIME_TYPES.has(file.type)) {
+        input.value = '';
+        setMessage('Reference images must be PNG, JPEG, or WebP files.', 'error');
+        return;
+    }
+    if (file.size > MAX_GPT_IMAGE_REFERENCE_BYTES) {
+        input.value = '';
+        setMessage('Each reference image must be 10 MB or smaller.', 'error');
+        return;
+    }
+    try {
+        const dataUrl = await readFileAsDataUri(file);
+        state.imageReferenceImages[index] = {
+            dataUrl,
+            name: file.name || getImageReferenceLabel(index),
+            type: file.type,
+            size: file.size,
+        };
+        setMessage('');
+        renderImageReferenceSlots();
+        updateActionState();
+    } catch {
+        input.value = '';
+        setMessage('Reference image could not be read.', 'error');
+    }
+}
+
+function createImageReferenceSlot(index, disabled) {
+    const selected = state.imageReferenceImages[index];
+    const slotId = `labImageRefSlot${index + 1}`;
+    const inputId = `labImageReference${index + 1}`;
+    const slot = el('div', {
+        className: `generate-lab-ref-images__slot${selected ? ' has-image' : ''}`,
+        attrs: { id: slotId },
+    });
+    const input = el('input', {
+        className: 'generate-lab__file-input',
+        attrs: {
+            id: inputId,
+            type: 'file',
+            accept: 'image/png,image/jpeg,image/webp',
+            disabled,
+            'aria-label': getImageReferenceLabel(index),
+        },
+    });
+    input.addEventListener('change', () => handleImageReferenceChange(index, input));
+    const label = el('label', {
+        className: 'generate-lab-ref-images__slot-label',
+        attrs: { for: inputId },
+    });
+    if (selected) {
+        label.append(
+            el('img', { attrs: { src: selected.dataUrl, alt: '', loading: 'lazy' } }),
+            el('span', { text: selected.name }),
+        );
+    } else {
+        label.append(
+            el('span', { className: 'generate-lab-ref-images__slot-mark', attrs: { 'aria-hidden': 'true' } }),
+            el('span', { text: getImageReferenceLabel(index) }),
+        );
+    }
+    slot.append(input, label);
+    if (selected) {
+        const remove = el('button', {
+            className: 'generate-lab-ref-images__remove',
+            text: 'Remove',
+            attrs: {
+                type: 'button',
+                disabled,
+                'aria-label': `Remove ${getImageReferenceLabel(index)}`,
+            },
+        });
+        remove.addEventListener('click', () => clearImageReference(index));
+        slot.append(remove);
+    }
+    return slot;
+}
+
+function renderImageReferenceSlots() {
+    const gptSelected = isSelectedGptImage2();
+    const disabled = state.busy || !gptSelected;
+    const selectedCount = selectedImageReferences().length;
+    const hiddenSelectedCount = state.imageReferenceImages
+        .slice(GPT_IMAGE_REFERENCE_VISIBLE_SLOTS)
+        .filter(Boolean).length;
+
+    refs.imageReferenceCount && (refs.imageReferenceCount.textContent = `${selectedCount} / ${GPT_IMAGE_REFERENCE_MAX_SLOTS}`);
+    if (refs.imageRefPrimary) {
+        refs.imageRefPrimary.replaceChildren(
+            ...Array.from({ length: GPT_IMAGE_REFERENCE_VISIBLE_SLOTS }, (_, index) => createImageReferenceSlot(index, disabled)),
+        );
+    }
+    if (refs.imageRefExtraGrid) {
+        refs.imageRefExtraGrid.replaceChildren(
+            ...Array.from(
+                { length: GPT_IMAGE_REFERENCE_MAX_SLOTS - GPT_IMAGE_REFERENCE_VISIBLE_SLOTS },
+                (_, offset) => createImageReferenceSlot(offset + GPT_IMAGE_REFERENCE_VISIBLE_SLOTS, disabled),
+            ),
+        );
+    }
+    if (refs.imageRefToggle) {
+        refs.imageRefToggle.disabled = disabled;
+        refs.imageRefToggle.setAttribute('aria-expanded', state.imageRefsExpanded ? 'true' : 'false');
+        const label = hiddenSelectedCount > 0
+            ? `More reference images (${hiddenSelectedCount} selected)`
+            : 'More reference images';
+        const helper = state.imageRefsExpanded ? 'Hide optional references' : 'Optional: add up to 13 more references';
+        refs.imageRefToggle.replaceChildren(
+            el('span', { text: label }),
+            el('small', { text: helper }),
+        );
+    }
+    if (refs.imageRefExtra) refs.imageRefExtra.hidden = !state.imageRefsExpanded;
 }
 
 function clearVideoReference() {
@@ -899,13 +1073,24 @@ async function handleSaveImage() {
 async function generateImage(prompt) {
     const currentModel = selectedModel();
     const model = refs.imageModel?.value || currentModel.id;
+    const isGpt = currentModel.controls?.supportsQuality === true;
     const steps = currentModel.controls?.supportsSteps === true
         ? parseOptionalInteger(refs.imageSteps?.value, { min: 1, max: 20 })
         : null;
     const seed = currentModel.controls?.supportsSeed === true
         ? parseOptionalInteger(refs.imageSeed?.value, { min: 0 })
         : null;
-    const res = await apiAiGenerateImage(prompt, steps, seed, model);
+    const res = isGpt
+        ? await apiAiGenerateImage({
+            model,
+            prompt,
+            quality: refs.imageQuality?.value || currentModel.defaults?.quality || 'medium',
+            size: refs.imageSize?.value || currentModel.defaults?.size || '1024x1024',
+            outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png',
+            background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto',
+            referenceImages: selectedImageReferences(),
+        })
+        : await apiAiGenerateImage(prompt, steps, seed, model);
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
     if (!data.imageBase64) {
@@ -920,6 +1105,11 @@ async function generateImage(prompt) {
         modelLabel: selectedModel().displayName,
         steps: data.steps,
         seed: data.seed,
+        quality: data.quality,
+        size: data.size,
+        outputFormat: data.outputFormat,
+        background: data.background,
+        referenceImageCount: data.referenceImageCount,
         saveReference: typeof data.saveReference === 'string' ? data.saveReference : null,
     };
     renderImageResult({ imageData, prompt, meta: state.currentImageMeta });
@@ -1155,6 +1345,14 @@ function bindEvents() {
     });
     refs.imageSteps?.addEventListener('change', updateActionState);
     refs.imageSeed?.addEventListener('input', updateActionState);
+    refs.imageQuality?.addEventListener('change', updateActionState);
+    refs.imageSize?.addEventListener('change', updateActionState);
+    refs.imageOutputFormat?.addEventListener('change', updateActionState);
+    refs.imageBackground?.addEventListener('change', updateActionState);
+    refs.imageRefToggle?.addEventListener('click', () => {
+        state.imageRefsExpanded = !state.imageRefsExpanded;
+        renderImageReferenceSlots();
+    });
     refs.videoDuration?.addEventListener('change', updateActionState);
     refs.videoQuality?.addEventListener('change', updateActionState);
     refs.videoAspect?.addEventListener('change', updateActionState);
@@ -1201,8 +1399,21 @@ function cacheRefs() {
         recentAssets: byId('labRecentAssets'),
         recentAssetsOpen: byId('labRecentAssetsOpen'),
         imageModel: byId('labImageModel'),
+        imageFluxControls: byId('labImageFluxControls'),
+        imageGptControls: byId('labImageGptControls'),
         imageSteps: byId('labImageSteps'),
         imageSeed: byId('labImageSeed'),
+        imageQuality: byId('labImageQuality'),
+        imageSize: byId('labImageSize'),
+        imageOutputFormat: byId('labImageOutputFormat'),
+        imageBackground: byId('labImageBackground'),
+        imageAutoCostHint: byId('labImageAutoCostHint'),
+        imageRefPrimary: byId('labImageRefPrimary'),
+        imageRefToggle: byId('labImageRefToggle'),
+        imageRefExtra: byId('labImageRefExtra'),
+        imageRefExtraGrid: byId('labImageRefExtraGrid'),
+        imageReferenceCount: byId('labImageReferenceCount'),
+        imageReferenceCostHint: byId('labImageReferenceCostHint'),
         videoNegative: byId('labVideoNegative'),
         videoReference: byId('labVideoReference'),
         videoReferenceShell: byId('labVideoReferenceShell'),

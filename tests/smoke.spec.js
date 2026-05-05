@@ -1192,7 +1192,44 @@ test.describe('Homepage', () => {
     };
     await expect(page.locator('#labModelList').getByText('FLUX.1 Schnell')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('FLUX.2 Klein 9B')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('GPT Image 2')).toBeVisible();
     await expectLabAccent('192, 38, 211', '0, 240, 255');
+
+    await page.selectOption('#labImageModel', 'openai/gpt-image-2');
+    await expect(page.locator('#labImageGptControls')).toBeVisible();
+    await expect(page.locator('#labImageFluxControls')).toBeHidden();
+    await expect(page.locator('#labImageQuality')).toBeVisible();
+    await expect(page.locator('#labImageSize')).toBeVisible();
+    await expect(page.locator('#labImageOutputFormat')).toBeVisible();
+    await expect(page.locator('#labImageBackground')).toBeVisible();
+    await expect(page.locator('#labCost')).toHaveText('50 credits');
+    await expect(page.locator('#labImageRefPrimary .generate-lab-ref-images__slot')).toHaveCount(3);
+    await expect(page.locator('#labImageRefExtra')).toBeHidden();
+    await page.locator('#labImageRefToggle').click();
+    await expect(page.locator('#labImageRefExtra')).toBeVisible();
+    await expect(page.locator('#labImageRefExtraGrid .generate-lab-ref-images__slot')).toHaveCount(13);
+    await page.locator('#labImageReference4').setInputFiles({
+      name: 'reference.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=', 'base64'),
+    });
+    await expect(page.locator('#labImageReferenceCount')).toHaveText('1 / 16');
+    await page.locator('#labImageRefToggle').click();
+    await expect(page.locator('#labImageRefExtra')).toBeHidden();
+    await expect(page.locator('#labImageRefToggle')).toContainText('More reference images (1 selected)');
+    await page.locator('#labImageRefToggle').click();
+    await expect(page.locator('#labImageRefExtra')).toBeVisible();
+    await expect(page.locator('#labImageRefExtraGrid')).toContainText('reference.png');
+    await expect(page.locator('#labImageReferenceCostHint')).toBeVisible();
+    await page.selectOption('#labImageQuality', 'low');
+    await expect(page.locator('#labCost')).toHaveText('35 credits');
+    await page.selectOption('#labImageQuality', 'auto');
+    await expect(page.locator('#labCost')).toHaveText('250 credits');
+    await expect(page.locator('#labImageAutoCostHint')).toBeVisible();
+    await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#labImageGptControls')).toBeHidden();
+    await expect(page.locator('#labImageFluxControls')).toBeVisible();
+    await expect(page.locator('#labCost')).toHaveText('1 credit');
 
     await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-2-klein-9b');
     await expect(page.locator('#labCost')).toHaveText('10 credits');
