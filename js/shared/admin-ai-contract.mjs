@@ -3,6 +3,21 @@ import {
   attachRemoteMediaPolicyContext,
   buildRemoteMediaUrlRejectedMessage,
 } from "./remote-media-policy.mjs";
+import {
+  GPT_IMAGE_2_BACKGROUND_OPTIONS,
+  GPT_IMAGE_2_MODEL_ID,
+  GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+  GPT_IMAGE_2_QUALITY_OPTIONS,
+  GPT_IMAGE_2_SIZE_OPTIONS,
+} from "./gpt-image-2-pricing.mjs";
+
+export {
+  GPT_IMAGE_2_BACKGROUND_OPTIONS,
+  GPT_IMAGE_2_MODEL_ID,
+  GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+  GPT_IMAGE_2_QUALITY_OPTIONS,
+  GPT_IMAGE_2_SIZE_OPTIONS,
+} from "./gpt-image-2-pricing.mjs";
 
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
@@ -137,12 +152,21 @@ export const ADMIN_AI_IMAGE_CAPABILITY_FALLBACK = {
   supportsGuidance: false,
   supportsStructuredPrompt: false,
   supportsReferenceImages: false,
+  supportsQuality: false,
+  supportsSize: false,
+  supportsOutputFormat: false,
+  supportsBackground: false,
+  supportsTransparentBackground: false,
   maxReferenceImages: 0,
   maxSteps: 8,
   defaultSteps: 4,
   minGuidance: null,
   maxGuidance: null,
   defaultGuidance: null,
+  qualityOptions: [],
+  sizeOptions: [],
+  outputFormatOptions: [],
+  backgroundOptions: [],
 };
 
 export const ADMIN_AI_LIVE_AGENT_LIMITS = {
@@ -261,6 +285,37 @@ const IMAGE_MODELS = {
     defaultSize: { width: 1024, height: 1024 },
     defaultMimeType: "image/jpeg",
     description: "Higher-capability multipart image generation for admin experiments.",
+  },
+  [GPT_IMAGE_2_MODEL_ID]: {
+    id: GPT_IMAGE_2_MODEL_ID,
+    task: "image",
+    label: "GPT Image 2",
+    vendor: "OpenAI",
+    providerLabel: "OpenAI via Cloudflare AI Gateway",
+    inputFormat: "gpt-image-2",
+    proxied: true,
+    supportsSeed: false,
+    supportsSteps: false,
+    supportsDimensions: false,
+    supportsGuidance: false,
+    supportsStructuredPrompt: false,
+    supportsReferenceImages: true,
+    maxReferenceImages: 16,
+    supportsQuality: true,
+    supportsSize: true,
+    supportsOutputFormat: true,
+    supportsBackground: true,
+    supportsTransparentBackground: false,
+    qualityOptions: GPT_IMAGE_2_QUALITY_OPTIONS,
+    sizeOptions: GPT_IMAGE_2_SIZE_OPTIONS,
+    outputFormatOptions: GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+    backgroundOptions: GPT_IMAGE_2_BACKGROUND_OPTIONS,
+    defaultQuality: "medium",
+    defaultSize: "1024x1024",
+    defaultOutputFormat: "png",
+    defaultBackground: "auto",
+    defaultMimeType: "image/png",
+    description: "OpenAI image generation and editing via Cloudflare AI Gateway.",
   },
 };
 
@@ -607,14 +662,17 @@ function optionalStructuredPrompt(value, field, maxLength) {
   return trimmed;
 }
 
-function validateReferenceImages(value) {
+function validateReferenceImages(value, {
+  maxItems = ADMIN_AI_LIMITS.image.maxReferenceImages,
+  allowedMimeTypes = null,
+} = {}) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
     throw new AdminAiValidationError("referenceImages must be an array.", 400, "validation_error");
   }
-  if (value.length > ADMIN_AI_LIMITS.image.maxReferenceImages) {
+  if (value.length > maxItems) {
     throw new AdminAiValidationError(
-      `referenceImages must contain at most ${ADMIN_AI_LIMITS.image.maxReferenceImages} items.`,
+      `referenceImages must contain at most ${maxItems} items.`,
       400,
       "validation_error"
     );
@@ -631,6 +689,16 @@ function validateReferenceImages(value) {
     if (commaIndex === -1) {
       throw new AdminAiValidationError(
         `referenceImages[${index}] is not a valid data URI.`,
+        400,
+        "validation_error"
+      );
+    }
+    const meta = item.slice(0, commaIndex);
+    const mimeMatch = meta.match(/^data:([^;,]+)(?:;base64)?$/i);
+    const mimeType = mimeMatch ? mimeMatch[1].toLowerCase() : "";
+    if (allowedMimeTypes && !allowedMimeTypes.includes(mimeType)) {
+      throw new AdminAiValidationError(
+        `referenceImages[${index}] must be a PNG, JPEG, or WebP data URI.`,
         400,
         "validation_error"
       );
@@ -751,6 +819,7 @@ function toPublicModel(model) {
     task: model.task,
     label: model.label,
     vendor: model.vendor,
+    providerLabel: model.providerLabel || model.vendor,
     description: model.description,
   };
   if (model.task === "image") {
@@ -761,12 +830,26 @@ function toPublicModel(model) {
       supportsGuidance: !!model.supportsGuidance,
       supportsStructuredPrompt: !!model.supportsStructuredPrompt,
       supportsReferenceImages: !!model.supportsReferenceImages,
+      supportsQuality: !!model.supportsQuality,
+      supportsSize: !!model.supportsSize,
+      supportsOutputFormat: !!model.supportsOutputFormat,
+      supportsBackground: !!model.supportsBackground,
+      supportsTransparentBackground: !!model.supportsTransparentBackground,
       maxReferenceImages: model.maxReferenceImages || 0,
       maxSteps: model.maxSteps || null,
       defaultSteps: model.defaultSteps || null,
       minGuidance: model.minGuidance || null,
       maxGuidance: model.maxGuidance || null,
       defaultGuidance: model.defaultGuidance || null,
+      qualityOptions: Array.isArray(model.qualityOptions) ? [...model.qualityOptions] : [],
+      sizeOptions: Array.isArray(model.sizeOptions) ? [...model.sizeOptions] : [],
+      outputFormatOptions: Array.isArray(model.outputFormatOptions) ? [...model.outputFormatOptions] : [],
+      backgroundOptions: Array.isArray(model.backgroundOptions) ? [...model.backgroundOptions] : [],
+      defaultQuality: model.defaultQuality || null,
+      defaultSize: model.defaultSize || null,
+      defaultOutputFormat: model.defaultOutputFormat || null,
+      defaultBackground: model.defaultBackground || null,
+      proxied: !!model.proxied,
     };
   }
   if (model.task === "video") {
@@ -913,6 +996,49 @@ export function validateAdminAiTextBody(body) {
 
 export function validateAdminAiImageBody(body) {
   const input = ensureObject(body);
+  const preset = optionalString(input.preset, "preset", 64);
+  const model = optionalString(input.model, "model", 120);
+  const selection = resolveAdminAiModelSelection("image", { preset, model });
+  const selectedModel = selection.model;
+
+  if (selectedModel.id === GPT_IMAGE_2_MODEL_ID) {
+    if (typeof input.background === "string" && input.background.trim() === "transparent") {
+      throw new AdminAiValidationError(
+        "Transparent background is not supported by GPT Image 2.",
+        400,
+        "validation_error"
+      );
+    }
+    const outputFormatValue =
+      input.outputFormat === undefined || input.outputFormat === null || input.outputFormat === ""
+        ? input.output_format
+        : input.outputFormat;
+
+    return {
+      preset,
+      model,
+      prompt: requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.image.maxPromptLength),
+      quality: optionalEnum(input.quality, "quality", GPT_IMAGE_2_QUALITY_OPTIONS, selectedModel.defaultQuality),
+      size: optionalEnum(input.size, "size", GPT_IMAGE_2_SIZE_OPTIONS, selectedModel.defaultSize),
+      outputFormat: optionalEnum(
+        outputFormatValue,
+        "outputFormat",
+        GPT_IMAGE_2_OUTPUT_FORMAT_OPTIONS,
+        selectedModel.defaultOutputFormat
+      ),
+      background: optionalEnum(
+        input.background,
+        "background",
+        GPT_IMAGE_2_BACKGROUND_OPTIONS,
+        selectedModel.defaultBackground
+      ),
+      referenceImages: validateReferenceImages(input.referenceImages, {
+        maxItems: selectedModel.maxReferenceImages,
+        allowedMimeTypes: ["image/png", "image/jpeg", "image/webp"],
+      }),
+    };
+  }
+
   const width = optionalDimension(input.width, "width");
   const height = optionalDimension(input.height, "height");
 
@@ -937,11 +1063,13 @@ export function validateAdminAiImageBody(body) {
     "structuredPrompt",
     ADMIN_AI_LIMITS.image.maxStructuredPromptLength
   );
-  const referenceImages = validateReferenceImages(input.referenceImages);
+  const referenceImages = validateReferenceImages(input.referenceImages, {
+    maxItems: selectedModel.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages,
+  });
 
   return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
+    preset,
+    model,
     prompt: structuredPrompt
       ? optionalString(input.prompt, "prompt", ADMIN_AI_LIMITS.image.maxPromptLength)
       : requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.image.maxPromptLength),
@@ -1413,5 +1541,28 @@ export function buildAdminAiMultipartImageRequest(model, input) {
     appliedSeed: model.supportsSeed ? input.seed : null,
     appliedGuidance: model.supportsGuidance ? input.guidance : null,
     appliedSize: width && height ? { width, height } : null,
+  };
+}
+
+export function buildAdminAiGptImage2Request(model, input) {
+  const payload = {
+    prompt: String(input.prompt || "").trim(),
+    quality: input.quality || model.defaultQuality || "medium",
+    size: input.size || model.defaultSize || "1024x1024",
+    output_format: input.outputFormat || model.defaultOutputFormat || "png",
+    background: input.background || model.defaultBackground || "auto",
+  };
+
+  if (Array.isArray(input.referenceImages) && input.referenceImages.length > 0) {
+    payload.images = input.referenceImages;
+  }
+
+  return {
+    payload,
+    appliedQuality: payload.quality,
+    appliedSize: payload.size,
+    appliedOutputFormat: payload.output_format,
+    appliedBackground: payload.background,
+    referenceImageCount: payload.images?.length || 0,
   };
 }

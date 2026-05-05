@@ -27,8 +27,10 @@ import {
     ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     FLUX_2_DEV_MODEL_ID,
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
+    GPT_IMAGE_2_MODEL_ID,
     getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
+import { calculateGptImage2CreditCost } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     buildAdminAiLabSaveIntent,
@@ -65,6 +67,7 @@ const ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS = {
     '@cf/black-forest-labs/flux-2-klein-9b': 10,
     'black-forest-labs/flux-2-klein-9b': 10,
 };
+const GPT_IMAGE_2_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const ADMIN_AI_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_REQUEST_TIMEOUTS = {
     text: ADMIN_AI_REQUEST_TIMEOUT_MS,
@@ -142,6 +145,10 @@ const DEFAULT_FORMS = {
         steps: 4,
         seed: '',
         guidance: '',
+        quality: 'medium',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
         referenceImages: [],
         organizationId: '',
     },
@@ -836,7 +843,9 @@ export function createAdminAiLab({ showToast } = {}) {
             structuredPrompt: document.getElementById('aiImageStructuredPrompt'),
             structuredPromptCount: document.getElementById('aiImageStructuredPromptCount'),
             structuredPromptError: document.getElementById('aiImageStructuredPromptError'),
+            widthField: document.getElementById('aiImageWidthField'),
             width: document.getElementById('aiImageWidth'),
+            heightField: document.getElementById('aiImageHeightField'),
             height: document.getElementById('aiImageHeight'),
             stepsField: document.getElementById('aiImageStepsField'),
             steps: document.getElementById('aiImageSteps'),
@@ -847,6 +856,12 @@ export function createAdminAiLab({ showToast } = {}) {
             guidanceField: document.getElementById('aiImageGuidanceField'),
             guidance: document.getElementById('aiImageGuidance'),
             guidanceHint: document.getElementById('aiImageGuidanceHint'),
+            gptControls: document.getElementById('aiImageGptControls'),
+            quality: document.getElementById('aiImageQuality'),
+            size: document.getElementById('aiImageSize'),
+            outputFormat: document.getElementById('aiImageOutputFormat'),
+            background: document.getElementById('aiImageBackground'),
+            gptCostHint: document.getElementById('aiImageGptCostHint'),
             organization: document.getElementById('aiImageOrganization'),
             organizationState: document.getElementById('aiImageOrganizationState'),
             refSection: document.getElementById('aiImageRefSection'),
@@ -1757,6 +1772,18 @@ export function createAdminAiLab({ showToast } = {}) {
 
             main.append(name, desc);
 
+            if (item.id === GPT_IMAGE_2_MODEL_ID) {
+                const tags = document.createElement('div');
+                tags.className = 'admin-ai__catalog-tags';
+                ['Text to image', 'Image edit', 'Multi-reference', 'PNG / WebP / JPEG', 'Cloudflare Gateway'].forEach((label) => {
+                    const tag = document.createElement('span');
+                    tag.className = 'admin-ai__catalog-tag';
+                    tag.textContent = label;
+                    tags.appendChild(tag);
+                });
+                main.appendChild(tags);
+            }
+
             const meta = document.createElement('div');
             meta.className = 'admin-ai__catalog-meta';
             meta.innerHTML = '';
@@ -1767,7 +1794,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
             const vendor = document.createElement('span');
             vendor.className = 'admin-inventory__meta';
-            vendor.textContent = item.vendor || item.task || '';
+            vendor.textContent = item.providerLabel || item.vendor || item.task || '';
 
             meta.append(code, vendor);
             row.append(main, meta);
@@ -1795,8 +1822,27 @@ export function createAdminAiLab({ showToast } = {}) {
         return preset?.model || ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID;
     }
 
+    function isGptImage2Selected() {
+        return getSelectedImageModelIdForBilling() === GPT_IMAGE_2_MODEL_ID;
+    }
+
     function getSelectedImageCreditCost() {
         const modelId = getSelectedImageModelIdForBilling();
+        if (modelId === GPT_IMAGE_2_MODEL_ID) {
+            try {
+                return calculateGptImage2CreditCost({
+                    quality: state.forms.image.quality,
+                    size: state.forms.image.size,
+                    outputFormat: state.forms.image.outputFormat,
+                    background: state.forms.image.background,
+                    referenceImageCount: Array.isArray(state.forms.image.referenceImages)
+                        ? state.forms.image.referenceImages.filter(Boolean).length
+                        : 0,
+                }).credits;
+            } catch {
+                return null;
+            }
+        }
         return ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS[modelId] || null;
     }
 
@@ -1835,6 +1881,23 @@ export function createAdminAiLab({ showToast } = {}) {
         const credits = getSelectedImageCreditCost();
         const isBusy = state.results.image?.status === 'loading';
         if (refs.image.run && !isBusy) refs.image.run.textContent = getImageRunLabel();
+        if (refs.image.gptCostHint) {
+            if (isGptImage2Selected()) {
+                const isAuto = state.forms.image.quality === 'auto' || state.forms.image.size === 'auto';
+                const refCount = Array.isArray(state.forms.image.referenceImages)
+                    ? state.forms.image.referenceImages.filter(Boolean).length
+                    : 0;
+                const parts = [];
+                if (credits) parts.push(`Estimated credits: ${credits}`);
+                if (isAuto) parts.push('Auto settings are charged at the safe upper-bound credit price.');
+                if (refCount > 0) {
+                    parts.push('Reference images increase cost because image inputs are processed at high fidelity.');
+                }
+                refs.image.gptCostHint.textContent = parts.join(' ');
+            } else {
+                refs.image.gptCostHint.textContent = '';
+            }
+        }
         if (!refs.image.organization || !refs.image.organizationState) return;
 
         refs.image.organization.disabled = isBusy || state.imageBilling.status === 'loading';
@@ -1842,7 +1905,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const balance = state.imageBilling.balance;
 
         if (state.imageBilling.status === 'loading') {
-            refs.image.organizationState.textContent = 'Loading organizations for charged BFL image tests...';
+            refs.image.organizationState.textContent = 'Loading organizations for charged image tests...';
             return;
         }
         if (state.imageBilling.status === 'error') {
@@ -1850,7 +1913,7 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
         if (!credits) {
-            refs.image.organizationState.textContent = 'No admin image-test credit charge for this model in Phase 2-M.';
+            refs.image.organizationState.textContent = 'No admin image-test credit charge for this model.';
             return;
         }
         if (!selectedOrgId) {
@@ -1964,8 +2027,68 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
+    function createRefSlot(index) {
+        const slot = document.createElement('div');
+        slot.className = 'admin-ai__ref-slot';
+        slot.dataset.refIndex = String(index);
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/jpeg,image/webp';
+        input.className = 'admin-ai__ref-input';
+        input.id = `aiImageRef${index}`;
+        input.hidden = true;
+
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'admin-ai__ref-add';
+        add.dataset.refIndex = String(index);
+        add.title = 'Add reference image';
+        add.setAttribute('aria-label', `Add reference image ${index + 1}`);
+        add.textContent = '+';
+
+        const preview = document.createElement('div');
+        preview.className = 'admin-ai__ref-preview';
+        preview.dataset.refIndex = String(index);
+        preview.hidden = true;
+
+        const thumb = document.createElement('img');
+        thumb.className = 'admin-ai__ref-thumb';
+        thumb.alt = `Reference ${index + 1}`;
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'admin-ai__ref-remove';
+        remove.dataset.refIndex = String(index);
+        remove.title = 'Remove';
+        remove.setAttribute('aria-label', `Remove reference image ${index + 1}`);
+        remove.textContent = '×';
+
+        preview.append(thumb, remove);
+        slot.append(input, add, preview);
+        return slot;
+    }
+
+    function ensureRefSlots(maxRef) {
+        if (!refs.image.refGrid) return;
+        for (let i = 0; i < maxRef; i++) {
+            if (!refs.image.refGrid.querySelector(`.admin-ai__ref-slot[data-ref-index="${i}"]`)) {
+                refs.image.refGrid.appendChild(createRefSlot(i));
+            }
+        }
+    }
+
     function updateImageCapabilityControls() {
         const caps = getSelectedImageModelCapabilities();
+        const isGpt = isGptImage2Selected();
+
+        if (refs.image.widthField) refs.image.widthField.hidden = isGpt;
+        if (refs.image.heightField) refs.image.heightField.hidden = isGpt;
+        if (refs.image.gptControls) refs.image.gptControls.hidden = !isGpt;
+        if (refs.image.quality) refs.image.quality.value = state.forms.image.quality || 'medium';
+        if (refs.image.size) refs.image.size.value = state.forms.image.size || '1024x1024';
+        if (refs.image.outputFormat) refs.image.outputFormat.value = state.forms.image.outputFormat || 'png';
+        if (refs.image.background) refs.image.background.value = state.forms.image.background || 'auto';
 
         setFieldDisabled(
             refs.image.stepsField,
@@ -1974,6 +2097,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.image.stepsHint,
             'Not supported by this model.'
         );
+        if (refs.image.stepsField) refs.image.stepsField.hidden = isGpt;
         if (caps.supportsSteps && caps.maxSteps) {
             refs.image.steps.max = caps.maxSteps;
         } else {
@@ -1987,6 +2111,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.image.seedHint,
             'Not supported by this model.'
         );
+        if (refs.image.seedField) refs.image.seedField.hidden = isGpt;
 
         setFieldDisabled(
             refs.image.guidanceField,
@@ -1995,6 +2120,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.image.guidanceHint,
             'Not supported by this model.'
         );
+        if (refs.image.guidanceField) refs.image.guidanceField.hidden = isGpt;
 
         const promptModeDisabled = !caps.supportsStructuredPrompt;
         setFieldDisabled(
@@ -2008,6 +2134,7 @@ export function createAdminAiLab({ showToast } = {}) {
             state.forms.image.promptMode = 'standard';
             refs.image.promptMode.value = 'standard';
         }
+        if (refs.image.promptModeField) refs.image.promptModeField.hidden = isGpt;
         updateImagePromptMode();
 
         const refDisabled = !caps.supportsReferenceImages;
@@ -2015,8 +2142,15 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.refHint.hidden = !refDisabled;
         if (refDisabled) {
             refs.image.refHint.textContent = 'Current model does not support reference images.';
+        } else if (isGpt && state.forms.image.referenceImages.filter(Boolean).length > 0) {
+            refs.image.refHint.hidden = false;
+            refs.image.refHint.textContent = 'Reference images increase cost because image inputs are processed at high fidelity.';
         }
         const maxRef = caps.maxReferenceImages || ADMIN_AI_LIMITS.image.maxReferenceImages;
+        ensureRefSlots(maxRef);
+        if (state.forms.image.referenceImages.length > maxRef) {
+            state.forms.image.referenceImages = state.forms.image.referenceImages.slice(0, maxRef);
+        }
         refs.image.refCount.textContent = `${state.forms.image.referenceImages.length} / ${maxRef}`;
         updateRefSlots();
         syncImageBillingUi();
@@ -2125,11 +2259,14 @@ export function createAdminAiLab({ showToast } = {}) {
         const disabled = !caps.supportsReferenceImages;
         const images = state.forms.image.referenceImages;
 
+        ensureRefSlots(maxRef);
         refs.image.refCount.textContent = `${images.length} / ${maxRef}`;
 
-        for (let i = 0; i < 4; i++) {
-            const slot = refs.image.refGrid.querySelector(`.admin-ai__ref-slot[data-ref-index="${i}"]`);
-            if (!slot) continue;
+        const slots = refs.image.refGrid.querySelectorAll('.admin-ai__ref-slot[data-ref-index]');
+        slots.forEach((slot) => {
+            const i = Number(slot.dataset.refIndex);
+            if (!Number.isInteger(i)) return;
+            slot.hidden = i >= maxRef;
             const addBtn = slot.querySelector('.admin-ai__ref-add');
             const preview = slot.querySelector('.admin-ai__ref-preview');
             const thumb = preview?.querySelector('.admin-ai__ref-thumb');
@@ -2144,7 +2281,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 if (thumb) thumb.src = '';
                 addBtn.disabled = disabled || images.length >= maxRef;
             }
-        }
+        });
     }
 
     async function handleRefFileSelect(index, file) {
@@ -2154,6 +2291,12 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.forms.image.referenceImages.length >= maxRef) return;
 
         try {
+            if (isGptImage2Selected() && !GPT_IMAGE_2_REFERENCE_MIME_TYPES.has(file.type)) {
+                const message = 'GPT Image 2 reference images must be PNG, JPEG, or WebP.';
+                setStatus(message, 'error');
+                if (showToast) showToast(message, 'error');
+                return;
+            }
             if (state.forms.image.model === FLUX_2_DEV_MODEL_ID) {
                 const dimensions = await loadFileImageDimensions(file);
                 const error = getFlux2DevReferenceImageError(dimensions, index);
@@ -2169,6 +2312,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 state.forms.image.referenceImages[index] = dataUri;
                 updateRefSlots();
                 persistState();
+                updateImageCapabilityControls();
             }
         } catch {
             setStatus('Failed to read the image file.', 'error');
@@ -2180,6 +2324,7 @@ export function createAdminAiLab({ showToast } = {}) {
         state.forms.image.referenceImages.splice(index, 1);
         updateRefSlots();
         persistState();
+        updateImageCapabilityControls();
     }
 
     function normalizeFormSelections() {
@@ -2207,6 +2352,10 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (state.forms.text.model && !textIds.includes(state.forms.text.model)) state.forms.text.model = '';
         if (state.forms.image.model && !imageIds.includes(state.forms.image.model)) state.forms.image.model = '';
+        if (!state.forms.image.quality) state.forms.image.quality = 'medium';
+        if (!state.forms.image.size) state.forms.image.size = '1024x1024';
+        if (!state.forms.image.outputFormat) state.forms.image.outputFormat = 'png';
+        if (!state.forms.image.background) state.forms.image.background = 'auto';
         if (state.forms.embeddings.model && !embeddingIds.includes(state.forms.embeddings.model)) {
             state.forms.embeddings.model = '';
         }
@@ -2338,6 +2487,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.steps.value = state.forms.image.steps;
         refs.image.seed.value = state.forms.image.seed;
         refs.image.guidance.value = state.forms.image.guidance;
+        if (refs.image.quality) refs.image.quality.value = state.forms.image.quality || 'medium';
+        if (refs.image.size) refs.image.size.value = state.forms.image.size || '1024x1024';
+        if (refs.image.outputFormat) refs.image.outputFormat.value = state.forms.image.outputFormat || 'png';
+        if (refs.image.background) refs.image.background.value = state.forms.image.background || 'auto';
         if (refs.image.organization) {
             populateImageOrganizationSelect();
             refs.image.organization.value = state.forms.image.organizationId || '';
@@ -2631,6 +2784,10 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
             { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Mime', value: imgPayload.mimeType },
+            { label: 'Quality', value: imgPayload.quality },
+            { label: 'Size', value: imgPayload.size },
+            { label: 'Output Format', value: imgPayload.outputFormat },
+            { label: 'Background', value: imgPayload.background },
             { label: 'Prompt Mode', value: imgPayload.promptMode || 'standard' },
             { label: 'Steps', value: imgPayload.steps },
             { label: 'Seed', value: imgPayload.seed },
@@ -2644,10 +2801,11 @@ export function createAdminAiLab({ showToast } = {}) {
             },
             {
                 label: 'Applied Size',
-                value: imgPayload.appliedSize
+                value: imgPayload.appliedSize && typeof imgPayload.appliedSize === 'object'
                     ? `${imgPayload.appliedSize.width}×${imgPayload.appliedSize.height}`
                     : null,
             },
+            { label: 'Provider URL', value: imgPayload.imageUrl },
             { label: 'Charged Org', value: response.billing?.organization_name || response.billing?.organization_id },
             { label: 'Credits Charged', value: response.billing?.credits_charged },
             { label: 'Balance Before', value: response.billing?.balance_before },
@@ -3982,24 +4140,33 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         const caps = getSelectedImageModelCapabilities();
+        const isGpt = isGptImage2Selected();
         const payload = {
             preset: state.forms.image.preset || undefined,
             model: state.forms.image.model || undefined,
             prompt: state.forms.image.prompt,
-            width: Number(state.forms.image.width),
-            height: Number(state.forms.image.height),
-            steps: Number(state.forms.image.steps) || undefined,
         };
-        if (state.forms.image.seed !== '') {
-            payload.seed = Number(state.forms.image.seed);
-        }
-        if (caps.supportsGuidance && state.forms.image.guidance !== '') {
-            payload.guidance = Number(state.forms.image.guidance);
-        }
-        if (caps.supportsStructuredPrompt && state.forms.image.promptMode === 'structured') {
-            const spValue = (state.forms.image.structuredPrompt || '').trim();
-            if (spValue) {
-                payload.structuredPrompt = spValue;
+
+        if (isGpt) {
+            payload.quality = state.forms.image.quality || 'medium';
+            payload.size = state.forms.image.size || '1024x1024';
+            payload.outputFormat = state.forms.image.outputFormat || 'png';
+            payload.background = state.forms.image.background || 'auto';
+        } else {
+            payload.width = Number(state.forms.image.width);
+            payload.height = Number(state.forms.image.height);
+            payload.steps = Number(state.forms.image.steps) || undefined;
+            if (state.forms.image.seed !== '') {
+                payload.seed = Number(state.forms.image.seed);
+            }
+            if (caps.supportsGuidance && state.forms.image.guidance !== '') {
+                payload.guidance = Number(state.forms.image.guidance);
+            }
+            if (caps.supportsStructuredPrompt && state.forms.image.promptMode === 'structured') {
+                const spValue = (state.forms.image.structuredPrompt || '').trim();
+                if (spValue) {
+                    payload.structuredPrompt = spValue;
+                }
             }
         }
         if (caps.supportsReferenceImages && state.forms.image.referenceImages.length > 0) {
@@ -4782,11 +4949,16 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.image.seed, 'image', 'seed');
         attachFieldSync(refs.image.guidance, 'image', 'guidance', (value) => value === '' ? '' : Number(value));
         attachFieldSync(refs.image.structuredPrompt, 'image', 'structuredPrompt');
+        attachFieldSync(refs.image.quality, 'image', 'quality');
+        attachFieldSync(refs.image.size, 'image', 'size');
+        attachFieldSync(refs.image.outputFormat, 'image', 'outputFormat');
+        attachFieldSync(refs.image.background, 'image', 'background');
 
         refs.image.model.addEventListener('change', () => {
             updateImageCapabilityControls();
         });
         refs.image.preset.addEventListener('change', () => {
+            updateImageCapabilityControls();
             syncImageBillingUi();
         });
         refs.image.width.addEventListener('input', () => {
@@ -4798,6 +4970,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.image.steps.addEventListener('input', () => {
             syncImageBillingUi();
         });
+        refs.image.quality?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.size?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.outputFormat?.addEventListener('change', () => syncImageBillingUi());
+        refs.image.background?.addEventListener('change', () => syncImageBillingUi());
         refs.image.organization?.addEventListener('change', async () => {
             state.forms.image.organizationId = refs.image.organization.value;
             state.imageBilling.selectedOrganizationId = state.forms.image.organizationId;
@@ -4817,24 +4993,30 @@ export function createAdminAiLab({ showToast } = {}) {
             validateStructuredPrompt();
         });
 
-        for (let i = 0; i < 4; i++) {
-            const addBtn = refs.image.refGrid.querySelector(`.admin-ai__ref-add[data-ref-index="${i}"]`);
-            const fileInput = document.getElementById(`aiImageRef${i}`);
-            const removeBtn = refs.image.refGrid.querySelector(`.admin-ai__ref-remove[data-ref-index="${i}"]`);
-
-            if (addBtn && fileInput) {
-                addBtn.addEventListener('click', () => fileInput.click());
-                fileInput.addEventListener('change', () => {
-                    if (fileInput.files?.[0]) {
-                        handleRefFileSelect(i, fileInput.files[0]);
-                        fileInput.value = '';
-                    }
-                });
+        refs.image.refGrid?.addEventListener('click', (event) => {
+            const addBtn = event.target.closest?.('.admin-ai__ref-add[data-ref-index]');
+            if (addBtn && refs.image.refGrid.contains(addBtn)) {
+                const index = Number(addBtn.dataset.refIndex);
+                const fileInput = document.getElementById(`aiImageRef${index}`);
+                if (fileInput) fileInput.click();
+                return;
             }
-            if (removeBtn) {
-                removeBtn.addEventListener('click', () => removeRefImage(i));
+            const removeBtn = event.target.closest?.('.admin-ai__ref-remove[data-ref-index]');
+            if (removeBtn && refs.image.refGrid.contains(removeBtn)) {
+                const index = Number(removeBtn.dataset.refIndex);
+                if (Number.isInteger(index)) removeRefImage(index);
             }
-        }
+        });
+        refs.image.refGrid?.addEventListener('change', (event) => {
+            const fileInput = event.target.closest?.('.admin-ai__ref-input[id^="aiImageRef"]');
+            if (!fileInput || !refs.image.refGrid.contains(fileInput)) return;
+            const slot = fileInput.closest('.admin-ai__ref-slot[data-ref-index]');
+            const index = Number(slot?.dataset.refIndex);
+            if (Number.isInteger(index) && fileInput.files?.[0]) {
+                handleRefFileSelect(index, fileInput.files[0]);
+                fileInput.value = '';
+            }
+        });
 
         attachFieldSync(refs.embeddings.preset, 'embeddings', 'preset');
         attachFieldSync(refs.embeddings.model, 'embeddings', 'model');

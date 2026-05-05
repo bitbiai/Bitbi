@@ -1,8 +1,14 @@
+import {
+  GPT_IMAGE_2_MODEL_ID,
+  calculateGptImage2CreditCost,
+} from "../../../../js/shared/gpt-image-2-pricing.mjs";
+
 export const BITBI_MODEL_PRICING_USD_TO_EUR = 0.855176;
 export const BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING = 0.00163250625;
 export const BITBI_TARGET_PROFIT_MARGIN = 0.20;
 
 export const FLUX_1_SCHNELL_IMAGE_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
+export { GPT_IMAGE_2_MODEL_ID };
 export const FLUX_2_KLEIN_IMAGE_MODEL_IDS = Object.freeze([
   "@cf/black-forest-labs/flux-2-klein-9b",
   "black-forest-labs/flux-2-klein-9b",
@@ -112,11 +118,16 @@ function flux2KleinCost(params = {}) {
 export function isPricedAiImageModel(modelId) {
   const id = String(modelId || "").trim();
   return id === FLUX_1_SCHNELL_IMAGE_MODEL_ID
-    || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id);
+    || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)
+    || id === GPT_IMAGE_2_MODEL_ID;
 }
 
 export function calculateAiImageCreditCost(modelId, params = {}) {
   const id = String(modelId || "").trim();
+  if (id === GPT_IMAGE_2_MODEL_ID) {
+    return calculateGptImage2CreditCost(params);
+  }
+
   let pricing = null;
   if (id === FLUX_1_SCHNELL_IMAGE_MODEL_ID) {
     pricing = flux1SchnellCost(params);

@@ -122,6 +122,13 @@ async function loadAdminImageCreditPricingModule() {
   return import(modulePath);
 }
 
+async function loadAdminAiContractModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/admin-ai-contract.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadPixverseV6PricingModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/pixverse-v6-pricing.mjs')
@@ -222,6 +229,18 @@ function createAiLabRunStub() {
       modelId === '@cf/black-forest-labs/flux-2-dev'
     ) {
       return `data:image/png;base64,${ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', '')}`;
+    }
+
+    if (modelId === 'openai/gpt-image-2') {
+      return {
+        state: 'Completed',
+        result: {
+          image: ONE_PIXEL_PNG_DATA_URI,
+        },
+        gatewayMetadata: {
+          keySource: 'Unified',
+        },
+      };
     }
 
     if (
@@ -4146,6 +4165,42 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
       width: 1024,
       height: 1024,
     })).toBeNull();
+
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'low',
+      size: '1024x1024',
+    }).credits).toBe(10);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'medium',
+      size: '1024x1024',
+    }).credits).toBe(50);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'medium',
+      size: '1024x1536',
+    }).credits).toBe(40);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'high',
+      size: '1024x1024',
+    }).credits).toBe(200);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'high',
+      size: '1536x1024',
+      referenceImageCount: 2,
+    }).credits).toBe(250);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'auto',
+      size: '1024x1024',
+      referenceImageCount: 1,
+    }).credits).toBe(250);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'medium',
+      size: 'auto',
+    }).credits).toBe(200);
+    expect(calculateAdminImageTestCreditCost('openai/gpt-image-2', {
+      quality: 'medium',
+      size: '1024x1536',
+      referenceImageCount: 1,
+    }).credits).toBe(65);
   });
 
   test('ignores client-supplied costs and clamps unsafe params so they cannot lower charges', async () => {
@@ -4169,6 +4224,11 @@ test.describe('Phase 2-M admin BFL image test pricing helper', () => {
 
     expect(unsafe.credits).toBe(baseline.credits);
     expect(schnell.credits).toBe(1);
+  });
+
+  test('marks GPT Image 2 as a chargeable admin image-test model', async () => {
+    const { isChargeableAdminImageTestModel } = await loadAdminImageCreditPricingModule();
+    expect(isChargeableAdminImageTestModel('openai/gpt-image-2')).toBe(true);
   });
 });
 
@@ -10482,6 +10542,254 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('POST /api/admin/ai/test-image allows GPT Image 2 through Cloudflare AI Gateway', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      let capturedOptions = null;
+      const validRef = 'data:image/png;base64,AAAA';
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiEnv: {
+          AI_GATEWAY_ID: 'custom-admin-gateway',
+        },
+        aiRun: async (modelId, payload, options) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          capturedOptions = options;
+          return {
+            state: 'Completed',
+            result: {
+              image: ONE_PIXEL_PNG_DATA_URI,
+            },
+            gatewayMetadata: {
+              keySource: 'Unified',
+            },
+          };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 500 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'openai/gpt-image-2',
+          prompt: 'Editorial studio portrait.',
+          quality: 'high',
+          size: '1536x1024',
+          outputFormat: 'webp',
+          background: 'opaque',
+          referenceImages: [validRef, validRef],
+          width: 1024,
+          height: 1024,
+          steps: 50,
+          seed: 42,
+          guidance: 9,
+          structuredPrompt: '{"ignored":true}',
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-image-2-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'image',
+        model: expect.objectContaining({
+          id: 'openai/gpt-image-2',
+          label: 'GPT Image 2',
+          vendor: 'OpenAI',
+        }),
+        result: expect.objectContaining({
+          imageBase64: expect.any(String),
+          mimeType: 'image/png',
+          steps: null,
+          seed: null,
+          guidance: null,
+          requestedSize: null,
+          appliedSize: null,
+          quality: 'high',
+          size: '1536x1024',
+          outputFormat: 'webp',
+          background: 'opaque',
+          referenceImageCount: 2,
+          gatewayMetadata: { keySource: 'Unified' },
+        }),
+        billing: expect.objectContaining({
+          organization_id: ADMIN_AI_CHARGE_ORG_ID,
+          model_id: 'openai/gpt-image-2',
+          credits_charged: 250,
+          balance_after: 250,
+        }),
+      }));
+      expect(capturedModelId).toBe('openai/gpt-image-2');
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' } });
+      expect(capturedPayload).toEqual({
+        prompt: 'Editorial studio portrait.',
+        quality: 'high',
+        size: '1536x1024',
+        output_format: 'webp',
+        background: 'opaque',
+        images: [validRef, validRef],
+      });
+      expect(capturedPayload).not.toHaveProperty('referenceImages');
+      expect(capturedPayload).not.toHaveProperty('width');
+      expect(capturedPayload).not.toHaveProperty('height');
+      expect(capturedPayload).not.toHaveProperty('steps');
+      expect(capturedPayload).not.toHaveProperty('seed');
+      expect(capturedPayload).not.toHaveProperty('guidance');
+      const usageEventMetadata = JSON.parse(env.DB.state.usageEvents.at(-1).metadata_json);
+      expect(usageEventMetadata).toEqual(expect.objectContaining({
+        model: 'openai/gpt-image-2',
+        quality: 'high',
+        size: '1536x1024',
+        output_format: 'webp',
+        background: 'opaque',
+        reference_image_count: 2,
+        pricing_version: 'gpt-image-2-v1',
+      }));
+    });
+
+    test('POST /api/admin/ai/test-image uses the default AI Gateway id for GPT Image 2', async () => {
+      let capturedOptions = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (_modelId, _payload, options) => {
+          capturedOptions = options;
+          return {
+            state: 'Completed',
+            result: {
+              image: ONE_PIXEL_PNG_DATA_URI,
+            },
+          };
+        },
+      });
+      seedAdminImageChargeOrg(env);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'openai/gpt-image-2',
+          prompt: 'Default gateway.',
+          quality: 'low',
+          size: '1024x1024',
+          outputFormat: 'png',
+          background: 'auto',
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-default-gateway-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-image fetches GPT Image 2 provider URL outputs as base64', async () => {
+      const originalFetch = globalThis.fetch;
+      const fetchCalls = [];
+      globalThis.fetch = async (url) => {
+        fetchCalls.push(String(url));
+        return new Response(Uint8Array.from([137, 80, 78, 71]), {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+            'content-length': '4',
+          },
+        });
+      };
+      try {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => ({
+            state: 'Completed',
+            result: {
+              image: 'https://provider.example/generated.png',
+            },
+          }),
+        });
+        seedAdminImageChargeOrg(env);
+
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+            model: 'openai/gpt-image-2',
+            prompt: 'URL output.',
+            quality: 'low',
+            size: '1024x1024',
+            outputFormat: 'png',
+            background: 'auto',
+          }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-url-output-key')),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(fetchCalls).toEqual(['https://provider.example/generated.png']);
+        expect(body.result).toEqual(expect.objectContaining({
+          imageBase64: expect.any(String),
+          mimeType: 'image/png',
+          imageUrl: 'https://provider.example/generated.png',
+        }));
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    test('charged GPT Image 2 image tests block insufficient credits before provider execution', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return { result: { image: ONE_PIXEL_PNG_DATA_URI } };
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 20 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'openai/gpt-image-2',
+          prompt: 'Not enough GPT Image 2 credits.',
+          quality: 'high',
+          size: '1024x1024',
+          outputFormat: 'png',
+          background: 'auto',
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-insufficient-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(402);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        code: 'insufficient_credits',
+      }));
+      expect(providerCalls).toBe(0);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    });
+
+    test('charged GPT Image 2 provider failures do not consume credits', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('provider unavailable');
+        },
+      });
+      seedAdminImageChargeOrg(env, { creditBalance: 300 });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: 'openai/gpt-image-2',
+          prompt: 'Provider failure no charge.',
+          quality: 'medium',
+          size: '1024x1024',
+          outputFormat: 'png',
+          background: 'auto',
+        }), adminImageChargeHeaders(authHeaders, 'admin-image-gpt-provider-fail-key')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(502);
+      expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+      expect(env.DB.state.aiUsageAttempts[0]).toEqual(expect.objectContaining({
+        status: 'provider_failed',
+        billing_status: 'released',
+      }));
+    });
+
     test('charged BFL admin image tests require organization context and idempotency before provider execution', async () => {
       let providerCalls = 0;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
@@ -11008,6 +11316,106 @@ test.describe('Worker routes', () => {
         supportsReferenceImages: false,
         maxReferenceImages: 0,
       }));
+
+      const gptImage2Model = imageModels.find((m) => m.id === 'openai/gpt-image-2');
+      expect(gptImage2Model).toBeDefined();
+      expect(gptImage2Model).toEqual(expect.objectContaining({
+        label: 'GPT Image 2',
+        vendor: 'OpenAI',
+        providerLabel: 'OpenAI via Cloudflare AI Gateway',
+        description: 'OpenAI image generation and editing via Cloudflare AI Gateway.',
+      }));
+      expect(gptImage2Model.capabilities).toEqual(expect.objectContaining({
+        supportsReferenceImages: true,
+        maxReferenceImages: 16,
+        supportsQuality: true,
+        supportsSize: true,
+        supportsOutputFormat: true,
+        supportsBackground: true,
+        supportsTransparentBackground: false,
+        qualityOptions: ['low', 'medium', 'high', 'auto'],
+        sizeOptions: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
+        outputFormatOptions: ['png', 'webp', 'jpeg'],
+        backgroundOptions: ['auto', 'opaque'],
+      }));
+    });
+
+    test('shared contract validates and builds GPT Image 2 payloads without unsupported fields', async () => {
+      const {
+        AdminAiValidationError,
+        buildAdminAiGptImage2Request,
+        resolveAdminAiModelSelection,
+        validateAdminAiImageBody,
+      } = await loadAdminAiContractModule();
+      const validPng = 'data:image/png;base64,AAAA';
+      const validJpeg = 'data:image/jpeg;base64,AAAA';
+      const validWebp = 'data:image/webp;base64,AAAA';
+      const input = validateAdminAiImageBody({
+        model: 'openai/gpt-image-2',
+        prompt: 'A premium editorial image.',
+        quality: 'medium',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
+        referenceImages: [validPng, validJpeg, validWebp],
+        width: 1024,
+        height: 1024,
+        steps: 50,
+        seed: 123,
+        guidance: 9,
+        structuredPrompt: '{"ignored":true}',
+      });
+      expect(input).toEqual(expect.objectContaining({
+        model: 'openai/gpt-image-2',
+        prompt: 'A premium editorial image.',
+        quality: 'medium',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
+        referenceImages: [validPng, validJpeg, validWebp],
+      }));
+      expect(input).not.toHaveProperty('width');
+      expect(input).not.toHaveProperty('steps');
+      expect(input).not.toHaveProperty('structuredPrompt');
+
+      const { model } = resolveAdminAiModelSelection('image', input);
+      const request = buildAdminAiGptImage2Request(model, input);
+      expect(request).toEqual(expect.objectContaining({
+        appliedQuality: 'medium',
+        appliedSize: '1024x1024',
+        appliedOutputFormat: 'png',
+        appliedBackground: 'auto',
+        referenceImageCount: 3,
+      }));
+      expect(request.payload).toEqual({
+        prompt: 'A premium editorial image.',
+        quality: 'medium',
+        size: '1024x1024',
+        output_format: 'png',
+        background: 'auto',
+        images: [validPng, validJpeg, validWebp],
+      });
+      expect(request.payload).not.toHaveProperty('referenceImages');
+      expect(request.payload).not.toHaveProperty('width');
+      expect(request.payload).not.toHaveProperty('height');
+      expect(request.payload).not.toHaveProperty('steps');
+      expect(request.payload).not.toHaveProperty('seed');
+      expect(request.payload).not.toHaveProperty('guidance');
+
+      const invalidCases = [
+        [{ model: 'openai/gpt-image-2', prompt: '' }, 'prompt is required'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', quality: 'ultra' }, 'quality'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', size: '512x512' }, 'size'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', outputFormat: 'gif' }, 'outputFormat'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', background: 'transparent' }, 'Transparent background is not supported'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: Array.from({ length: 17 }, () => validPng) }, 'at most 16'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['not-a-data-uri'] }, 'data URI'],
+        [{ model: 'openai/gpt-image-2', prompt: 'x', referenceImages: ['data:image/gif;base64,AAAA'] }, 'PNG, JPEG, or WebP'],
+      ];
+      for (const [payload, message] of invalidCases) {
+        expect(() => validateAdminAiImageBody(payload)).toThrow(AdminAiValidationError);
+        expect(() => validateAdminAiImageBody(payload)).toThrow(message);
+      }
     });
 
     test('POST /api/admin/ai/test-embeddings returns the embeddings response contract used by the UI', async () => {

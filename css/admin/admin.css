@@ -1195,6 +1195,31 @@
         margin-block-start: var(--space-1);
     }
 
+    .admin-ai__hint--wide {
+        grid-column: 1 / -1;
+    }
+
+    .admin-ai__catalog-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-block-start: var(--space-2);
+    }
+
+    .admin-ai__catalog-tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.5rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: var(--radius-full);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        background: rgba(0, 240, 255, 0.055);
+        color: rgba(185, 245, 255, 0.82);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        line-height: 1;
+    }
+
     .admin-ai__inline-error {
         font-family: var(--font-mono);
         font-size: 11px;

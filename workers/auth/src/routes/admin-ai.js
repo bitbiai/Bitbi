@@ -14,6 +14,7 @@ import {
   validateAdminAiTextBody as validateTextPayload,
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
+  GPT_IMAGE_2_MODEL_ID,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -276,6 +277,10 @@ async function adminImageRequestFingerprint({ organizationId, userId, payload, m
     seed: payload.seed || null,
     guidance: payload.guidance || null,
     referenceImageCount: Array.isArray(payload.referenceImages) ? payload.referenceImages.length : 0,
+    quality: payload.quality || null,
+    size: payload.size || null,
+    outputFormat: payload.outputFormat || null,
+    background: payload.background || null,
     credits: pricing.credits,
   }));
 }
@@ -678,7 +683,15 @@ export async function handleAdminAI(ctx) {
             width: pricing.normalized?.width || payload.width || null,
             height: pricing.normalized?.height || payload.height || null,
             steps: pricing.normalized?.steps || payload.steps || null,
-            pricing_version: "phase2m",
+            quality: pricing.normalized?.quality || payload.quality || null,
+            size: pricing.normalized?.size || payload.size || null,
+            output_format: pricing.normalized?.outputFormat || payload.outputFormat || null,
+            background: pricing.normalized?.background || payload.background || null,
+            reference_image_count: pricing.normalized?.referenceImageCount
+              ?? (Array.isArray(payload.referenceImages) ? payload.referenceImages.length : null),
+            pricing_version: modelId === GPT_IMAGE_2_MODEL_ID
+              ? "gpt-image-2-v1"
+              : "phase2m",
           },
         });
       } catch (error) {

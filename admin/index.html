@@ -938,7 +938,7 @@
                                     <select id="aiImageOrganization" class="admin-ai__input">
                                         <option value="">Loading organizations...</option>
                                     </select>
-                                    <span id="aiImageOrganizationState" class="admin-ai__hint">Required for charged BFL image tests.</span>
+                                    <span id="aiImageOrganizationState" class="admin-ai__hint">Required for charged image tests.</span>
                                 </label>
                             </div>
                             <label class="admin-ai__field" id="aiImageStandardPromptField">
@@ -964,11 +964,11 @@
                                 <div id="aiImagePromptHistory" class="admin-ai__history-list"></div>
                             </div>
                             <div class="admin-ai__form-grid admin-ai__form-grid--5" id="aiImageAdvancedGrid">
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageWidthField">
                                     <span class="admin-ai__label">Width</span>
                                     <input id="aiImageWidth" class="admin-ai__input" type="number" min="256" max="1024" step="256">
                                 </label>
-                                <label class="admin-ai__field">
+                                <label class="admin-ai__field" id="aiImageHeightField">
                                     <span class="admin-ai__label">Height</span>
                                     <input id="aiImageHeight" class="admin-ai__input" type="number" min="256" max="1024" step="256">
                                 </label>
@@ -988,6 +988,43 @@
                                     <span id="aiImageGuidanceHint" class="admin-ai__hint" hidden></span>
                                 </label>
                             </div>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--4" id="aiImageGptControls" hidden>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Quality</span>
+                                    <select id="aiImageQuality" class="admin-ai__input">
+                                        <option value="low">low</option>
+                                        <option value="medium">medium</option>
+                                        <option value="high">high</option>
+                                        <option value="auto">auto</option>
+                                    </select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Size</span>
+                                    <select id="aiImageSize" class="admin-ai__input">
+                                        <option value="1024x1024">1024x1024</option>
+                                        <option value="1024x1536">1024x1536</option>
+                                        <option value="1536x1024">1536x1024</option>
+                                        <option value="auto">auto</option>
+                                    </select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Output Format</span>
+                                    <select id="aiImageOutputFormat" class="admin-ai__input">
+                                        <option value="png">png</option>
+                                        <option value="webp">webp</option>
+                                        <option value="jpeg">jpeg</option>
+                                    </select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Background</span>
+                                    <select id="aiImageBackground" class="admin-ai__input">
+                                        <option value="auto">auto</option>
+                                        <option value="opaque">opaque</option>
+                                    </select>
+                                    <span class="admin-ai__hint">Transparent background is not supported for GPT Image 2.</span>
+                                </label>
+                                <span id="aiImageGptCostHint" class="admin-ai__hint admin-ai__hint--wide"></span>
+                            </div>
                             <div class="admin-ai__ref-images" id="aiImageRefSection">
                                 <div class="admin-ai__label-row">
                                     <span class="admin-ai__label">Reference Images</span>
@@ -996,7 +1033,7 @@
                                 <span id="aiImageRefHint" class="admin-ai__hint" hidden>Current model does not support reference images.</span>
                                 <div class="admin-ai__ref-grid" id="aiImageRefGrid">
                                     <div class="admin-ai__ref-slot" data-ref-index="0">
-                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef0" hidden>
+                                        <input type="file" accept="image/png,image/jpeg,image/webp" class="admin-ai__ref-input" id="aiImageRef0" hidden>
                                         <button type="button" class="admin-ai__ref-add" data-ref-index="0" title="Add reference image">+</button>
                                         <div class="admin-ai__ref-preview" data-ref-index="0" hidden>
                                             <img class="admin-ai__ref-thumb" alt="Reference 1">
@@ -1004,7 +1041,7 @@
                                         </div>
                                     </div>
                                     <div class="admin-ai__ref-slot" data-ref-index="1">
-                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef1" hidden>
+                                        <input type="file" accept="image/png,image/jpeg,image/webp" class="admin-ai__ref-input" id="aiImageRef1" hidden>
                                         <button type="button" class="admin-ai__ref-add" data-ref-index="1" title="Add reference image">+</button>
                                         <div class="admin-ai__ref-preview" data-ref-index="1" hidden>
                                             <img class="admin-ai__ref-thumb" alt="Reference 2">
@@ -1012,7 +1049,7 @@
                                         </div>
                                     </div>
                                     <div class="admin-ai__ref-slot" data-ref-index="2">
-                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef2" hidden>
+                                        <input type="file" accept="image/png,image/jpeg,image/webp" class="admin-ai__ref-input" id="aiImageRef2" hidden>
                                         <button type="button" class="admin-ai__ref-add" data-ref-index="2" title="Add reference image">+</button>
                                         <div class="admin-ai__ref-preview" data-ref-index="2" hidden>
                                             <img class="admin-ai__ref-thumb" alt="Reference 3">
@@ -1020,7 +1057,7 @@
                                         </div>
                                     </div>
                                     <div class="admin-ai__ref-slot" data-ref-index="3">
-                                        <input type="file" accept="image/*" class="admin-ai__ref-input" id="aiImageRef3" hidden>
+                                        <input type="file" accept="image/png,image/jpeg,image/webp" class="admin-ai__ref-input" id="aiImageRef3" hidden>
                                         <button type="button" class="admin-ai__ref-add" data-ref-index="3" title="Add reference image">+</button>
                                         <div class="admin-ai__ref-preview" data-ref-index="3" hidden>
                                             <img class="admin-ai__ref-thumb" alt="Reference 4">

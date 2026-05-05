@@ -385,6 +385,42 @@ function createMockAiCatalog() {
             defaultGuidance: 7.5,
           },
         },
+        {
+          id: 'openai/gpt-image-2',
+          task: 'image',
+          label: 'GPT Image 2',
+          vendor: 'OpenAI',
+          providerLabel: 'OpenAI via Cloudflare AI Gateway',
+          description: 'OpenAI image generation and editing via Cloudflare AI Gateway.',
+          capabilities: {
+            supportsSeed: false,
+            supportsSteps: false,
+            supportsDimensions: false,
+            supportsGuidance: false,
+            supportsStructuredPrompt: false,
+            supportsReferenceImages: true,
+            supportsQuality: true,
+            supportsSize: true,
+            supportsOutputFormat: true,
+            supportsBackground: true,
+            supportsTransparentBackground: false,
+            maxReferenceImages: 16,
+            maxSteps: null,
+            defaultSteps: null,
+            minGuidance: null,
+            maxGuidance: null,
+            defaultGuidance: null,
+            qualityOptions: ['low', 'medium', 'high', 'auto'],
+            sizeOptions: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
+            outputFormatOptions: ['png', 'webp', 'jpeg'],
+            backgroundOptions: ['auto', 'opaque'],
+            defaultQuality: 'medium',
+            defaultSize: '1024x1024',
+            defaultOutputFormat: 'png',
+            defaultBackground: 'auto',
+            proxied: true,
+          },
+        },
       ],
       embeddings: [
         {
@@ -6971,6 +7007,8 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
+    await expect(page.locator('#aiModelsImage')).toContainText('GPT Image 2');
+    await expect(page.locator('#aiModelsImage')).toContainText('OpenAI via Cloudflare AI Gateway');
     await expect(page.locator('#aiModelsMusic')).toContainText('Music 2.6');
 
     await clickAiLabMode(page, 'text');
@@ -6993,7 +7031,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiImagePrompt')).toHaveValue(
       /An editorial portrait of a digital artist/,
     );
-    await expect(page.locator('#aiImageModel option')).toHaveCount(4);
+    await expect(page.locator('#aiImageModel option')).toHaveCount(5);
     await page.selectOption('#aiImageModel', '@cf/black-forest-labs/flux-2-dev');
     await page.locator('#aiImageRun').click();
     await expect(page.locator('#aiImagePreview img')).toBeVisible();
@@ -8587,6 +8625,64 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageGuidanceField')).toHaveClass(/admin-ai__field--disabled/);
     await expect(page.locator('#aiImageStepsField')).toHaveClass(/admin-ai__field--disabled/);
     await expect(page.locator('#aiImageSeedField')).toHaveClass(/admin-ai__field--disabled/);
+  });
+
+  test('shows GPT Image 2 controls, 16 reference slots, and credit preview', async ({ page }) => {
+    await seedCookieConsent(page);
+    await page.route('**/api/admin/me', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
+    await page.route('**/api/admin/ai/models', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(createMockAiCatalog()),
+      });
+    });
+    await page.route('**/api/admin/orgs**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/admin/orgs') {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [{ id: 'org_11111111111111111111111111111111', name: 'First Billing Org' }],
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, billing: { creditBalance: 500 } }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await clickAiLabMode(page, 'image');
+    await page.selectOption('#aiImageModel', 'openai/gpt-image-2');
+
+    await expect(page.locator('#aiImageGptControls')).toBeVisible();
+    await expect(page.locator('#aiImageWidthField')).toBeHidden();
+    await expect(page.locator('#aiImageHeightField')).toBeHidden();
+    await expect(page.locator('#aiImageStepsField')).toBeHidden();
+    await expect(page.locator('#aiImageSeedField')).toBeHidden();
+    await expect(page.locator('#aiImageGuidanceField')).toBeHidden();
+    await expect(page.locator('#aiImagePromptModeField')).toBeHidden();
+    await expect(page.locator('#aiImageRefSection')).not.toHaveClass(/admin-ai__ref-images--disabled/);
+    await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 16');
+    await expect(page.locator('.admin-ai__ref-slot[data-ref-index="15"]')).toBeVisible();
+    await expect(page.locator('#aiImageBackground')).not.toContainText('transparent');
+    await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits: 50');
+
+    await page.selectOption('#aiImageQuality', 'high');
+    await page.selectOption('#aiImageSize', '1536x1024');
+    await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits: 150');
+
+    await page.selectOption('#aiImageSize', 'auto');
+    await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits: 200');
+    await expect(page.locator('#aiImageGptCostHint')).toContainText('Auto settings are charged at the safe upper-bound credit price.');
   });
 
   test('prompt mode selector toggles between standard and structured prompt fields', async ({

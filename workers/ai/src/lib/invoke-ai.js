@@ -1,4 +1,5 @@
 import {
+  buildAdminAiGptImage2Request,
   buildAdminAiMultipartImageRequest,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -103,6 +104,54 @@ function parseBase64Image(value) {
   return null;
 }
 
+const REMOTE_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+const REMOTE_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function sanitizeGatewayMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object") return null;
+  return {
+    keySource: sanitizeErrorValue(metadata.keySource) || null,
+  };
+}
+
+async function fetchRemoteImageCandidate(url) {
+  if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Provider image URL could not be fetched.");
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!REMOTE_IMAGE_MIME_TYPES.has(contentType)) {
+    throw new Error("Provider image URL returned an unsupported image type.");
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > REMOTE_IMAGE_MAX_BYTES) {
+    throw new Error("Provider image URL exceeded the image size limit.");
+  }
+
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > REMOTE_IMAGE_MAX_BYTES) {
+    throw new Error("Provider image URL exceeded the image size limit.");
+  }
+
+  return {
+    imageBase64: bytesToBase64(new Uint8Array(buffer)),
+    mimeType: contentType,
+    imageUrl: url,
+  };
+}
+
 async function toArrayBuffer(value) {
   if (value == null) return null;
   if (value instanceof ArrayBuffer) return value;
@@ -124,13 +173,26 @@ async function toArrayBuffer(value) {
 async function extractImageResponse(result, model) {
   const candidates = [];
   if (result && typeof result === "object" && !ArrayBuffer.isView(result) && !(result instanceof ArrayBuffer)) {
+    if (result.result?.image != null) candidates.push(result.result.image);
     if (result.image != null) candidates.push(result.image);
     if (Array.isArray(result.images) && result.images.length > 0) candidates.push(result.images[0]);
+    if (result.data?.image != null) candidates.push(result.data.image);
+    if (Array.isArray(result.data) && result.data[0]?.url != null) candidates.push(result.data[0].url);
+    if (Array.isArray(result.output) && result.output[0]?.image != null) candidates.push(result.output[0].image);
+    if (Array.isArray(result.result?.images) && result.result.images.length > 0) candidates.push(result.result.images[0]);
+    if (Array.isArray(result.result?.data) && result.result.data[0]?.url != null) {
+      candidates.push(result.result.data[0].url);
+    }
     if (result.data != null) candidates.push(result.data);
   }
   candidates.push(result);
 
   for (const candidate of candidates) {
+    if (typeof candidate === "string" && isUrlLike(candidate)) {
+      const fetched = await fetchRemoteImageCandidate(candidate);
+      if (fetched) return fetched;
+    }
+
     const parsed = parseBase64Image(candidate);
     if (parsed) {
       return {
@@ -142,9 +204,8 @@ async function extractImageResponse(result, model) {
     const buffer = await toArrayBuffer(candidate);
     if (buffer && buffer.byteLength > 0) {
       const bytes = new Uint8Array(buffer);
-      const base64 = btoa(bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), ""));
       return {
-        imageBase64: base64,
+        imageBase64: bytesToBase64(bytes),
         mimeType: model.defaultMimeType || "image/jpeg",
       };
     }
@@ -485,8 +546,38 @@ export async function invokeImage(env, model, input) {
   let appliedSeed = null;
   let appliedGuidance = null;
   let appliedSize = null;
+  let appliedQuality = null;
+  let appliedOutputFormat = null;
+  let appliedBackground = null;
+  let referenceImageCount = Array.isArray(input.referenceImages) ? input.referenceImages.length : 0;
+  let runOptions;
 
-  if (model.inputFormat === "multipart") {
+  if (model.inputFormat === "gpt-image-2") {
+    const gptRequest = buildAdminAiGptImage2Request(model, input);
+    payload = gptRequest.payload;
+    appliedQuality = gptRequest.appliedQuality;
+    appliedSize = null;
+    appliedOutputFormat = gptRequest.appliedOutputFormat;
+    appliedBackground = gptRequest.appliedBackground;
+    referenceImageCount = gptRequest.referenceImageCount;
+    runOptions = { gateway: { id: env.AI_GATEWAY_ID || "default" } };
+
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-image",
+      event: "workers_ai_gpt_image_2_invoke",
+      level: "info",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      gateway_id: runOptions.gateway.id,
+      quality: appliedQuality,
+      size: payload.size,
+      output_format: appliedOutputFormat,
+      background: appliedBackground,
+      reference_image_count: referenceImageCount,
+      prompt_length: payload.prompt.length,
+    });
+  } else if (model.inputFormat === "multipart") {
     const multipartRequest = buildAdminAiMultipartImageRequest(model, input);
     payload = multipartRequest.payload;
     appliedSteps = multipartRequest.appliedSteps;
@@ -529,7 +620,9 @@ export async function invokeImage(env, model, input) {
 
   let raw;
   try {
-    raw = await env.AI.run(model.id, payload);
+    raw = runOptions
+      ? await env.AI.run(model.id, payload, runOptions)
+      : await env.AI.run(model.id, payload);
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -539,6 +632,12 @@ export async function invokeImage(env, model, input) {
       correlationId: input.correlationId || null,
       model: model.id,
       input_format: model.inputFormat || "json",
+      gateway_id: runOptions?.gateway?.id || null,
+      quality: appliedQuality,
+      size: payload?.size || null,
+      output_format: appliedOutputFormat,
+      background: appliedBackground,
+      reference_image_count: referenceImageCount,
       duration_ms: getDurationMs(startedAt),
       ...getErrorFields(error, { includeMessage: false }),
     });
@@ -556,6 +655,12 @@ export async function invokeImage(env, model, input) {
     appliedSeed,
     appliedGuidance,
     appliedSize,
+    appliedQuality,
+    appliedOutputFormat,
+    appliedBackground,
+    referenceImageCount,
+    imageUrl: image.imageUrl || null,
+    gatewayMetadata: sanitizeGatewayMetadata(raw?.gatewayMetadata),
     warnings,
     elapsedMs: Date.now() - startedAt,
   };
