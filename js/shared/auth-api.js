@@ -593,17 +593,39 @@ export function apiOrganizationDashboard(orgId, { limit } = {}) {
     return request('GET', `/orgs/${encodeURIComponent(orgId)}/organization-dashboard${qs}`);
 }
 
-export function apiCreateCreditPackCheckout(orgId, { packId, idempotencyKey }) {
+export function apiCreateCreditPackCheckout(orgId, {
+    packId,
+    idempotencyKey,
+    termsAccepted,
+    termsVersion,
+    immediateDeliveryAccepted,
+    acceptedAt,
+} = {}) {
     return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/credit-pack`, {
         pack_id: packId,
+        terms_accepted: termsAccepted === true,
+        terms_version: termsVersion,
+        immediate_delivery_accepted: immediateDeliveryAccepted === true,
+        accepted_at: acceptedAt || null,
     }, {
         headers: { 'Idempotency-Key': idempotencyKey },
     });
 }
 
-export function apiCreateLiveCreditPackCheckout(orgId, { packId, idempotencyKey }) {
+export function apiCreateLiveCreditPackCheckout(orgId, {
+    packId,
+    idempotencyKey,
+    termsAccepted,
+    termsVersion,
+    immediateDeliveryAccepted,
+    acceptedAt,
+} = {}) {
     return request('POST', `/orgs/${encodeURIComponent(orgId)}/billing/checkout/live-credit-pack`, {
         pack_id: packId,
+        terms_accepted: termsAccepted === true,
+        terms_version: termsVersion,
+        immediate_delivery_accepted: immediateDeliveryAccepted === true,
+        accepted_at: acceptedAt || null,
     }, {
         headers: { 'Idempotency-Key': idempotencyKey },
     });

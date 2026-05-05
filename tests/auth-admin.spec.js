@@ -2522,6 +2522,9 @@ async function mockPricingAccount(page, {
   await page.route('**/api/orgs?*', async (route) => {
     await fulfillJson(route, { ok: true, organizations });
   });
+  await page.route('**/api/admin/orgs?*', async (route) => {
+    await fulfillJson(route, { ok: true, organizations });
+  });
   await page.route('**/api/orgs', async (route) => {
     if (route.request().method() === 'GET') {
       await fulfillJson(route, { ok: true, organizations });
@@ -2536,7 +2539,7 @@ async function mockPricingAccount(page, {
     }
     await route.fallback();
   });
-  await page.route('**/api/orgs/*/billing/checkout/credit-pack', async (route) => {
+  await page.route('**/api/orgs/*/billing/checkout/live-credit-pack', async (route) => {
     checkoutRequests.push({
       body: route.request().postDataJSON(),
       idempotencyKey: route.request().headers()['idempotency-key'] || '',
@@ -2546,12 +2549,12 @@ async function mockPricingAccount(page, {
       ok: true,
       reused: false,
       checkout_url: checkoutUrl,
-      session_id: 'cs_test_pricing_5000',
-      mode: 'test',
+      session_id: 'cs_live_pricing_5000',
+      mode: 'live',
       credit_pack: {
         id: route.request().postDataJSON().pack_id,
-        credits: route.request().postDataJSON().pack_id === 'credits_10000' ? 10000 : 5000,
-        amountCents: route.request().postDataJSON().pack_id === 'credits_10000' ? 8900 : 4900,
+        credits: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 12000 : 5000,
+        amountCents: route.request().postDataJSON().pack_id === 'live_credits_12000' ? 1999 : 999,
         currency: 'eur',
       },
     }, 201);
@@ -3470,19 +3473,35 @@ test.describe('Pricing credit-pack rollout', () => {
       .toEqual(['Pricing', 'Gallery', 'Video', 'Sound Lab', 'Profile', 'Admin']);
   });
 
-  test('keeps direct Pricing access admin-gated', async ({ page }) => {
+  test('keeps direct Pricing access public for logged-out and member visitors', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
     await page.goto('/pricing.html');
-    await expect(page.locator('[data-pricing-access="denied"]')).toContainText('Admin access required');
-    await expect(page.locator('.pricing-card')).toHaveCount(0);
+    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
+    await expect(page.locator('.pricing-card')).toHaveCount(2);
+    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
 
     await page.unroute('**/api/me');
     await mockPricingAccount(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
     await page.goto('/pricing.html');
-    await expect(page.locator('[data-pricing-access="denied"]')).toContainText('admin-only');
-    await expect(page.locator('.pricing-card')).toHaveCount(0);
+    await expect(page.locator('.pricing-card')).toHaveCount(2);
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Selected pack');
+    await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
+    await expect(page.locator('.pricing-org__state')).toContainText('Pricing Test Org');
+  });
+
+  test('logged-out Pricing CTA opens registration instead of Stripe checkout', async ({ page }) => {
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.goto('/pricing.html');
+    await page.locator('[data-pricing-pack="live_credits_5000"]').click();
+    await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
+    await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
+    const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
+    expect(pendingPack).toBe('live_credits_5000');
   });
 
   test('renders the live credit-pack tiers without stale Testmode pricing copy', async ({
@@ -3493,22 +3512,29 @@ test.describe('Pricing credit-pack rollout', () => {
     const response = await page.goto('/pricing.html');
     expect(response.status()).toBe(200);
 
-    await expect(page.locator('.pricing-hero__title')).toHaveText('Credits for BITBI AI');
+    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
+    await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Create more with flexible prepaid credits.');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
-    await expect(page.locator('.pricing-card')).toHaveCount(3);
-    await expect(page.locator('.pricing-card__title')).toHaveText(['Free', '5,000 credits', '12,000 credits']);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('Daily top-up to 10 member credits');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
-    await expect(page.locator('.pricing-card').nth(2)).toContainText('19,99 €');
+    await expect(page.locator('.pricing-card')).toHaveCount(2);
+    await expect(page.locator('.pricing-card__title')).toHaveText(['Starter Credits', 'Creator Credits']);
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('9.99 €');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('19.99 €');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('Best value');
+    await expect(page.locator('.pricing-legal')).toContainText('Ich akzeptiere die AGB von BITBI.');
+    await expect(page.locator('.pricing-legal')).toContainText('sofortige Bereitstellung der Credits');
+    await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent.trim()),
     );
     expect(pricingTitles.some((title) => /10,?000 Credits/i.test(title))).toBe(false);
-    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
+    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Select pack');
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Selected pack');
     await expect(page.locator('#pricingBillingState')).toHaveCount(0);
-    await expect(page.locator('.pricing-result')).toContainText('Credits dashboard');
+    await expect(page.locator('.pricing-info-grid')).toContainText('How credits work');
+    await expect(page.locator('.pricing-info-grid')).toContainText('No subscription');
+    await expect(page.locator('.pricing-info-grid')).toContainText('Secure checkout');
+    await expect(page.locator('.pricing-info-grid')).toContainText('Digital credits');
+    await expect(page.locator('.pricing-info-grid')).toContainText('AI output responsibility');
 
     const layoutMetrics = await page.locator('.pricing-card').evaluateAll((cards) => cards.map((card) => ({
       width: card.getBoundingClientRect().width,
@@ -3523,15 +3549,42 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
-  test('paid Pricing CTAs route to the gated Credits dashboard without creating checkout directly', async ({ page }) => {
+  test('logged-in Pricing checkout requires both legal confirmations before live checkout', async ({ page }) => {
     const { checkoutRequests } = await mockPricingAccount(page, {
-      checkoutUrl: '/pricing?checkout=success',
+      checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_live_pricing_5000',
     });
     await page.goto('/pricing.html');
 
-    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveAttribute('href', '/account/credits.html');
-    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveAttribute('href', '/account/credits.html');
+    await page.locator('.pricing-legal__checkout').click();
+    await expect(page.locator('.pricing-result--error')).toContainText('Bitte akzeptiere die AGB');
     expect(checkoutRequests).toHaveLength(0);
+
+    await page.locator('.pricing-legal__check').nth(0).locator('input').check();
+    await page.locator('.pricing-legal__checkout').click();
+    await expect(page.locator('.pricing-result--error')).toContainText('Bitte akzeptiere die AGB');
+    expect(checkoutRequests).toHaveLength(0);
+
+    await page.locator('.pricing-legal__check').nth(1).locator('input').check();
+    await page.locator('.pricing-legal__checkout').click();
+    await expect.poll(() => checkoutRequests.length).toBe(1);
+    expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
+      pack_id: 'live_credits_12000',
+      terms_accepted: true,
+      terms_version: '2026-05-05',
+      immediate_delivery_accepted: true,
+    }));
+    expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing-live:/);
+  });
+
+  test('Pricing success and cancel return states render without granting credits client-side', async ({ page }) => {
+    await mockPricingAccount(page);
+    await page.goto('/pricing?checkout=success');
+    await expect(page.locator('.pricing-return--success')).toContainText('Payment successful');
+    await expect(page.locator('.pricing-return--success a[href="/account/credits.html"]')).toContainText('View credits');
+
+    await page.goto('/pricing?checkout=cancel');
+    await expect(page.locator('.pricing-return--cancel')).toContainText('Checkout was cancelled');
+    await expect(page.locator('.pricing-return--cancel')).toContainText('You have not been charged');
   });
 });
 
@@ -3591,9 +3644,21 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(cardWidths.every((width) => width >= 240)).toBe(true);
 
     await page.locator('[data-checkout-pack="live_credits_5000"]').click();
+    await expect(page.locator('.credits-legal__error')).toContainText('Bitte akzeptiere die AGB');
+    expect(checkoutRequests).toHaveLength(0);
+
+    await page.locator('#creditsTermsAccepted').check();
+    await page.locator('#creditsImmediateDeliveryAccepted').check();
+    await page.locator('[data-checkout-pack="live_credits_5000"]').click();
     await expect(page).toHaveURL(/\/account\/credits(?:\.html)?\?checkout=success$/);
     expect(checkoutRequests).toHaveLength(1);
-    expect(checkoutRequests[0].body).toEqual({ pack_id: 'live_credits_5000' });
+    expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
+      pack_id: 'live_credits_5000',
+      terms_accepted: true,
+      terms_version: '2026-05-05',
+      immediate_delivery_accepted: true,
+    }));
+    expect(checkoutRequests[0].body.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(checkoutRequests[0].idempotencyKey).toMatch(/^credits-live:org_credits_/);
   });
 

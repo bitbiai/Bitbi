@@ -1245,7 +1245,7 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'same-origin-required',
       body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
       rateLimit: expect.objectContaining({ failClosed: true }),
-      config: expect.arrayContaining(['ENABLE_LIVE_STRIPE_CREDIT_PACKS', 'STRIPE_LIVE_SECRET_KEY']),
+      config: expect.arrayContaining(['ENABLE_LIVE_STRIPE_CREDIT_PACKS', 'STRIPE_LIVE_SECRET_KEY', 'STRIPE_LIVE_WEBHOOK_SECRET']),
     }));
     expect(getRoutePolicy('GET', '/api/orgs/org_0123456789abcdef0123456789abcdef/billing/credits-dashboard')).toEqual(expect.objectContaining({
       id: 'orgs.billing.credits-dashboard.read',
@@ -3397,6 +3397,12 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
 test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => {
   const STRIPE_LIVE_SECRET = 'sk_live_phase2l_secret_1234567890';
   const STRIPE_LIVE_WEBHOOK_SECRET = 'whsec_phase2l_secret_1234567890';
+  const LIVE_TERMS_ACCEPTANCE = Object.freeze({
+    terms_accepted: true,
+    terms_version: '2026-05-05',
+    immediate_delivery_accepted: true,
+    accepted_at: '2026-05-05T12:00:00.000Z',
+  });
   const ORG_ID = 'org_2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const OTHER_ORG_ID = 'org_2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
@@ -3414,8 +3420,8 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
       STRIPE_LIVE_SECRET_KEY: STRIPE_LIVE_SECRET,
       STRIPE_LIVE_WEBHOOK_SECRET,
-      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/account/credits.html?checkout=success',
-      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/account/credits.html?checkout=cancel',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
       users: [owner, orgAdmin, member, viewer, outsider, platformAdmin],
       organizations: [
         {
@@ -3587,7 +3593,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(0);
 
     const ownerCheckout = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000', amount_cents: 1 }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000', amount_cents: 1, ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.owner}`,
         'Idempotency-Key': 'phase2l-owner-live-5000',
@@ -3615,11 +3621,22 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls[0].form['line_items[0][price_data][unit_amount]']).toBe('999');
     expect(calls[0].form['payment_method_types[0]']).toBe('card');
     expect(calls[0].form['metadata[authorization_scope]']).toBe('org_owner');
+    expect(calls[0].form['metadata[source]']).toBe('pricing_page');
+    expect(calls[0].form['metadata[pack_id]']).toBe('live_credits_5000');
+    expect(calls[0].form['metadata[terms_accepted]']).toBe('true');
+    expect(calls[0].form['metadata[terms_version]']).toBe('2026-05-05');
+    expect(calls[0].form['metadata[immediate_delivery_accepted]']).toBe('true');
     expect(JSON.stringify(ownerBody)).not.toContain(STRIPE_LIVE_SECRET);
     expect(env.DB.state.creditLedger).toHaveLength(0);
+    expect(JSON.parse(env.DB.state.billingCheckoutSessions[0].metadata_json)).toEqual(expect.objectContaining({
+      source: 'pricing_page',
+      termsAccepted: true,
+      termsVersion: '2026-05-05',
+      immediateDeliveryAccepted: true,
+    }));
 
     const repeat = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.owner}`,
         'Idempotency-Key': 'phase2l-owner-live-5000',
@@ -3633,7 +3650,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(1);
 
     const conflict = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.owner}`,
         'Idempotency-Key': 'phase2l-owner-live-5000',
@@ -3645,7 +3662,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(1);
 
     const adminCheckout = await worker.fetch(
-      authJsonRequest(`/api/orgs/${OTHER_ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000' }, {
+      authJsonRequest(`/api/orgs/${OTHER_ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${tokens.platformAdmin}`,
         'Idempotency-Key': 'phase2l-platform-live-12000',
@@ -3675,6 +3692,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       [{ ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'false' }, 'stripe_live_credit_packs_disabled', null],
       [{ STRIPE_LIVE_SECRET_KEY: '' }, 'stripe_live_secret_unavailable', 'STRIPE_LIVE_SECRET_KEY'],
       [{ STRIPE_LIVE_SECRET_KEY: 'sk_test_wrong_mode' }, 'stripe_live_secret_invalid', null],
+      [{ STRIPE_LIVE_WEBHOOK_SECRET: '' }, 'stripe_live_webhook_secret_unavailable', 'STRIPE_LIVE_WEBHOOK_SECRET'],
     ]) {
       const calls = [];
       const seed = { ...baseSeed, fetch: mockLiveStripeCheckoutFetch({ calls }) };
@@ -3685,7 +3703,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       const env = createAuthTestEnv(seed);
       const token = await seedSession(env, owner.id);
       const response = await worker.fetch(
-        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000' }, {
+        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
           Origin: 'https://bitbi.ai',
           Cookie: `bitbi_session=${token}`,
           'Idempotency-Key': `phase2l-${expectedCode}-${missingName || 'set'}`,
@@ -3709,7 +3727,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     });
     const token = await seedSession(unknownEnv, owner.id);
     const unknownPack = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'phase2l-unknown-live-pack',
@@ -3721,7 +3739,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(unknownCalls).toHaveLength(0);
 
     const retiredPack = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_10000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_10000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
         'Idempotency-Key': 'phase2m-retired-live-pack',
@@ -3731,6 +3749,45 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     );
     expect(retiredPack.status).toBe(400);
     expect(unknownCalls).toHaveLength(0);
+  });
+
+  test('live checkout requires current terms and immediate digital-delivery acceptance before Stripe', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const owner = createContractUser({ id: 'phase2l-owner', role: 'user' });
+    const calls = [];
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      owner,
+      extra: { fetch: mockLiveStripeCheckoutFetch({ calls }) },
+    }));
+    const token = await seedSession(env, owner.id);
+
+    for (const [bodyPatch, expectedCode, idKey] of [
+      [{ terms_accepted: false }, 'terms_acceptance_required', 'no-terms'],
+      [{ terms_version: '2026-01-01' }, 'terms_version_required', 'wrong-version'],
+      [{ immediate_delivery_accepted: false }, 'immediate_delivery_acceptance_required', 'no-immediate'],
+      [{ accepted_at: 'not-a-date' }, 'terms_acceptance_timestamp_invalid', 'bad-date'],
+    ]) {
+      const response = await worker.fetch(
+        authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', {
+          pack_id: 'live_credits_5000',
+          ...LIVE_TERMS_ACCEPTANCE,
+          ...bodyPatch,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': `phase2l-legal-${idKey}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      const body = await response.json();
+      expect(response.status).toBe(400);
+      expect(body.code).toBe(expectedCode);
+    }
+
+    expect(calls).toHaveLength(0);
+    expect(env.DB.state.billingCheckoutSessions).toHaveLength(0);
+    expect(env.DB.state.creditLedger).toHaveLength(0);
   });
 
   test('live Stripe webhook grants credits exactly once for authorized live sessions only', async () => {
@@ -3744,7 +3801,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     const ownerToken = await seedSession(env, owner.id);
 
     const checkout = await worker.fetch(
-      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000' }, {
+      authJsonRequest(`/api/orgs/${ORG_ID}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${ownerToken}`,
         'Idempotency-Key': 'phase2l-valid-live-checkout',

@@ -8,6 +8,7 @@ const SOFT_NAV_PATHS = new Set([
     '/legal/privacy.html',
     '/legal/imprint.html',
     '/legal/datenschutz.html',
+    '/legal/terms.html',
 ]);
 
 let active = false;

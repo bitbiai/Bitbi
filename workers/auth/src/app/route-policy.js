@@ -12,7 +12,7 @@ const REQUIRED_CONFIG = Object.freeze({
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
   stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
-  stripeLiveCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_CREDIT_PACKS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_CHECKOUT_SUCCESS_URL", "STRIPE_LIVE_CHECKOUT_CANCEL_URL"],
+  stripeLiveCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_CREDIT_PACKS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_WEBHOOK_SECRET", "STRIPE_LIVE_CHECKOUT_SUCCESS_URL", "STRIPE_LIVE_CHECKOUT_CANCEL_URL"],
   stripeLiveWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_WEBHOOK_SECRET"],
 });
 
@@ -214,7 +214,7 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.stripeLiveCheckout,
     audit: { event: "stripe_live_credit_pack_checkout_created" },
     sensitivity: "high",
-    notes: "Live Stripe one-time credit-pack checkout. Requires platform admin or active organization owner only; organization admin/member/viewer access is denied. Requires ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Idempotency-Key, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
+    notes: "Live Stripe one-time credit-pack checkout. Requires platform admin or active organization owner only; organization admin/member/viewer access is denied. Requires ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Stripe live key and webhook readiness, Idempotency-Key, current terms and immediate-delivery consent, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
   }),
   safeRead("orgs.billing.credits-dashboard.read", "GET", "/api/orgs/:id/billing/credits-dashboard", "billing", {
     sensitivity: "high",

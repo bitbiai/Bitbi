@@ -30,11 +30,13 @@ const $summaryGrid = document.getElementById('creditsSummaryGrid');
 const $packsSection = document.getElementById('creditsPacksSection');
 const $checkoutStatus = document.getElementById('creditsCheckoutStatus');
 const $configNote = document.getElementById('creditsConfigNote');
+const $legalBlock = document.getElementById('creditsLegalBlock');
 const $packGrid = document.getElementById('creditsPackGrid');
 const $purchasesSection = document.getElementById('creditsPurchasesSection');
 const $purchasesBody = document.getElementById('creditsPurchasesBody');
 const $ledgerBody = document.getElementById('creditsLedgerBody');
 
+const TERMS_VERSION = '2026-05-05';
 const EURO_FORMATTER = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
 
@@ -43,6 +45,9 @@ let eligibleOrganizations = [];
 let selectedOrganizationId = null;
 let currentDashboard = null;
 let activeMode = 'organization';
+let termsAccepted = false;
+let immediateDeliveryAccepted = false;
+let legalError = '';
 
 function show(node) {
     if (node) node.hidden = false;
@@ -96,6 +101,7 @@ function setNeedsOrganizationSelection() {
     renderOrgPicker();
     renderSummary({});
     renderCheckoutStatus({ enabled: false, configured: false }, currentUser?.role === 'admin' ? 'platform_admin' : 'org_owner');
+    renderLegalBlock(false);
     renderPacks([], false);
     renderPurchases([]);
     renderLedger([]);
@@ -244,6 +250,67 @@ function renderCheckoutStatus(status = {}, accessScope) {
     return enabled;
 }
 
+function renderLegalBlock(visible) {
+    if (!$legalBlock) return;
+    $legalBlock.textContent = '';
+    if (!visible) {
+        hide($legalBlock);
+        return;
+    }
+
+    const title = document.createElement('h3');
+    title.className = 'credits-legal__title';
+    title.textContent = 'Checkout confirmations';
+
+    const termsLabel = document.createElement('label');
+    termsLabel.className = 'credits-legal__check';
+    const termsInput = document.createElement('input');
+    termsInput.id = 'creditsTermsAccepted';
+    termsInput.type = 'checkbox';
+    termsInput.checked = termsAccepted;
+    termsInput.addEventListener('change', () => {
+        termsAccepted = termsInput.checked;
+        legalError = '';
+        renderLegalBlock(true);
+    });
+    const termsText = document.createElement('span');
+    termsText.appendChild(document.createTextNode('Ich akzeptiere die '));
+    const termsLink = document.createElement('a');
+    termsLink.href = '/legal/terms.html';
+    termsLink.target = '_blank';
+    termsLink.rel = 'noopener noreferrer';
+    termsLink.textContent = 'AGB von BITBI';
+    termsText.appendChild(termsLink);
+    termsText.appendChild(document.createTextNode('.'));
+    termsLabel.append(termsInput, termsText);
+
+    const deliveryLabel = document.createElement('label');
+    deliveryLabel.className = 'credits-legal__check';
+    const deliveryInput = document.createElement('input');
+    deliveryInput.id = 'creditsImmediateDeliveryAccepted';
+    deliveryInput.type = 'checkbox';
+    deliveryInput.checked = immediateDeliveryAccepted;
+    deliveryInput.addEventListener('change', () => {
+        immediateDeliveryAccepted = deliveryInput.checked;
+        legalError = '';
+        renderLegalBlock(true);
+    });
+    deliveryLabel.append(
+        deliveryInput,
+        document.createTextNode('Ich verlange die sofortige Bereitstellung der Credits und bestätige, dass mein Widerrufsrecht nach Bereitstellung oder Nutzung der digitalen Credits erlöschen kann, soweit gesetzlich zulässig.'),
+    );
+
+    $legalBlock.append(title, termsLabel, deliveryLabel);
+    if (legalError) {
+        const error = document.createElement('p');
+        error.className = 'credits-legal__error';
+        error.setAttribute('role', 'alert');
+        error.textContent = legalError;
+        $legalBlock.appendChild(error);
+    }
+    show($legalBlock);
+}
+
 function renderPacks(packs = [], checkoutEnabled) {
     if (!$packGrid) return;
     $packGrid.textContent = '';
@@ -354,6 +421,7 @@ function renderMemberDashboard(dashboard) {
     removeMemberIrrelevantOrgPicker();
     if ($packsSection) $packsSection.hidden = true;
     if ($purchasesSection) $purchasesSection.hidden = true;
+    renderLegalBlock(false);
     renderSummary(dashboard.balance);
     renderLedger(dashboard.transactions);
 }
@@ -376,6 +444,7 @@ function renderDashboard(dashboard) {
     renderOrgPicker();
     renderSummary(dashboard.balance);
     const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, dashboard.organization?.accessScope);
+    renderLegalBlock(checkoutEnabled && Array.isArray(dashboard.packs) && dashboard.packs.length > 0);
     renderPacks(dashboard.packs, checkoutEnabled);
     renderPurchases(dashboard.purchaseHistory);
     renderLedger(dashboard.recentLedger);
@@ -408,12 +477,21 @@ async function loadDashboard() {
 
 async function startCheckout(packId, button) {
     if (!selectedOrganizationId || !packId) return;
+    if (!termsAccepted || !immediateDeliveryAccepted) {
+        legalError = 'Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.';
+        renderLegalBlock(true);
+        return;
+    }
     const original = button.textContent;
     button.disabled = true;
     button.textContent = 'Creating checkout...';
     const res = await apiCreateLiveCreditPackCheckout(selectedOrganizationId, {
         packId,
         idempotencyKey: idempotencyKey(packId, selectedOrganizationId),
+        termsAccepted: true,
+        termsVersion: TERMS_VERSION,
+        immediateDeliveryAccepted: true,
+        acceptedAt: new Date().toISOString(),
     });
     if (!res.ok) {
         button.disabled = false;

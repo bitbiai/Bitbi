@@ -28,6 +28,7 @@ import {
   requireOrgRole,
 } from "../lib/orgs.js";
 import {
+  BITBI_TERMS_VERSION,
   StripeBillingError,
   createStripeLiveCreditPackCheckout,
   createStripeCreditPackCheckout,
@@ -266,6 +267,12 @@ async function handleCreateLiveCreditPackCheckout(ctx, session, organizationId) 
       packId: parsed.body?.pack_id || parsed.body?.packId,
       idempotencyKey: idempotency.key,
       authorizationScope: access.scope,
+      legalAcceptance: {
+        termsAccepted: parsed.body?.terms_accepted === true || parsed.body?.termsAccepted === true,
+        termsVersion: parsed.body?.terms_version || parsed.body?.termsVersion,
+        immediateDeliveryAccepted: parsed.body?.immediate_delivery_accepted === true || parsed.body?.immediateDeliveryAccepted === true,
+        acceptedAt: parsed.body?.accepted_at || parsed.body?.acceptedAt || null,
+      },
     });
     if (!result.reused) {
       await logOrgActivity(ctx, session.user.id, "stripe_live_credit_pack_checkout_created", {
@@ -273,6 +280,8 @@ async function handleCreateLiveCreditPackCheckout(ctx, session, organizationId) 
         credit_pack_id: result.creditPack.id,
         credits: result.creditPack.credits,
         authorization_scope: access.scope,
+        terms_version: BITBI_TERMS_VERSION,
+        immediate_delivery_accepted: true,
       });
     }
     return json({

@@ -80,6 +80,50 @@
     color: rgba(255, 255, 255, 0.86);
   }
 
+  .credits-legal {
+    display: grid;
+    gap: 0.8rem;
+    margin-block-end: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(0, 240, 255, 0.18);
+    border-radius: 1rem;
+    background: rgba(0, 240, 255, 0.055);
+  }
+
+  .credits-legal__title {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1rem;
+  }
+
+  .credits-legal__check {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: start;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.55;
+  }
+
+  .credits-legal__check input {
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin-block-start: 0.25rem;
+    accent-color: var(--color-cyan);
+  }
+
+  .credits-legal__check a {
+    color: var(--color-cyan);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+
+  .credits-legal__error {
+    margin: 0;
+    color: rgba(255, 204, 142, 0.95);
+    line-height: 1.5;
+  }
+
   .credits-state,
   .credits-toolbar,
   .credits-section {

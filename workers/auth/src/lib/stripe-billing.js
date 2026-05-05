@@ -23,6 +23,7 @@ const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CHECKOUT_SESSION_URL_PATTERN = /^https:\/\/checkout\.stripe\.com\/.+/;
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
+export const BITBI_TERMS_VERSION = "2026-05-05";
 
 export const STRIPE_CREDIT_PACKS = Object.freeze([
   Object.freeze({
@@ -313,6 +314,7 @@ function getStripeCheckoutConfig(env) {
 
 function getStripeLiveCheckoutConfig(env) {
   normalizeLiveStripeCreditPacksEnabled(env);
+  normalizeStripeLiveWebhookSecret(env);
   return {
     mode: STRIPE_MODE_LIVE,
     secretKey: normalizeStripeLiveSecretKey(env),
@@ -333,6 +335,7 @@ export function getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames 
   const requiredNames = [
     "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
     "STRIPE_LIVE_SECRET_KEY",
+    "STRIPE_LIVE_WEBHOOK_SECRET",
     "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
     "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
   ];
@@ -475,6 +478,24 @@ async function checkoutRequestFingerprintForMode({ organizationId, userId, pack,
   });
 }
 
+async function liveCheckoutRequestFingerprint({ organizationId, userId, pack, authorizationScope, legalAcceptance }) {
+  return hashJson({
+    provider: "stripe",
+    providerMode: STRIPE_MODE_LIVE,
+    source: "pricing_page",
+    authorizationScope,
+    organizationId,
+    userId,
+    creditPackId: pack.id,
+    credits: pack.credits,
+    amountCents: pack.amountCents,
+    currency: pack.currency,
+    termsAccepted: legalAcceptance.termsAccepted,
+    termsVersion: legalAcceptance.termsVersion,
+    immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+  });
+}
+
 async function fetchCheckoutByIdempotency(env, { organizationId, userId, idempotencyKeyHash }) {
   return env.DB.prepare(
     `SELECT id, provider, provider_mode, provider_checkout_session_id,
@@ -598,7 +619,16 @@ async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) 
   }
 }
 
-function buildCheckoutForm({ config, pack, organizationId, userId, checkoutId, authorizationScope = null }) {
+function buildCheckoutForm({
+  config,
+  pack,
+  organizationId,
+  userId,
+  checkoutId,
+  authorizationScope = null,
+  source = null,
+  legalAcceptance = null,
+}) {
   const body = new URLSearchParams();
   body.set("mode", "payment");
   if (config.mode === STRIPE_MODE_LIVE) {
@@ -613,12 +643,22 @@ function buildCheckoutForm({ config, pack, organizationId, userId, checkoutId, a
   body.set("line_items[0][price_data][product_data][name]", pack.name);
   body.set("metadata[organization_id]", organizationId);
   body.set("metadata[user_id]", userId);
+  body.set("metadata[pack_id]", pack.id);
   body.set("metadata[credit_pack_id]", pack.id);
   body.set("metadata[credits]", String(pack.credits));
   body.set("metadata[internal_checkout_session_id]", checkoutId);
   body.set("metadata[stripe_mode]", config.mode);
+  if (source) body.set("metadata[source]", source);
   if (authorizationScope) {
     body.set("metadata[authorization_scope]", authorizationScope);
+  }
+  if (legalAcceptance) {
+    body.set("metadata[terms_accepted]", legalAcceptance.termsAccepted ? "true" : "false");
+    body.set("metadata[terms_version]", legalAcceptance.termsVersion);
+    body.set("metadata[immediate_delivery_accepted]", legalAcceptance.immediateDeliveryAccepted ? "true" : "false");
+    if (legalAcceptance.acceptedAt) {
+      body.set("metadata[accepted_at]", legalAcceptance.acceptedAt);
+    }
   }
   return body;
 }
@@ -739,6 +779,47 @@ function normalizeLiveAuthorizationScope(value) {
   return scope;
 }
 
+function normalizeLiveLegalAcceptance(value) {
+  const data = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (data.termsAccepted !== true && data.terms_accepted !== true) {
+    throw new StripeBillingError("BITBI terms must be accepted before checkout.", {
+      status: 400,
+      code: "terms_acceptance_required",
+    });
+  }
+  const termsVersion = safeString(data.termsVersion || data.terms_version, 32);
+  if (termsVersion !== BITBI_TERMS_VERSION) {
+    throw new StripeBillingError("The current BITBI terms version must be accepted before checkout.", {
+      status: 400,
+      code: "terms_version_required",
+    });
+  }
+  if (data.immediateDeliveryAccepted !== true && data.immediate_delivery_accepted !== true) {
+    throw new StripeBillingError("Immediate digital-credit delivery consent is required before checkout.", {
+      status: 400,
+      code: "immediate_delivery_acceptance_required",
+    });
+  }
+  const acceptedAtText = safeString(data.acceptedAt || data.accepted_at, 64);
+  let acceptedAt = null;
+  if (acceptedAtText) {
+    const parsed = new Date(acceptedAtText);
+    if (!Number.isFinite(parsed.getTime())) {
+      throw new StripeBillingError("Terms acceptance timestamp is invalid.", {
+        status: 400,
+        code: "terms_acceptance_timestamp_invalid",
+      });
+    }
+    acceptedAt = parsed.toISOString();
+  }
+  return {
+    termsAccepted: true,
+    termsVersion,
+    immediateDeliveryAccepted: true,
+    acceptedAt,
+  };
+}
+
 async function updateCheckoutSessionAfterStripeCreate(env, {
   id,
   providerMode,
@@ -801,20 +882,22 @@ export async function createStripeLiveCreditPackCheckout({
   packId,
   idempotencyKey,
   authorizationScope,
+  legalAcceptance,
 }) {
   const orgId = normalizeOrgId(organizationId);
   const normalizedUserId = normalizeUserId(userId);
   const scope = normalizeLiveAuthorizationScope(authorizationScope);
+  const acceptance = normalizeLiveLegalAcceptance(legalAcceptance);
   const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
   const pack = getStripeLiveCreditPack(packId);
   const config = getStripeLiveCheckoutConfig(env);
   const keyHash = await sha256Hex(`live:${normalizedKey}`);
-  const requestHash = await checkoutRequestFingerprintForMode({
+  const requestHash = await liveCheckoutRequestFingerprint({
     organizationId: orgId,
     userId: normalizedUserId,
     pack,
-    providerMode: STRIPE_MODE_LIVE,
     authorizationScope: scope,
+    legalAcceptance: acceptance,
   });
   const existing = await fetchCheckoutByIdempotency(env, {
     organizationId: orgId,
@@ -872,9 +955,14 @@ export async function createStripeLiveCreditPackCheckout({
     null,
     JSON.stringify({
       phase: "2-L",
+      source: "pricing_page",
       authorizationScope: scope,
       liveBillingEnabled: true,
       asyncPaymentMethodsEnabled: false,
+      termsAccepted: true,
+      termsVersion: acceptance.termsVersion,
+      immediateDeliveryAccepted: true,
+      acceptedAt: acceptance.acceptedAt,
     }),
     now,
     now
@@ -891,6 +979,8 @@ export async function createStripeLiveCreditPackCheckout({
         userId: normalizedUserId,
         checkoutId: id,
         authorizationScope: scope,
+        source: "pricing_page",
+        legalAcceptance: acceptance,
       }),
       idempotencyKey: `bitbi-live-${keyHash.slice(0, 43)}`,
     });

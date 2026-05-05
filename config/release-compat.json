@@ -345,7 +345,7 @@
         "name": "STRIPE_LIVE_WEBHOOK_SECRET",
         "requiredForRelease": false,
         "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
-        "summary": "Optional Phase 2-L live Stripe webhook endpoint secret. Required only for POST /api/billing/webhooks/stripe/live."
+        "summary": "Optional Phase 2-L live Stripe webhook endpoint secret. Required for POST /api/billing/webhooks/stripe/live and now required before live credit-pack Checkout Session creation so checkout fails closed unless webhook credit-grant readiness is configured."
       },
       {
         "id": "auth-stripe-live-checkout-success-url-var",
@@ -354,7 +354,7 @@
         "name": "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
         "requiredForRelease": false,
         "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
-        "summary": "Optional Phase 2-L HTTPS success URL used only by live Stripe credit-pack Checkout Session creation."
+        "summary": "Optional Phase 2-L HTTPS success URL used only by live Stripe credit-pack Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=success."
       },
       {
         "id": "auth-stripe-live-checkout-cancel-url-var",
@@ -363,7 +363,7 @@
         "name": "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
         "requiredForRelease": false,
         "documentation": "PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md",
-        "summary": "Optional Phase 2-L HTTPS cancel URL used only by live Stripe credit-pack Checkout Session creation."
+        "summary": "Optional Phase 2-L HTTPS cancel URL used only by live Stripe credit-pack Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=cancel."
       },
       {
         "id": "ai-service-auth-secret",

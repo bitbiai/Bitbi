@@ -7,6 +7,7 @@ const MODELS_OVERLAY_PATHS = [
   '/legal/privacy.html',
   '/legal/imprint.html',
   '/legal/datenschutz.html',
+  '/legal/terms.html',
   '/account/profile.html',
   '/account/assets-manager.html',
   '/admin/index.html',
@@ -16,6 +17,7 @@ const STATIC_SHARED_HEADER_PATHS = [
   '/legal/privacy.html',
   '/legal/imprint.html',
   '/legal/datenschutz.html',
+  '/legal/terms.html',
   '/admin/index.html',
   '/account/profile.html',
   '/account/assets-manager.html',
@@ -28,6 +30,7 @@ const COMPACT_HERO_PATHS = [
   '/legal/privacy.html',
   '/legal/imprint.html',
   '/legal/datenschutz.html',
+  '/legal/terms.html',
   '/account/profile.html',
   '/account/assets-manager.html',
   '/account/forgot-password.html',
@@ -40,6 +43,7 @@ const FOOTER_COPY_PATHS = [
   '/legal/privacy.html',
   '/legal/imprint.html',
   '/legal/datenschutz.html',
+  '/legal/terms.html',
   '/admin/index.html',
   '/account/profile.html',
   '/account/assets-manager.html',
@@ -3310,6 +3314,14 @@ test.describe('Legal pages', () => {
   test('datenschutz page loads', async ({ page }) => {
     const response = await page.goto('/legal/datenschutz.html');
     expect(response.status()).toBe(200);
+  });
+
+  test('AGB terms page loads and is linked from legal footer', async ({ page }) => {
+    const response = await page.goto('/legal/terms.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('.legal-hero__title')).toContainText('Allgemeine Geschäftsbedingungen');
+    await expect(page.locator('main')).toContainText('Stand: 05. Mai 2026');
+    await expect(page.locator('.site-footer__links a[href="terms.html"]')).toContainText('AGB');
   });
 
   test('non-homepage compact heroes remove eyebrow labels while keeping the main hero copy visible', async ({ page }) => {
