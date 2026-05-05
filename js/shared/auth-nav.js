@@ -5,6 +5,7 @@
 
 import { getAuthState, authLogout, patchAuthUser } from './auth-state.js';
 import { openAuthModal } from './auth-modal.js';
+import { withGenerateLabReturnContext } from './generate-lab-context.js?v=__ASSET_VERSION__';
 
 export function initAuthNav() {
     renderDesktop();
@@ -40,7 +41,7 @@ function buildAvatarImage(user, className) {
 
 function buildDesktopIdentity(user) {
     const identity = document.createElement('a');
-    identity.href = '/account/profile.html';
+    identity.href = withGenerateLabReturnContext('/account/profile.html');
     identity.className = 'auth-nav__identity';
     identity.setAttribute('aria-label', `Open profile for ${getIdentityLabel(user)}`);
 
@@ -68,7 +69,7 @@ function renderMobileHeaderIdentity(user) {
     if (!hasAvatar(user)) return;
 
     inline = document.createElement('a');
-    inline.href = '/account/profile.html';
+    inline.href = withGenerateLabReturnContext('/account/profile.html');
     inline.className = 'auth-nav__mobile-inline';
     inline.setAttribute('aria-label', 'Open profile');
 
@@ -111,7 +112,7 @@ function renderDesktop() {
             if (mood) mood.hidden = true;
         } else {
             const email = document.createElement('a');
-            email.href = '/account/profile.html';
+            email.href = withGenerateLabReturnContext('/account/profile.html');
             email.className = 'auth-nav__email auth-nav__email-link';
             email.textContent = user?.email || 'Member';
             wrap.appendChild(email);
@@ -128,7 +129,7 @@ function renderDesktop() {
         // Profile link — only when the header stays in the legacy no-avatar state
         if (navLinks && !hasAvatar(user)) {
             const profileLink = document.createElement('a');
-            profileLink.href = '/account/profile.html';
+            profileLink.href = withGenerateLabReturnContext('/account/profile.html');
             profileLink.className = 'site-nav__link nav-link auth-nav__profile-link';
             profileLink.textContent = 'Profile';
             navLinks.appendChild(profileLink);
@@ -206,7 +207,7 @@ function renderMobile() {
             accountWrap.className = 'auth-nav__mobile-account';
 
             const identityLink = document.createElement('a');
-            identityLink.href = '/account/profile.html';
+            identityLink.href = withGenerateLabReturnContext('/account/profile.html');
             identityLink.className = 'auth-nav__mobile-identity';
             identityLink.setAttribute('aria-label', 'Open profile');
 
@@ -231,7 +232,7 @@ function renderMobile() {
             actionsWrap.className = 'auth-nav__mobile-actions';
 
             const profileLink = document.createElement('a');
-            profileLink.href = '/account/profile.html';
+            profileLink.href = withGenerateLabReturnContext('/account/profile.html');
             profileLink.className = 'auth-nav__mobile-profile';
             profileLink.textContent = 'Profile';
             actionsWrap.appendChild(profileLink);

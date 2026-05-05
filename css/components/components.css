@@ -75,6 +75,26 @@
         .site-nav__logo-text { font-size: 1.875rem; }
     }
 
+    .site-nav__context-label {
+        position: relative;
+        z-index: 10;
+        max-inline-size: min(24vw, 18rem);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-mono);
+        font-size: 0.9rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.52);
+    }
+
+    @media (min-width: 1024px) {
+        .site-nav__context-label {
+            font-size: 1.125rem;
+        }
+    }
+
     .site-nav__logo-glow {
         position: absolute;
         inset: -0.75rem;

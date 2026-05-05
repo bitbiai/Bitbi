@@ -5736,6 +5736,28 @@ test.describe('Profile page (authenticated)', () => {
     ]);
   });
 
+  test('avatar generate keeps desktop encoding and uses thumb-sized mobile encoding', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    const profiles = await page.evaluate(async () => {
+      const {
+        getAvatarUploadEncodingProfile,
+      } = await import('/js/pages/profile/avatar-generate.js?v=__ASSET_VERSION__');
+
+      return {
+        desktop: getAvatarUploadEncodingProfile({ mobile: false }),
+        mobile: getAvatarUploadEncodingProfile({ mobile: true }),
+      };
+    });
+
+    expect(profiles).toEqual({
+      desktop: { size: 512, quality: 0.9, variant: 'desktop' },
+      mobile: { size: 320, quality: 0.82, variant: 'mobile-thumb' },
+    });
+  });
+
   test('avatar generate sends FLUX.1 Schnell with 4 steps and shows member credits', async ({
     page,
   }) => {
@@ -5920,6 +5942,111 @@ test.describe('Profile page (authenticated)', () => {
           type: 'upload',
           filename: 'avatar.webp',
           fileMimeType: 'image/webp',
+        }),
+      ])
+    );
+  });
+
+  test('mobile generated avatar Use uploads the thumb-sized avatar encode', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      window.__avatarToBlobCalls = [];
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function patchedToBlob(callback, type, quality) {
+        window.__avatarToBlobCalls.push({
+          width: this.width,
+          height: this.height,
+          type,
+          quality,
+        });
+        return originalToBlob.call(this, callback, type, quality);
+      };
+    });
+
+    const avatarRequests = [];
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      avatarRequests,
+    });
+
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            isAdmin: false,
+            creditBalance: 10,
+            dailyCreditAllowance: 10,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/ai/generate-image', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            imageBase64: ONE_PX_PNG_BASE64,
+            mimeType: 'image/png',
+            prompt: body.prompt,
+            model: body.model,
+            steps: body.steps,
+            seed: body.seed,
+          },
+          billing: {
+            credits_charged: 1,
+            balance_after: 9,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/account/profile.html');
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#avatarChangeBtn').click();
+    await page.locator('#avatarChooseGenerate').click();
+    await expect(page.locator('#avatarGenerateModal')).toHaveClass(/active/);
+
+    await page.locator('#avatarGeneratePrompt').fill('A small mobile portrait');
+    await page.locator('#avatarGenerateBtn').click();
+
+    await expect(page.locator('#avatarGenerateUseBtn')).toBeEnabled();
+    await page.locator('#avatarGenerateUseBtn').click();
+
+    await expect(page.locator('#avatarGenerateModal')).toBeHidden();
+    await expect(page.locator('#avatarMsg')).toContainText('Photo updated.');
+
+    const calls = await page.evaluate(() => window.__avatarToBlobCalls || []);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: 320,
+          height: 320,
+          type: 'image/webp',
+          quality: 0.82,
+        }),
+      ])
+    );
+    expect(calls).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ width: 512, height: 512 }),
+      ])
+    );
+    expect(avatarRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'upload',
+          contentType: expect.stringContaining('multipart/form-data'),
         }),
       ])
     );

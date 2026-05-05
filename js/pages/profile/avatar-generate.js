@@ -19,10 +19,14 @@ import { setupFocusTrap } from '../../shared/focus-trap.js';
 export const AVATAR_GENERATION_MODEL = DEFAULT_AI_IMAGE_MODEL;
 export const AVATAR_GENERATION_STEPS = 4;
 export const AVATAR_GENERATION_SIZE = 1024;
-const AVATAR_UPLOAD_SIZE = 512;
-const AVATAR_UPLOAD_QUALITY = 0.9;
+const AVATAR_UPLOAD_DESKTOP_SIZE = 512;
+const AVATAR_UPLOAD_DESKTOP_QUALITY = 0.9;
+// Matches the existing saved-image thumb preset used for avatar selection.
+const AVATAR_UPLOAD_MOBILE_THUMB_SIZE = 320;
+const AVATAR_UPLOAD_MOBILE_THUMB_QUALITY = 0.82;
 const AVATAR_UPLOAD_PREFERRED_MIME = 'image/webp';
 const AVATAR_UPLOAD_FALLBACK_MIME = 'image/png';
+const MOBILE_AVATAR_UPLOAD_QUERY = '(max-width: 1023px)';
 
 let initialized = false;
 let focusTrapCleanup = null;
@@ -261,20 +265,47 @@ export function createAvatarUploadFile(blob) {
     return new File([blob], `avatar.${extension}`, { type: mimeType });
 }
 
-async function reencodeForAvatar(dataUrl) {
+export function isMobileAvatarUploadViewport() {
+    try {
+        return window.matchMedia?.(MOBILE_AVATAR_UPLOAD_QUERY)?.matches === true;
+    } catch {
+        return false;
+    }
+}
+
+export function getAvatarUploadEncodingProfile({ mobile = isMobileAvatarUploadViewport() } = {}) {
+    return mobile
+        ? {
+            size: AVATAR_UPLOAD_MOBILE_THUMB_SIZE,
+            quality: AVATAR_UPLOAD_MOBILE_THUMB_QUALITY,
+            variant: 'mobile-thumb',
+        }
+        : {
+            size: AVATAR_UPLOAD_DESKTOP_SIZE,
+            quality: AVATAR_UPLOAD_DESKTOP_QUALITY,
+            variant: 'desktop',
+        };
+}
+
+async function reencodeForAvatar(dataUrl, encodingProfile = getAvatarUploadEncodingProfile()) {
     const img = await loadImage(dataUrl);
     const canvas = document.createElement('canvas');
-    canvas.width = AVATAR_UPLOAD_SIZE;
-    canvas.height = AVATAR_UPLOAD_SIZE;
+    const targetSize = Math.max(1, Number(encodingProfile?.size) || AVATAR_UPLOAD_DESKTOP_SIZE);
+    canvas.width = targetSize;
+    canvas.height = targetSize;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context unavailable.');
     const sourceSize = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
     const sx = ((img.naturalWidth || img.width) - sourceSize) / 2;
     const sy = ((img.naturalHeight || img.height) - sourceSize) / 2;
-    ctx.drawImage(img, sx, sy, sourceSize, sourceSize, 0, 0, AVATAR_UPLOAD_SIZE, AVATAR_UPLOAD_SIZE);
+    ctx.drawImage(img, sx, sy, sourceSize, sourceSize, 0, 0, targetSize, targetSize);
     let blob;
     try {
-        blob = await canvasToBlob(canvas, AVATAR_UPLOAD_PREFERRED_MIME, AVATAR_UPLOAD_QUALITY);
+        blob = await canvasToBlob(
+            canvas,
+            AVATAR_UPLOAD_PREFERRED_MIME,
+            Number(encodingProfile?.quality) || AVATAR_UPLOAD_DESKTOP_QUALITY,
+        );
         if (!blob || blob.size === 0) throw new Error('Empty blob.');
         if (!isKnownImageMimeType(blob.type)) throw new Error('Unknown encoded avatar type.');
         return createAvatarUploadFile(blob);

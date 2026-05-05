@@ -11,6 +11,7 @@ import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initScrollReveal } from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
+import { activateGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
 import {
     apiAiAttachVideoPoster,
     apiAiGenerateImage,
@@ -707,6 +708,150 @@ function renderMusicResult(data) {
     startAudioCoverPolling(data?.asset);
 }
 
+function getAssetTitle(asset) {
+    return String(asset?.title || asset?.filename || asset?.file_name || asset?.prompt || asset?.preview_text || 'Saved asset');
+}
+
+function isVideoAsset(asset) {
+    const assetType = String(asset?.asset_type || '').toLowerCase();
+    const sourceModule = String(asset?.source_module || '').toLowerCase();
+    const mime = String(asset?.mime_type || asset?.content_type || '').toLowerCase();
+    return assetType === 'video' || sourceModule === 'video' || mime.startsWith('video/');
+}
+
+function isAudioAsset(asset) {
+    const assetType = String(asset?.asset_type || '').toLowerCase();
+    const sourceModule = String(asset?.source_module || '').toLowerCase();
+    const mime = String(asset?.mime_type || asset?.content_type || '').toLowerCase();
+    return assetType === 'sound' || assetType === 'audio' || sourceModule === 'music' || mime.startsWith('audio/');
+}
+
+function isImageAsset(asset) {
+    return String(asset?.asset_type || '').toLowerCase() === 'image';
+}
+
+function getAssetPreviewUrl(asset) {
+    return asset?.medium_url || asset?.thumb_url || asset?.original_url || asset?.file_url || asset?.url || '';
+}
+
+function getAssetFileUrl(asset) {
+    return asset?.file_url || asset?.original_url || asset?.url || '';
+}
+
+function setCrossOriginIfNeeded(media, url) {
+    if (String(url || '').startsWith('/api/')) {
+        media.crossOrigin = 'use-credentials';
+    }
+}
+
+function tryPlaySelectedMedia(media) {
+    const playPromise = media?.play?.();
+    if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+            setMessage('Preview is ready. Press play if your browser blocked autoplay.', 'info');
+        });
+    }
+}
+
+function renderRecentImageAsset(asset) {
+    const title = getAssetTitle(asset);
+    const imageUrl = getAssetPreviewUrl(asset);
+    if (!imageUrl) {
+        renderEmptyResult();
+        setMessage('This image asset has no preview URL.', 'error');
+        return;
+    }
+    const img = el('img', {
+        className: 'generate-lab__image-output',
+        attrs: { src: imageUrl, alt: title, loading: 'eager', decoding: 'async' },
+    });
+    setCrossOriginIfNeeded(img, imageUrl);
+    const meta = el('div', { className: 'generate-lab__result-meta' },
+        el('strong', { text: title }),
+        el('span', { text: 'Recent image asset opened in Generate Lab.' }),
+    );
+    refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image generate-lab__result-card--recent' }, img, meta));
+    setMessage('Recent image opened in the preview stage.', 'success');
+}
+
+function renderRecentVideoAsset(asset) {
+    const title = getAssetTitle(asset);
+    const videoUrl = getAssetFileUrl(asset);
+    if (!videoUrl) {
+        renderEmptyResult();
+        setMessage('This video asset has no playable URL.', 'error');
+        return;
+    }
+    const video = el('video', {
+        className: 'generate-lab__video-output',
+        attrs: {
+            controls: true,
+            playsinline: true,
+            preload: 'metadata',
+            src: videoUrl,
+        },
+    });
+    setCrossOriginIfNeeded(video, videoUrl);
+    const posterUrl = asset?.poster_url || asset?.thumb_url || '';
+    if (posterUrl) video.poster = posterUrl;
+    const meta = el('div', { className: 'generate-lab__result-meta' },
+        el('strong', { text: title }),
+        el('span', { text: 'Recent video asset opened in Generate Lab.' }),
+    );
+    refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__result-card generate-lab__result-card--video generate-lab__result-card--recent' }, video, meta));
+    setMessage('Recent video opened in the preview stage.', 'success');
+    tryPlaySelectedMedia(video);
+}
+
+function renderRecentAudioAsset(asset) {
+    const title = getAssetTitle(asset);
+    const audioUrl = getAssetFileUrl(asset);
+    if (!audioUrl) {
+        renderEmptyResult();
+        setMessage('This audio asset has no playable URL.', 'error');
+        return;
+    }
+    const cover = el('div', { className: 'generate-lab__audio-cover' });
+    applyAudioCover(cover, asset?.poster_url || asset?.thumb_url || '');
+    const audio = el('audio', {
+        className: 'generate-lab__audio-output',
+        attrs: { controls: true, preload: 'metadata', src: audioUrl },
+    });
+    setCrossOriginIfNeeded(audio, audioUrl);
+    const meta = el('div', { className: 'generate-lab__result-meta' },
+        el('strong', { text: title }),
+        el('span', { text: 'Recent music asset opened in Generate Lab.' }),
+    );
+    const result = el('div', { className: 'generate-lab__result-card generate-lab__result-card--audio generate-lab__result-card--recent' }, cover, audio, meta);
+    refs.resultStage?.replaceChildren(result);
+    setMessage('Recent audio opened in the preview stage.', 'success');
+    tryPlaySelectedMedia(audio);
+}
+
+function openRecentAsset(asset) {
+    if (!asset) return;
+    state.currentResult = { type: 'recent_asset', assetId: asset.id || null };
+    state.currentImageData = null;
+    state.currentImageMeta = null;
+
+    if (isVideoAsset(asset)) {
+        renderRecentVideoAsset(asset);
+    } else if (isAudioAsset(asset)) {
+        renderRecentAudioAsset(asset);
+    } else if (isImageAsset(asset)) {
+        renderRecentImageAsset(asset);
+    } else {
+        renderEmptyResult();
+        setMessage('This asset type is not previewable in Generate Lab yet.', 'error');
+    }
+
+    document.querySelectorAll('.generate-lab__recent-card').forEach((card) => {
+        const selected = String(card.dataset.assetId || '') === String(asset.id || '');
+        card.classList.toggle('is-selected', selected);
+        card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+}
+
 async function handleSaveImage() {
     if (!state.currentImageMeta || (!state.currentImageData && !state.currentImageMeta.saveReference)) return;
     const folderId = refs.folderSelect?.value || null;
@@ -884,16 +1029,14 @@ async function handleGenerate() {
 }
 
 function mediaPreviewForAsset(asset) {
-    const sourceModule = String(asset?.source_module || asset?.type || '').toLowerCase();
-    const mime = String(asset?.mime_type || asset?.content_type || '').toLowerCase();
     const imageUrl = asset?.thumb_url || asset?.medium_url || asset?.url || asset?.file_url || '';
     const posterUrl = asset?.poster_url || asset?.thumb_url || asset?.medium_url || '';
-    if (sourceModule === 'video' || mime.startsWith('video/')) {
+    if (isVideoAsset(asset)) {
         return posterUrl
             ? el('img', { attrs: { src: posterUrl, alt: '', loading: 'lazy' } })
             : el('span', { className: 'generate-lab__recent-kind', text: 'VID' });
     }
-    if (sourceModule === 'music' || mime.startsWith('audio/')) {
+    if (isAudioAsset(asset)) {
         return posterUrl
             ? el('img', { attrs: { src: posterUrl, alt: '', loading: 'lazy' } })
             : el('span', { className: 'generate-lab__recent-kind', text: 'SND' });
@@ -914,16 +1057,21 @@ function renderRecentAssets(assets) {
         return;
     }
     const cards = assets.slice(0, 6).map((asset) => {
-        const title = asset?.title || asset?.filename || asset?.prompt || 'Saved asset';
+        const title = getAssetTitle(asset);
         const card = el('button', {
             className: 'generate-lab__recent-card',
-            attrs: { type: 'button', 'aria-label': `Open ${title} in Assets Manager` },
+            attrs: {
+                type: 'button',
+                'aria-label': `Open ${title} in Generate Lab preview`,
+                'aria-pressed': 'false',
+                'data-asset-id': asset?.id || '',
+            },
         });
         card.append(
             el('span', { className: 'generate-lab__recent-thumb' }, mediaPreviewForAsset(asset)),
             el('strong', { text: title }),
         );
-        card.addEventListener('click', openAssetsOverlay);
+        card.addEventListener('click', () => openRecentAsset(asset));
         return card;
     });
     refs.recentAssets.replaceChildren(...cards);
@@ -1081,12 +1229,15 @@ function cacheRefs() {
 
 async function init() {
     document.documentElement.classList.add('generate-lab-ready');
+    activateGenerateLabContext();
     try {
         initSiteHeader({
             showCategoryLinks: false,
             enableGlobalAudio: false,
             homeTarget: 'bitbi-main',
             homeRel: 'noopener',
+            contextLabel: 'Desktop Workspace',
+            isGenerateLabPage: true,
         });
     } catch (error) { console.warn(error); }
     try { initParticles('heroCanvas'); } catch (error) { console.warn(error); }

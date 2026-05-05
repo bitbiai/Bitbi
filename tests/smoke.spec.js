@@ -1166,6 +1166,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('target', 'bitbi-main');
     await expect(page.locator('header .site-nav__logo')).toHaveAttribute('rel', /noopener/);
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header')).not.toContainText(['Generate Lab', 'is', 'Desktop Workspace'].join(' '));
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
     await expect(page.locator('#generateLabHeaderStatus')).toBeVisible();
     await expect(page.locator('#labAccountStatus')).toContainText('Signed in as lab@bitbi.ai');
@@ -1276,6 +1278,182 @@ test.describe('Homepage', () => {
     await expect(overlay.locator('#labAssetsSelectBtn')).toBeVisible();
     await overlay.getByRole('button', { name: 'Close Assets Manager' }).click();
     await expect(overlay).toBeHidden();
+  });
+
+  test('Generate Lab opens recent image, video, and audio assets in the preview stage', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.addInitScript(() => {
+      HTMLMediaElement.prototype.play = function playStub() {
+        this.dataset.playRequested = 'true';
+        return Promise.resolve();
+      };
+    });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-recent-member', email: 'recent@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 400 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            assets: [
+              {
+                id: 'recent-img',
+                asset_type: 'image',
+                title: 'Neon image',
+                thumb_url: '/api/ai/images/recent-img/thumb',
+                medium_url: '/api/ai/images/recent-img/medium',
+                file_url: '/api/ai/images/recent-img/file',
+                created_at: '2026-05-05T10:00:00.000Z',
+              },
+              {
+                id: 'recent-vid',
+                asset_type: 'video',
+                source_module: 'video',
+                title: 'Neon video',
+                poster_url: '/api/ai/text-assets/recent-vid/poster',
+                file_url: '/api/ai/text-assets/recent-vid/file',
+                mime_type: 'video/mp4',
+                created_at: '2026-05-05T09:00:00.000Z',
+              },
+              {
+                id: 'recent-audio',
+                asset_type: 'sound',
+                source_module: 'music',
+                title: 'Neon track',
+                poster_url: '/api/ai/text-assets/recent-audio/poster',
+                file_url: '/api/ai/text-assets/recent-audio/file',
+                mime_type: 'audio/mpeg',
+                created_at: '2026-05-05T08:00:00.000Z',
+              },
+            ],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 6,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/images/recent-img/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=', 'base64'),
+      });
+    });
+    await page.route('**/api/ai/text-assets/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: route.request().url().includes('poster') ? 'image/png' : 'application/octet-stream',
+        body: Buffer.from('preview'),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+
+    await page.getByRole('button', { name: 'Open Neon image in Generate Lab preview' }).click();
+    await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
+    await expect(page.locator('#labResultStage .generate-lab__image-output')).toHaveAttribute('src', /recent-img\/medium/);
+    await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Open Neon video in Generate Lab preview' }).click();
+    await expect(page.locator('#labResultStage video.generate-lab__video-output')).toBeVisible();
+    await expect(page.locator('#labResultStage video.generate-lab__video-output')).toHaveAttribute('src', /recent-vid\/file/);
+    await expect(page.locator('#labResultStage video.generate-lab__video-output')).toHaveAttribute('data-play-requested', 'true');
+    await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Open Neon track in Generate Lab preview' }).click();
+    await expect(page.locator('#labResultStage audio.generate-lab__audio-output')).toBeVisible();
+    await expect(page.locator('#labResultStage audio.generate-lab__audio-output')).toHaveAttribute('src', /recent-audio\/file/);
+    await expect(page.locator('#labResultStage audio.generate-lab__audio-output')).toHaveAttribute('data-play-requested', 'true');
+    await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+  });
+
+  test('Generate Lab return context rewrites subpage home links without changing homepage-origin behavior', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-context-member', email: 'context@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 100 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await page.goto('/legal/imprint.html');
+
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
+    await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
+    await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
+    await expect(page.locator('.back-link--sm')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+
+    await page.route('**/api/profile', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'Sign in required.' }),
+      });
+    });
+    await page.goto('/account/profile.html?returnContext=generate-lab');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#deniedState .profile__link')).toHaveAttribute('href', '/generate-lab/');
+
+    await page.goto('/');
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('bitbi:return-context'))).toBeNull();
+    await page.goto('/legal/imprint.html');
+    await expect(page.locator('header .site-nav__context-label:visible')).toHaveCount(0);
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/');
   });
 
   test('Generate Lab shows the desktop-optimized message on mobile', async ({ page }) => {

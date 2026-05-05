@@ -28,6 +28,7 @@ import {
 import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
+import { clearGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
 
 try {
     if (!window.name || window.name === 'bitbi-generate-lab') {
@@ -36,6 +37,8 @@ try {
 } catch {
     /* Browser may block access to window.name in rare embedded contexts. */
 }
+
+try { clearGenerateLabContext(); } catch { /* Session storage may be unavailable. */ }
 
 function initHeroBackgroundVideo() {
     const video = document.querySelector('[data-hero-video]');

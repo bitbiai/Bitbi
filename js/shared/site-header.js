@@ -10,6 +10,11 @@ import { initAuthNav } from './auth-nav.js';
 import { initWalletController } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from './audio/audio-ui.js?v=__ASSET_VERSION__';
 import { initModelsOverlay } from './models-overlay.js?v=__ASSET_VERSION__';
+import {
+    GENERATE_LAB_HOME_PATH,
+    applyGenerateLabReturnLinks,
+    isGenerateLabContextActive,
+} from './generate-lab-context.js?v=__ASSET_VERSION__';
 
 const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
 const HOME_DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -20,6 +25,7 @@ const NAV_HTML = `
         <div class="site-nav__bar">
             <a href="/" class="site-nav__logo">
                 <span class="site-nav__logo-text gt-hero">BITBI</span>
+                <span class="site-nav__context-label" data-site-context-label hidden></span>
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
             <div class="site-nav__links">
@@ -76,10 +82,18 @@ const MOBILE_NAV_HTML = `
 </div>`;
 
 export function initSiteHeader(options = {}) {
-    const showCategoryLinks = options.showCategoryLinks !== false;
-    const enableGlobalAudio = options.enableGlobalAudio !== false;
+    const isGenerateLabPage = options.isGenerateLabPage === true || document.body.classList.contains('generate-lab-page');
+    const generateLabContext = !isGenerateLabPage && options.generateLabContext !== false && isGenerateLabContextActive();
+    const showCategoryLinks = generateLabContext ? false : options.showCategoryLinks !== false;
+    const enableGlobalAudio = generateLabContext ? false : options.enableGlobalAudio !== false;
+    const homeHref = generateLabContext
+        ? GENERATE_LAB_HOME_PATH
+        : (typeof options.homeHref === 'string' && options.homeHref.trim() ? options.homeHref.trim() : '/');
     const homeTarget = typeof options.homeTarget === 'string' ? options.homeTarget.trim() : '';
     const homeRel = typeof options.homeRel === 'string' ? options.homeRel.trim() : '';
+    const contextLabel = typeof options.contextLabel === 'string'
+        ? options.contextLabel.trim()
+        : (generateLabContext ? 'Desktop Workspace' : '');
     const header = document.querySelector('header');
     if (!header) return;
     const desktopStageQuery = window.matchMedia?.(HOME_DESKTOP_STAGE_MEDIA);
@@ -87,7 +101,16 @@ export function initSiteHeader(options = {}) {
     /* 1. Replace header innerHTML with full nav */
     header.innerHTML = NAV_HTML;
     const logoLink = header.querySelector('.site-nav__logo');
-    if (logoLink && homeTarget) {
+    if (logoLink) {
+        logoLink.setAttribute('href', homeHref);
+    }
+    const label = header.querySelector('[data-site-context-label]');
+    if (label && contextLabel) {
+        label.textContent = contextLabel;
+        label.hidden = false;
+        logoLink?.classList.add('site-nav__logo--context');
+    }
+    if (logoLink && homeTarget && !generateLabContext) {
         logoLink.setAttribute('target', homeTarget);
         if (homeRel) logoLink.setAttribute('rel', homeRel);
     }
@@ -142,6 +165,9 @@ export function initSiteHeader(options = {}) {
         .then(() => {
             try { initAuthModal(); } catch (e) { console.warn('authModal:', e); }
             try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
+            if (generateLabContext) applyGenerateLabReturnLinks(document);
         })
         .catch(e => console.warn('auth:', e));
+
+    if (generateLabContext) applyGenerateLabReturnLinks(document);
 }
