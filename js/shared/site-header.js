@@ -15,6 +15,7 @@ import {
     applyGenerateLabReturnLinks,
     isGenerateLabContextActive,
 } from './generate-lab-context.js?v=__ASSET_VERSION__';
+import { initLocaleSwitcher, localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 
 const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
 const HOME_DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -35,6 +36,7 @@ const NAV_HTML = `
             </div>
             <div class="site-nav__actions">
                 <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
+                <span data-locale-switcher></span>
             </div>
             <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
                 <span class="site-nav__menu-bar" id="bar1"></span>
@@ -90,7 +92,7 @@ export function initSiteHeader(options = {}) {
     const enableGlobalAudio = generateLabContext ? false : options.enableGlobalAudio !== false;
     const homeHref = generateLabContext
         ? GENERATE_LAB_HOME_PATH
-        : (typeof options.homeHref === 'string' && options.homeHref.trim() ? options.homeHref.trim() : '/');
+        : (typeof options.homeHref === 'string' && options.homeHref.trim() ? options.homeHref.trim() : localizedHref('/'));
     const homeTarget = typeof options.homeTarget === 'string' ? options.homeTarget.trim() : '';
     const homeRel = typeof options.homeRel === 'string' ? options.homeRel.trim() : '';
     const contextLabel = typeof options.contextLabel === 'string'
@@ -102,6 +104,27 @@ export function initSiteHeader(options = {}) {
 
     /* 1. Replace header innerHTML with full nav */
     header.innerHTML = NAV_HTML;
+    header.querySelector('#navbar')?.setAttribute('aria-label', localeText('nav.main'));
+    header.querySelector('#mobileMenuBtn')?.setAttribute('aria-label', localeText('nav.toggleMenu'));
+    const moodLabel = header.querySelector('.site-nav__mood');
+    if (moodLabel?.firstChild) moodLabel.firstChild.textContent = `${localeText('nav.mood')} `;
+    const moodValue = header.querySelector('.site-nav__mood-value');
+    if (moodValue) moodValue.textContent = localeText('nav.creating');
+    const desktopLinks = header.querySelectorAll('[data-category-link]');
+    desktopLinks.forEach((link) => {
+        const key = link.dataset.categoryLink === 'gallery'
+            ? 'nav.gallery'
+            : link.dataset.categoryLink === 'video'
+                ? 'nav.video'
+                : 'nav.soundLab';
+        link.textContent = localeText(key);
+        const hash = link.dataset.categoryLink === 'gallery'
+            ? '#gallery'
+            : link.dataset.categoryLink === 'video'
+                ? '#video-creations'
+                : '#soundlab';
+        link.href = `${localizedHref('/')}${hash}`;
+    });
     const logoLink = header.querySelector('.site-nav__logo');
     if (logoLink) {
         logoLink.setAttribute('href', homeHref);
@@ -126,6 +149,47 @@ export function initSiteHeader(options = {}) {
     document.getElementById('mobileNav')?.remove();
     header.insertAdjacentHTML('afterend', MOBILE_NAV_HTML);
     const mobileNav = document.getElementById('mobileNav');
+    mobileNav?.setAttribute('aria-label', localeText('nav.toggleMenu'));
+    mobileNav?.querySelector('#mobileNavClose')?.setAttribute('aria-label', localeText('nav.closeMenu'));
+    mobileNav?.querySelectorAll('.mobile-nav__label').forEach((label) => {
+        const section = label.closest('.mobile-nav__section');
+        const next = section?.getAttribute('aria-label') === 'Explore' ? 'nav.explore' : 'nav.connect';
+        label.textContent = localeText(next);
+        section?.setAttribute('aria-label', localeText(next));
+    });
+    mobileNav?.querySelectorAll('[data-category-link]').forEach((link) => {
+        const key = link.dataset.categoryLink === 'gallery'
+            ? 'nav.gallery'
+            : link.dataset.categoryLink === 'video'
+                ? 'nav.video'
+                : 'nav.soundLab';
+        link.textContent = localeText(key);
+        const hash = link.dataset.categoryLink === 'gallery'
+            ? '#gallery'
+            : link.dataset.categoryLink === 'video'
+                ? '#video-creations'
+                : '#soundlab';
+        link.href = `${localizedHref('/')}${hash}`;
+    });
+    mobileNav?.querySelectorAll('[data-models-link]').forEach((button) => {
+        button.textContent = localeText('nav.models');
+    });
+    mobileNav?.querySelectorAll('a[href="/#contact"]').forEach((link) => {
+        link.href = `${localizedHref('/')}#contact`;
+        link.textContent = localeText('nav.contact');
+    });
+    mobileNav?.querySelector('a[href="/legal/imprint.html"]')?.setAttribute('href', localizedHref('/legal/imprint.html'));
+    const mobileImprint = mobileNav?.querySelector('a[href="/de/legal/imprint.html"], a[href="/legal/imprint.html"]');
+    if (mobileImprint) mobileImprint.textContent = localeText('legal.imprint');
+    mobileNav?.querySelector('a[href="/legal/privacy.html"]')?.setAttribute('href', localizedHref('/legal/privacy.html'));
+    const mobilePrivacy = mobileNav?.querySelector('a[href="/de/legal/datenschutz.html"], a[href="/legal/privacy.html"]');
+    if (mobilePrivacy) mobilePrivacy.textContent = localeText('legal.privacy');
+    mobileNav?.querySelector('a[href="/legal/terms.html"]')?.setAttribute('href', localizedHref('/legal/terms.html'));
+    const mobileTerms = mobileNav?.querySelector('a[href="/de/legal/terms.html"], a[href="/legal/terms.html"]');
+    if (mobileTerms) mobileTerms.textContent = localeText('legal.terms');
+    const mobileCookie = mobileNav?.querySelector('#mobileOpenCookieSettings');
+    if (mobileCookie) mobileCookie.textContent = localeText('nav.cookieSettings');
+    initLocaleSwitcher(header);
     if (!showCategoryLinks) {
         mobileNav?.querySelectorAll('[data-category-link]').forEach((link) => link.remove());
     }

@@ -8,6 +8,7 @@ import { authLogin, authRegister } from './auth-state.js';
 import { apiResendVerification } from './auth-api.js';
 import { setupFocusTrap } from './focus-trap.js';
 import { requestWalletLogin } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
+import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 
 let overlay = null;
 let formsContainer = null;
@@ -22,18 +23,18 @@ export function initAuthModal() {
 
     /* Build shell only — no form inputs in the DOM yet */
     container.innerHTML = `
-    <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="Sign In">
+    <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="${localeText('auth.signIn')}">
         <div class="auth-modal__content">
-            <button type="button" class="auth-modal__close" aria-label="Close auth modal">&times; Close</button>
+            <button type="button" class="auth-modal__close" aria-label="${localeText('auth.closeAuth')}">&times; ${localeText('auth.close')}</button>
             <div class="auth-modal__card">
                 <div style="text-align:center;margin-bottom:var(--space-4)">
                     ${LOCK_SVG}
-                    <h3 style="font-family:var(--font-display);font-weight:700;font-size:1.25rem;color:rgba(255,255,255,0.9)">Member Area</h3>
-                    <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px">Unlock exclusive content with a free account</p>
+                    <h3 style="font-family:var(--font-display);font-weight:700;font-size:1.25rem;color:rgba(255,255,255,0.9)">${localeText('auth.memberArea')}</h3>
+                    <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px">${localeText('auth.unlock')}</p>
                 </div>
                 <div class="auth-modal__tabs">
-                    <button type="button" class="auth-modal__tab active" data-tab="login">Sign In</button>
-                    <button type="button" class="auth-modal__tab" data-tab="register">Create Account</button>
+                    <button type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
+                    <button type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
                 </div>
                 <div id="authFormsContainer"></div>
             </div>
@@ -76,22 +77,22 @@ function injectForms() {
     formsContainer.innerHTML = `
         <form class="auth-modal__form active" id="authLoginForm" novalidate>
             <div class="auth-modal__msg" id="authLoginMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
-            <input type="password" name="password" placeholder="Password" required class="form-input" autocomplete="current-password" minlength="8" maxlength="128" aria-describedby="authLoginMsg" spellcheck="false">
-            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Sign In</button>
+            <input type="email" name="email" placeholder="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="${localeText('auth.password')}" required class="form-input" autocomplete="current-password" minlength="8" maxlength="128" aria-describedby="authLoginMsg" spellcheck="false">
+            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.signIn')}</button>
             <div class="auth-modal__wallet-actions">
-                <span class="auth-modal__wallet-divider" aria-hidden="true">or</span>
-                <button type="button" id="authWalletLoginBtn" class="btn-secondary btn-primary--block btn-primary--sm">Sign In with Ethereum</button>
-                <p class="auth-modal__hint auth-modal__hint--wallet">Connect a linked Ethereum Mainnet wallet to use SIWE sign-in.</p>
+                <span class="auth-modal__wallet-divider" aria-hidden="true">${localeText('auth.or')}</span>
+                <button type="button" id="authWalletLoginBtn" class="btn-secondary btn-primary--block btn-primary--sm">${localeText('auth.signInEthereum')}</button>
+                <p class="auth-modal__hint auth-modal__hint--wallet">${localeText('auth.walletHint')}</p>
             </div>
-            <p style="text-align:center;margin-top:var(--space-3)"><a href="/account/forgot-password.html" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">Forgot password?</a></p>
+            <p style="text-align:center;margin-top:var(--space-3)"><a href="${localizedHref('/account/forgot-password.html')}" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">${localeText('auth.forgotPassword')}</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
             <div class="auth-modal__msg" id="authRegisterMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="Email" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg" spellcheck="false" autocapitalize="off">
-            <input type="password" name="password" placeholder="Password (min. 8 characters)" required class="form-input" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="authRegisterMsg" spellcheck="false">
-            <p class="auth-modal__hint">Minimum 8 characters</p>
-            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Create Account</button>
+            <input type="email" name="email" placeholder="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="${localeText('auth.passwordNew')}" required class="form-input" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="authRegisterMsg" spellcheck="false">
+            <p class="auth-modal__hint">${localeText('auth.minPassword')}</p>
+            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.createAccount')}</button>
         </form>`;
 
     const loginForm = document.getElementById('authLoginForm');
@@ -106,10 +107,10 @@ function injectForms() {
         clearMsg(loginMsg);
         const email = loginForm.email.value.trim();
         const password = loginForm.password.value;
-        if (!email || !password) { showMsg(loginMsg, 'error', 'Please fill in all fields.'); return; }
+        if (!email || !password) { showMsg(loginMsg, 'error', localeText('auth.fillFields')); return; }
         const btn = loginForm.querySelector('button[type=submit]');
         btn.disabled = true;
-        btn.textContent = 'Signing in...';
+        btn.textContent = localeText('auth.signingIn');
         /* Release body scroll lock before authLogin dispatches
            bitbi:auth-change — the overlay still blocks interaction.
            This ensures all auth-change listeners run with the page
@@ -117,7 +118,7 @@ function injectForms() {
         document.body.style.overflow = '';
         const res = await authLogin(email, password);
         btn.disabled = false;
-        btn.textContent = 'Sign In';
+        btn.textContent = localeText('auth.signIn');
         if (res.ok) {
             closeAuthModal();
         } else {
@@ -146,16 +147,16 @@ function injectForms() {
         clearMsg(registerMsg);
         const email = registerForm.email.value.trim();
         const password = registerForm.password.value;
-        if (!email || !password) { showMsg(registerMsg, 'error', 'Please fill in all fields.'); return; }
-        if (password.length < 8) { showMsg(registerMsg, 'error', 'Password must be at least 8 characters long.'); return; }
+        if (!email || !password) { showMsg(registerMsg, 'error', localeText('auth.fillFields')); return; }
+        if (password.length < 8) { showMsg(registerMsg, 'error', localeText('auth.passwordTooShort')); return; }
         const btn = registerForm.querySelector('button[type=submit]');
         btn.disabled = true;
-        btn.textContent = 'Creating account...';
+        btn.textContent = localeText('auth.creatingAccount');
         const res = await authRegister(email, password);
         btn.disabled = false;
-        btn.textContent = 'Create Account';
+        btn.textContent = localeText('auth.createAccount');
         if (res.ok) {
-            showMsg(registerMsg, 'success', 'Account created! Please check your inbox (and spam folder) and verify your email address.');
+            showMsg(registerMsg, 'success', localeText('auth.accountCreated'));
             registerForm.reset();
         } else {
             showMsg(registerMsg, 'error', res.error);
@@ -180,15 +181,15 @@ function showMsgWithResend(el, text, email) {
     el.appendChild(document.createTextNode(text + ' '));
     const link = document.createElement('a');
     link.href = '#';
-    link.textContent = 'Resend';
+    link.textContent = localeText('auth.resend');
     link.style.cssText = 'color:rgba(0,240,255,0.8);text-decoration:underline;cursor:pointer';
     link.addEventListener('click', async (e) => {
         e.preventDefault();
-        link.textContent = 'Sending...';
+        link.textContent = localeText('auth.sending');
         link.style.pointerEvents = 'none';
         await apiResendVerification(email);
         el.className = 'auth-modal__msg auth-modal__msg--success';
-        el.textContent = 'Verification email has been resent. Please check your inbox (and spam folder).';
+        el.textContent = localeText('auth.resent');
     });
     el.appendChild(link);
 }

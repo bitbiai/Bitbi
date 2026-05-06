@@ -3316,12 +3316,20 @@ test.describe('Legal pages', () => {
     expect(response.status()).toBe(200);
   });
 
-  test('AGB terms page loads and is linked from legal footer', async ({ page }) => {
+  test('English terms page loads and is linked from legal footer', async ({ page }) => {
     const response = await page.goto('/legal/terms.html');
     expect(response.status()).toBe(200);
+    await expect(page.locator('.legal-hero__title')).toContainText('Terms of Service');
+    await expect(page.locator('main')).toContainText('Effective date: May 5, 2026');
+    await expect(page.locator('.site-footer__links a[href="terms.html"]')).toContainText('Terms');
+  });
+
+  test('German AGB page loads under the German namespace', async ({ page }) => {
+    const response = await page.goto('/de/legal/terms.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('.legal-hero__title')).toContainText('Allgemeine Geschäftsbedingungen');
     await expect(page.locator('main')).toContainText('Stand: 05. Mai 2026');
-    await expect(page.locator('.site-footer__links a[href="terms.html"]')).toContainText('AGB');
   });
 
   test('non-homepage compact heroes remove eyebrow labels while keeping the main hero copy visible', async ({ page }) => {

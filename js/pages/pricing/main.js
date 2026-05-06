@@ -8,37 +8,145 @@ import { openAuthModal } from '../../shared/auth-modal.js';
 import {
     apiCreateMemberLiveCreditPackCheckout,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const TERMS_VERSION = '2026-05-05';
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
-const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
+const LOCALE = getCurrentLocale();
+const NUMBER_FORMATTER = new Intl.NumberFormat(LOCALE === 'de' ? 'de-DE' : 'en-US');
+
+const COPY = Object.freeze({
+    en: Object.freeze({
+        title: 'BITBI Credits',
+        loading: 'Loading credit packs.',
+        pricing: 'Pricing',
+        subtitle: 'Create more with flexible prepaid credits.',
+        heroCopy: 'Generate images, videos, music, and AI assets without a subscription. Buy credits once and use them across BITBI’s creative tools.',
+        trust: ['Secure Stripe checkout', 'Credits after successful payment', 'No subscription required'],
+        successful: 'Payment successful',
+        successCopy: 'Your credits will appear shortly after the verified Stripe payment confirmation is processed.',
+        viewCredits: 'View credits',
+        cancelled: 'Checkout was cancelled',
+        cancelCopy: 'You have not been charged. You can choose a credit pack whenever you are ready.',
+        oneTime: 'One-time payment',
+        loggedOutCta: 'Create account to buy',
+        selectedPack: 'Selected pack',
+        selectPack: 'Select pack',
+        loggedOutMessage: 'Create an account or sign in first. After that, review the terms and continue to checkout.',
+        packSelected: '{title} selected. Review the legal confirmations below before checkout.',
+        loggedOutDestination: 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.',
+        memberDestination: 'Credit destination: your BITBI member account. No organization setup or owner role is required.',
+        checkoutRequirements: 'Checkout requirements',
+        selectedSummary: 'Selected pack: {title} · {credits} credits · {price}. Prices include statutory VAT where applicable.',
+        acceptTermsPrefix: 'I accept the ',
+        termsLink: 'BITBI Terms',
+        deliveryText: 'I request immediate provision of the credits and confirm that my withdrawal right may expire after provision or use of the digital credits, where legally permitted.',
+        checkoutBusy: 'Opening checkout…',
+        checkout: 'Continue to secure checkout',
+        legalError: 'Please accept the Terms and confirm immediate provision of the digital credits.',
+        loginFirst: 'Create an account or sign in first. Stripe Checkout starts only after login and legal confirmation.',
+        checkoutFailed: 'Checkout could not be opened. Please try again.',
+        unsafeCheckout: 'Checkout response was not a safe Stripe URL. No payment was started.',
+        accountCreated: 'Account created. Please review the terms and continue to checkout.',
+        creditPacks: 'Credit packs',
+        creditsLabel: 'credits',
+        trustNotes: 'Pricing trust notes',
+        packs: Object.freeze({
+            live_credits_5000: Object.freeze({
+                title: 'Starter Credits',
+                description: 'Perfect for first experiments, image generations, and smaller creative sessions.',
+                benefits: ['5,000 prepaid credits', 'Use across supported BITBI AI tools', 'No subscription or renewal'],
+            }),
+            live_credits_12000: Object.freeze({
+                title: 'Creator Credits',
+                badge: 'Best value',
+                description: 'More room for high-quality images, video tests, music creation, and reference-based workflows.',
+                benefits: ['12,000 prepaid credits', 'Best current value per credit', 'Built for larger creative sessions'],
+            }),
+        }),
+        info: Object.freeze([
+            ['How credits work', 'Credits are prepaid digital usage units. Each AI generation uses credits depending on model, quality, duration, reference images, and compute cost. Buy a pack, generate, save, and publish your creative assets.', ['Buy a credit pack once.', 'Credits are added after successful Stripe payment.', 'Use credits across supported BITBI AI tools.', 'Higher quality or reference-heavy generations may use more credits.']],
+            ['No subscription', 'Credit packs are not a subscription. There is no monthly lock-in and no automatic renewal. You buy credits when you need them.'],
+            ['Secure checkout', 'Payments are processed securely by Stripe. BITBI does not store full card details. Stripe may perform payment validation, fraud prevention, and authentication checks.'],
+            ['Digital credits', 'Credits are digital prepaid usage units. They are not cash, not transferable, not reloadable, not interest-bearing, and not redeemable for money except where required by law.'],
+            ['AI output responsibility', 'AI results can vary. You are responsible for prompts, uploaded reference material, rights clearance, and how you use or publish generated content.'],
+        ]),
+    }),
+    de: Object.freeze({
+        title: 'BITBI Credits',
+        loading: 'Credit-Pakete werden geladen.',
+        pricing: 'Preise',
+        subtitle: 'Mehr erstellen mit flexiblen Prepaid-Credits.',
+        heroCopy: 'Generieren Sie Bilder, Videos, Musik und KI-Assets ohne Abonnement. Kaufen Sie Credits einmalig und nutzen Sie sie in den kreativen BITBI-Werkzeugen.',
+        trust: ['Sicherer Stripe-Checkout', 'Credits nach erfolgreicher Zahlung', 'Kein Abonnement erforderlich'],
+        successful: 'Zahlung erfolgreich',
+        successCopy: 'Ihre Credits erscheinen in Kürze, nachdem die bestätigte Stripe-Zahlung verarbeitet wurde.',
+        viewCredits: 'Credits anzeigen',
+        cancelled: 'Checkout wurde abgebrochen',
+        cancelCopy: 'Ihnen wurde nichts berechnet. Sie können jederzeit ein Credit-Paket auswählen.',
+        oneTime: 'Einmalzahlung',
+        loggedOutCta: 'Konto erstellen und kaufen',
+        selectedPack: 'Paket ausgewählt',
+        selectPack: 'Paket auswählen',
+        loggedOutMessage: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Danach prüfen Sie die Bedingungen und fahren mit dem Checkout fort.',
+        packSelected: '{title} ausgewählt. Bitte prüfen Sie unten die rechtlichen Bestätigungen vor dem Checkout.',
+        loggedOutDestination: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Die Credits werden nach bestätigter Stripe-Zahlung Ihrem BITBI-Mitgliedskonto gutgeschrieben.',
+        memberDestination: 'Credit-Ziel: Ihr BITBI-Mitgliedskonto. Keine Organisationseinrichtung und keine Owner-Rolle erforderlich.',
+        checkoutRequirements: 'Voraussetzungen für den Checkout',
+        selectedSummary: 'Ausgewähltes Paket: {title} · {credits} Credits · {price}. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.',
+        acceptTermsPrefix: 'Ich akzeptiere die ',
+        termsLink: 'AGB von BITBI',
+        deliveryText: 'Ich verlange die sofortige Bereitstellung der Credits und bestätige, dass mein Widerrufsrecht nach Bereitstellung oder Nutzung der digitalen Credits erlöschen kann, soweit gesetzlich zulässig.',
+        checkoutBusy: 'Checkout wird geöffnet…',
+        checkout: 'Weiter zum sicheren Checkout',
+        legalError: 'Bitte akzeptieren Sie die AGB und bestätigen Sie die sofortige Bereitstellung der digitalen Credits.',
+        loginFirst: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Stripe Checkout startet erst nach Anmeldung und rechtlicher Bestätigung.',
+        checkoutFailed: 'Checkout konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
+        unsafeCheckout: 'Die Checkout-Antwort war keine sichere Stripe-URL. Es wurde keine Zahlung gestartet.',
+        accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
+        creditPacks: 'Credit-Pakete',
+        creditsLabel: 'Credits',
+        trustNotes: 'Vertrauenshinweise zu Preisen',
+        packs: Object.freeze({
+            live_credits_5000: Object.freeze({
+                title: 'Starter Credits',
+                description: 'Ideal für erste Experimente, Bildgenerierungen und kleinere Kreativ-Sessions.',
+                benefits: ['5.000 Prepaid-Credits', 'Für unterstützte BITBI-KI-Werkzeuge nutzbar', 'Kein Abo und keine Verlängerung'],
+            }),
+            live_credits_12000: Object.freeze({
+                title: 'Creator Credits',
+                badge: 'Bester Wert',
+                description: 'Mehr Spielraum für hochwertige Bilder, Video-Tests, Musik und referenzbasierte Workflows.',
+                benefits: ['12.000 Prepaid-Credits', 'Aktuell bester Gegenwert pro Credit', 'Für größere Kreativ-Sessions ausgelegt'],
+            }),
+        }),
+        info: Object.freeze([
+            ['So funktionieren Credits', 'Credits sind vorausbezahlte digitale Nutzungseinheiten. Jede KI-Generierung verbraucht Credits abhängig von Modell, Qualität, Dauer, Referenzbildern und Rechenaufwand. Kaufen Sie ein Paket, generieren, speichern und veröffentlichen Sie Ihre kreativen Assets.', ['Credit-Paket einmalig kaufen.', 'Credits werden nach erfolgreicher Stripe-Zahlung gutgeschrieben.', 'Credits in unterstützten BITBI-KI-Werkzeugen nutzen.', 'Höhere Qualität oder referenzintensive Generierungen können mehr Credits verbrauchen.']],
+            ['Kein Abonnement', 'Credit-Pakete sind kein Abonnement. Es gibt keine monatliche Bindung und keine automatische Verlängerung. Sie kaufen Credits, wenn Sie sie benötigen.'],
+            ['Sicherer Checkout', 'Zahlungen werden sicher über Stripe verarbeitet. BITBI speichert keine vollständigen Kartendaten. Stripe kann Zahlungsvalidierung, Betrugsprävention und Authentifizierungsprüfungen durchführen.'],
+            ['Digitale Credits', 'Credits sind digitale vorausbezahlte Nutzungseinheiten. Sie sind kein Bargeld, nicht übertragbar, nicht wiederaufladbar, nicht verzinslich und nicht gegen Geld einlösbar, außer soweit gesetzlich vorgeschrieben.'],
+            ['Verantwortung für KI-Ergebnisse', 'KI-Ergebnisse können variieren. Sie sind verantwortlich für Prompts, hochgeladenes Referenzmaterial, Rechteklärung und die Nutzung oder Veröffentlichung generierter Inhalte.'],
+        ]),
+    }),
+});
+
+function t(key, values = {}) {
+    const copy = COPY[LOCALE] || COPY.en;
+    const value = copy[key] ?? COPY.en[key] ?? key;
+    return String(value).replace(/\{([^}]+)\}/g, (_, name) => values[name] ?? '');
+}
 
 const CREDIT_PACKS = Object.freeze([
     Object.freeze({
         id: 'live_credits_5000',
-        title: 'Starter Credits',
         credits: 5000,
         price: '9.99 €',
-        description: 'Perfect for first experiments, image generations, and smaller creative sessions.',
-        benefits: [
-            '5,000 prepaid credits',
-            'Use across supported BITBI AI tools',
-            'No subscription or renewal',
-        ],
     }),
     Object.freeze({
         id: 'live_credits_12000',
-        title: 'Creator Credits',
         credits: 12000,
         price: '19.99 €',
-        badge: 'Best value',
         featured: true,
-        description: 'More room for high-quality images, video tests, music creation, and reference-based workflows.',
-        benefits: [
-            '12,000 prepaid credits',
-            'Best current value per credit',
-            'Built for larger creative sessions',
-        ],
     }),
 ]);
 
@@ -101,18 +209,18 @@ function renderReturnState(root) {
 
     if (state === 'success') {
         section.append(
-            createTextElement('h2', 'pricing-return__title', 'Payment successful'),
-            createTextElement('p', 'pricing-return__copy', 'Your credits will appear shortly after the verified Stripe payment confirmation is processed.'),
+            createTextElement('h2', 'pricing-return__title', t('successful')),
+            createTextElement('p', 'pricing-return__copy', t('successCopy')),
         );
         const link = document.createElement('a');
-        link.href = '/account/credits.html';
+        link.href = localizedHref('/account/credits.html');
         link.className = 'pricing-return__link';
-        link.textContent = 'View credits';
+        link.textContent = t('viewCredits');
         section.appendChild(link);
     } else if (state === 'cancel') {
         section.append(
-            createTextElement('h2', 'pricing-return__title', 'Checkout was cancelled'),
-            createTextElement('p', 'pricing-return__copy', 'You have not been charged. You can choose a credit pack whenever you are ready.'),
+            createTextElement('h2', 'pricing-return__title', t('cancelled')),
+            createTextElement('p', 'pricing-return__copy', t('cancelCopy')),
         );
     } else {
         return;
@@ -129,6 +237,7 @@ function createBadge(text, tone = '') {
 
 function createPackCard(pack, auth) {
     const selected = pack.id === getSelectedPack().id;
+    const localizedPack = COPY[LOCALE]?.packs?.[pack.id] || COPY.en.packs[pack.id];
     const card = document.createElement('article');
     card.className = `pricing-card glass glass-card reveal visible${pack.featured ? ' pricing-card--featured' : ''}${selected ? ' pricing-card--selected' : ''}`;
     card.dataset.packId = pack.id;
@@ -138,24 +247,24 @@ function createPackCard(pack, auth) {
     const titleWrap = document.createElement('div');
     titleWrap.className = 'pricing-card__title-wrap';
     titleWrap.append(
-        createTextElement('p', 'pricing-card__eyebrow', `${NUMBER_FORMATTER.format(pack.credits)} credits`),
-        createTextElement('h2', 'pricing-card__title', pack.title),
+        createTextElement('p', 'pricing-card__eyebrow', `${NUMBER_FORMATTER.format(pack.credits)} ${t('creditsLabel')}`),
+        createTextElement('h2', 'pricing-card__title', localizedPack.title),
     );
     head.appendChild(titleWrap);
-    if (pack.badge) head.appendChild(createBadge(pack.badge, 'featured'));
+    if (localizedPack.badge) head.appendChild(createBadge(localizedPack.badge, 'featured'));
 
     const price = document.createElement('div');
     price.className = 'pricing-card__price';
     price.append(
         createTextElement('span', 'pricing-card__price-value', pack.price),
-        createTextElement('span', 'pricing-card__cadence', 'One-time payment'),
+        createTextElement('span', 'pricing-card__cadence', t('oneTime')),
     );
 
-    const description = createTextElement('p', 'pricing-card__copy', pack.description);
+    const description = createTextElement('p', 'pricing-card__copy', localizedPack.description);
 
     const list = document.createElement('ul');
     list.className = 'pricing-card__list';
-    for (const item of pack.benefits) {
+    for (const item of localizedPack.benefits) {
         const li = document.createElement('li');
         li.textContent = item;
         list.appendChild(li);
@@ -166,19 +275,19 @@ function createPackCard(pack, auth) {
     button.className = 'pricing-card__cta';
     button.dataset.pricingPack = pack.id;
     button.textContent = auth.loggedIn
-        ? (selected ? 'Selected pack' : 'Select pack')
-        : 'Create account to buy';
+        ? (selected ? t('selectedPack') : t('selectPack'))
+        : t('loggedOutCta');
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     button.addEventListener('click', () => {
         selectedPackId = pack.id;
         if (!auth.loggedIn) {
             sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
-            setInlineMessage('Create an account or sign in first. After that, review the terms and continue to checkout.', 'info');
+            setInlineMessage(t('loggedOutMessage'), 'info');
             openAuthModal('register');
             return;
         }
         sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
-        setInlineMessage(`${pack.title} selected. Review the legal confirmations below before checkout.`, 'success');
+        setInlineMessage(t('packSelected', { title: localizedPack.title }), 'success');
     });
 
     card.append(head, price, description, list, button);
@@ -191,18 +300,18 @@ function createHero() {
     const copy = document.createElement('div');
     copy.className = 'pricing-hero__copy-wrap';
     copy.append(
-        createTextElement('p', 'pricing-kicker', 'Pricing'),
-        createTextElement('h1', 'pricing-hero__title gt-gold-cyan', 'BITBI Credits'),
-        createTextElement('p', 'pricing-hero__subtitle', 'Create more with flexible prepaid credits.'),
-        createTextElement('p', 'pricing-hero__copy', 'Generate images, videos, music, and AI assets without a subscription. Buy credits once and use them across BITBI’s creative tools.'),
+        createTextElement('p', 'pricing-kicker', t('pricing')),
+        createTextElement('h1', 'pricing-hero__title gt-gold-cyan', t('title')),
+        createTextElement('p', 'pricing-hero__subtitle', t('subtitle')),
+        createTextElement('p', 'pricing-hero__copy', t('heroCopy')),
     );
     const trust = document.createElement('div');
     trust.className = 'pricing-hero__badges';
-    trust.setAttribute('aria-label', 'Pricing trust notes');
+    trust.setAttribute('aria-label', t('trustNotes'));
     trust.append(
-        createBadge('Secure Stripe checkout'),
-        createBadge('Credits after successful payment', 'featured'),
-        createBadge('No subscription required'),
+        createBadge((COPY[LOCALE] || COPY.en).trust[0]),
+        createBadge((COPY[LOCALE] || COPY.en).trust[1], 'featured'),
+        createBadge((COPY[LOCALE] || COPY.en).trust[2]),
     );
     hero.append(copy, trust);
     return hero;
@@ -233,11 +342,11 @@ function createCreditDestination(auth) {
     wrapper.className = 'pricing-org';
 
     if (!auth.loggedIn) {
-        wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.'));
+        wrapper.appendChild(createTextElement('p', 'pricing-org__state', t('loggedOutDestination')));
         return wrapper;
     }
 
-    wrapper.appendChild(createTextElement('p', 'pricing-org__state', 'Credit destination: your BITBI member account. No organization setup or owner role is required.'));
+    wrapper.appendChild(createTextElement('p', 'pricing-org__state', t('memberDestination')));
     return wrapper;
 }
 
@@ -245,7 +354,7 @@ function createLegalCheckout(auth) {
     const section = document.createElement('section');
     section.className = 'pricing-legal glass glass-card reveal visible';
     section.setAttribute('aria-labelledby', 'pricingLegalTitle');
-    const heading = createTextElement('h2', 'pricing-section-title', 'Checkout requirements');
+    const heading = createTextElement('h2', 'pricing-section-title', t('checkoutRequirements'));
     heading.id = 'pricingLegalTitle';
     section.appendChild(heading);
 
@@ -253,7 +362,11 @@ function createLegalCheckout(auth) {
     const summary = createTextElement(
         'p',
         'pricing-section-copy',
-        `Selected pack: ${selectedPack.title} · ${NUMBER_FORMATTER.format(selectedPack.credits)} credits · ${selectedPack.price}. Prices include statutory VAT where applicable.`,
+        t('selectedSummary', {
+            title: (COPY[LOCALE]?.packs?.[selectedPack.id] || COPY.en.packs[selectedPack.id]).title,
+            credits: NUMBER_FORMATTER.format(selectedPack.credits),
+            price: selectedPack.price,
+        }),
     );
     section.appendChild(summary);
 
@@ -270,12 +383,12 @@ function createLegalCheckout(auth) {
         renderPricingExperience();
     });
     const termsText = document.createElement('span');
-    termsText.appendChild(document.createTextNode('Ich akzeptiere die '));
+    termsText.appendChild(document.createTextNode(t('acceptTermsPrefix')));
     const termsLink = document.createElement('a');
-    termsLink.href = '/legal/terms.html';
+    termsLink.href = localizedHref('/legal/terms.html');
     termsLink.target = '_blank';
     termsLink.rel = 'noopener noreferrer';
-    termsLink.textContent = 'AGB von BITBI';
+    termsLink.textContent = t('termsLink');
     termsText.appendChild(termsLink);
     termsText.appendChild(document.createTextNode('.'));
     termsLabel.append(termsInput, termsText);
@@ -291,7 +404,7 @@ function createLegalCheckout(auth) {
     });
     deliveryLabel.append(
         deliveryInput,
-        createTextElement('span', '', 'Ich verlange die sofortige Bereitstellung der Credits und bestätige, dass mein Widerrufsrecht nach Bereitstellung oder Nutzung der digitalen Credits erlöschen kann, soweit gesetzlich zulässig.'),
+        createTextElement('span', '', t('deliveryText')),
     );
 
     checks.append(termsLabel, deliveryLabel);
@@ -310,8 +423,8 @@ function createLegalCheckout(auth) {
     button.className = 'pricing-card__cta pricing-legal__checkout';
     button.disabled = checkoutBusy;
     button.textContent = checkoutBusy
-        ? 'Opening checkout…'
-        : (auth.loggedIn ? 'Continue to secure checkout' : 'Create account to buy');
+        ? t('checkoutBusy')
+        : (auth.loggedIn ? t('checkout') : t('loggedOutCta'));
     button.addEventListener('click', () => handleCheckout(auth));
     actions.appendChild(button);
     section.appendChild(actions);
@@ -323,12 +436,12 @@ async function handleCheckout(auth) {
     if (checkoutBusy) return;
     if (!auth.loggedIn) {
         sessionStorage.setItem(PENDING_PACK_KEY, getSelectedPack().id);
-        setInlineMessage('Create an account or sign in first. Stripe Checkout starts only after login and legal confirmation.', 'info');
+        setInlineMessage(t('loginFirst'), 'info');
         openAuthModal('register');
         return;
     }
     if (!termsAccepted || !immediateDeliveryAccepted) {
-        setInlineMessage('Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.', 'error');
+        setInlineMessage(t('legalError'), 'error');
         return;
     }
     checkoutBusy = true;
@@ -346,12 +459,12 @@ async function handleCheckout(auth) {
     checkoutBusy = false;
 
     if (!response.ok) {
-        setInlineMessage(response.error || 'Checkout could not be opened. Please try again.', 'error');
+        setInlineMessage(response.error || t('checkoutFailed'), 'error');
         return;
     }
     const checkoutUrl = response.data?.checkout_url;
     if (!isSafeCheckoutRedirect(checkoutUrl)) {
-        setInlineMessage('Checkout response was not a safe Stripe URL. No payment was started.', 'error');
+        setInlineMessage(t('unsafeCheckout'), 'error');
         return;
     }
     sessionStorage.removeItem(PENDING_PACK_KEY);
@@ -371,7 +484,7 @@ function renderPricingExperience() {
 
     const grid = document.createElement('section');
     grid.className = 'pricing-grid';
-    grid.setAttribute('aria-label', 'Credit packs');
+    grid.setAttribute('aria-label', t('creditPacks'));
     for (const pack of CREDIT_PACKS) {
         grid.appendChild(createPackCard(pack, auth));
     }
@@ -381,18 +494,7 @@ function renderPricingExperience() {
 
     const info = document.createElement('section');
     info.className = 'pricing-info-grid';
-    info.append(
-        createInfoSection('How credits work', 'Credits are prepaid digital usage units. Each AI generation uses credits depending on model, quality, duration, reference images, and compute cost. Buy a pack, generate, save, and publish your creative assets.', [
-            'Buy a credit pack once.',
-            'Credits are added after successful Stripe payment.',
-            'Use credits across supported BITBI AI tools.',
-            'Higher quality or reference-heavy generations may use more credits.',
-        ]),
-        createInfoSection('No subscription', 'Credit packs are not a subscription. There is no monthly lock-in and no automatic renewal. You buy credits when you need them.'),
-        createInfoSection('Secure checkout', 'Payments are processed securely by Stripe. BITBI does not store full card details. Stripe may perform payment validation, fraud prevention, and authentication checks.'),
-        createInfoSection('Digital credits', 'Credits are digital prepaid usage units. They are not cash, not transferable, not reloadable, not interest-bearing, and not redeemable for money except where required by law.'),
-        createInfoSection('AI output responsibility', 'AI results can vary. You are responsible for prompts, uploaded reference material, rights clearance, and how you use or publish generated content.'),
-    );
+    info.append(...(COPY[LOCALE] || COPY.en).info.map(([title, text, bullets]) => createInfoSection(title, text, bullets || [])));
     shell.appendChild(info);
 
     root.appendChild(shell);
@@ -406,7 +508,7 @@ function handleAuthState() {
         const pendingPack = sessionStorage.getItem(PENDING_PACK_KEY);
         if (pendingPack && CREDIT_PACKS.some((pack) => pack.id === pendingPack)) {
             selectedPackId = pendingPack;
-            inlineMessage = 'Account created. Please review the terms and continue to checkout.';
+            inlineMessage = t('accountCreated');
             inlineMessageTone = 'success';
         }
     }

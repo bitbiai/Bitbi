@@ -29,6 +29,7 @@ import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
 import { clearGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
+import { initLocaleSwitcher } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 try {
     if (!window.name || window.name === 'bitbi-generate-lab') {
@@ -326,6 +327,7 @@ try { initContact(); } catch (e) { console.warn('contact:', e); }
 
 /* Cookie consent */
 try { initCookieConsent(); } catch (e) { console.warn('cookieConsent:', e); }
+try { initLocaleSwitcher(); } catch (e) { console.warn('localeSwitcher:', e); }
 
 /* Auth UI (non-blocking — awaited after all visual content renders) */
 await authReady;

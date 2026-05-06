@@ -3575,8 +3575,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-card').nth(0)).toContainText('9.99 €');
     await expect(page.locator('.pricing-card').nth(1)).toContainText('19.99 €');
     await expect(page.locator('.pricing-card').nth(1)).toContainText('Best value');
-    await expect(page.locator('.pricing-legal')).toContainText('Ich akzeptiere die AGB von BITBI.');
-    await expect(page.locator('.pricing-legal')).toContainText('sofortige Bereitstellung der Credits');
+    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms.');
+    await expect(page.locator('.pricing-legal')).toContainText('immediate provision of the credits');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent.trim()),
@@ -3611,12 +3611,12 @@ test.describe('Pricing credit-pack rollout', () => {
     await page.goto('/pricing.html');
 
     await page.locator('.pricing-legal__checkout').click();
-    await expect(page.locator('.pricing-result--error')).toContainText('Bitte akzeptiere die AGB');
+    await expect(page.locator('.pricing-result--error')).toContainText('Please accept the Terms');
     expect(checkoutRequests).toHaveLength(0);
 
     await page.locator('.pricing-legal__check').nth(0).locator('input').check();
     await page.locator('.pricing-legal__checkout').click();
-    await expect(page.locator('.pricing-result--error')).toContainText('Bitte akzeptiere die AGB');
+    await expect(page.locator('.pricing-result--error')).toContainText('Please accept the Terms');
     expect(checkoutRequests).toHaveLength(0);
 
     await page.locator('.pricing-legal__check').nth(1).locator('input').check();

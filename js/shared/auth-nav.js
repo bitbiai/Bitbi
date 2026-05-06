@@ -6,6 +6,7 @@
 import { getAuthState, authLogout, patchAuthUser } from './auth-state.js';
 import { openAuthModal } from './auth-modal.js';
 import { withGenerateLabReturnContext } from './generate-lab-context.js?v=__ASSET_VERSION__';
+import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
 
 export function initAuthNav() {
     renderDesktop();
@@ -19,7 +20,7 @@ export function initAuthNav() {
 
 function getIdentityLabel(user) {
     const displayName = typeof user?.display_name === 'string' ? user.display_name.trim() : '';
-    return displayName || user?.email || 'Member';
+    return displayName || user?.email || localeText('auth.member');
 }
 
 function hasAvatar(user) {
@@ -30,7 +31,7 @@ function buildAvatarImage(user, className) {
     const img = document.createElement('img');
     img.className = className;
     img.src = user.avatar_url;
-    img.alt = `${getIdentityLabel(user)} profile photo`;
+    img.alt = localeText('auth.profilePhoto', { name: getIdentityLabel(user) });
     img.decoding = 'async';
     img.loading = 'eager';
     img.addEventListener('error', () => {
@@ -41,9 +42,9 @@ function buildAvatarImage(user, className) {
 
 function buildDesktopIdentity(user) {
     const identity = document.createElement('a');
-    identity.href = withGenerateLabReturnContext('/account/profile.html');
+    identity.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
     identity.className = 'auth-nav__identity';
-    identity.setAttribute('aria-label', `Open profile for ${getIdentityLabel(user)}`);
+    identity.setAttribute('aria-label', localeText('auth.openProfileFor', { name: getIdentityLabel(user) }));
 
     const avatarFrame = document.createElement('span');
     avatarFrame.className = 'auth-nav__avatar-link';
@@ -69,9 +70,9 @@ function renderMobileHeaderIdentity(user) {
     if (!hasAvatar(user)) return;
 
     inline = document.createElement('a');
-    inline.href = withGenerateLabReturnContext('/account/profile.html');
+    inline.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
     inline.className = 'auth-nav__mobile-inline';
-    inline.setAttribute('aria-label', 'Open profile');
+    inline.setAttribute('aria-label', localeText('auth.openProfile'));
 
     inline.appendChild(buildAvatarImage(user, 'auth-nav__mobile-inline-img'));
 
@@ -112,9 +113,9 @@ function renderDesktop() {
             if (mood) mood.hidden = true;
         } else {
             const email = document.createElement('a');
-            email.href = withGenerateLabReturnContext('/account/profile.html');
+            email.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             email.className = 'auth-nav__email auth-nav__email-link';
-            email.textContent = user?.email || 'Member';
+            email.textContent = user?.email || localeText('auth.member');
             wrap.appendChild(email);
             if (mood) mood.hidden = false;
         }
@@ -122,31 +123,31 @@ function renderDesktop() {
         const logout = document.createElement('button');
         logout.type = 'button';
         logout.className = 'auth-nav__logout';
-        logout.textContent = 'Sign Out';
+        logout.textContent = localeText('auth.signOut');
         logout.addEventListener('click', () => authLogout());
         wrap.appendChild(logout);
 
         // Profile link — only when the header stays in the legacy no-avatar state
         if (navLinks && !hasAvatar(user)) {
             const profileLink = document.createElement('a');
-            profileLink.href = withGenerateLabReturnContext('/account/profile.html');
+            profileLink.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             profileLink.className = 'site-nav__link nav-link auth-nav__profile-link';
-            profileLink.textContent = 'Profile';
+            profileLink.textContent = localeText('auth.profile');
             navLinks.appendChild(profileLink);
         }
 
         // Controlled rollout links — only for admin role
         if (user?.role === 'admin' && navLinks) {
             const pricingLink = document.createElement('a');
-            pricingLink.href = '/pricing.html';
+            pricingLink.href = localizedHref('/pricing.html');
             pricingLink.className = 'site-nav__link nav-link auth-nav__pricing-link';
-            pricingLink.textContent = 'Pricing';
+            pricingLink.textContent = localeText('auth.pricing');
             navLinks.insertBefore(pricingLink, navLinks.firstElementChild || null);
 
             const adminLink = document.createElement('a');
-            adminLink.href = '/admin/';
+            adminLink.href = localizedHref('/admin/');
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
-            adminLink.textContent = 'Admin';
+            adminLink.textContent = localeText('auth.admin');
             navLinks.appendChild(adminLink);
         }
     } else {
@@ -154,7 +155,7 @@ function renderDesktop() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'site-nav__cta pulse-glow';
-        btn.textContent = 'Sign In';
+        btn.textContent = localeText('auth.signIn');
         btn.addEventListener('click', () => openAuthModal('login'));
         wrap.appendChild(btn);
     }
@@ -180,24 +181,24 @@ function renderMobile() {
         const logout = document.createElement('button');
         logout.type = 'button';
         logout.className = 'auth-nav__mobile-logout';
-        logout.textContent = 'Sign Out';
+        logout.textContent = localeText('auth.signOut');
         logout.addEventListener('click', () => authLogout());
 
         const adminLink = user?.role === 'admin'
             ? (() => {
                 const link = document.createElement('a');
-                link.href = '/admin/';
+                link.href = localizedHref('/admin/');
                 link.className = 'auth-nav__mobile-admin';
-                link.textContent = 'Admin';
+                link.textContent = localeText('auth.admin');
                 return link;
             })()
             : null;
         const pricingLink = user?.role === 'admin'
             ? (() => {
                 const link = document.createElement('a');
-                link.href = '/pricing.html';
+                link.href = localizedHref('/pricing.html');
                 link.className = 'auth-nav__mobile-pricing';
-                link.textContent = 'Pricing';
+                link.textContent = localeText('auth.pricing');
                 return link;
             })()
             : null;
@@ -207,9 +208,9 @@ function renderMobile() {
             accountWrap.className = 'auth-nav__mobile-account';
 
             const identityLink = document.createElement('a');
-            identityLink.href = withGenerateLabReturnContext('/account/profile.html');
+            identityLink.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             identityLink.className = 'auth-nav__mobile-identity';
-            identityLink.setAttribute('aria-label', 'Open profile');
+            identityLink.setAttribute('aria-label', localeText('auth.openProfile'));
 
             identityLink.appendChild(buildAvatarImage(user, 'auth-nav__mobile-identity-img'));
 
@@ -226,15 +227,15 @@ function renderMobile() {
         } else {
             const email = document.createElement('span');
             email.className = 'auth-nav__mobile-email';
-            email.textContent = user?.email || 'Member';
+            email.textContent = user?.email || localeText('auth.member');
             authContainer.appendChild(email);
             const actionsWrap = document.createElement('div');
             actionsWrap.className = 'auth-nav__mobile-actions';
 
             const profileLink = document.createElement('a');
-            profileLink.href = withGenerateLabReturnContext('/account/profile.html');
+            profileLink.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             profileLink.className = 'auth-nav__mobile-profile';
-            profileLink.textContent = 'Profile';
+            profileLink.textContent = localeText('auth.profile');
             actionsWrap.appendChild(profileLink);
 
             if (pricingLink) actionsWrap.appendChild(pricingLink);
@@ -246,7 +247,7 @@ function renderMobile() {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'mobile-nav__cta pulse-glow';
-        btn.textContent = 'Sign In';
+        btn.textContent = localeText('auth.signIn');
         btn.addEventListener('click', () => openAuthModal('login'));
         authContainer.appendChild(btn);
     }

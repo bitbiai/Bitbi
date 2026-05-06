@@ -1,23 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>BITBI | My Digital Playground</title>
-    <meta name="description" content="BITBI — AI art, video experiments, sound lab, and a creative digital playground by a creative technologist.">
+    <title>BITBI | Mein digitaler Spielraum</title>
+    <meta name="description" content="BITBI — KI-Kunst, Videoexperimente, Sound Lab und ein kreativer digitaler Spielraum.">
     <meta name="keywords" content="BITBI, digital art, AI creations, creative coding">
     <meta name="author" content="BITBI Studio">
-    <link rel="canonical" href="https://bitbi.ai/">
+    <link rel="canonical" href="https://bitbi.ai/de/">
     <link rel="alternate" hreflang="en" href="https://bitbi.ai/">
     <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/">
     <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/">
-    <meta property="og:title" content="BITBI | My Digital Playground">
-    <meta property="og:description" content="AI art • Video Creations • Sound Lab • A creative digital playground">
+    <meta property="og:title" content="BITBI | Mein digitaler Spielraum">
+    <meta property="og:description" content="KI-Kunst • Video Creations • Sound Lab • Ein kreativer digitaler Spielraum">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://bitbi.ai/">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="BITBI | My Digital Playground">
-    <meta name="twitter:description" content="AI art • Video Creations • Sound Lab • A creative digital playground">
+    <meta name="twitter:title" content="BITBI | Mein digitaler Spielraum">
+    <meta name="twitter:description" content="KI-Kunst • Video Creations • Sound Lab • Ein kreativer digitaler Spielraum">
     <meta property="og:image" content="https://bitbi.ai/assets/images/og-default.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -30,19 +30,19 @@
     <link rel="icon" href="/assets/favicons/android-chrome-512x512.png" sizes="512x512" type="image/png">
     <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
     <link rel="manifest" href="/assets/favicons/site.webmanifest">
-    <link rel="preload" href="fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="assets/images/1.png" as="image" fetchpriority="high">
+    <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="../assets/images/1.png" as="image" fetchpriority="high">
 
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
-    <link rel="stylesheet" href="css/base/tokens.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/base/reset.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/base/base.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/components/components.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/pages/index.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/account/assets-manager.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/components/auth.css?v=__ASSET_VERSION__">
-    <link rel="stylesheet" href="css/base/utilities.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/pages/index.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>(function(){try{var categoryHashes={'#gallery':true,'#video-creations':true,'#soundlab':true};if(!categoryHashes[window.location.hash])return;var desktopStageQuery=window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');if(!desktopStageQuery.matches)return;sessionStorage.setItem('bitbi:pending-home-category',window.location.hash);history.replaceState(history.state,'',window.location.pathname+window.location.search);window.scrollTo(0,0)}catch(_err){}})()</script>
     <script>(function(){var restoreKey='bitbi_home_scroll_restore_v2';document.documentElement.classList.add('js-ready');try{if('scrollRestoration'in history){history.scrollRestoration='manual'}var navEntry=performance.getEntriesByType&&performance.getEntriesByType('navigation')[0];var legacyReload=!!(performance.navigation&&performance.navigation.type===1);var isReload=!!((navEntry&&navEntry.type==='reload')||legacyReload);var savedY=isReload?Number(sessionStorage.getItem(restoreKey)):NaN;var canRestore=Number.isFinite(savedY)&&savedY>=0;var restoreCancelled=false;var saveScroll=function(){sessionStorage.setItem(restoreKey,String(Math.round(window.scrollY||window.pageYOffset||0)))};var cancelRestore=function(){restoreCancelled=true};var restoreScroll=function(){if(!canRestore||restoreCancelled)return;window.scrollTo(0,savedY)};var restoreWithLayoutSettling=function(){restoreScroll();var started=performance.now();var step=function(){restoreScroll();if(performance.now()-started<5200){window.requestAnimationFrame(step)}};window.requestAnimationFrame(step);[50,120,260,520,900,1400,2100,2800,3600,4600,5200].forEach(function(delay){window.setTimeout(restoreScroll,delay)})};window.addEventListener('pagehide',saveScroll);window.addEventListener('beforeunload',saveScroll);window.addEventListener('scroll',function(){window.clearTimeout(window.__bitbiHomeScrollSaveTimer);window.__bitbiHomeScrollSaveTimer=window.setTimeout(saveScroll,80)},{passive:true});['wheel','touchstart','keydown','mousedown'].forEach(function(type){window.addEventListener(type,cancelRestore,{once:true,passive:true})});if(canRestore){restoreScroll();if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',restoreWithLayoutSettling,{once:true})}else{restoreWithLayoutSettling()}window.addEventListener('load',restoreWithLayoutSettling,{once:true})}}catch(_err){}setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)})()</script>
     <script type="application/ld+json">
@@ -51,7 +51,7 @@
         "@type": "WebSite",
         "name": "BITBI",
         "url": "https://bitbi.ai/",
-        "description": "Experimental websites, AI art, video creations, sound lab, and live markets.",
+        "description": "Experimentelle Websites, KI-Kunst, Video Creations, Sound Lab und kreative Systeme.",
         "sameAs": [
             "https://x.com/bitbi_ai"
         ]
@@ -60,7 +60,7 @@
 </head>
 <body>
 
-<a href="#main-content" class="skip-link">Skip to main content</a>
+<a href="#main-content" class="skip-link">Zum Inhalt springen</a>
 
 <!-- BACKGROUND FAVICON WATERMARK -->
 <div class="watermark" aria-hidden="true">
@@ -69,7 +69,7 @@
 
 <!-- NAVBAR -->
 <header>
-<nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
+<nav id="navbar" class="site-nav glass-nav" aria-label="Hauptnavigation">
     <div class="container">
         <div class="site-nav__bar">
             <a href="#hero" class="site-nav__logo">
@@ -77,15 +77,15 @@
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
             <div class="site-nav__links">
-                <a href="#gallery" class="site-nav__link nav-link" data-category-link="gallery">Gallery</a>
+                <a href="#gallery" class="site-nav__link nav-link" data-category-link="gallery">Galerie</a>
                 <a href="#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
                 <a href="#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
             </div>
             <div class="site-nav__actions">
-                <span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Creating</span></span>
+                <span class="site-nav__mood">Modus: <span class="site-nav__mood-value">Kreativ</span></span>
                 <span data-locale-switcher></span>
             </div>
-            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Menü öffnen" aria-expanded="false" aria-controls="mobileNav">
                 <span class="site-nav__menu-bar" id="bar1"></span>
                 <span class="site-nav__menu-bar" id="bar2"></span>
                 <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
@@ -95,24 +95,24 @@
 </nav>
 </header>
 
-<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigationsmenü" aria-hidden="true">
     <div id="frozenBackdrop" class="mobile-nav__backdrop" aria-hidden="true"></div>
     <div id="frozenRainLayer" class="mobile-nav__rain-layer" aria-hidden="true"></div>
-    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Close menu">&times;</button>
+    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Menü schließen">&times;</button>
     <div class="mobile-nav__inner">
         <div id="mobileNavAuth" class="mobile-nav__auth"></div>
 
-        <nav class="mobile-nav__section" aria-label="Explore">
-            <span class="mobile-nav__label">Explore</span>
-            <a href="#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Gallery</a>
+        <nav class="mobile-nav__section" aria-label="Entdecken">
+            <span class="mobile-nav__label">Entdecken</span>
+            <a href="#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Galerie</a>
             <a href="#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
             <a href="#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
-            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Models</button>
+            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Modelle</button>
         </nav>
 
-        <nav class="mobile-nav__section" aria-label="Connect">
-            <span class="mobile-nav__label">Connect</span>
-            <a href="#contact" class="mobile-nav__link">Contact</a>
+        <nav class="mobile-nav__section" aria-label="Kontakt">
+            <span class="mobile-nav__label">Kontakt</span>
+            <a href="#contact" class="mobile-nav__link">Kontakt</a>
         </nav>
 
         <div class="mobile-nav__footer">
@@ -120,13 +120,13 @@
                 <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="mobile-nav__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
             </div>
             <div class="mobile-nav__legal">
-                <a href="legal/imprint.html" class="mobile-nav__legal-link">Imprint</a>
+                <a href="/de/legal/imprint.html" class="mobile-nav__legal-link">Impressum</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <a href="legal/privacy.html" class="mobile-nav__legal-link">Privacy</a>
+                <a href="/de/legal/privacy.html" class="mobile-nav__legal-link">Datenschutz</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <a href="legal/terms.html" class="mobile-nav__legal-link">AGB</a>
+                <a href="/de/legal/terms.html" class="mobile-nav__legal-link">AGB</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <button id="mobileOpenCookieSettings" class="mobile-nav__legal-link" type="button">Cookie Settings</button>
+                <button id="mobileOpenCookieSettings" class="mobile-nav__legal-link" type="button">Cookie-Einstellungen</button>
             </div>
         </div>
     </div>
@@ -161,7 +161,7 @@
     <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
 
     <div class="hero__models-cta-wrap">
-        <button type="button" class="hero__models-cta" data-models-link="desktop" aria-label="Open Models">
+        <button type="button" class="hero__models-cta" data-models-link="desktop" aria-label="Modelle öffnen">
             <img
                 src="/assets/images/botton/pivimu.webp"
                 alt=""
@@ -177,15 +177,15 @@
     <div class="hero__content">
         <div class="hero__title-wrap float-anim">
             <h1 class="hero__title">
-                <img src="assets/images/1.png" alt="BITBI" class="hero__title-img"
+                <img src="../assets/images/1.png" alt="BITBI" class="hero__title-img"
                      width="600" height="391" fetchpriority="high">
             </h1>
         </div>
         <div class="hero__actions">
-            <a href="/generate-lab/" class="hero__lab-teaser" target="bitbi-generate-lab" rel="noopener noreferrer" aria-label="Open Generate Lab in a new tab">
+            <a href="/de/generate-lab/" class="hero__lab-teaser" target="bitbi-generate-lab" rel="noopener noreferrer" aria-label="Generate Lab in einem neuen Tab öffnen">
                 <span class="hero__lab-teaser-icon" aria-hidden="true">⚗️</span>
                 <span class="hero__lab-teaser-text">Generate Lab</span>
-                <span class="hero__lab-teaser-badge">Open Lab</span>
+                <span class="hero__lab-teaser-badge">Lab öffnen</span>
             </a>
         </div>
     </div>
@@ -200,29 +200,29 @@
 <div id="homeCategories" class="home-categories" data-active-category="video">
     <div class="home-categories__viewport">
         <!-- GALLERY -->
-        <section id="gallery" class="section home-categories__panel is-before" data-category-panel="gallery" aria-label="AI Creations Gallery" aria-hidden="true" inert>
+        <section id="gallery" class="section home-categories__panel is-before" data-category-panel="gallery" aria-label="AI Creations Galerie" aria-hidden="true" inert>
             <div class="section__inner">
                 <div class="section__header--sm reveal">
                     <div style="text-align:center">
-                        <h2 class="section__title gt-cyan-mag" style="margin-block-start:0">AI Creations Gallery</h2>
+                        <h2 class="section__title gt-cyan-mag" style="margin-block-start:0">AI Creations Galerie</h2>
                     </div>
                 </div>
-                <div class="gallery-mode reveal" role="tablist" aria-label="Gallery mode">
+                <div class="gallery-mode reveal" role="tablist" aria-label="Galerie mode">
                     <div class="gallery-mode__item">
                         <button class="gallery-mode__btn gallery-mode__btn--explore active" data-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                            <span class="gallery-mode__label">Explore</span>
+                            <span class="gallery-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="gallery-mode__item">
                         <button class="gallery-mode__btn gallery-mode__btn--create gallery-mode__btn--locked" data-mode="create" role="tab" aria-selected="false" tabindex="-1">
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
-                            <span class="gallery-mode__label">Create</span>
+                            <span class="gallery-mode__label">Erstellen</span>
                             <span class="gallery-mode__lock" aria-hidden="true">&#x1f512;</span>
                         </button>
                     </div>
                 </div>
-                <div id="galleryExplore">
+                <div id="galleryEntdecken">
                     <div id="galleryGrid" class="grid-gallery"></div>
                     <div id="galleryPagination" class="browse-pagination" style="display:none"></div>
                 </div>
@@ -232,7 +232,7 @@
                             <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="galleryCreateTitle">
                                 <div class="creator-create__panel-head">
                                     <div>
-                                        <p class="creator-create__eyebrow">Gallery Create</p>
+                                        <p class="creator-create__eyebrow">Galerie Create</p>
                                         <h2 id="galleryCreateTitle" class="creator-create__title">FLUX.1 Schnell</h2>
                                     </div>
                                     <span class="creator-create__badge">Text to image</span>
@@ -280,7 +280,7 @@
                                         <strong id="galStudioCreditEstimate">1 credit</strong>
                                     </div>
                                     <div class="studio__actions">
-                                        <button type="button" id="galStudioGenerate" class="studio__generate-btn creator-create__generate">Generate</button>
+                                        <button type="button" id="galStudioGenerate" class="studio__generate-btn creator-create__generate">Generieren</button>
                                         <span class="studio__hint creator-create__hint">Ctrl+Enter</span>
                                     </div>
                                 </div>
@@ -326,7 +326,7 @@
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--explore active" data-video-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                            <span class="video-mode__label">Explore</span>
+                            <span class="video-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="video-mode__item">
@@ -336,7 +336,7 @@
                         </button>
                     </div>
                 </div>
-                <div id="videoExplore" class="video-explore reveal"></div>
+                <div id="videoEntdecken" class="video-explore reveal"></div>
                 <div id="videoPagination" class="browse-pagination" style="display:none"></div>
                 <div id="videoCreate" class="video-create" style="display:none">
                     <div class="video-create__shell">
@@ -421,7 +421,7 @@
                                         </select>
                                     </label>
                                     <label class="video-create__field">
-                                        <span class="video-create__label">Quality</span>
+                                        <span class="video-create__label">Qualität</span>
                                         <select id="videoQuality" class="video-create__select" aria-label="Video quality">
                                             <option value="360p">360p</option>
                                             <option value="540p">540p</option>
@@ -434,7 +434,7 @@
                                         <span class="video-create__toggle-ui" aria-hidden="true"></span>
                                         <span class="video-create__toggle-copy">
                                             <strong>Audio</strong>
-                                            <span>Generate sound with the clip</span>
+                                            <span>Generieren sound with the clip</span>
                                         </span>
                                     </label>
                                 </div>
@@ -453,7 +453,7 @@
                                     <strong id="videoCreditEstimate">185 credits</strong>
                                 </div>
                                 <div id="videoCreditBalance" class="video-create__balance">Checking balance...</div>
-                                <button id="videoGenerate" type="button" class="video-create__generate">Generate Video</button>
+                                <button id="videoGenerate" type="button" class="video-create__generate">Generieren Video</button>
                             </div>
                             <div id="videoMsg" class="studio__msg video-create__msg" aria-live="polite"></div>
                         </section>
@@ -493,7 +493,7 @@
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--explore active" data-sound-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                            <span class="video-mode__label">Explore</span>
+                            <span class="video-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="video-mode__item">
@@ -503,7 +503,7 @@
                         </button>
                     </div>
                 </div>
-                <div id="soundLabExplore" class="section__inner section__inner--soundlab">
+                <div id="soundLabEntdecken" class="section__inner section__inner--soundlab">
                     <div class="card-stack" id="soundLabTracks"></div>
                     <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
                 </div>
@@ -553,7 +553,7 @@
                                             <input type="checkbox" id="soundMusicGenerateLyrics">
                                             <span class="creator-create__toggle-ui" aria-hidden="true"></span>
                                             <span class="creator-create__toggle-copy">
-                                                <strong>Generate lyrics first</strong>
+                                                <strong>Generieren lyrics first</strong>
                                                 <span>Adds the lyrics step</span>
                                             </span>
                                         </label>
@@ -566,7 +566,7 @@
                                         <strong id="soundMusicCreditEstimate">150 credits</strong>
                                     </div>
                                     <div class="studio__actions">
-                                        <button type="button" id="soundMusicGenerate" class="studio__generate-btn creator-create__generate">Generate Music — 150 Credits</button>
+                                        <button type="button" id="soundMusicGenerate" class="studio__generate-btn creator-create__generate">Generieren Music — 150 Credits</button>
                                         <span class="studio__hint creator-create__hint">Ctrl+Enter</span>
                                     </div>
                                 </div>
@@ -599,7 +599,7 @@
     </div>
 </div>
 
-<!-- Gallery Modal -->
+<!-- Galerie Modal -->
 <div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
     <div class="modal-content">
         <div class="modal-card">
@@ -623,11 +623,11 @@
 <!-- FOOTER -->
 <footer class="site-footer">
     <div class="site-footer__inner">
-        <section id="contact" class="contact-drawer site-footer__contact-drawer" aria-label="Contact">
+        <section id="contact" class="contact-drawer site-footer__contact-drawer" aria-label="Kontakt">
             <div class="site-footer__top">
                 <div class="site-footer__brand">
                     <span class="site-footer__brand-name gt-hero">BITBI</span>
-                    <p class="site-footer__tagline">My Digital Playground</p>
+                    <p class="site-footer__tagline">Mein digitaler Spielraum</p>
                 </div>
                 <h2 class="contact-drawer__heading reveal">
                     <button
@@ -637,7 +637,7 @@
                         aria-expanded="false"
                         aria-controls="contactDrawerPanel"
                     >
-                        <span class="contact-drawer__trigger-label">Contact</span>
+                        <span class="contact-drawer__trigger-label">Kontakt</span>
                         <span class="contact-drawer__chevron" aria-hidden="true">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="m6 9 6 6 6-6"/>
@@ -666,7 +666,7 @@
                                     <input type="text" name="name" id="contactName" placeholder="Name" required class="form-input" autocomplete="name">
                                 </div>
                                 <div>
-                                    <label for="contactEmail" class="sr-only">Email</label>
+                                    <label for="contactEmail" class="sr-only">E-Mail</label>
                                     <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
                                 </div>
                             </div>
@@ -674,7 +674,7 @@
                             <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
                             <label for="contactMessage" class="sr-only">Your message</label>
                             <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
-                            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Privacy Policy &sect;5</a>.</p>
+                            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="/de/legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Datenschutzerklärung &sect;5</a>.</p>
                             <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
                         </form>
                     </div>
@@ -683,19 +683,19 @@
         </section>
         <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
         <div class="site-footer__links">
-            <a href="legal/imprint.html" class="site-footer__link">Imprint / Impressum</a>
+            <a href="/de/legal/imprint.html" class="site-footer__link">Impressum</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="legal/privacy.html" class="site-footer__link">Privacy Policy</a> / <a href="legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
+            <a href="/de/legal/privacy.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="legal/terms.html" class="site-footer__link">AGB</a>
+            <a href="/de/legal/terms.html" class="site-footer__link">AGB</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie Settings</a>
+            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie-Einstellungen</a>
         </div>
-        <p class="site-footer__copy">BITBI Studio &bull; Built with love &amp; code &bull; &copy; 2026</p>
+        <p class="site-footer__copy">BITBI Studio &bull; Entwickelt mit Sorgfalt &amp; Code &bull; &copy; 2026</p>
     </div>
 </footer>
 
 <div id="authModal"></div>
-<script type="module" src="js/pages/index/main.js?v=__ASSET_VERSION__"></script>
+<script type="module" src="../js/pages/index/main.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

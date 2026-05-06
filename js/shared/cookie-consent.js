@@ -1,3 +1,5 @@
+import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
+
 /* ============================================================
    BITBI — Cookie Consent Banner (EU only, GDPR-compliant)
    Shared across all pages. Uses CSS classes from components.css.
@@ -65,35 +67,35 @@ function createBanner(onConsent) {
     overlay.id = 'cookieBanner';
     overlay.className = 'cookie-banner';
     overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-label', 'Cookie preferences');
+    overlay.setAttribute('aria-label', localeText('cookie.label'));
     overlay.innerHTML = `
     <div class="cookie-banner__card">
         <div class="cookie-banner__header">
             <svg class="cookie-banner__icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
             <div>
-                <h3 class="cookie-banner__title">Cookie Preferences</h3>
-                <p class="cookie-banner__desc">We use cookies to enhance your experience. Necessary cookies are always active. You can choose to enable analytics and marketing cookies. <a href="/legal/privacy.html">Privacy Policy</a></p>
+                <h3 class="cookie-banner__title">${localeText('cookie.title')}</h3>
+                <p class="cookie-banner__desc">${localeText('cookie.desc')} <a href="${localizedHref('/legal/privacy.html')}">${localeText('cookie.privacy')}</a></p>
             </div>
         </div>
         <div id="cookieDetails" class="cookie-banner__details">
             <label class="cookie-banner__label cookie-banner__label--disabled">
                 <input type="checkbox" checked disabled>
-                <span><strong>Necessary</strong> \u2014 Required for the website to function (consent storage)</span>
+                <span><strong>${localeText('cookie.necessary')}</strong> \u2014 ${localeText('cookie.necessaryDesc')}</span>
             </label>
             <label class="cookie-banner__label">
                 <input type="checkbox" id="ckAnalytics">
-                <span><strong>Analytics</strong> \u2014 Performance measurement (Cloudflare RUM)</span>
+                <span><strong>${localeText('cookie.analytics')}</strong> \u2014 ${localeText('cookie.analyticsDesc')}</span>
             </label>
             <label class="cookie-banner__label">
                 <input type="checkbox" id="ckMarketing">
-                <span><strong>Marketing</strong> \u2014 Optional third-party embeds</span>
+                <span><strong>${localeText('cookie.marketing')}</strong> \u2014 ${localeText('cookie.marketingDesc')}</span>
             </label>
         </div>
         <div class="cookie-banner__actions">
-            <button type="button" id="ckAcceptAll" class="cookie-banner__btn cookie-banner__btn--accept">Accept All</button>
-            <button type="button" id="ckSavePrefs" class="cookie-banner__btn cookie-banner__btn--accept" style="display:none">Save Preferences</button>
-            <button type="button" id="ckCustomize" class="cookie-banner__btn cookie-banner__btn--secondary">Customize</button>
-            <button type="button" id="ckRejectAll" class="cookie-banner__btn cookie-banner__btn--secondary">Reject All</button>
+            <button type="button" id="ckAcceptAll" class="cookie-banner__btn cookie-banner__btn--accept">${localeText('cookie.acceptAll')}</button>
+            <button type="button" id="ckSavePrefs" class="cookie-banner__btn cookie-banner__btn--accept" style="display:none">${localeText('cookie.savePrefs')}</button>
+            <button type="button" id="ckCustomize" class="cookie-banner__btn cookie-banner__btn--secondary">${localeText('cookie.customize')}</button>
+            <button type="button" id="ckRejectAll" class="cookie-banner__btn cookie-banner__btn--secondary">${localeText('cookie.rejectAll')}</button>
         </div>
     </div>`;
     document.body.appendChild(overlay);
@@ -119,7 +121,7 @@ function createBanner(onConsent) {
         const isOpen = details.classList.contains('cookie-banner__details--open');
         details.classList.toggle('cookie-banner__details--open', !isOpen);
         saveBtn.style.display = isOpen ? 'none' : 'inline-block';
-        customBtn.textContent = isOpen ? 'Customize' : 'Hide Details';
+        customBtn.textContent = isOpen ? localeText('cookie.customize') : localeText('cookie.hideDetails');
         customBtn.setAttribute('aria-expanded', String(!isOpen));
     });
     saveBtn?.addEventListener('click', () => {

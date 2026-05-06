@@ -212,6 +212,40 @@
         color: rgba(0, 240, 255, 0.8);
     }
 
+    .locale-switcher {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--radius-full);
+        padding: 2px;
+        background: rgba(255, 255, 255, 0.03);
+        white-space: nowrap;
+    }
+
+    .locale-switcher__link {
+        border-radius: var(--radius-full);
+        padding: 4px 8px;
+        color: rgba(255, 255, 255, 0.42);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-decoration: none;
+        transition: color 0.2s var(--ease-default), background 0.2s var(--ease-default);
+    }
+
+    .locale-switcher__link:hover,
+    .locale-switcher__link:focus-visible {
+        color: rgba(255, 255, 255, 0.86);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .locale-switcher__link.is-active {
+        color: var(--color-midnight);
+        background: rgba(0, 240, 255, 0.86);
+    }
+
     .site-nav__cta {
         padding: var(--space-2) var(--space-5);
         border-radius: var(--radius-full);

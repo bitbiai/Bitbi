@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Mein Profil | BITBI</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#0A0A0A">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link rel="canonical" href="https://bitbi.ai/de/account/profile.html">
+    <link rel="alternate" hreflang="en" href="https://bitbi.ai/account/profile.html">
+    <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/account/profile.html">
+    <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/account/profile.html">
+    <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/assets/favicons/favicon-16x16.png" sizes="16x16" type="image/png">
+    <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
+    <link rel="icon" href="/assets/favicons/android-chrome-512x512.png" sizes="512x512" type="image/png">
+    <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/assets/favicons/site.webmanifest">
+    <link rel="preload" href="../../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="../../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <link rel="stylesheet" href="../../css/base/tokens.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/base/reset.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/account/profile.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
+    <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
+</head>
+<body>
+
+<a href="#main-content" class="skip-link">Zum Inhalt springen</a>
+
+<!-- NAVBAR -->
+<header>
+<nav id="navbar" class="site-nav glass-nav" aria-label="Hauptnavigation">
+    <div class="container">
+        <div class="site-nav__bar">
+            <a href="/de/" class="site-nav__logo">
+                <span class="site-nav__logo-text gt-hero">BITBI</span>
+                <span class="site-nav__logo-glow" aria-hidden="true"></span>
+            </a>
+            <div class="site-nav__links">
+                <a href="/de/#gallery" class="site-nav__link nav-link" data-category-link="gallery">Galerie</a>
+                <a href="/de/#video-creations" class="site-nav__link nav-link" data-category-link="video">Video</a>
+                <a href="/de/#soundlab" class="site-nav__link nav-link" data-category-link="sound">Sound Lab</a>
+            </div>
+            <div class="site-nav__actions">
+                <span class="site-nav__mood">Modus: <span class="site-nav__mood-value">Kreativ</span></span>
+            </div>
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Menü öffnen" aria-expanded="false" aria-controls="mobileNav">
+                <span class="site-nav__menu-bar" id="bar1"></span>
+                <span class="site-nav__menu-bar" id="bar2"></span>
+                <span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span>
+            </button>
+        </div>
+    </div>
+</nav>
+</header>
+
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigationsmenü" aria-hidden="true">
+    <div id="frozenBackdrop" class="mobile-nav__backdrop" aria-hidden="true"></div>
+    <div id="frozenRainLayer" class="mobile-nav__rain-layer" aria-hidden="true"></div>
+    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Menü schließen">&times;</button>
+    <div class="mobile-nav__inner">
+        <div id="mobileNavAuth" class="mobile-nav__auth"></div>
+
+        <nav class="mobile-nav__section" aria-label="Entdecken">
+            <span class="mobile-nav__label">Entdecken</span>
+            <a href="/de/#gallery" class="mobile-nav__link mobile-nav__link--primary" data-category-link="gallery">Galerie</a>
+            <a href="/de/#video-creations" class="mobile-nav__link mobile-nav__link--primary" data-category-link="video">Video</a>
+            <a href="/de/#soundlab" class="mobile-nav__link mobile-nav__link--primary" data-category-link="sound">Sound Lab</a>
+            <button type="button" class="mobile-nav__link mobile-nav__link--primary" data-models-link="mobile">Modelle</button>
+        </nav>
+
+        <nav class="mobile-nav__section" aria-label="Kontakt">
+            <span class="mobile-nav__label">Kontakt</span>
+            <a href="/de/#contact" class="mobile-nav__link">Kontakt</a>
+        </nav>
+
+        <div class="mobile-nav__footer">
+            <div class="mobile-nav__social">
+                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="mobile-nav__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            </div>
+            <div class="mobile-nav__legal">
+                <a href="/de/legal/imprint.html" class="mobile-nav__legal-link">Impressum</a>
+                <span class="mobile-nav__legal-dot">&bull;</span>
+                <a href="/de/legal/privacy.html" class="mobile-nav__legal-link">Datenschutz</a>
+                <span class="mobile-nav__legal-dot">&bull;</span>
+                <button id="mobileOpenCookieSettings" class="mobile-nav__legal-link" type="button">Cookie-Einstellungen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<main id="main-content">
+
+<!-- HERO AREA -->
+<section id="profileHero" class="hero hero--compact" aria-label="My Profile">
+    <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.4) 50%,#0A0A0A 100%)" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--cyan-sm" style="top:30%;left:20%;width:300px;height:300px" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--gold-sm" style="bottom:20%;right:20%;width:250px;height:250px" aria-hidden="true"></div>
+    <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
+
+    <div class="hero__content hero__content--narrow">
+        <h1 id="profileHeroTitle" class="legal-hero__title gt-gold-cyan">My Profile</h1>
+        <p id="profileHeroDesc" class="legal-hero__desc">View and manage your account</p>
+    </div>
+</section>
+
+<!-- CONTENT -->
+<div class="section-divider" aria-hidden="true"></div>
+<section class="section" aria-label="Profile content">
+    <div class="section__inner--narrow profile-shell" style="margin-inline:auto">
+
+        <!-- Loading State -->
+        <div id="loadingState" class="profile-loading reveal">Loading profile...</div>
+
+        <!-- Denied State -->
+        <div id="deniedState" class="glass glass-card reveal" style="display:none">
+            <div class="profile-denied">
+                <div class="profile-denied__icon" aria-hidden="true">&#128274;</div>
+                <h2 class="profile-denied__title">Sign In Required</h2>
+                <p class="profile-denied__text">Please sign in to view your profile.</p>
+                <p style="margin-block-start:var(--space-4)">
+                    <a href="/de/" class="profile__link">&larr; Zurück zur Startseite</a>
+                </p>
+            </div>
+        </div>
+
+        <!-- Profile Content -->
+        <div id="profileContent" data-active-tab="profile" style="display:none">
+            <div id="profileHomeView" class="profile-view">
+
+                <div class="profile-tab-bar" id="profileTabBar" role="tablist" aria-label="Profile sections">
+                    <button type="button" class="profile-tab-btn active" data-tab="profile" role="tab" aria-selected="true">Profile</button>
+                    <button type="button" class="profile-tab-link" id="profileWalletWorkspaceBtn" data-open-wallet-workspace="profile">Wallet</button>
+                    <a href="/de/account/credits.html?scope=member" class="profile-tab-link" id="profileCreditsLink">Credits</a>
+                    <a href="/de/account/assets-manager.html" class="profile-tab-link">Assets Manager</a>
+                    <button type="button" class="profile-tab-btn" data-tab="favorites" role="tab" aria-selected="false">Favorites</button>
+                </div>
+
+                <div class="profile-layout">
+                    <div class="profile-layout__main">
+
+                <!-- Avatar + Assets Manager pair -->
+                <div class="profile__top-pair reveal">
+
+                <!-- Avatar Card -->
+                <div class="profile__card profile__avatar-card">
+                    <div class="profile__avatar-wrap">
+                        <div class="profile__avatar-frame" id="avatarFrame">
+                            <svg id="avatarPlaceholder" class="profile__avatar-placeholder" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+                                <circle cx="40" cy="40" r="40" fill="rgba(255,255,255,0.04)"/>
+                                <circle cx="40" cy="30" r="12" fill="rgba(255,255,255,0.15)"/>
+                                <ellipse cx="40" cy="58" rx="20" ry="14" fill="rgba(255,255,255,0.15)"/>
+                            </svg>
+                            <img id="avatarImg" class="profile__avatar-img" alt="Your avatar" style="display:none">
+                        </div>
+                        <div class="profile__avatar-actions">
+                            <button
+                                type="button"
+                                class="profile__avatar-btn"
+                                id="avatarChangeBtn"
+                                aria-haspopup="dialog"
+                                aria-controls="avatarSourceModal"
+                            >
+                                <span id="avatarUploadText">Change Photo</span>
+                            </button>
+                            <input type="file" id="avatarInput" accept="image/jpeg,image/png,image/webp" hidden>
+                            <button type="button" id="avatarRemoveBtn" class="profile__avatar-remove" style="display:none">Remove</button>
+                        </div>
+                        <p class="profile__hint">JPG, PNG or WebP. Max 2 MB.</p>
+                    </div>
+                    <div id="avatarMsg" class="profile__msg" role="status"></div>
+                </div>
+
+                <div id="profileStudioStack" class="profile__studio-stack profile__studio-stack--compact">
+                    <a href="/de/account/assets-manager.html" id="profileStudioCard" class="profile__card profile__studio-card" aria-label="Open Assets Manager">
+                        <span class="profile__studio-emoji" aria-hidden="true">&#127912;</span>
+                        <span class="profile__studio-label">Assets Manager</span>
+                    </a>
+
+                    <button type="button" id="profileWalletCard" class="profile__card profile__studio-card profile__studio-card--wallet" aria-label="Open Wallet" hidden>
+                        <span class="profile__studio-emoji profile__studio-emoji--wallet" aria-hidden="true">&#128142;</span>
+                        <span class="profile__studio-label">Wallet</span>
+                    </button>
+
+                    <a href="/de/account/credits.html?scope=member" id="profileCreditsCard" class="profile__card profile__studio-card profile__studio-card--credits" aria-label="Open Credits">
+                        <span class="profile__studio-emoji profile__studio-emoji--credits" aria-hidden="true">Cr</span>
+                        <span class="profile__studio-label">Credits</span>
+                    </a>
+                </div>
+
+                </div><!-- /.profile__top-pair -->
+
+                <!-- Account Info Card -->
+                <div class="profile__card reveal">
+                    <h2 class="profile__title">Account Info</h2>
+                    <div class="profile__row">
+                        <span class="profile__label">Display Name</span>
+                        <span class="profile__value" id="summaryName">&mdash;</span>
+                    </div>
+                    <div class="profile__row">
+                        <span class="profile__label">E-Mail</span>
+                        <span class="profile__value" id="summaryEmail">&mdash;</span>
+                    </div>
+                    <div class="profile__row">
+                        <span class="profile__label">Role</span>
+                        <span class="profile__value" id="summaryRole"></span>
+                    </div>
+                    <div class="profile__row">
+                        <span class="profile__label">Verified</span>
+                        <span class="profile__value" id="summaryVerified"></span>
+                    </div>
+                    <div class="profile__row">
+                        <span class="profile__label">Member Since</span>
+                        <span class="profile__value" id="summarySince">&mdash;</span>
+                    </div>
+                </div>
+
+                <div class="profile__card reveal" id="walletSectionCard">
+                    <div class="profile__wallet-head">
+                        <div>
+                            <h2 class="profile__title">Wallet</h2>
+                            <p class="profile__wallet-copy" id="walletSectionCopy">Kontakt an Ethereum Mainnet wallet to link it to your BITBI account or use wallet sign-in.</p>
+                        </div>
+                    </div>
+                    <div id="walletSectionMsg" class="profile__msg" role="status"></div>
+                    <div id="walletSectionRows" class="profile__wallet-rows" aria-live="polite"></div>
+                    <div id="walletSectionActions" class="profile__wallet-actions"></div>
+                </div>
+
+                <!-- Edit Profile Card -->
+                <div class="profile__card reveal">
+                    <h2 class="profile__title">Edit Profile</h2>
+
+                    <div id="formMsg" class="profile__msg" role="status"></div>
+
+                    <form id="profileForm" class="profile__form">
+                        <div>
+                            <label for="displayName" class="profile__form-label">Display Name</label>
+                            <input type="text" id="displayName" class="profile__input" placeholder="Your display name" maxlength="50" autocomplete="name">
+                            <p class="profile__hint">Max 50 characters</p>
+                        </div>
+                        <div>
+                            <label for="bio" class="profile__form-label">Bio</label>
+                            <textarea id="bio" class="profile__textarea" placeholder="Tell us about yourself..." maxlength="300"></textarea>
+                            <p class="profile__hint">Max 300 characters</p>
+                        </div>
+                        <div>
+                            <label for="website" class="profile__form-label">Website</label>
+                            <input type="url" id="website" class="profile__input" placeholder="https://your-website.com" maxlength="300" autocomplete="url" spellcheck="false">
+                        </div>
+                        <button type="submit" id="submitBtn" class="profile__submit">Save Changes</button>
+                    </form>
+                </div>
+
+                <!-- Account Actions -->
+                <div class="profile__actions">
+                    <button type="button" id="logoutBtn" class="profile__logout">Abmelden</button>
+                    <a href="/de/" class="profile__link">&larr; Zurück zur Startseite</a>
+                </div>
+
+                    </div>
+
+                    <aside class="profile-layout__sidebar" aria-label="Favorites">
+                        <div class="profile__card profile__favorites reveal">
+                            <h2 class="profile__title">Favorites</h2>
+                            <div class="favorites__group" id="favoritesMempics" data-favorites-type="mempics">
+                                <h3 class="favorites__group-label favorites__group-label--magenta">Mempics</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                            <div class="favorites__group" id="favoritesVideos" data-favorites-type="video">
+                                <h3 class="favorites__group-label favorites__group-label--cyan">Memvids</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                            <div class="favorites__group" id="favoritesSoundlab" data-favorites-type="soundlab">
+                                <h3 class="favorites__group-label favorites__group-label--gold">Sound Lab</h3>
+                                <p class="favorites__empty">No favorites yet</p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<!-- Favorites Viewer Overlay -->
+<div id="favViewer" class="fav-viewer" role="dialog" aria-modal="true" aria-label="Favorite content viewer">
+    <div class="fav-viewer__backdrop"></div>
+    <div class="fav-viewer__body"></div>
+    <div class="fav-viewer__close-wrap">
+        <button type="button" id="favViewerClose" class="fav-viewer__close" aria-label="Close viewer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <span>Close</span>
+        </button>
+    </div>
+</div>
+
+<div id="avatarSourceModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
+    <div class="modal-content profile-avatar-modal__content">
+        <div class="modal-card profile-avatar-modal__card" role="dialog" aria-modal="true" aria-labelledby="avatarSourceTitle">
+            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarSourceClose" aria-label="Close chooser">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-body profile-avatar-modal__body">
+                <span class="profile-avatar-modal__eyebrow">Profile Photo</span>
+                <h3 id="avatarSourceTitle" class="modal-title">Change Photo</h3>
+                <p class="profile-avatar-modal__desc">Choose how you want to update your profile photo.</p>
+                <div class="profile-avatar-modal__options">
+                    <button type="button" id="avatarChooseSavedAssets" class="profile-avatar-modal__option">
+                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#128444;</span>
+                        <span class="profile-avatar-modal__option-title">Saved Assets</span>
+                        <span class="profile-avatar-modal__option-desc">Use an image from your existing Saved Assets library.</span>
+                    </button>
+                    <button type="button" id="avatarChooseUploadDevice" class="profile-avatar-modal__option">
+                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#8682;</span>
+                        <span class="profile-avatar-modal__option-title">Upload from Device</span>
+                        <span class="profile-avatar-modal__option-desc">Continue with the current local upload flow.</span>
+                    </button>
+                    <button type="button" id="avatarChooseGenerate" class="profile-avatar-modal__option">
+                        <span class="profile-avatar-modal__option-icon" aria-hidden="true">&#9881;</span>
+                        <span class="profile-avatar-modal__option-title">Generieren one</span>
+                        <span class="profile-avatar-modal__option-desc">Describe a portrait and create an avatar with AI.</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="avatarAssetsModal" class="modal-overlay profile-avatar-modal profile-avatar-modal--wide" hidden aria-hidden="true">
+    <div class="modal-content profile-avatar-modal__content profile-avatar-modal__content--wide">
+        <div class="modal-card profile-avatar-modal__card profile-avatar-picker" role="dialog" aria-modal="true" aria-labelledby="avatarAssetsTitle">
+            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarAssetsClose" aria-label="Close Saved Assets picker">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-body profile-avatar-modal__body profile-avatar-modal__body--picker">
+                <div class="profile-avatar-picker__head">
+                    <div>
+                        <span class="profile-avatar-modal__eyebrow">Profile Photo</span>
+                        <h3 id="avatarAssetsTitle" class="modal-title">Saved Assets</h3>
+                        <p class="profile-avatar-modal__desc">Choose one of your saved images. Profile photos always use the optimized thumbnail, never the original.</p>
+                    </div>
+                    <label class="profile-avatar-picker__filter-wrap" for="avatarAssetsFilter">
+                        <span class="sr-only">Filter Saved Assets by folder</span>
+                        <select id="avatarAssetsFilter" class="studio__folder-filter">
+                            <option value="">All Saved Images</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="avatarAssetsStatus" class="profile-avatar-picker__status profile-avatar-picker__status--neutral" role="status">Choose an image for your profile photo.</div>
+                <div id="avatarAssetsGrid" class="profile-avatar-picker__grid">
+                    <div class="studio__gallery-empty">Loading saved images...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="avatarGenerateModal" class="modal-overlay profile-avatar-modal" hidden aria-hidden="true">
+    <div class="modal-content profile-avatar-modal__content">
+        <div class="modal-card profile-avatar-modal__card profile-avatar-generate" role="dialog" aria-modal="true" aria-labelledby="avatarGenerateTitle">
+            <button type="button" class="modal-action modal-action--right profile-avatar-modal__close" id="avatarGenerateClose" aria-label="Close avatar generator">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-body profile-avatar-modal__body profile-avatar-generate__body">
+                <span class="profile-avatar-modal__eyebrow">Profile Photo</span>
+                <h3 id="avatarGenerateTitle" class="modal-title">Generieren Avatar</h3>
+                <p class="profile-avatar-modal__desc">Describe the avatar you want and we'll generate it for you.</p>
+                <div class="profile-avatar-generate__preview" id="avatarGeneratePreview" aria-live="polite">
+                    <div class="profile-avatar-generate__preview-empty">Your avatar will appear here.</div>
+                </div>
+                <div id="avatarGenerateMsg" class="profile__msg" role="status"></div>
+                <label class="profile-avatar-generate__prompt-label" for="avatarGeneratePrompt">
+                    <span class="sr-only">Avatar prompt</span>
+                    <textarea id="avatarGeneratePrompt" class="profile-avatar-generate__prompt" rows="3" maxlength="1000" placeholder="Describe your avatar..." autocomplete="off"></textarea>
+                </label>
+                <div class="profile-avatar-generate__actions">
+                    <button type="button" id="avatarGenerateBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--primary">Generieren</button>
+                    <button type="button" id="avatarGenerateUseBtn" class="profile-avatar-generate__btn profile-avatar-generate__btn--use" disabled>Use</button>
+                </div>
+                <div id="avatarGenerateQuota" class="profile-avatar-generate__quota" aria-live="polite" hidden></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FOOTER -->
+<div class="section-divider" aria-hidden="true"></div>
+<footer class="site-footer">
+    <div class="site-footer__inner">
+        <div class="site-footer__top">
+            <div class="site-footer__brand">
+                <a href="/de/" class="site-footer__brand-name gt-hero">BITBI</a>
+                <p class="site-footer__tagline">Mein digitaler Spielraum</p>
+            </div>
+            <div class="site-footer__social">
+                <a href="https://x.com/bitbi_ai" target="_blank" rel="noopener noreferrer" class="site-footer__social-link" aria-label="X (Twitter)"><svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            </div>
+        </div>
+        <div class="binary-footer-text" id="binaryFooter" aria-hidden="true"></div>
+        <div class="site-footer__links">
+            <a href="/de/legal/imprint.html" class="site-footer__link">Impressum</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="/de/legal/privacy.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
+            <span class="site-footer__dot">&bull;</span>
+            <a href="#" id="openCookieSettings" class="site-footer__link">Cookie-Einstellungen</a>
+        </div>
+        <p class="site-footer__copy">BITBI Studio &bull; Entwickelt mit Sorgfalt &amp; Code &bull; &copy; 2026</p>
+    </div>
+</footer>
+
+<script type="module" src="../../js/pages/profile/main.js?v=__ASSET_VERSION__"></script>
+</body>
+</html>

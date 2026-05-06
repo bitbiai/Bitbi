@@ -2,18 +2,50 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://bitbi.ai/</loc>
-    <lastmod>2026-03-15</lastmod>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/pricing.html</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/pricing.html</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/generate-lab/</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/generate-lab/</loc>
+    <lastmod>2026-05-05</lastmod>
   </url>
   <url>
     <loc>https://bitbi.ai/legal/privacy.html</loc>
-    <lastmod>2026-03-17</lastmod>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/legal/datenschutz.html</loc>
+    <lastmod>2026-05-05</lastmod>
   </url>
   <url>
     <loc>https://bitbi.ai/legal/imprint.html</loc>
-    <lastmod>2026-03-17</lastmod>
+    <lastmod>2026-05-05</lastmod>
   </url>
   <url>
-    <loc>https://bitbi.ai/legal/datenschutz.html</loc>
-    <lastmod>2026-03-17</lastmod>
+    <loc>https://bitbi.ai/de/legal/imprint.html</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/legal/terms.html</loc>
+    <lastmod>2026-05-05</lastmod>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/legal/terms.html</loc>
+    <lastmod>2026-05-05</lastmod>
   </url>
 </urlset>
