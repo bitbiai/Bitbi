@@ -31,8 +31,11 @@ import {
     GPT_IMAGE_2_MODEL_ID,
     getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
-import { calculateGptImage2CreditCost } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
-import { calculateHappyHorseT2vCreditPricing } from '../../shared/happyhorse-t2v-pricing.mjs?v=__ASSET_VERSION__';
+import {
+    FLUX_1_SCHNELL_IMAGE_MODEL_ID as ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID,
+    calculateAiImageCreditCost,
+    calculateAiVideoCreditCost,
+} from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     buildAdminAiLabSaveIntent,
@@ -59,16 +62,6 @@ const STORAGE_KEY = 'bitbi_admin_ai_lab_state_v1';
 const MODES = ['models', 'text', 'image', 'embeddings', 'compare', 'live-agent', 'music', 'video'];
 const HISTORY_LIMIT = 6;
 const ADMIN_AI_UI_VERSION = '__ASSET_VERSION__';
-const ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID = '@cf/black-forest-labs/flux-1-schnell';
-const ADMIN_IMAGE_TEST_FLUX_2_KLEIN_MODEL_IDS = [
-    '@cf/black-forest-labs/flux-2-klein-9b',
-    'black-forest-labs/flux-2-klein-9b',
-];
-const ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS = {
-    [ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID]: 1,
-    '@cf/black-forest-labs/flux-2-klein-9b': 10,
-    'black-forest-labs/flux-2-klein-9b': 10,
-};
 const GPT_IMAGE_2_REFERENCE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const ADMIN_AI_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_REQUEST_TIMEOUTS = {
@@ -1165,7 +1158,7 @@ export function createAdminAiLab({ showToast } = {}) {
     function getHappyHorsePricingForPayload(payload) {
         if (payload?.model !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) return null;
         try {
-            const pricing = calculateHappyHorseT2vCreditPricing({
+            const pricing = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, {
                 resolution: payload.resolution,
                 ratio: payload.ratio,
                 duration: payload.duration,
@@ -1906,9 +1899,9 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function getSelectedImageCreditCost() {
         const modelId = getSelectedImageModelIdForBilling();
-        if (modelId === GPT_IMAGE_2_MODEL_ID) {
-            try {
-                return calculateGptImage2CreditCost({
+        try {
+            const params = modelId === GPT_IMAGE_2_MODEL_ID
+                ? {
                     quality: state.forms.image.quality,
                     size: state.forms.image.size,
                     outputFormat: state.forms.image.outputFormat,
@@ -1916,12 +1909,16 @@ export function createAdminAiLab({ showToast } = {}) {
                     referenceImageCount: Array.isArray(state.forms.image.referenceImages)
                         ? state.forms.image.referenceImages.filter(Boolean).length
                         : 0,
-                }).credits;
-            } catch {
-                return null;
-            }
+                }
+                : {
+                    width: state.forms.image.width,
+                    height: state.forms.image.height,
+                    steps: state.forms.image.steps,
+                };
+            return calculateAiImageCreditCost(modelId, params)?.credits || null;
+        } catch {
+            return null;
         }
-        return ADMIN_IMAGE_TEST_DEFAULT_CREDIT_COSTS[modelId] || null;
     }
 
     function getSelectedImageOrganization() {

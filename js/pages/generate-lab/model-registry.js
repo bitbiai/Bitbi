@@ -12,10 +12,8 @@ import {
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import {
     GPT_IMAGE_2_MODEL_ID,
-    calculateGptImage2CreditCost,
 } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
-    calculatePixverseV6MemberCredits,
     PIXVERSE_V6_ASPECT_RATIOS,
     PIXVERSE_V6_MAX_DURATION,
     PIXVERSE_V6_MIN_DURATION,
@@ -23,6 +21,8 @@ import {
     PIXVERSE_V6_MODEL_LABEL,
     PIXVERSE_V6_QUALITIES,
 } from '../../shared/pixverse-v6-pricing.mjs?v=__ASSET_VERSION__';
+import { calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
 import { getCurrentLocale } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const LOCALE = getCurrentLocale();
@@ -61,13 +61,15 @@ export const GENERATE_LAB_MEDIA_TYPES = Object.freeze([
     }),
 ]);
 
-export const MUSIC_26_MODEL_ID = 'minimax/music-2.6';
-export const MUSIC_BASE_CREDITS = 150;
-export const MUSIC_GENERATED_LYRICS_CREDITS = 160;
+export const MUSIC_26_MODEL_ID = MINIMAX_MUSIC_2_6_MODEL_ID;
+
+function estimateModelCredits(mediaType, modelId, values = {}) {
+    const pricing = calculateAiModelCreditCost({ mediaType, modelId, params: values });
+    return Math.max(1, Math.ceil(Number(pricing?.credits || 1)));
+}
 
 const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
     const config = getAiImageModelConfig(model.id);
-    const credits = Math.max(1, Math.ceil(Number(config?.estimatedCredits || model.estimatedCredits || 1)));
     if (config?.requestMode === 'gpt-image-2' || model.id === GPT_IMAGE_2_MODEL_ID) {
         return Object.freeze({
             id: model.id,
@@ -109,7 +111,7 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
                 outputFormat: Object.freeze([...(config?.outputFormatOptions || ['png', 'webp', 'jpeg'])]),
                 background: Object.freeze([...(config?.backgroundOptions || ['auto', 'opaque'])]),
             }),
-            estimateCredits: (values = {}) => calculateGptImage2CreditCost(values).credits,
+            estimateCredits: (values = {}) => estimateModelCredits('image', model.id, values),
         });
     }
     return Object.freeze({
@@ -136,7 +138,11 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
             steps: 4,
             seed: '',
         }),
-        estimateCredits: () => credits,
+        estimateCredits: (values = {}) => estimateModelCredits('image', model.id, {
+            width: values.width || config?.multipartDefaults?.width || 1024,
+            height: values.height || config?.multipartDefaults?.height || 1024,
+            steps: values.steps || 4,
+        }),
     });
 });
 
@@ -164,7 +170,7 @@ const pixverseV6Model = Object.freeze({
         negativePrompt: '',
         seed: '',
     }),
-    estimateCredits: ({ duration, quality, generateAudio }) => calculatePixverseV6MemberCredits({
+    estimateCredits: ({ duration, quality, generateAudio }) => estimateModelCredits('video', PIXVERSE_V6_MODEL_ID, {
         duration,
         quality,
         generateAudio,
@@ -192,7 +198,7 @@ const music26Model = Object.freeze({
         generateLyrics: false,
         lyrics: '',
     }),
-    estimateCredits: ({ generateLyrics }) => generateLyrics ? MUSIC_GENERATED_LYRICS_CREDITS : MUSIC_BASE_CREDITS,
+    estimateCredits: ({ generateLyrics }) => estimateModelCredits('music', MUSIC_26_MODEL_ID, { generateLyrics }),
 });
 
 const models = Object.freeze([

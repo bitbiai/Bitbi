@@ -157,6 +157,27 @@ async function loadHappyHorseT2vPricingModule() {
   return import(modulePath);
 }
 
+async function loadAiModelPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/ai-model-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadLiveCreditPacksModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/live-credit-packs.mjs')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadMusic26PricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/music-2-6-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -5118,6 +5139,77 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       .toThrow('Unsupported HappyHorse ratio.');
     expect(() => calculateHappyHorseT2vCreditPricing({ resolution: '720P', ratio: '16:9', duration: 16 }))
       .toThrow('Unsupported HappyHorse duration.');
+  });
+
+  test('model margin helper derives its credit value from the static live Stripe pack catalog', async () => {
+    const stripeBilling = await loadStripeBillingModule();
+    const livePacks = await loadLiveCreditPacksModule();
+    const modelPricing = await loadAiModelPricingModule();
+
+    expect(stripeBilling.STRIPE_LIVE_CREDIT_PACKS).toEqual(livePacks.BITBI_LIVE_CREDIT_PACKS);
+    expect(livePacks.lowestNetEurPerCreditFromPacks(livePacks.BITBI_LIVE_CREDIT_PACKS))
+      .toBeCloseTo(0.00163250625, 14);
+    expect(modelPricing.BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING)
+      .toBeCloseTo(livePacks.BITBI_LOWEST_LIVE_PACK_NET_EUR_PER_CREDIT, 14);
+  });
+
+  test('central AI model pricing dispatch matches backend helpers for chargeable models', async () => {
+    const modelPricing = await loadAiModelPricingModule();
+    const imagePricing = await loadAiImageCreditPricingModule();
+    const pixversePricing = await loadPixverseV6PricingModule();
+    const musicPricing = await loadMusic26PricingModule();
+    const happyHorsePricing = await loadHappyHorseT2vPricingModule();
+    const imageCases = [
+      {
+        modelId: '@cf/black-forest-labs/flux-1-schnell',
+        params: { width: 1024, height: 1024, steps: 4 },
+      },
+      {
+        modelId: '@cf/black-forest-labs/flux-2-klein-9b',
+        params: { width: 2048, height: 1024 },
+      },
+      {
+        modelId: 'openai/gpt-image-2',
+        params: { quality: 'high', size: '1536x1024', referenceImageCount: 2 },
+      },
+    ];
+
+    for (const entry of imageCases) {
+      const central = modelPricing.calculateAiModelCreditCost({
+        mediaType: 'image',
+        modelId: entry.modelId,
+        params: entry.params,
+      });
+      const backend = imagePricing.calculateAiImageCreditCost(entry.modelId, entry.params);
+      expect(central).toEqual(backend);
+    }
+
+    const pixverseParams = { duration: 5, quality: '720p', generateAudio: true };
+    const centralPixverse = modelPricing.calculateAiModelCreditCost({
+      mediaType: 'video',
+      modelId: 'pixverse/v6',
+      params: pixverseParams,
+    });
+    expect(centralPixverse.credits).toBe(pixversePricing.calculatePixverseV6MemberCredits(pixverseParams));
+    expect(centralPixverse.formula.pricingBasis).toBe('legacy_provider_credit_formula');
+
+    const musicParams = { generateLyrics: true };
+    const centralMusic = modelPricing.calculateAiModelCreditCost({
+      mediaType: 'music',
+      modelId: 'minimax/music-2.6',
+      params: musicParams,
+    });
+    expect(centralMusic).toEqual(musicPricing.calculateMinimaxMusic26CreditCost(musicParams));
+
+    const happyHorseParams = { resolution: '720P', ratio: '16:9', duration: 5, watermark: false };
+    const centralHappyHorse = modelPricing.calculateAiModelCreditCost({
+      mediaType: 'video',
+      modelId: 'alibaba/hh1-t2v',
+      params: happyHorseParams,
+    });
+    expect(centralHappyHorse).toEqual(happyHorsePricing.calculateHappyHorseT2vCreditPricing(happyHorseParams));
+    expect(centralHappyHorse.effectiveProfitMargin)
+      .toBeGreaterThanOrEqual(happyHorsePricing.BITBI_HAPPYHORSE_TARGET_PROFIT_MARGIN);
   });
 
   test('member PixVerse V6 generation charges dynamic credits and saves a video asset', async () => {

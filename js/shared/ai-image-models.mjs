@@ -15,7 +15,6 @@ export const AI_IMAGE_MODELS = Object.freeze([
         requestMode: 'json',
         supportsSteps: true,
         supportsSeed: true,
-        estimatedCredits: 1,
     }),
 ]);
 
@@ -31,7 +30,6 @@ const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
             width: 1024,
             height: 1024,
         }),
-        estimatedCredits: 10,
     }),
     Object.freeze({
         id: GPT_IMAGE_2_MODEL_ID,
@@ -59,7 +57,6 @@ const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
         defaultOutputFormat: 'png',
         defaultBackground: 'auto',
         defaultMimeType: 'image/png',
-        estimatedCredits: 50,
     }),
 ]);
 
@@ -71,11 +68,11 @@ const SUPPORTED_AI_IMAGE_MODEL_CONFIGS = Object.freeze([
 const AI_IMAGE_MODEL_MAP = new Map(SUPPORTED_AI_IMAGE_MODEL_CONFIGS.map((model) => [model.id, model]));
 
 export function getAiImageModelOptions() {
-    return AI_IMAGE_MODELS.map(({ id, label, estimatedCredits }) => ({ id, label, estimatedCredits }));
+    return AI_IMAGE_MODELS.map(({ id, label }) => ({ id, label }));
 }
 
 export function getGenerateLabAiImageModelOptions() {
-    return SUPPORTED_AI_IMAGE_MODEL_CONFIGS.map(({ id, label, estimatedCredits }) => ({ id, label, estimatedCredits }));
+    return SUPPORTED_AI_IMAGE_MODEL_CONFIGS.map(({ id, label }) => ({ id, label }));
 }
 
 export function getAiImageModelConfig(modelId) {

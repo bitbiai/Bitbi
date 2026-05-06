@@ -23,6 +23,7 @@ import {
 } from "./ai-usage-attempts.js";
 import { OrgRbacError, normalizeOrgId, orgRbacErrorResponse, requireOrgRole } from "./orgs.js";
 import { sha256Hex } from "./tokens.js";
+import { MINIMAX_MUSIC_2_6_BASE_CREDITS } from "../../../../js/shared/music-2-6-pricing.mjs";
 
 export const AI_USAGE_OPERATIONS = Object.freeze({
   MEMBER_IMAGE_GENERATE: Object.freeze({
@@ -49,7 +50,7 @@ export const AI_USAGE_OPERATIONS = Object.freeze({
   MEMBER_MUSIC_GENERATE: Object.freeze({
     id: "member.music.generate",
     featureKey: "ai.music.generate",
-    credits: 150,
+    credits: MINIMAX_MUSIC_2_6_BASE_CREDITS,
     quantity: 1,
     minRole: "member",
     source: "member_music_generation",

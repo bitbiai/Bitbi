@@ -10,9 +10,9 @@ import {
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { calculateAiMusicCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
 
-const BASE_PRICE = 150;
-const SEPARATE_LYRICS_PRICE = 160;
 const COVER_POLL_INTERVAL_MS = 2000;
 const COVER_POLL_TIMEOUT_MS = 30000;
 
@@ -121,7 +121,9 @@ function startCoverPolling(asset) {
 }
 
 function currentPrice() {
-    return ($generateLyrics?.checked && !$generateLyrics.disabled) ? SEPARATE_LYRICS_PRICE : BASE_PRICE;
+    return calculateAiMusicCreditCost(MINIMAX_MUSIC_2_6_MODEL_ID, {
+        generateLyrics: $generateLyrics?.checked && !$generateLyrics.disabled,
+    })?.credits || 1;
 }
 
 function renderGenerateLabel() {

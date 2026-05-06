@@ -1,4 +1,5 @@
 import { BillingError, getCreditBalance, grantMemberCredits, grantOrganizationCredits, normalizeBillingIdempotencyKey } from "./billing.js";
+import { BITBI_LIVE_CREDIT_PACKS } from "../../../../js/shared/live-credit-packs.mjs";
 import {
   BillingEventError,
   BILLING_WEBHOOK_STRIPE_PROVIDER,
@@ -49,28 +50,7 @@ export const STRIPE_CREDIT_PACKS = Object.freeze([
   }),
 ]);
 
-export const STRIPE_LIVE_CREDIT_PACKS = Object.freeze([
-  Object.freeze({
-    id: "live_credits_5000",
-    name: "5000 Credit Pack",
-    credits: 5000,
-    amountCents: 999,
-    currency: "eur",
-    displayPrice: "9,99 €",
-    active: true,
-    sortOrder: 5000,
-  }),
-  Object.freeze({
-    id: "live_credits_12000",
-    name: "12000 Credit Pack",
-    credits: 12000,
-    amountCents: 1999,
-    currency: "eur",
-    displayPrice: "19,99 €",
-    active: true,
-    sortOrder: 12000,
-  }),
-]);
+export const STRIPE_LIVE_CREDIT_PACKS = BITBI_LIVE_CREDIT_PACKS;
 
 const STRIPE_LIVE_LEGACY_CREDIT_PACKS = Object.freeze([
   Object.freeze({

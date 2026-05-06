@@ -14,7 +14,6 @@ import {
   validateAdminAiTextBody as validateTextPayload,
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
-  GPT_IMAGE_2_MODEL_ID,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -689,9 +688,7 @@ export async function handleAdminAI(ctx) {
             background: pricing.normalized?.background || payload.background || null,
             reference_image_count: pricing.normalized?.referenceImageCount
               ?? (Array.isArray(payload.referenceImages) ? payload.referenceImages.length : null),
-            pricing_version: modelId === GPT_IMAGE_2_MODEL_ID
-              ? "gpt-image-2-v1"
-              : "phase2m",
+            pricing_version: pricing.formula?.pricingVersion || null,
           },
         });
       } catch (error) {

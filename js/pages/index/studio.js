@@ -12,9 +12,9 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     DEFAULT_AI_IMAGE_MODEL,
-    getAiImageModelConfig,
     getAiImageModelOptions,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
+import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 let initialized = false;
@@ -97,9 +97,8 @@ function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
 
 function getEstimatedImageCredits() {
     const selectedModel = $model?.value || DEFAULT_AI_IMAGE_MODEL;
-    const config = getAiImageModelConfig(selectedModel);
-    const credits = Number(config?.estimatedCredits);
-    return Number.isFinite(credits) && credits > 0 ? Math.ceil(credits) : 1;
+    const pricing = calculateAiImageCreditCost(selectedModel, { steps: 4, width: 1024, height: 1024 });
+    return Math.max(1, Math.ceil(Number(pricing?.credits || 1)));
 }
 
 function formatCreditEstimate(credits) {

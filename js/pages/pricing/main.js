@@ -9,6 +9,7 @@ import {
     apiCreateMemberLiveCreditPackCheckout,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { BITBI_LIVE_CREDIT_PACKS } from '../../shared/live-credit-packs.mjs?v=__ASSET_VERSION__';
 
 const TERMS_VERSION = '2026-05-05';
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
@@ -50,18 +51,19 @@ const COPY = Object.freeze({
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
         creditPacks: 'Credit packs',
         creditsLabel: 'credits',
+        creditBenefit: '{credits} prepaid credits',
         trustNotes: 'Pricing trust notes',
         packs: Object.freeze({
             live_credits_5000: Object.freeze({
                 title: 'Starter Credits',
                 description: 'Perfect for first experiments, image generations, and smaller creative sessions.',
-                benefits: ['5,000 prepaid credits', 'Use across supported BITBI AI tools', 'No subscription or renewal'],
+                benefits: ['Use across supported BITBI AI tools', 'No subscription or renewal'],
             }),
             live_credits_12000: Object.freeze({
                 title: 'Creator Credits',
                 badge: 'Best value',
                 description: 'More room for high-quality images, video tests, music creation, and reference-based workflows.',
-                benefits: ['12,000 prepaid credits', 'Best current value per credit', 'Built for larger creative sessions'],
+                benefits: ['Best current value per credit', 'Built for larger creative sessions'],
             }),
         }),
         info: Object.freeze([
@@ -106,18 +108,19 @@ const COPY = Object.freeze({
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
         creditPacks: 'Credit-Pakete',
         creditsLabel: 'Credits',
+        creditBenefit: '{credits} Prepaid-Credits',
         trustNotes: 'Vertrauenshinweise zu Preisen',
         packs: Object.freeze({
             live_credits_5000: Object.freeze({
                 title: 'Starter Credits',
                 description: 'Ideal für erste Experimente, Bildgenerierungen und kleinere Kreativ-Sessions.',
-                benefits: ['5.000 Prepaid-Credits', 'Für unterstützte BITBI-KI-Werkzeuge nutzbar', 'Kein Abo und keine Verlängerung'],
+                benefits: ['Für unterstützte BITBI-KI-Werkzeuge nutzbar', 'Kein Abo und keine Verlängerung'],
             }),
             live_credits_12000: Object.freeze({
                 title: 'Creator Credits',
                 badge: 'Bester Wert',
                 description: 'Mehr Spielraum für hochwertige Bilder, Video-Tests, Musik und referenzbasierte Workflows.',
-                benefits: ['12.000 Prepaid-Credits', 'Aktuell bester Gegenwert pro Credit', 'Für größere Kreativ-Sessions ausgelegt'],
+                benefits: ['Aktuell bester Gegenwert pro Credit', 'Für größere Kreativ-Sessions ausgelegt'],
             }),
         }),
         info: Object.freeze([
@@ -136,19 +139,20 @@ function t(key, values = {}) {
     return String(value).replace(/\{([^}]+)\}/g, (_, name) => values[name] ?? '');
 }
 
-const CREDIT_PACKS = Object.freeze([
-    Object.freeze({
-        id: 'live_credits_5000',
-        credits: 5000,
-        price: '9.99 €',
-    }),
-    Object.freeze({
-        id: 'live_credits_12000',
-        credits: 12000,
-        price: '19.99 €',
-        featured: true,
-    }),
-]);
+function formatPackPrice(amountCents) {
+    const amount = Number(amountCents || 0) / 100;
+    return `${amount.toLocaleString(LOCALE === 'de' ? 'de-DE' : 'en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })} €`;
+}
+
+const CREDIT_PACKS = Object.freeze(BITBI_LIVE_CREDIT_PACKS.map((pack) => Object.freeze({
+    id: pack.id,
+    credits: pack.credits,
+    price: formatPackPrice(pack.amountCents),
+    featured: pack.id === 'live_credits_12000',
+})));
 
 let selectedPackId = sessionStorage.getItem(PENDING_PACK_KEY) || 'live_credits_12000';
 let termsAccepted = false;
@@ -264,7 +268,11 @@ function createPackCard(pack, auth) {
 
     const list = document.createElement('ul');
     list.className = 'pricing-card__list';
-    for (const item of localizedPack.benefits) {
+    const benefits = [
+        t('creditBenefit', { credits: NUMBER_FORMATTER.format(pack.credits) }),
+        ...localizedPack.benefits,
+    ];
+    for (const item of benefits) {
         const li = document.createElement('li');
         li.textContent = item;
         list.appendChild(li);

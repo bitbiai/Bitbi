@@ -25,6 +25,10 @@ export function isPixverseV6AspectRatio(value) {
 }
 
 export function calculatePixverseV6MemberCredits({ duration, quality, generateAudio }) {
+  return calculatePixverseV6CreditPricing({ duration, quality, generateAudio }).credits;
+}
+
+export function calculatePixverseV6CreditPricing({ duration, quality, generateAudio }) {
   const qualityRates = PIXVERSE_V6_PROVIDER_CREDITS_PER_SECOND[quality];
   if (!qualityRates) {
     throw new Error("Unsupported PixVerse V6 quality.");
@@ -45,5 +49,24 @@ export function calculatePixverseV6MemberCredits({ duration, quality, generateAu
   //
   // Exact integer-safe formula:
   // ceil(providerCredits * 36000000 / 11696149)
-  return Math.ceil((providerCredits * 36000000) / 11696149);
+  const credits = Math.ceil((providerCredits * 36000000) / 11696149);
+  return {
+    modelId: PIXVERSE_V6_MODEL_ID,
+    credits,
+    providerCredits,
+    normalized: {
+      duration,
+      quality,
+      generateAudio: generateAudio === true,
+      providerCreditsPerSecond,
+    },
+    formula: {
+      pricingVersion: "pixverse-v6-provider-credit-v1",
+      billingMode: "provider_credits_by_second_quality_audio",
+      providerCreditsPerSecond,
+      providerCredits,
+      pricingBasis: "legacy_provider_credit_formula",
+      note: "Preserved to avoid changing live PixVerse member billing.",
+    },
+  };
 }

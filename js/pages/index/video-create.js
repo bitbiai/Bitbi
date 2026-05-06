@@ -11,10 +11,11 @@ import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import {
-    calculatePixverseV6MemberCredits,
     PIXVERSE_V6_MAX_DURATION,
     PIXVERSE_V6_MIN_DURATION,
+    PIXVERSE_V6_MODEL_ID,
 } from '../../shared/pixverse-v6-pricing.mjs?v=__ASSET_VERSION__';
+import { calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 
 const DEFAULT_DURATION = 5;
 const DEFAULT_QUALITY = '720p';
@@ -160,11 +161,11 @@ function selectedGenerateAudio() {
 }
 
 function currentPrice() {
-    return calculatePixverseV6MemberCredits({
+    return calculateAiVideoCreditCost(PIXVERSE_V6_MODEL_ID, {
         duration: selectedDuration(),
         quality: selectedQuality(),
         generateAudio: selectedGenerateAudio(),
-    });
+    })?.credits || 1;
 }
 
 function renderGenerateLabel() {

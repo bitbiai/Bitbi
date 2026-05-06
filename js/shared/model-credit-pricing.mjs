@@ -1,5 +1,7 @@
+import { BITBI_LOWEST_LIVE_PACK_NET_EUR_PER_CREDIT } from "./live-credit-packs.mjs";
+
 export const BITBI_MODEL_PRICING_USD_TO_EUR = 0.855176;
-export const BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING = 0.00163250625;
+export const BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING = BITBI_LOWEST_LIVE_PACK_NET_EUR_PER_CREDIT;
 export const BITBI_TARGET_PROFIT_MARGIN = 0.20;
 
 export function requiredSellPriceUsdForProviderCost(providerCostUsd, targetProfitMargin = BITBI_TARGET_PROFIT_MARGIN) {

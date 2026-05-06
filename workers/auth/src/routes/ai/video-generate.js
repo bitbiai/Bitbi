@@ -1,5 +1,4 @@
 import {
-  calculatePixverseV6MemberCredits,
   isPixverseV6AspectRatio,
   isPixverseV6Quality,
   PIXVERSE_V6_ASPECT_RATIOS,
@@ -11,6 +10,7 @@ import {
   PIXVERSE_V6_MODEL_ID,
   PIXVERSE_V6_MODEL_LABEL,
 } from "../../../../../js/shared/pixverse-v6-pricing.mjs";
+import { calculateAiVideoCreditCost } from "../../../../../js/shared/ai-model-pricing.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
   attachRemoteMediaPolicyContext,
@@ -217,11 +217,15 @@ async function normalizeMemberVideoBody(body) {
   const imageInput = normalizeImageInput(body.image_input);
   const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title") || titleFromPrompt(prompt);
   const folderId = normalizeFolderId(body);
-  const price = calculatePixverseV6MemberCredits({
+  const pricing = calculateAiVideoCreditCost(PIXVERSE_V6_MODEL_ID, {
     duration,
     quality,
     generateAudio,
   });
+  if (!pricing) {
+    throw validationError("Video model pricing is unavailable.", "pricing_unavailable", 503);
+  }
+  const price = pricing.credits;
   const imageInputHash = imageInput ? await sha256Hex(imageInput) : null;
 
   return {
@@ -580,7 +584,7 @@ export async function handleGenerateVideo(ctx) {
       model: PIXVERSE_V6_MODEL_ID,
       preset: "member_video_pixverse_v6",
       request_mode: "workers-ai-gateway",
-      pricing_source: "pixverse-v6-provider-credit-formula",
+      pricing_source: "pixverse-v6-shared-pricing",
       duration: input.duration,
       quality: input.quality,
       generate_audio: input.generateAudio,

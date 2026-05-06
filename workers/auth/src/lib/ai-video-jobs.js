@@ -5,7 +5,7 @@ import {
   AdminAiValidationError,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
-import { calculateHappyHorseT2vCreditPricing } from "../../../../js/shared/happyhorse-t2v-pricing.mjs";
+import { calculateAiVideoCreditCost } from "../../../../js/shared/ai-model-pricing.mjs";
 import {
   getDurationMs,
   getErrorFields,
@@ -132,7 +132,7 @@ function buildJobStoredInput(payload, modelId) {
   if (modelId !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
     return payload;
   }
-  const pricing = calculateHappyHorseT2vCreditPricing({
+  const pricing = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, {
     resolution: payload.resolution,
     ratio: payload.ratio,
     duration: payload.duration,

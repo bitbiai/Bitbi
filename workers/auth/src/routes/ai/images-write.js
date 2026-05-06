@@ -789,7 +789,7 @@ export async function handleGenerateImage(ctx) {
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
-      pricing_source: "ai-image-credit-pricing",
+      pricing_source: "ai-model-pricing",
       provider_cost_usd: imagePricing.providerCostUsd,
       pricing_normalized: imagePricing.normalized,
       ...(gptImage2 ? {

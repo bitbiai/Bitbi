@@ -1,4 +1,10 @@
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
+import {
+  MINIMAX_MUSIC_2_6_BASE_CREDITS,
+  MINIMAX_MUSIC_2_6_MODEL_ID,
+  MINIMAX_MUSIC_2_6_WITH_SEPARATE_LYRICS_CREDITS,
+  calculateMinimaxMusic26CreditCost,
+} from "../../../../../js/shared/music-2-6-pricing.mjs";
 import { buildServiceAuthHeaders } from "../../../../../js/shared/service-auth.mjs";
 import {
   BITBI_CORRELATION_HEADER,
@@ -37,8 +43,8 @@ import { nowIso } from "../../lib/tokens.js";
 import { deleteUserAiTextAsset } from "./lifecycle.js";
 import { hasControlCharacters } from "./helpers.js";
 
-export const MEMBER_MUSIC_26_BASE_CREDITS = 150;
-export const MEMBER_MUSIC_26_WITH_SEPARATE_LYRICS_CREDITS = 160;
+export const MEMBER_MUSIC_26_BASE_CREDITS = MINIMAX_MUSIC_2_6_BASE_CREDITS;
+export const MEMBER_MUSIC_26_WITH_SEPARATE_LYRICS_CREDITS = MINIMAX_MUSIC_2_6_WITH_SEPARATE_LYRICS_CREDITS;
 
 const ROUTE_PATH = "/api/ai/generate-music";
 const INTERNAL_TEXT_PATH = "/internal/ai/test-text";
@@ -114,9 +120,7 @@ function titleFromPrompt(prompt) {
 }
 
 export function calculateMemberMusic26CreditCost({ separateLyricsGeneration = false } = {}) {
-  return separateLyricsGeneration
-    ? MEMBER_MUSIC_26_WITH_SEPARATE_LYRICS_CREDITS
-    : MEMBER_MUSIC_26_BASE_CREDITS;
+  return calculateMinimaxMusic26CreditCost({ separateLyricsGeneration }).credits;
 }
 
 function normalizeMemberMusicBody(body) {
@@ -600,10 +604,10 @@ export async function handleGenerateMusic(ctx) {
   let billingMetadata = null;
   try {
     billingMetadata = await usagePolicy.chargeAfterSuccess({
-      model: musicResponse.body?.model?.id || "minimax/music-2.6",
+      model: musicResponse.body?.model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
       preset: musicResponse.body?.preset || "music_studio",
       request_mode: "service-binding",
-      pricing_source: "member-music-2.6-fixed",
+      pricing_source: "minimax-music-2.6-shared-pricing",
       lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
       lyrics_model_id: lyricsModel?.id || null,
       lyrics_elapsed_ms: lyricsElapsedMs,

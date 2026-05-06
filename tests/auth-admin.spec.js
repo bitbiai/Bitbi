@@ -3756,6 +3756,74 @@ test.describe('Pricing credit-pack rollout', () => {
   });
 });
 
+test.describe('AI model credit pricing registry', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedCookieConsent(page);
+  });
+
+  test('Generate Lab frontend estimates match the shared AI model pricing dispatcher', async ({ page }) => {
+    await mockAuthenticatedAssetsManager(page);
+
+    for (const path of ['/generate-lab/', '/de/generate-lab/']) {
+      const response = await page.goto(path);
+      expect(response.status()).toBe(200);
+
+      const result = await page.evaluate(async () => {
+        const registry = await import('/js/pages/generate-lab/model-registry.js?v=pricing-sync-test');
+        const pricing = await import('/js/shared/ai-model-pricing.mjs?v=pricing-sync-test');
+        const cases = [
+          {
+            mediaType: 'image',
+            modelId: '@cf/black-forest-labs/flux-1-schnell',
+            params: { width: 1024, height: 1024, steps: 4 },
+          },
+          {
+            mediaType: 'image',
+            modelId: '@cf/black-forest-labs/flux-2-klein-9b',
+            params: { width: 2048, height: 1024 },
+          },
+          {
+            mediaType: 'image',
+            modelId: 'openai/gpt-image-2',
+            params: {
+              quality: 'high',
+              size: '1536x1024',
+              outputFormat: 'png',
+              background: 'auto',
+              referenceImageCount: 2,
+            },
+          },
+          {
+            mediaType: 'video',
+            modelId: 'pixverse/v6',
+            params: { duration: 5, quality: '720p', generateAudio: true },
+          },
+          {
+            mediaType: 'music',
+            modelId: 'minimax/music-2.6',
+            params: { generateLyrics: true },
+          },
+        ];
+
+        return {
+          comparisons: cases.map((entry) => ({
+            modelId: entry.modelId,
+            frontendCredits: registry.calculateGenerateLabCredits(entry.modelId, entry.params),
+            sharedCredits: pricing.calculateAiModelCreditCost(entry).credits,
+          })),
+          hasHappyHorseInGenerateLab: registry.getGenerateLabModels()
+            .some((model) => model.id === 'alibaba/hh1-t2v'),
+        };
+      });
+
+      for (const row of result.comparisons) {
+        expect(row.frontendCredits, `${path} ${row.modelId}`).toBe(row.sharedCredits);
+      }
+      expect(result.hasHappyHorseInGenerateLab).toBe(false);
+    }
+  });
+});
+
 test.describe('Credits dashboard live credit packs', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
