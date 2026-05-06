@@ -150,6 +150,13 @@ async function loadPixverseV6PricingModule() {
   return import(modulePath);
 }
 
+async function loadHappyHorseT2vPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/happyhorse-t2v-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
 
@@ -5058,6 +5065,61 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       .toThrow('Unsupported PixVerse V6 duration.');
   });
 
+  test('HappyHorse T2V pricing helper rounds up and keeps at least 20% future member margin', async () => {
+    const {
+      BITBI_HAPPYHORSE_TARGET_PROFIT_MARGIN,
+      HAPPYHORSE_T2V_RESOLUTIONS,
+      HAPPYHORSE_T2V_RATIOS,
+      calculateHappyHorseT2vCreditPricing,
+      listHappyHorseT2vPricingMatrix,
+    } = await loadHappyHorseT2vPricingModule();
+
+    const matrix = listHappyHorseT2vPricingMatrix();
+    expect(matrix).toHaveLength(HAPPYHORSE_T2V_RESOLUTIONS.length * HAPPYHORSE_T2V_RATIOS.length * 13);
+    expect(matrix).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        modelSlug: 'happyhorse-1-0-t2v',
+        modelId: 'alibaba/hh1-t2v',
+        resolution: '720P',
+        ratio: '16:9',
+        duration: 3,
+      }),
+      expect.objectContaining({
+        resolution: '1080P',
+        ratio: '3:4',
+        duration: 15,
+      }),
+    ]));
+
+    for (const entry of matrix) {
+      const priced = calculateHappyHorseT2vCreditPricing(entry);
+      expect(priced.credits).toBeGreaterThan(0);
+      expect(priced.chargedValueUsd).toBeGreaterThanOrEqual(priced.minimumSellPriceUsd);
+      expect(priced.effectiveProfitMargin).toBeGreaterThanOrEqual(BITBI_HAPPYHORSE_TARGET_PROFIT_MARGIN);
+    }
+
+    const withoutWatermark = calculateHappyHorseT2vCreditPricing({
+      resolution: '1080P',
+      ratio: '9:16',
+      duration: 10,
+      watermark: false,
+    });
+    const withWatermark = calculateHappyHorseT2vCreditPricing({
+      resolution: '1080P',
+      ratio: '9:16',
+      duration: 10,
+      watermark: true,
+    });
+    expect(withWatermark.providerCostUsd).toBe(withoutWatermark.providerCostUsd);
+    expect(withWatermark.credits).toBe(withoutWatermark.credits);
+    expect(() => calculateHappyHorseT2vCreditPricing({ resolution: '720p', ratio: '16:9', duration: 5 }))
+      .toThrow('Unsupported HappyHorse resolution.');
+    expect(() => calculateHappyHorseT2vCreditPricing({ resolution: '720P', ratio: '21:9', duration: 5 }))
+      .toThrow('Unsupported HappyHorse ratio.');
+    expect(() => calculateHappyHorseT2vCreditPricing({ resolution: '720P', ratio: '16:9', duration: 16 }))
+      .toThrow('Unsupported HappyHorse duration.');
+  });
+
   test('member PixVerse V6 generation charges dynamic credits and saves a video asset', async () => {
     const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness();
 
@@ -9128,8 +9190,10 @@ test.describe('Worker routes', () => {
           duration: 5,
           aspect_ratio: null,
           quality: null,
+          ratio: null,
           resolution: '720p',
           seed: null,
+          watermark: null,
           generate_audio: false,
           hasImageInput: true,
           hasEndImageInput: false,
@@ -9141,6 +9205,53 @@ test.describe('Worker routes', () => {
         { id: 'vidu/q3-pro' },
         { prompt: 'bad resolution', duration: 5, resolution: '1440p' }
       )).toThrow(/resolution must be one of/i);
+    });
+
+    test('invoke-video payload builder serializes HappyHorse T2V with only Cloudflare-supported fields', async () => {
+      const { buildVideoPayload } = await loadInvokeAiVideoModule();
+
+      const built = buildVideoPayload(
+        { id: 'alibaba/hh1-t2v' },
+        {
+          prompt: '  clouds drifting above a moonlit ridge  ',
+          duration: 6,
+          resolution: '1080P',
+          ratio: '9:16',
+          seed: 42,
+          watermark: true,
+        }
+      );
+
+      expect(built).toEqual({
+        payload: {
+          prompt: 'clouds drifting above a moonlit ridge',
+          duration: 6,
+          resolution: '1080P',
+          ratio: '9:16',
+          seed: 42,
+          watermark: true,
+        },
+        normalized: {
+          prompt: 'clouds drifting above a moonlit ridge',
+          duration: 6,
+          aspect_ratio: '9:16',
+          ratio: '9:16',
+          quality: null,
+          resolution: '1080P',
+          seed: 42,
+          generate_audio: false,
+          watermark: true,
+          hasImageInput: false,
+          hasEndImageInput: false,
+          workflow: 'text_to_video',
+        },
+      });
+      expect(built.payload.aspect_ratio).toBeUndefined();
+      expect(built.payload.quality).toBeUndefined();
+      expect(built.payload.generate_audio).toBeUndefined();
+      expect(built.payload.audio).toBeUndefined();
+      expect(built.payload.negative_prompt).toBeUndefined();
+      expect(built.payload.image_input).toBeUndefined();
     });
 
     test('GET /api/admin/ai/models returns the catalog shape used by the UI', async () => {
@@ -9186,7 +9297,21 @@ test.describe('Worker routes', () => {
       expect(body.models.video.map((model) => model.id)).toEqual(expect.arrayContaining([
         'pixverse/v6',
         'vidu/q3-pro',
+        'alibaba/hh1-t2v',
       ]));
+      const happyHorse = body.models.video.find((model) => model.id === 'alibaba/hh1-t2v');
+      expect(happyHorse).toMatchObject({
+        label: 'HappyHorse 1.0 T2V',
+        vendor: 'Alibaba',
+        capabilities: expect.objectContaining({
+          supportsWatermark: true,
+          supportsSeed: true,
+          resolutionOptions: ['720P', '1080P'],
+          aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+          minDuration: 3,
+          maxDuration: 15,
+        }),
+      });
       expect(body.presets[0]).toEqual(expect.objectContaining({
         name: expect.any(String),
         task: expect.any(String),
@@ -9269,6 +9394,134 @@ test.describe('Worker routes', () => {
         attempt: 1,
       });
       expect(service.calls).toHaveLength(0);
+    });
+
+    test('POST /api/admin/ai/video-jobs queues HappyHorse with pricing metadata and strips it before provider calls', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('async-video-happyhorse-admin');
+      const service = createAiVideoJobServiceBinding();
+      const assetFetch = createVideoAssetFetchStub();
+      const env = createAuthTestEnv({ users: [admin], fetch: assetFetch });
+      env.AI_LAB = service.binding;
+      const token = await seedSession(env, admin.id);
+      const headers = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'video-job-happyhorse-1',
+      };
+
+      const createRes = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'alibaba/hh1-t2v',
+          prompt: 'Admin-only HappyHorse queue test',
+          duration: 10,
+          ratio: '9:16',
+          resolution: '1080P',
+          seed: 123,
+          watermark: false,
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(createRes.status).toBe(202);
+      const createBody = await createRes.json();
+      expect(createBody).toMatchObject({
+        ok: true,
+        job: {
+          provider: 'workers-ai',
+          model: 'alibaba/hh1-t2v',
+        },
+      });
+      expect(env.DB.state.aiVideoJobs).toHaveLength(1);
+      const storedInput = JSON.parse(env.DB.state.aiVideoJobs[0].input_json);
+      expect(storedInput).toMatchObject({
+        model: 'alibaba/hh1-t2v',
+        prompt: 'Admin-only HappyHorse queue test',
+        duration: 10,
+        ratio: '9:16',
+        resolution: '1080P',
+        seed: 123,
+        watermark: false,
+        __admin_generation_metadata: {
+          releaseStatus: 'admin_only',
+          adminCreditsCharged: 0,
+          futureMemberPricing: {
+            credits: expect.any(Number),
+            providerCostUsd: expect.any(Number),
+            minimumSellPriceUsd: expect.any(Number),
+            effectiveProfitMargin: expect.any(Number),
+          },
+        },
+      });
+      expect(storedInput.__admin_generation_metadata.futureMemberPricing.effectiveProfitMargin)
+        .toBeGreaterThanOrEqual(0.20);
+      expect(service.calls).toHaveLength(0);
+
+      const queued = env.AI_VIDEO_JOBS_QUEUE.messages.splice(0);
+      const batch = createQueueBatch(queued, { queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(batch.batch, env, createExecutionContext().execCtx);
+
+      expect(batch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls).toHaveLength(1);
+      expect(service.calls[0].body).toEqual({
+        preset: null,
+        model: 'alibaba/hh1-t2v',
+        prompt: 'Admin-only HappyHorse queue test',
+        duration: 10,
+        ratio: '9:16',
+        resolution: '1080P',
+        seed: 123,
+        watermark: false,
+      });
+      expect(service.calls[0].body.__admin_generation_metadata).toBeUndefined();
+      expect(env.DB.state.creditLedger).toHaveLength(0);
+      expect(env.DB.state.usageEvents).toHaveLength(0);
+      expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
+      await expect(authWorker.fetch(
+        authJsonRequest(`/api/admin/ai/video-jobs/${createBody.job.jobId}`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      ).then((res) => res.json())).resolves.toMatchObject({
+        ok: true,
+        job: {
+          status: 'succeeded',
+          provider: 'workers-ai',
+          model: 'alibaba/hh1-t2v',
+        },
+      });
+    });
+
+    test('POST /api/admin/ai/video-jobs keeps HappyHorse admin-only for non-admin sessions', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const member = createContractUser({ id: 'happyhorse-non-admin', role: 'user' });
+      const env = createAuthTestEnv({ users: [member] });
+      env.AI_LAB = createAiVideoJobServiceBinding().binding;
+      const token = await seedSession(env, member.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/video-jobs', 'POST', {
+          model: 'alibaba/hh1-t2v',
+          prompt: 'Member should not access admin HappyHorse',
+          duration: 5,
+          ratio: '16:9',
+          resolution: '720P',
+          watermark: false,
+        }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': 'video-job-happyhorse-non-admin-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(403);
+      expect(env.DB.state.aiVideoJobs).toHaveLength(0);
+      expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/video-jobs is idempotent and rejects conflicting repeated keys', async () => {
@@ -12204,6 +12457,102 @@ test.describe('Worker routes', () => {
 
       expect(res.status).toBe(200);
       expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    });
+
+    test('POST /api/admin/ai/test-video accepts HappyHorse T2V and rejects unsupported fields', async () => {
+      let capturedModelId = null;
+      let capturedPayload = null;
+      let capturedOptions = null;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          capturedModelId = modelId;
+          capturedPayload = payload;
+          capturedOptions = options;
+          return {
+            state: 'Completed',
+            result: {
+              video: 'https://cdn.example.com/video/happyhorse.mp4',
+            },
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          preset: 'video_happyhorse_1_0_t2v',
+          model: 'alibaba/hh1-t2v',
+          prompt: 'A horse-shaped constellation forming over a quiet desert.',
+          duration: 6,
+          resolution: '1080P',
+          ratio: '1:1',
+          seed: 42,
+          watermark: true,
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: true,
+        task: 'video',
+        model: expect.objectContaining({
+          id: 'alibaba/hh1-t2v',
+          label: 'HappyHorse 1.0 T2V',
+          vendor: 'Alibaba',
+        }),
+        preset: 'video_happyhorse_1_0_t2v',
+        result: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/video/happyhorse.mp4',
+          prompt: 'A horse-shaped constellation forming over a quiet desert.',
+          duration: 6,
+          aspect_ratio: '1:1',
+          ratio: '1:1',
+          quality: null,
+          resolution: '1080P',
+          seed: 42,
+          generate_audio: false,
+          watermark: true,
+          hasImageInput: false,
+          hasEndImageInput: false,
+          workflow: 'text_to_video',
+        }),
+      }));
+      expect(capturedModelId).toBe('alibaba/hh1-t2v');
+      expect(capturedPayload).toEqual({
+        prompt: 'A horse-shaped constellation forming over a quiet desert.',
+        duration: 6,
+        resolution: '1080P',
+        ratio: '1:1',
+        watermark: true,
+        seed: 42,
+      });
+      expect(capturedPayload.aspect_ratio).toBeUndefined();
+      expect(capturedPayload.quality).toBeUndefined();
+      expect(capturedPayload.generate_audio).toBeUndefined();
+      expect(capturedPayload.audio).toBeUndefined();
+      expect(capturedPayload.negative_prompt).toBeUndefined();
+      expect(capturedPayload.image_input).toBeUndefined();
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+
+      const rejected = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-video', 'POST', {
+          model: 'alibaba/hh1-t2v',
+          prompt: 'Unsupported field should fail.',
+          duration: 5,
+          resolution: '720P',
+          ratio: '16:9',
+          negative_prompt: 'not supported',
+        }, authHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(rejected.status).toBe(400);
+      await expect(rejected.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'validation_error',
+        error: expect.stringContaining('negative_prompt is not supported by model "alibaba/hh1-t2v"'),
+      }));
     });
 
     test('POST /api/admin/ai/test-video accepts image_input for image-to-video', async () => {

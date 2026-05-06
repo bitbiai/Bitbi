@@ -2,10 +2,18 @@ import {
   GPT_IMAGE_2_MODEL_ID,
   calculateGptImage2CreditCost,
 } from "../../../../js/shared/gpt-image-2-pricing.mjs";
+import {
+  BITBI_MODEL_PRICING_USD_TO_EUR,
+  BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
+  BITBI_TARGET_PROFIT_MARGIN,
+  creditsForProviderCostUsd,
+} from "../../../../js/shared/model-credit-pricing.mjs";
 
-export const BITBI_MODEL_PRICING_USD_TO_EUR = 0.855176;
-export const BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING = 0.00163250625;
-export const BITBI_TARGET_PROFIT_MARGIN = 0.20;
+export {
+  BITBI_MODEL_PRICING_USD_TO_EUR,
+  BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
+  BITBI_TARGET_PROFIT_MARGIN,
+};
 
 export const FLUX_1_SCHNELL_IMAGE_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
 export { GPT_IMAGE_2_MODEL_ID };
@@ -14,7 +22,6 @@ export const FLUX_2_KLEIN_IMAGE_MODEL_IDS = Object.freeze([
   "black-forest-labs/flux-2-klein-9b",
 ]);
 
-const CREDIT_PRICING_REVENUE_FACTOR = 1 - BITBI_TARGET_PROFIT_MARGIN;
 const DEFAULT_WIDTH = 1024;
 const DEFAULT_HEIGHT = 1024;
 const MAX_DIMENSION = 4096;
@@ -53,11 +60,7 @@ function normalizedDimensions(params = {}) {
 }
 
 function creditsForProviderCost(providerCostUsd) {
-  const costUsd = Number(providerCostUsd);
-  if (!Number.isFinite(costUsd) || costUsd <= 0) return 1;
-  const requiredNetEur = (costUsd * BITBI_MODEL_PRICING_USD_TO_EUR) / CREDIT_PRICING_REVENUE_FACTOR;
-  const credits = Math.ceil(requiredNetEur / BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING);
-  return Math.max(1, credits);
+  return creditsForProviderCostUsd(providerCostUsd);
 }
 
 function normalizeInputImageMegapixels(params = {}) {

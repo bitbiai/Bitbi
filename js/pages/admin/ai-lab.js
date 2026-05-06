@@ -23,6 +23,7 @@ import {
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
     ADMIN_AI_MUSIC_KEYS,
+    ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     ADMIN_AI_VIDEO_MODEL_ID,
     ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     FLUX_2_DEV_MODEL_ID,
@@ -31,6 +32,7 @@ import {
     getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { calculateGptImage2CreditCost } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
+import { calculateHappyHorseT2vCreditPricing } from '../../shared/happyhorse-t2v-pricing.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     buildAdminAiLabSaveIntent,
@@ -444,6 +446,12 @@ function formatBytes(value) {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function formatUsd(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    return `$${number.toFixed(4)}`;
+}
+
 function formatTimeoutDuration(timeoutMs) {
     if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return 'the configured limit';
     if (timeoutMs < 1000) return `${timeoutMs} ms`;
@@ -633,6 +641,20 @@ function setOptions(selectEl, items, placeholder) {
         selectEl.value = current;
     } else if (placeholder) {
         selectEl.value = '';
+    }
+}
+
+function setAllowedSelectOptions(selectEl, allowedValues, fallbackValue) {
+    if (!selectEl) return;
+    const allowed = Array.isArray(allowedValues) && allowedValues.length > 0
+        ? new Set(allowedValues)
+        : null;
+    Array.from(selectEl.options).forEach((option) => {
+        option.disabled = !!allowed && !allowed.has(option.value);
+        option.hidden = !!allowed && !allowed.has(option.value);
+    });
+    if (allowed && !allowed.has(selectEl.value)) {
+        selectEl.value = allowed.has(fallbackValue) ? fallbackValue : allowedValues[0];
     }
 }
 
@@ -1140,8 +1162,30 @@ export function createAdminAiLab({ showToast } = {}) {
         return getAdminAiVideoModelSpec(getSelectedVideoModelId());
     }
 
+    function getHappyHorsePricingForPayload(payload) {
+        if (payload?.model !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) return null;
+        try {
+            const pricing = calculateHappyHorseT2vCreditPricing({
+                resolution: payload.resolution,
+                ratio: payload.ratio,
+                duration: payload.duration,
+                watermark: payload.watermark,
+            });
+            return {
+                providerCostUsd: pricing.providerCostUsd,
+                minimumSellPriceUsd: pricing.minimumSellPriceUsd,
+                credits: pricing.credits,
+                effectiveProfitMargin: pricing.effectiveProfitMargin,
+                adminCreditsCharged: 0,
+            };
+        } catch {
+            return null;
+        }
+    }
+
     function normalizeVideoFormForModel(modelId = getSelectedVideoModelId()) {
         const spec = getAdminAiVideoModelSpec(modelId);
+        const previousModel = state.forms.video.model;
         state.forms.video.model = spec.id;
         state.forms.video.preset = spec.defaultPreset || state.forms.video.preset || ADMIN_AI_DEFAULT_PRESETS.video;
 
@@ -1162,7 +1206,9 @@ export function createAdminAiLab({ showToast } = {}) {
             state.forms.video.resolution = spec.defaultResolution || '720p';
         }
 
-        if (typeof state.forms.video.generateAudio !== 'boolean') {
+        if (previousModel && previousModel !== spec.id) {
+            state.forms.video.generateAudio = spec.defaultGenerateAudio !== false;
+        } else if (typeof state.forms.video.generateAudio !== 'boolean') {
             state.forms.video.generateAudio = spec.defaultGenerateAudio !== false;
         }
 
@@ -1517,6 +1563,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const spec = getSelectedVideoModelSpec();
         const modelSummary = getVideoModelSummary(spec.id);
         const isBusy = state.results.video?.status === 'loading';
+        const isPixverse = spec.id === ADMIN_AI_VIDEO_MODEL_ID;
+        const isVidu = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+        const isHappyHorse = spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
 
@@ -1530,27 +1579,37 @@ export function createAdminAiLab({ showToast } = {}) {
         });
 
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
-        refs.video.prompt.placeholder = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
+        refs.video.prompt.placeholder = isVidu
             ? (usesViduFrameWorkflow
                 ? 'Optional — add a text prompt to steer motion between the selected frames.'
                 : 'Describe the scene, motion, and visual style for text-to-video.')
+            : isHappyHorse
+              ? 'Describe the scene, motion, camera movement, and visual style for HappyHorse text-to-video.'
             : 'Describe the scene, motion, camera movement, and visual style.';
         refs.video.prompt.disabled = isBusy;
         refs.video.negativePrompt.maxLength = spec.maxNegativePromptLength || ADMIN_AI_LIMITS.video.maxNegativePromptLength;
         refs.video.negativePromptField.hidden = !spec.supportsNegativePrompt;
         refs.video.negativePrompt.disabled = isBusy || !spec.supportsNegativePrompt;
 
-        refs.video.imageField.hidden = spec.id !== ADMIN_AI_VIDEO_MODEL_ID;
-        refs.video.imageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_MODEL_ID;
+        refs.video.imageField.hidden = !isPixverse;
+        refs.video.imageFile.disabled = isBusy || !isPixverse;
 
-        refs.video.startImageField.hidden = spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
-        refs.video.startImageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
-        refs.video.endImageField.hidden = spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
-        refs.video.endImageFile.disabled = isBusy || spec.id !== ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID;
+        refs.video.startImageField.hidden = !isVidu;
+        refs.video.startImageFile.disabled = isBusy || !isVidu;
+        refs.video.endImageField.hidden = !isVidu;
+        refs.video.endImageFile.disabled = isBusy || !isVidu;
 
         refs.video.duration.min = spec.minDuration || 1;
         refs.video.duration.max = spec.maxDuration || 16;
+        refs.video.duration.step = 1;
         refs.video.duration.disabled = isBusy;
+        setAllowedSelectOptions(
+            refs.video.aspectRatio,
+            spec.allowedAspectRatios,
+            spec.defaultAspectRatio || '16:9'
+        );
+        const aspectRatioLabel = refs.video.aspectRatioField?.querySelector('.admin-ai__label');
+        if (aspectRatioLabel) aspectRatioLabel.textContent = isHappyHorse ? 'Ratio' : 'Aspect Ratio';
 
         setFieldDisabled(
             refs.video.aspectRatioField,
@@ -1563,21 +1622,40 @@ export function createAdminAiLab({ showToast } = {}) {
         );
 
         refs.video.qualityField.hidden = spec.resolutionField !== 'quality';
+        setAllowedSelectOptions(
+            refs.video.quality,
+            spec.allowedQualities,
+            spec.defaultQuality || '720p'
+        );
         refs.video.quality.disabled = isBusy || spec.resolutionField !== 'quality';
         if (refs.video.qualityLabel) refs.video.qualityLabel.textContent = 'Quality';
 
         refs.video.resolutionField.hidden = spec.resolutionField !== 'resolution';
+        setAllowedSelectOptions(
+            refs.video.resolution,
+            spec.allowedResolutions,
+            spec.defaultResolution || '720p'
+        );
         refs.video.resolution.disabled = isBusy || spec.resolutionField !== 'resolution';
 
         refs.video.seedField.hidden = !spec.supportsSeed;
         refs.video.seed.disabled = isBusy || !spec.supportsSeed;
 
-        refs.video.generateAudio.disabled = isBusy || !spec.supportsAudioToggle;
+        refs.video.generateAudio.disabled = isBusy || (!spec.supportsAudioToggle && !spec.supportsWatermark);
         if (refs.video.audioLabel) {
-            refs.video.audioLabel.textContent = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
-                ? 'Enable Audio'
+            refs.video.audioLabel.textContent = isHappyHorse
+                ? 'Watermark'
+                : isVidu
+                  ? 'Enable Audio'
                 : 'Generate Audio';
         }
+        if (refs.video.minimalMode) {
+            const minimalLabel = refs.video.minimalMode.closest('label');
+            if (minimalLabel) minimalLabel.hidden = !isVidu;
+            refs.video.minimalMode.disabled = isBusy || !isVidu;
+            if (!isVidu) refs.video.minimalMode.checked = false;
+        }
+        if (refs.video.minimalModeHint && !isVidu) refs.video.minimalModeHint.hidden = true;
         refs.video.reset.disabled = isBusy;
         if (refs.video.imageClear) refs.video.imageClear.disabled = isBusy;
         if (refs.video.startImageClear) refs.video.startImageClear.disabled = isBusy;
@@ -3296,6 +3374,7 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Workflow', value: formatVideoWorkflow(payload?.workflow, payload) },
             { label: 'Duration', value: payload?.duration ? `${payload.duration} s` : null },
             { label: 'Aspect Ratio', value: payload?.aspect_ratio },
+            { label: 'Ratio', value: payload?.ratio && payload.ratio !== payload.aspect_ratio ? payload.ratio : null },
             { label: 'Quality', value: payload?.quality },
             { label: 'Resolution', value: payload?.resolution },
             { label: 'Seed', value: payload?.seed },
@@ -3303,6 +3382,13 @@ export function createAdminAiLab({ showToast } = {}) {
                 label: 'Audio',
                 value: payload?.generate_audio === false ? 'Disabled' : payload?.generate_audio === true ? 'Enabled' : null,
             },
+            {
+                label: 'Watermark',
+                value: payload?.watermark === false ? 'Disabled' : payload?.watermark === true ? 'Enabled' : null,
+            },
+            { label: 'Estimated Provider Cost', value: payload?.pricing ? formatUsd(payload.pricing.providerCostUsd) : null },
+            { label: 'Future Member Credits', value: payload?.pricing?.credits ?? null },
+            { label: 'Admin Credits Charged', value: payload?.pricing ? payload.pricing.adminCreditsCharged : null },
             {
                 label: 'Reference Start',
                 value: payload?.hasImageInput ? 'Yes' : payload?.workflow && payload?.workflow !== 'text_to_video' ? 'No' : null,
@@ -3369,6 +3455,26 @@ export function createAdminAiLab({ showToast } = {}) {
     function validateVideoForm() {
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
+        const duration = Number(state.forms.video.duration);
+        if (!Number.isInteger(duration) || duration < (spec.minDuration || 1) || duration > (spec.maxDuration || 16)) {
+            return `Duration must be an integer between ${spec.minDuration || 1} and ${spec.maxDuration || 16} seconds.`;
+        }
+        if (Array.isArray(spec.allowedAspectRatios) && spec.allowedAspectRatios.length > 0
+            && !spec.allowedAspectRatios.includes(state.forms.video.aspectRatio)) {
+            return `${spec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID ? 'Ratio' : 'Aspect ratio'} is not supported by the selected video model.`;
+        }
+        if (spec.resolutionField === 'resolution'
+            && Array.isArray(spec.allowedResolutions)
+            && spec.allowedResolutions.length > 0
+            && !spec.allowedResolutions.includes(state.forms.video.resolution)) {
+            return 'Resolution is not supported by the selected video model.';
+        }
+        if (spec.supportsSeed && state.forms.video.seed !== '' && state.forms.video.seed !== null && state.forms.video.seed !== undefined) {
+            const seed = Number(state.forms.video.seed);
+            if (!Number.isInteger(seed) || seed < 0 || seed > ADMIN_AI_LIMITS.video.maxSeed) {
+                return `Seed must be an integer between 0 and ${ADMIN_AI_LIMITS.video.maxSeed}.`;
+            }
+        }
         if (spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
             const hasStartImage = !!state.forms.video.startImageInput;
             const hasEndImage = !!state.forms.video.endImageInput;
@@ -3427,6 +3533,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function buildVideoJobSuccessResponse(job, payload, videoSpec) {
+        const pricing = getHappyHorsePricingForPayload(payload);
         return {
             ok: true,
             task: 'video',
@@ -3437,11 +3544,13 @@ export function createAdminAiLab({ showToast } = {}) {
                 posterUrl: job.posterUrl || null,
                 prompt: payload.prompt || null,
                 duration: payload.duration,
-                aspect_ratio: payload.aspect_ratio || null,
+                aspect_ratio: payload.aspect_ratio || payload.ratio || null,
+                ratio: payload.ratio || null,
                 quality: payload.quality || null,
                 resolution: payload.resolution || null,
                 seed: payload.seed ?? null,
                 generate_audio: payload.generate_audio ?? payload.audio ?? null,
+                watermark: payload.watermark ?? null,
                 hasImageInput: !!(payload.image_input || payload.start_image),
                 hasEndImageInput: !!payload.end_image,
                 workflow: payload.end_image
@@ -3449,6 +3558,7 @@ export function createAdminAiLab({ showToast } = {}) {
                     : payload.start_image || payload.image_input
                         ? 'image_to_video'
                         : 'text_to_video',
+                pricing,
                 jobId: job.jobId,
                 statusUrl: job.statusUrl,
             },
@@ -4413,7 +4523,15 @@ export function createAdminAiLab({ showToast } = {}) {
             duration: Number(state.forms.video.duration),
         };
 
-        if (videoSpec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
+        if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+            payload.prompt = prompt;
+            payload.resolution = state.forms.video.resolution;
+            payload.ratio = state.forms.video.aspectRatio;
+            payload.watermark = state.forms.video.generateAudio === true;
+            if (state.forms.video.seed !== '' && state.forms.video.seed !== null && state.forms.video.seed !== undefined) {
+                payload.seed = Number(state.forms.video.seed);
+            }
+        } else if (videoSpec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
             payload.resolution = state.forms.video.resolution;
             payload.audio = state.forms.video.generateAudio;
             if (prompt) {
@@ -4445,7 +4563,7 @@ export function createAdminAiLab({ showToast } = {}) {
             }
         }
 
-        if (refs.video.minimalMode?.checked) {
+        if (videoSpec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID && refs.video.minimalMode?.checked) {
             payload.minimal_mode = true;
         }
 

@@ -296,6 +296,13 @@ function createMockAiCatalog() {
         model: 'vidu/q3-pro',
         description: 'Admin Vidu video preset',
       },
+      {
+        name: 'video_happyhorse_1_0_t2v',
+        task: 'video',
+        label: 'HappyHorse 1.0 T2V',
+        model: 'alibaba/hh1-t2v',
+        description: 'Admin HappyHorse video preset',
+      },
     ],
     models: {
       text: [
@@ -499,6 +506,38 @@ function createMockAiCatalog() {
             defaultResolution: '720p',
             defaultGenerateAudio: true,
             defaultPreset: 'video_vidu_q3_pro',
+          },
+        },
+        {
+          id: 'alibaba/hh1-t2v',
+          task: 'video',
+          label: 'HappyHorse 1.0 T2V',
+          vendor: 'Alibaba',
+          description: 'Cloudflare Workers AI HappyHorse text-to-video generation for admin testing.',
+          capabilities: {
+            supportsImageInput: false,
+            supportsEndImage: false,
+            supportsNegativePrompt: false,
+            supportsSeed: true,
+            supportsAudioToggle: false,
+            supportsWatermark: true,
+            supportsPromptlessImageMode: false,
+            resolutionField: 'resolution',
+            aspectRatioMode: 'always',
+            maxPromptLength: 2500,
+            maxNegativePromptLength: null,
+            minDuration: 3,
+            maxDuration: 15,
+            aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+            qualityOptions: [],
+            resolutionOptions: ['720P', '1080P'],
+            defaultDuration: 5,
+            defaultAspectRatio: '16:9',
+            defaultQuality: null,
+            defaultResolution: '720P',
+            defaultGenerateAudio: false,
+            defaultWatermark: false,
+            defaultPreset: 'video_happyhorse_1_0_t2v',
           },
         },
       ],
@@ -898,21 +937,43 @@ async function mockAdminAiLab(page, captures = {}) {
   const videoJobs = new Map();
   let videoJobSeq = 0;
   function buildMockVideoResult(body) {
-    const selectedModelId = body.model || (body.preset === 'video_vidu_q3_pro' ? 'vidu/q3-pro' : 'pixverse/v6');
+    const selectedModelId = body.model
+      || (body.preset === 'video_vidu_q3_pro'
+        ? 'vidu/q3-pro'
+        : body.preset === 'video_happyhorse_1_0_t2v'
+          ? 'alibaba/hh1-t2v'
+          : 'pixverse/v6');
     const selectedModel = catalog.models.video.find((entry) => entry.id === selectedModelId) || catalog.models.video[0];
     const isVidu = selectedModel.id === 'vidu/q3-pro';
+    const isHappyHorse = selectedModel.id === 'alibaba/hh1-t2v';
     return {
       selectedModel,
-      preset: body.preset || (isVidu ? 'video_vidu_q3_pro' : 'video_studio'),
-      result: isVidu ? {
+      preset: body.preset || (isVidu ? 'video_vidu_q3_pro' : isHappyHorse ? 'video_happyhorse_1_0_t2v' : 'video_studio'),
+      result: isHappyHorse ? {
+        videoUrl: 'https://example.com/generated-video.mp4',
+        prompt: body.prompt || null,
+        duration: body.duration ?? 5,
+        aspect_ratio: body.ratio || '16:9',
+        ratio: body.ratio || '16:9',
+        quality: null,
+        resolution: body.resolution || '720P',
+        seed: body.seed ?? null,
+        generate_audio: false,
+        watermark: body.watermark === true,
+        hasImageInput: false,
+        hasEndImageInput: false,
+        workflow: 'text_to_video',
+      } : isVidu ? {
         videoUrl: 'https://example.com/generated-video.mp4',
         prompt: body.prompt || null,
         duration: body.duration ?? 5,
         aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
+        ratio: null,
         quality: null,
         resolution: body.resolution || '720p',
         seed: null,
         generate_audio: body.audio !== false,
+        watermark: null,
         hasImageInput: !!body.start_image,
         hasEndImageInput: !!body.end_image,
         workflow: body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video',
@@ -921,10 +982,12 @@ async function mockAdminAiLab(page, captures = {}) {
         prompt: body.prompt,
         duration: body.duration ?? 5,
         aspect_ratio: body.aspect_ratio || '16:9',
+        ratio: null,
         quality: body.quality || '720p',
         resolution: null,
         seed: body.seed ?? null,
         generate_audio: body.generate_audio !== false,
+        watermark: null,
         hasImageInput: !!body.image_input,
         hasEndImageInput: false,
         workflow: body.image_input ? 'image_to_video' : 'text_to_video',
@@ -973,9 +1036,14 @@ async function mockAdminAiLab(page, captures = {}) {
 
   await page.route('**/api/admin/ai/test-video', async (route) => {
     const body = route.request().postDataJSON();
-    const selectedModelId = body.model || (body.preset === 'video_vidu_q3_pro' ? 'vidu/q3-pro' : 'pixverse/v6');
+    const selectedModelId = body.model
+      || (body.preset === 'video_vidu_q3_pro'
+        ? 'vidu/q3-pro'
+        : body.preset === 'video_happyhorse_1_0_t2v'
+          ? 'alibaba/hh1-t2v'
+          : 'pixverse/v6');
     const selectedModel = catalog.models.video.find((entry) => entry.id === selectedModelId) || catalog.models.video[0];
-    const isVidu = selectedModel.id === 'vidu/q3-pro';
+    const mock = buildMockVideoResult(body);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -983,32 +1051,8 @@ async function mockAdminAiLab(page, captures = {}) {
         ok: true,
         task: 'video',
         model: selectedModel,
-        preset: body.preset || (isVidu ? 'video_vidu_q3_pro' : 'video_studio'),
-        result: isVidu ? {
-          videoUrl: 'https://example.com/generated-video.mp4',
-          prompt: body.prompt || null,
-          duration: body.duration ?? 5,
-          aspect_ratio: body.start_image || body.end_image ? null : (body.aspect_ratio || '16:9'),
-          quality: null,
-          resolution: body.resolution || '720p',
-          seed: null,
-          generate_audio: body.audio !== false,
-          hasImageInput: !!body.start_image,
-          hasEndImageInput: !!body.end_image,
-          workflow: body.end_image ? 'start_end_to_video' : body.start_image ? 'image_to_video' : 'text_to_video',
-        } : {
-          videoUrl: 'https://example.com/generated-video.mp4',
-          prompt: body.prompt,
-          duration: body.duration ?? 5,
-          aspect_ratio: body.aspect_ratio || '16:9',
-          quality: body.quality || '720p',
-          resolution: null,
-          seed: body.seed ?? null,
-          generate_audio: body.generate_audio !== false,
-          hasImageInput: !!body.image_input,
-          hasEndImageInput: false,
-          workflow: body.image_input ? 'image_to_video' : 'text_to_video',
-        },
+        preset: mock.preset,
+        result: mock.result,
         elapsedMs: 645,
         warnings: ['Mock video warning'],
       }),
@@ -8456,6 +8500,94 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
     await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
+    await expect(page.locator('#aiVideoCardHappyHorse')).toBeVisible();
+    await expect(page.locator('#aiVideoCardHappyHorse')).toContainText('alibaba/hh1-t2v');
+  });
+
+  test('HappyHorse 1.0 T2V sends only supported Cloudflare fields and shows admin cost metadata', async ({
+    page,
+  }) => {
+    const catalog = createMockAiCatalog();
+    const happyHorseModel = catalog.models.video.find((entry) => entry.id === 'alibaba/hh1-t2v');
+    const requests = [];
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    await page.unroute('**/api/admin/ai/video-jobs');
+    await page.route('**/api/admin/ai/video-jobs', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          existing: false,
+          job: {
+            jobId: `happyhorse-job-${requests.length}`,
+            status: 'succeeded',
+            provider: 'workers-ai',
+            model: happyHorseModel.id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusUrl: `/api/admin/ai/video-jobs/happyhorse-job-${requests.length}`,
+            outputUrl: 'https://example.com/generated-video.mp4',
+          },
+        }),
+      });
+    });
+
+    await clickAiLabMode(page, 'video');
+    await page.locator('#aiVideoCardHappyHorse').click();
+
+    await expect(page.locator('#aiVideoModelBadge')).toContainText('alibaba/hh1-t2v');
+    await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
+    await expect(page.locator('#aiVideoImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoStartImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoEndImageField')).toBeHidden();
+    await expect(page.locator('#aiVideoResolutionField')).toBeVisible();
+    await expect(page.locator('#aiVideoSeedField')).toBeVisible();
+    await expect(page.locator('label:has(#aiVideoMinimalMode)')).toBeHidden();
+    await expect(page.locator('#aiVideoAudioLabel')).toHaveText('Watermark');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '3');
+    await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '15');
+
+    await page.locator('#aiVideoPrompt').fill('A cinematic camera push through a rain-lit market at night');
+    await page.locator('#aiVideoDuration').fill('10');
+    await page.selectOption('#aiVideoAspectRatio', '3:4');
+    await page.selectOption('#aiVideoResolution', '1080P');
+    await page.locator('#aiVideoSeed').fill('12345');
+    await page.locator('#aiVideoGenerateAudio').check();
+    await page.locator('#aiVideoRun').click();
+
+    await expect(page.locator('#aiVideoPreview video')).toHaveCount(1);
+    await expect(page.locator('#aiVideoMeta')).toContainText('Watermark');
+    await expect(page.locator('#aiVideoMeta')).toContainText('Estimated Provider Cost');
+    await expect(page.locator('#aiVideoMeta')).toContainText('Future Member Credits');
+    await expect(page.locator('#aiVideoMeta')).toContainText('Admin Credits Charged');
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      preset: 'video_happyhorse_1_0_t2v',
+      model: 'alibaba/hh1-t2v',
+      prompt: 'A cinematic camera push through a rain-lit market at night',
+      duration: 10,
+      ratio: '3:4',
+      resolution: '1080P',
+      seed: 12345,
+      watermark: true,
+    });
+    expect(requests[0].aspect_ratio).toBeUndefined();
+    expect(requests[0].quality).toBeUndefined();
+    expect(requests[0].audio).toBeUndefined();
+    expect(requests[0].generate_audio).toBeUndefined();
+    expect(requests[0].negative_prompt).toBeUndefined();
+    expect(requests[0].image_input).toBeUndefined();
+    expect(requests[0].start_image).toBeUndefined();
+    expect(requests[0].end_image).toBeUndefined();
+    expect(requests[0].minimal_mode).toBeUndefined();
   });
 
   test('Vidu Q3 Pro sends supported text-to-video and start/end-frame payloads and renders the shared video preview', async ({

@@ -1,6 +1,7 @@
 // @ts-check
 
 import {
+  ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -48,10 +49,12 @@ const VIDU_MINIMAL_MODE_PAYLOAD = {
  * @property {string | null} prompt
  * @property {number} duration
  * @property {string | null} aspect_ratio
+ * @property {string | null} ratio
  * @property {string | null} quality
  * @property {string | null} resolution
  * @property {number | null} seed
  * @property {boolean} generate_audio
+ * @property {boolean | null} watermark
  * @property {boolean} hasImageInput
  * @property {boolean} hasEndImageInput
  * @property {string} workflow
@@ -69,10 +72,12 @@ const VIDU_MINIMAL_MODE_PAYLOAD = {
  * @property {string | null} prompt
  * @property {number} duration
  * @property {string | null} aspect_ratio
+ * @property {string | null} ratio
  * @property {string | null} quality
  * @property {string | null} resolution
  * @property {number | null} seed
  * @property {boolean} generate_audio
+ * @property {boolean | null} watermark
  * @property {boolean} hasImageInput
  * @property {boolean} hasEndImageInput
  * @property {string} workflow
@@ -731,13 +736,55 @@ function buildViduQ3Payload(input) {
       prompt: prompt || null,
       duration,
       aspect_ratio: aspectRatio || null,
+      ratio: null,
       quality: null,
       resolution,
       seed: null,
       generate_audio: audio,
+      watermark: null,
       hasImageInput: !!startImage,
       hasEndImageInput: !!endImage,
       workflow,
+    },
+  };
+}
+
+function buildHappyHorseT2vPayload(input) {
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
+  if (!prompt) {
+    const error = new Error("alibaba/hh1-t2v: prompt is required.");
+    error.name = "ValidationError";
+    error.status = 400;
+    error.code = "validation_error";
+    throw error;
+  }
+
+  const payload = {
+    prompt,
+    duration: input.duration,
+    resolution: input.resolution,
+    ratio: input.ratio,
+    watermark: input.watermark === true,
+  };
+  if (input.seed !== null && input.seed !== undefined) {
+    payload.seed = input.seed;
+  }
+
+  return {
+    payload,
+    normalized: {
+      prompt,
+      duration: input.duration,
+      aspect_ratio: input.ratio,
+      ratio: input.ratio,
+      quality: null,
+      resolution: input.resolution,
+      seed: input.seed ?? null,
+      generate_audio: false,
+      watermark: payload.watermark,
+      hasImageInput: false,
+      hasEndImageInput: false,
+      workflow: "text_to_video",
     },
   };
 }
@@ -773,10 +820,12 @@ export function buildVideoPayload(model, input) {
         prompt: input.prompt,
         duration: input.duration,
         aspect_ratio: input.aspect_ratio,
+        ratio: null,
         quality: input.quality,
         resolution: null,
         seed: input.seed ?? null,
         generate_audio: input.generate_audio,
+        watermark: null,
         hasImageInput: !!input.image_input,
         hasEndImageInput: false,
         workflow: input.workflow || (input.image_input ? "image_to_video" : "text_to_video"),
@@ -786,6 +835,10 @@ export function buildVideoPayload(model, input) {
 
   if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
     return buildViduQ3Payload(input);
+  }
+
+  if (model.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+    return buildHappyHorseT2vPayload(input);
   }
 
   const error = new Error(`Unsupported video model "${model.id}".`);
@@ -814,10 +867,12 @@ function buildVideoTaskResult({
     prompt: request.normalized.prompt,
     duration: request.normalized.duration,
     aspect_ratio: request.normalized.aspect_ratio,
+    ratio: request.normalized.ratio,
     quality: request.normalized.quality,
     resolution: request.normalized.resolution,
     seed: request.normalized.seed,
     generate_audio: request.normalized.generate_audio,
+    watermark: request.normalized.watermark,
     hasImageInput: request.normalized.hasImageInput,
     hasEndImageInput: request.normalized.hasEndImageInput,
     workflow: request.normalized.workflow,
@@ -1182,7 +1237,7 @@ export async function invokeVideo(env, model, input) {
     has_end_image_input: !!request.normalized.hasEndImageInput,
     workflow: request.normalized.workflow,
     duration: payload.duration,
-    aspect_ratio: payload.aspect_ratio || null,
+    aspect_ratio: payload.aspect_ratio || payload.ratio || null,
     quality: payload.quality || null,
     resolution: payload.resolution || null,
     payload_keys: Object.keys(payload).sort().join(","),
@@ -1336,10 +1391,12 @@ export async function invokeVideo(env, model, input) {
     prompt: request.normalized.prompt,
     duration: request.normalized.duration,
     aspect_ratio: request.normalized.aspect_ratio,
+    ratio: request.normalized.ratio,
     quality: request.normalized.quality,
     resolution: request.normalized.resolution,
     seed: request.normalized.seed,
     generate_audio: request.normalized.generate_audio,
+    watermark: request.normalized.watermark,
     hasImageInput: request.normalized.hasImageInput,
     hasEndImageInput: request.normalized.hasEndImageInput,
     workflow: request.normalized.workflow,

@@ -10,6 +10,20 @@ import {
   GPT_IMAGE_2_QUALITY_OPTIONS,
   GPT_IMAGE_2_SIZE_OPTIONS,
 } from "./gpt-image-2-pricing.mjs";
+import {
+  HAPPYHORSE_T2V_DEFAULT_DURATION,
+  HAPPYHORSE_T2V_DEFAULT_RATIO,
+  HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+  HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+  HAPPYHORSE_T2V_MAX_DURATION,
+  HAPPYHORSE_T2V_MAX_PROMPT_LENGTH,
+  HAPPYHORSE_T2V_MIN_DURATION,
+  HAPPYHORSE_T2V_MODEL_ID,
+  HAPPYHORSE_T2V_RATIOS,
+  HAPPYHORSE_T2V_RESOLUTIONS,
+  HAPPYHORSE_T2V_VENDOR,
+  HAPPYHORSE_T2V_MODEL_LABEL,
+} from "./happyhorse-t2v-pricing.mjs";
 
 export {
   GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -18,6 +32,12 @@ export {
   GPT_IMAGE_2_QUALITY_OPTIONS,
   GPT_IMAGE_2_SIZE_OPTIONS,
 } from "./gpt-image-2-pricing.mjs";
+export {
+  HAPPYHORSE_T2V_MODEL_ID,
+  HAPPYHORSE_T2V_MODEL_LABEL,
+  HAPPYHORSE_T2V_RATIOS,
+  HAPPYHORSE_T2V_RESOLUTIONS,
+} from "./happyhorse-t2v-pricing.mjs";
 
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
@@ -33,6 +53,7 @@ export const FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE = 512;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
+export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
 export const ADMIN_AI_MUSIC_KEYS = [
   "C Major",
   "C# Major",
@@ -140,6 +161,17 @@ export const ADMIN_AI_LIMITS = {
         defaultAspectRatio: "16:9",
         defaultResolution: "720p",
         defaultAudio: true,
+      },
+      [ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID]: {
+        maxPromptLength: HAPPYHORSE_T2V_MAX_PROMPT_LENGTH,
+        minDuration: HAPPYHORSE_T2V_MIN_DURATION,
+        maxDuration: HAPPYHORSE_T2V_MAX_DURATION,
+        allowedAspectRatios: HAPPYHORSE_T2V_RATIOS,
+        allowedResolutions: HAPPYHORSE_T2V_RESOLUTIONS,
+        defaultDuration: HAPPYHORSE_T2V_DEFAULT_DURATION,
+        defaultAspectRatio: HAPPYHORSE_T2V_DEFAULT_RATIO,
+        defaultResolution: HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+        defaultWatermark: HAPPYHORSE_T2V_DEFAULT_WATERMARK,
       },
     },
   },
@@ -407,6 +439,35 @@ const VIDEO_MODELS = {
     defaultPreset: "video_vidu_q3_pro",
     description: "Text-to-video, image-to-video, and start/end-frame-to-video generation with duration, resolution, and audio controls.",
   },
+  [ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID]: {
+    id: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
+    task: "video",
+    label: HAPPYHORSE_T2V_MODEL_LABEL,
+    vendor: HAPPYHORSE_T2V_VENDOR,
+    inputFormat: "json",
+    proxied: true,
+    supportsImageInput: false,
+    supportsEndImage: false,
+    supportsNegativePrompt: false,
+    supportsSeed: true,
+    supportsAudioToggle: false,
+    supportsWatermark: true,
+    supportsPromptlessImageMode: false,
+    resolutionField: "resolution",
+    aspectRatioMode: "always",
+    maxPromptLength: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID].maxPromptLength,
+    minDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID].minDuration,
+    maxDuration: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID].maxDuration,
+    allowedAspectRatios: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID].allowedAspectRatios,
+    allowedResolutions: ADMIN_AI_LIMITS.video.models[ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID].allowedResolutions,
+    defaultDuration: HAPPYHORSE_T2V_DEFAULT_DURATION,
+    defaultAspectRatio: HAPPYHORSE_T2V_DEFAULT_RATIO,
+    defaultResolution: HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+    defaultGenerateAudio: HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+    defaultWatermark: HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+    defaultPreset: "video_happyhorse_1_0_t2v",
+    description: "Admin-only Cloudflare Workers AI text-to-video generation with prompt, resolution, ratio, duration, seed, and watermark controls.",
+  },
 };
 
 const PRESETS = {
@@ -465,6 +526,13 @@ const PRESETS = {
     label: "Vidu Q3 Pro",
     model: ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
     description: "Vidu Q3 Pro preset for admin-only video generation.",
+  },
+  video_happyhorse_1_0_t2v: {
+    name: "video_happyhorse_1_0_t2v",
+    task: "video",
+    label: HAPPYHORSE_T2V_MODEL_LABEL,
+    model: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
+    description: "HappyHorse 1.0 T2V preset for admin-only Cloudflare Workers AI generation.",
   },
 };
 
@@ -859,6 +927,7 @@ function toPublicModel(model) {
       supportsNegativePrompt: !!model.supportsNegativePrompt,
       supportsSeed: !!model.supportsSeed,
       supportsAudioToggle: !!model.supportsAudioToggle,
+      supportsWatermark: !!model.supportsWatermark,
       supportsPromptlessImageMode: !!model.supportsPromptlessImageMode,
       resolutionField: model.resolutionField || "quality",
       aspectRatioMode: model.aspectRatioMode || "always",
@@ -874,6 +943,7 @@ function toPublicModel(model) {
       defaultQuality: model.defaultQuality || "720p",
       defaultResolution: model.defaultResolution || null,
       defaultGenerateAudio: model.defaultGenerateAudio !== false,
+      defaultWatermark: model.defaultWatermark === true,
       defaultPreset: model.defaultPreset || null,
     };
   }
@@ -1348,6 +1418,57 @@ export function validateAdminAiVideoBody(body) {
             selectedModel.allowedAspectRatios,
             selectedModel.defaultAspectRatio
           ),
+    };
+  }
+
+  if (selectedModel.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      [
+        "preset",
+        "model",
+        "prompt",
+        "duration",
+        "ratio",
+        "resolution",
+        "seed",
+        "watermark",
+      ],
+      selectedModel.id
+    );
+
+    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
+    const duration = optionalInteger(
+      input.duration,
+      "duration",
+      selectedModel.minDuration,
+      selectedModel.maxDuration,
+      selectedModel.defaultDuration
+    );
+    const ratio = optionalEnum(
+      input.ratio,
+      "ratio",
+      selectedModel.allowedAspectRatios,
+      selectedModel.defaultAspectRatio
+    );
+    const resolution = optionalEnum(
+      input.resolution,
+      "resolution",
+      selectedModel.allowedResolutions,
+      selectedModel.defaultResolution
+    );
+    const seed = optionalInteger(input.seed, "seed", 0, ADMIN_AI_LIMITS.video.maxSeed, null);
+    const watermark = optionalBoolean(input.watermark, "watermark", selectedModel.defaultWatermark === true);
+
+    return {
+      preset,
+      model,
+      prompt,
+      duration,
+      ratio,
+      resolution,
+      seed,
+      watermark,
     };
   }
 

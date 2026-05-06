@@ -1,9 +1,11 @@
 import {
+  ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
   ADMIN_AI_VIDEO_MODEL_ID,
   ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID,
   AdminAiValidationError,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
+import { calculateHappyHorseT2vCreditPricing } from "../../../../js/shared/happyhorse-t2v-pricing.mjs";
 import {
   getDurationMs,
   getErrorFields,
@@ -122,8 +124,44 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 
 function resolveProvider(modelId) {
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
-  if (modelId === ADMIN_AI_VIDEO_MODEL_ID) return "workers-ai";
+  if (modelId === ADMIN_AI_VIDEO_MODEL_ID || modelId === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) return "workers-ai";
   return "unknown";
+}
+
+function buildJobStoredInput(payload, modelId) {
+  if (modelId !== ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+    return payload;
+  }
+  const pricing = calculateHappyHorseT2vCreditPricing({
+    resolution: payload.resolution,
+    ratio: payload.ratio,
+    duration: payload.duration,
+    watermark: payload.watermark,
+  });
+  return {
+    ...payload,
+    __admin_generation_metadata: {
+      releaseStatus: "admin_only",
+      adminCreditsCharged: 0,
+      futureMemberPricing: {
+        credits: pricing.credits,
+        providerCostUsd: pricing.providerCostUsd,
+        minimumSellPriceUsd: pricing.minimumSellPriceUsd,
+        effectiveProfitMargin: pricing.effectiveProfitMargin,
+        formula: pricing.formula,
+      },
+    },
+  };
+}
+
+function stripStoredInputMetadata(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const stripped = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key.startsWith("__")) continue;
+    stripped[key] = value;
+  }
+  return stripped;
 }
 
 function addMillisecondsIso(ms, baseMs = Date.now()) {
@@ -430,8 +468,8 @@ export async function createAdminAiVideoJob({ env, adminUser, payload, idempoten
     model: payload.model,
   });
   const modelId = selection.model.id;
-  const inputJson = stableStringify(payload);
-  const requestHash = await sha256Hex(inputJson);
+  const requestHash = await sha256Hex(stableStringify(payload));
+  const inputJson = stableStringify(buildJobStoredInput(payload, modelId));
   const existing = await findIdempotentJob(env, adminUser.id, AI_VIDEO_JOB_SCOPE_ADMIN, idempotencyKey);
   if (existing) {
     if (existing.request_hash !== requestHash) {
@@ -895,7 +933,7 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
 
 async function callVideoProviderTask(env, path, job, parsedInput, correlationId) {
   const body = {
-    ...parsedInput,
+    ...stripStoredInputMetadata(parsedInput),
   };
   if (job.provider_task_id) {
     body.providerTaskId = job.provider_task_id;

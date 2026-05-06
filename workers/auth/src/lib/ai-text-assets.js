@@ -364,11 +364,15 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
   if (payload.prompt || payload.prompt === null) metadata.prompt = payload.prompt;
   if (payload.duration !== undefined && payload.duration !== null) metadata.duration = payload.duration;
   if (payload.aspect_ratio) metadata.aspect_ratio = payload.aspect_ratio;
+  if (payload.ratio) metadata.ratio = payload.ratio;
   if (payload.quality) metadata.quality = payload.quality;
   if (payload.resolution) metadata.resolution = payload.resolution;
   if (payload.seed !== undefined && payload.seed !== null) metadata.seed = payload.seed;
   if (payload.generate_audio !== undefined && payload.generate_audio !== null) {
     metadata.generate_audio = payload.generate_audio;
+  }
+  if (payload.watermark !== undefined && payload.watermark !== null) {
+    metadata.watermark = payload.watermark;
   }
   if (payload.hasImageInput !== undefined && payload.hasImageInput !== null) {
     metadata.has_image_input = payload.hasImageInput;
@@ -377,6 +381,9 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
     metadata.has_end_image_input = payload.hasEndImageInput;
   }
   if (payload.workflow) metadata.workflow = payload.workflow;
+  if (payload.pricing && typeof payload.pricing === "object" && !Array.isArray(payload.pricing)) {
+    metadata.pricing = payload.pricing;
+  }
   if (Array.isArray(payload.warnings) && payload.warnings.length > 0) {
     metadata.warnings = payload.warnings;
   }
