@@ -19,6 +19,14 @@ import { initLocaleSwitcher, localeText, localizedHref } from './locale.js?v=__A
 
 const HOME_CATEGORY_NAV_STATE_KEY = 'bitbi:pending-home-category';
 const HOME_DESKTOP_STAGE_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const GENERATE_LAB_MAIN_PATHS = new Set([
+    '/generate-lab',
+    '/generate-lab/',
+    '/generate-lab/index.html',
+    '/de/generate-lab',
+    '/de/generate-lab/',
+    '/de/generate-lab/index.html',
+]);
 
 const NAV_HTML = `
 <nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
@@ -87,9 +95,17 @@ const MOBILE_NAV_HTML = `
     </div>
 </div>`;
 
+function isGenerateLabMainPath(pathname) {
+    const normalized = String(pathname || '/').replace(/\/{2,}/g, '/');
+    return GENERATE_LAB_MAIN_PATHS.has(normalized);
+}
+
 export function initSiteHeader(options = {}) {
     const isGenerateLabPage = options.isGenerateLabPage === true || document.body.classList.contains('generate-lab-page');
     const generateLabContext = !isGenerateLabPage && options.generateLabContext !== false && isGenerateLabContextActive();
+    const disableGenerateLabSelfLink = isGenerateLabPage
+        && typeof window !== 'undefined'
+        && isGenerateLabMainPath(window.location.pathname);
     const showCategoryLinks = generateLabContext ? false : options.showCategoryLinks !== false;
     const enableGlobalAudio = generateLabContext ? false : options.enableGlobalAudio !== false;
     const homeHref = generateLabContext
@@ -133,7 +149,17 @@ export function initSiteHeader(options = {}) {
     });
     const logoLink = header.querySelector('.site-nav__logo');
     if (logoLink) {
-        logoLink.setAttribute('href', homeHref);
+        if (disableGenerateLabSelfLink) {
+            logoLink.removeAttribute('href');
+            logoLink.removeAttribute('target');
+            logoLink.removeAttribute('rel');
+            logoLink.classList.add('site-nav__logo--current');
+            logoLink.setAttribute('aria-current', 'page');
+            logoLink.setAttribute('aria-disabled', 'true');
+            logoLink.addEventListener('click', (event) => event.preventDefault());
+        } else {
+            logoLink.setAttribute('href', homeHref);
+        }
     }
     const label = header.querySelector('[data-site-context-label]');
     if (label && contextLabel) {
@@ -141,7 +167,7 @@ export function initSiteHeader(options = {}) {
         label.hidden = false;
         logoLink?.classList.add('site-nav__logo--context');
     }
-    if (logoLink && homeTarget && !generateLabContext) {
+    if (logoLink && homeTarget && !generateLabContext && !disableGenerateLabSelfLink) {
         logoLink.setAttribute('target', homeTarget);
         if (homeRel) logoLink.setAttribute('rel', homeRel);
     }

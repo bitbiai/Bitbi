@@ -5,6 +5,8 @@
 
 @layer pages {
     body.generate-lab-page {
+        --generate-lab-shell-max: 1520px;
+        --generate-lab-shell-padding-x: clamp(1rem, 2vw, 2rem);
         --lab-accent-rgb: 192, 38, 211;
         --lab-accent-alt-rgb: 0, 240, 255;
         --lab-accent-ink: rgba(248, 217, 255, 0.94);
@@ -35,8 +37,21 @@
     .generate-lab {
         position: relative;
         min-block-size: 100vh;
-        padding: calc(5rem + env(safe-area-inset-top, 0px)) clamp(1rem, 2vw, 2rem) clamp(2rem, 4vw, 4rem);
+        padding: calc(5rem + env(safe-area-inset-top, 0px)) var(--generate-lab-shell-padding-x) clamp(2rem, 4vw, 4rem);
         isolation: isolate;
+    }
+
+    body.generate-lab-page .site-nav > .container {
+        max-inline-size: calc(
+            var(--generate-lab-shell-max) +
+            var(--generate-lab-shell-padding-x) +
+            var(--generate-lab-shell-padding-x)
+        );
+        padding-inline: var(--generate-lab-shell-padding-x);
+    }
+
+    body.generate-lab-page .site-nav__logo--current {
+        cursor: default;
     }
 
     .generate-lab__canvas,
@@ -55,7 +70,7 @@
     }
 
     .generate-lab__desktop {
-        inline-size: min(100%, 1520px);
+        inline-size: min(100%, var(--generate-lab-shell-max));
         margin-inline: auto;
     }
 

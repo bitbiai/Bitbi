@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - If a library like A-Frame, Three.js or any other asset is needed, instruct me to download and self-host it locally — never link to a CDN.
 - Only use external sources when it is technically impossible to self-host (e.g. Resend API or payment providers).
 - This rule overrides everything else and applies permanently to all future work on this project.
+- All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
 
 ## Project Overview
 

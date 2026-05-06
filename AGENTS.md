@@ -129,6 +129,7 @@ If you cannot run something, state exactly what was not run and why.
 - Avoid layout or responsive regressions across `index`, `account/*`, and `admin` pages.
 - Preserve existing image studio, saved-assets browser, folder flows, favorites, and auth-modal behavior unless explicitly changed.
 - Do not switch self-hosted assets to third-party CDNs when local assets/patterns already exist.
+- All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
 - All future non-admin changes must be checked and implemented for both English and German routes, pages, and locale strings.
 - Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity between English and German unless there is an explicit product reason not to.
 - The Admin area is the exception: Admin remains English-only and must not be recreated under `/de/admin` or localized unless explicitly requested later.

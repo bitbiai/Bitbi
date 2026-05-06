@@ -225,11 +225,15 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('repo agent instructions document bilingual non-admin parity and Admin exception', async () => {
-    const instructions = repoFile('AGENTS.md');
-    expect(instructions).toContain('All future non-admin changes must be checked and implemented for both English and German');
-    expect(instructions).toContain('Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity');
-    expect(instructions).toContain('The Admin area is the exception: Admin remains English-only');
-    expect(instructions).toContain('/de/admin');
+    const exactRule = 'All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.';
+    const agentInstructions = repoFile('AGENTS.md');
+    const claudeInstructions = repoFile('CLAUDE.md');
+    expect(agentInstructions).toContain(exactRule);
+    expect(claudeInstructions).toContain(exactRule);
+    expect(agentInstructions).toContain('All future non-admin changes must be checked and implemented for both English and German');
+    expect(agentInstructions).toContain('Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity');
+    expect(agentInstructions).toContain('The Admin area is the exception: Admin remains English-only');
+    expect(agentInstructions).toContain('/de/admin');
   });
 
   test('German SEO metadata stays on German canonical URLs', async () => {

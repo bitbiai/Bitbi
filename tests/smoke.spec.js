@@ -133,6 +133,108 @@ async function expectPathUnchanged(page, expectedPath) {
   }).toBe(expectedPath);
 }
 
+function expectWithinPx(actual, expected, label, tolerance = 2) {
+  expect(Math.abs(actual - expected), `${label}: ${actual} should be within ${tolerance}px of ${expected}`)
+    .toBeLessThanOrEqual(tolerance);
+}
+
+async function mockGenerateLabMemberSession(page, {
+  email = 'lab@bitbi.ai',
+  userId = 'generate-lab-member',
+  credits = 900,
+} = {}) {
+  let logoutRequests = 0;
+
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        loggedIn: true,
+        user: { id: userId, email, role: 'user' },
+      }),
+    });
+  });
+  await page.route('**/api/logout', async (route) => {
+    logoutRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+  await page.route('**/api/ai/quota', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { creditBalance: credits } }),
+    });
+  });
+  await page.route('**/api/ai/folders', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+    });
+  });
+  await page.route('**/api/ai/assets?limit=6', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+    });
+  });
+
+  return {
+    getLogoutRequests: () => logoutRequests,
+  };
+}
+
+async function getGenerateLabHeaderMetrics(page) {
+  return page.evaluate(() => {
+    const rectFor = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) throw new Error(`Missing ${selector}`);
+      const rect = node.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+      };
+    };
+    const logo = document.querySelector('header .site-nav__logo');
+    return {
+      logo: rectFor('header .site-nav__logo'),
+      headerBar: rectFor('header .site-nav__bar'),
+      actions: rectFor('header .site-nav__actions'),
+      workspace: rectFor('.generate-lab__desktop'),
+      title: rectFor('#generateLabTitle'),
+      subtitle: rectFor('.generate-lab__subtitle'),
+      logoHref: logo?.getAttribute('href') || null,
+      logoTarget: logo?.getAttribute('target') || null,
+      logoRel: logo?.getAttribute('rel') || null,
+      logoAriaCurrent: logo?.getAttribute('aria-current') || null,
+      logoAriaDisabled: logo?.getAttribute('aria-disabled') || null,
+    };
+  });
+}
+
+async function expectGenerateLabHeaderAligned(page, { locale }) {
+  await expect(page.locator('#generateLabHeaderStatus')).toBeVisible();
+  await expect(page.locator('header .auth-nav__logout')).toBeVisible();
+  const metrics = await getGenerateLabHeaderMetrics(page);
+
+  expectWithinPx(metrics.headerBar.left, metrics.workspace.left, `${locale} header left edge`);
+  expectWithinPx(metrics.headerBar.right, metrics.workspace.right, `${locale} header right edge`);
+  expectWithinPx(metrics.logo.left, metrics.title.left, `${locale} Generate Lab brand/title alignment`);
+  expectWithinPx(metrics.actions.right, metrics.subtitle.right, `${locale} header actions/subtitle right alignment`);
+  expect(metrics.logoHref).toBeNull();
+  expect(metrics.logoTarget).toBeNull();
+  expect(metrics.logoRel).toBeNull();
+  expect(metrics.logoAriaCurrent).toBe('page');
+  expect(metrics.logoAriaDisabled).toBe('true');
+}
+
 async function expectModelsOverlayOpenState(page, { homepage = false } = {}) {
   const overlay = page.locator('.models-overlay');
   const expectedCatalog = await getExpectedModelCatalog({ homepage });
@@ -1127,6 +1229,60 @@ test.describe('Homepage', () => {
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
   });
 
+  test('English Generate Lab header aligns to the workspace shell and disables the current-page brand link', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const session = await mockGenerateLabMemberSession(page, {
+      email: 'align@bitbi.ai',
+      userId: 'generate-lab-align-member',
+      credits: 320,
+    });
+
+    await page.goto('/generate-lab/');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .locale-switcher__link[hreflang="de"]')).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(page.locator('#labAssetsOpen')).toBeVisible();
+    await expect(page.locator('header .auth-nav__logout')).toHaveText('Sign Out');
+    await expectGenerateLabHeaderAligned(page, { locale: 'English' });
+
+    await page.evaluate(() => { window.__generateLabBrandMarker = 'still-here'; });
+    await page.locator('header .site-nav__logo').click();
+    await expectPathUnchanged(page, '/generate-lab/');
+    await expect.poll(() => page.evaluate(() => window.__generateLabBrandMarker)).toBe('still-here');
+
+    await page.locator('header .auth-nav__logout').click();
+    await expect.poll(() => session.getLogoutRequests()).toBe(1);
+    await expect(page.locator('header .site-nav__cta')).toHaveText('Sign In');
+  });
+
+  test('German Generate Lab header aligns to the workspace shell and disables the current-page brand link', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const session = await mockGenerateLabMemberSession(page, {
+      email: 'ausrichtung@bitbi.ai',
+      userId: 'generate-lab-ausrichtung-member',
+      credits: 640,
+    });
+
+    await page.goto('/de/generate-lab/');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+    await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop-Arbeitsbereich');
+    await expect(page.locator('header .locale-switcher__link[hreflang="en"]')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#labAssetsOpen')).toBeVisible();
+    await expect(page.locator('header .auth-nav__logout')).toHaveText('Abmelden');
+    await expectGenerateLabHeaderAligned(page, { locale: 'German' });
+
+    await page.evaluate(() => { window.__generateLabBrandMarker = 'still-here'; });
+    await page.locator('header .site-nav__logo').click();
+    await expectPathUnchanged(page, '/de/generate-lab/');
+    await expect.poll(() => page.evaluate(() => window.__generateLabBrandMarker)).toBe('still-here');
+
+    await page.locator('header .auth-nav__logout').click();
+    await expect.poll(() => session.getLogoutRequests()).toBe(1);
+    await expect(page.locator('header .site-nav__cta')).toHaveText('Anmelden');
+  });
+
   test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
@@ -1169,8 +1325,10 @@ test.describe('Homepage', () => {
     await expect(page.locator('header').getByRole('link', { name: 'Gallery' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Video' })).toHaveCount(0);
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
-    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('target', 'bitbi-main');
-    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('rel', /noopener/);
+    await expect(page.locator('header .site-nav__logo')).not.toHaveAttribute('href', /./);
+    await expect(page.locator('header .site-nav__logo')).not.toHaveAttribute('target', /./);
+    await expect(page.locator('header .site-nav__logo')).not.toHaveAttribute('rel', /./);
+    await expect(page.locator('header .site-nav__logo')).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
     await expect(page.locator('header')).not.toContainText(['Generate Lab', 'is', 'Desktop Workspace'].join(' '));
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
@@ -1478,6 +1636,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('header').getByRole('link', { name: 'Sound Lab' })).toHaveCount(0);
     await expect(page.locator('.back-link--sm')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#globalAudioShell')).toHaveCount(0);
+    await page.locator('header .site-nav__logo').click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/generate-lab/');
 
     await page.route('**/api/profile', async (route) => {
       await route.fulfill({
