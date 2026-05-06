@@ -14,6 +14,7 @@ const STRINGS = Object.freeze({
     en: Object.freeze({
         nav: Object.freeze({
             main: 'Main navigation',
+            navigationMenu: 'Navigation menu',
             toggleMenu: 'Toggle menu',
             closeMenu: 'Close menu',
             explore: 'Explore',
@@ -38,6 +39,17 @@ const STRINGS = Object.freeze({
             signInOrRegister: 'Sign in or register to start creating',
             openMenuCreateAccountAria: 'Open the menu to create a free BITBI account',
             openMenuSignIn: 'Open the menu to sign in or register',
+        }),
+        models: Object.freeze({
+            dialogLabel: 'AI Models',
+            close: 'Close models',
+            imageGeneration: 'IMAGE GENERATION',
+            musicGeneration: 'MUSIC GENERATION',
+            videoGeneration: 'VIDEO GENERATION',
+            included: 'Included',
+            live: 'LIVE',
+            requiresCredits: 'Requires credits',
+            comingSoon: 'Coming soon',
         }),
         studio: Object.freeze({
             assetsOption: 'Assets',
@@ -530,6 +542,7 @@ const STRINGS = Object.freeze({
     de: Object.freeze({
         nav: Object.freeze({
             main: 'Hauptnavigation',
+            navigationMenu: 'Navigationsmenü',
             toggleMenu: 'Menü öffnen',
             closeMenu: 'Menü schließen',
             explore: 'Entdecken',
@@ -554,6 +567,17 @@ const STRINGS = Object.freeze({
             signInOrRegister: 'Melden Sie sich an oder registrieren Sie sich, um zu starten',
             openMenuCreateAccountAria: 'Menü öffnen, um ein kostenloses BITBI-Konto zu erstellen',
             openMenuSignIn: 'Menü öffnen, um sich anzumelden oder zu registrieren',
+        }),
+        models: Object.freeze({
+            dialogLabel: 'KI-Modelle',
+            close: 'Modelle schließen',
+            imageGeneration: 'BILDGENERIERUNG',
+            musicGeneration: 'MUSIKGENERIERUNG',
+            videoGeneration: 'VIDEOGENERIERUNG',
+            included: 'Inklusive',
+            live: 'LIVE',
+            requiresCredits: 'Credits erforderlich',
+            comingSoon: 'Demnächst',
         }),
         studio: Object.freeze({
             assetsOption: 'Assets',

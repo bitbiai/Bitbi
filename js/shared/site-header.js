@@ -181,7 +181,7 @@ export function initSiteHeader(options = {}) {
     document.getElementById('mobileNav')?.remove();
     header.insertAdjacentHTML('afterend', MOBILE_NAV_HTML);
     const mobileNav = document.getElementById('mobileNav');
-    mobileNav?.setAttribute('aria-label', localeText('nav.toggleMenu'));
+    mobileNav?.setAttribute('aria-label', localeText('nav.navigationMenu'));
     mobileNav?.querySelector('#mobileNavClose')?.setAttribute('aria-label', localeText('nav.closeMenu'));
     mobileNav?.querySelectorAll('.mobile-nav__label').forEach((label) => {
         const section = label.closest('.mobile-nav__section');

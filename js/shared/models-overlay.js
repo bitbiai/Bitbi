@@ -11,11 +11,12 @@ import {
 } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
+import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const MODEL_GROUPS = [
-    { task: 'image', category: 'IMAGE GENERATION', side: 'left' },
-    { task: 'music', category: 'MUSIC GENERATION', side: 'right' },
-    { task: 'video', category: 'VIDEO GENERATION', side: 'right' },
+    { task: 'image', categoryKey: 'models.imageGeneration', side: 'left' },
+    { task: 'music', categoryKey: 'models.musicGeneration', side: 'right' },
+    { task: 'video', categoryKey: 'models.videoGeneration', side: 'right' },
 ];
 
 const USER_LIVE_MODELS = {
@@ -32,20 +33,32 @@ export const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
     '@cf/black-forest-labs/flux-2-dev',
 ]);
 
-const STATUS_LABELS = {
-    included: 'Included',
-    live: 'LIVE',
-    'requires-credits': 'Requires credits',
-    'coming-soon': 'Coming soon',
+const STATUS_LABEL_KEYS = {
+    included: 'models.included',
+    live: 'models.live',
+    'requires-credits': 'models.requiresCredits',
+    'coming-soon': 'models.comingSoon',
 };
 
-function buildModelCatalog({ excludeModelIds = [], includedStatusLabel = STATUS_LABELS.included } = {}) {
+function statusLabelForAvailability(availability) {
+    return localeText(STATUS_LABEL_KEYS[availability] || 'models.comingSoon');
+}
+
+function buildCatalogSignature({ excludeModelIds = [], includedStatusLabel = null } = {}) {
+    return JSON.stringify({
+        locale: getCurrentLocale(),
+        excludeModelIds: [...excludeModelIds].sort(),
+        includedStatusLabel: includedStatusLabel || null,
+    });
+}
+
+function buildModelCatalog({ excludeModelIds = [], includedStatusLabel = null } = {}) {
     const catalog = listAdminAiCatalog();
     const modelsByTask = catalog?.models || {};
     const excludedIds = new Set(excludeModelIds);
 
-    return MODEL_GROUPS.map(({ task, category, side }) => ({
-        category,
+    return MODEL_GROUPS.map(({ task, categoryKey, side }) => ({
+        category: localeText(categoryKey),
         side,
         models: (() => {
             const adminModels = Array.isArray(modelsByTask[task]) ? modelsByTask[task] : [];
@@ -85,13 +98,14 @@ let focusTrapCleanup = null;
 let isOpen = false;
 let didBindGlobals = false;
 let modelCatalog = null;
+let modelCatalogSignature = '';
 
 function buildOverlay() {
     const overlay = document.createElement('div');
     overlay.className = 'models-overlay';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'AI Models');
+    overlay.setAttribute('aria-label', localeText('models.dialogLabel'));
     overlay.setAttribute('aria-hidden', 'true');
 
     const backdrop = document.createElement('div');
@@ -101,7 +115,7 @@ function buildOverlay() {
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'models-overlay__close';
-    close.setAttribute('aria-label', 'Close models');
+    close.setAttribute('aria-label', localeText('models.close'));
     close.innerHTML = '&times;';
     overlay.appendChild(close);
 
@@ -147,7 +161,7 @@ function buildOverlay() {
 
             const status = document.createElement('span');
             status.className = `models-overlay__status models-overlay__status--${model.availability}`;
-            status.textContent = model.statusLabel || STATUS_LABELS[model.availability] || 'Coming soon';
+            status.textContent = model.statusLabel || statusLabelForAvailability(model.availability);
 
             li.appendChild(name);
             meta.appendChild(vendor);
@@ -177,6 +191,17 @@ function ensureOverlay() {
     document.body.appendChild(overlayEl);
     overlayEl.addEventListener('click', close);
     return overlayEl;
+}
+
+function configureCatalog(options = {}) {
+    const signature = buildCatalogSignature(options);
+    if (signature === modelCatalogSignature && modelCatalog) return;
+
+    if (isOpen) close();
+    overlayEl?.remove();
+    overlayEl = null;
+    modelCatalog = buildModelCatalog(options);
+    modelCatalogSignature = signature;
 }
 
 function open() {
@@ -252,10 +277,8 @@ function syncModelsHash() {
     }
 }
 
-export function initModelsOverlay(root = document, { excludeModelIds = [], includedStatusLabel = STATUS_LABELS.included } = {}) {
-    if (!modelCatalog) {
-        modelCatalog = buildModelCatalog({ excludeModelIds, includedStatusLabel });
-    }
+export function initModelsOverlay(root = document, { excludeModelIds = [], includedStatusLabel = null } = {}) {
+    configureCatalog({ excludeModelIds, includedStatusLabel });
     root.querySelectorAll('[data-models-link]').forEach(bindTrigger);
 
     if (didBindGlobals) return;

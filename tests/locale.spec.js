@@ -7,6 +7,21 @@ async function loadLocaleRouting() {
   return import(pathToFileURL(path.join(__dirname, '..', 'js/shared/locale-routing.mjs')).href);
 }
 
+async function seedCookieConsent(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'bitbi_cookie_consent',
+      JSON.stringify({
+        v: '1',
+        ts: Date.now(),
+        necessary: true,
+        analytics: false,
+        marketing: false,
+      }),
+    );
+  });
+}
+
 function repoFile(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
@@ -50,6 +65,7 @@ function criticalAttributes(html) {
     'data-category-link',
     'data-field',
     'data-mode',
+    'data-models-link',
     'data-nav',
     'data-section',
     'data-tab',
@@ -96,6 +112,146 @@ test.describe('Bilingual locale pages', () => {
     await expect(enLink).toHaveAttribute('href', '/generate-lab/?source=locale-test');
   });
 
+  test('Models overlay localizes desktop triggers on English and German homepages', async ({ page }) => {
+    await seedCookieConsent(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    await page.goto('/');
+    await expect(page.locator('[data-models-link="desktop"]')).toHaveAttribute('aria-label', 'Open Models');
+    await page.locator('[data-models-link="desktop"]').click();
+    let overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'AI Models');
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'IMAGE GENERATION',
+      'MUSIC GENERATION',
+      'VIDEO GENERATION',
+    ]);
+    await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'BILDGENERIERUNG' })).toHaveCount(0);
+    await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveAttribute('aria-hidden', 'true');
+    await expect(overlay).not.toHaveClass(/is-active/);
+
+    await page.goto('/de/');
+    await expect(page.locator('[data-models-link="desktop"]')).toHaveAttribute('aria-label', 'Modelle öffnen');
+    await page.locator('[data-models-link="desktop"]').click();
+    overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'KI-Modelle');
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'BILDGENERIERUNG',
+      'MUSIKGENERIERUNG',
+      'VIDEOGENERIERUNG',
+    ]);
+    await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'IMAGE GENERATION' })).toHaveCount(0);
+    await expect(overlay.getByRole('button', { name: 'Modelle schließen' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveAttribute('aria-hidden', 'true');
+    await expect(overlay).not.toHaveClass(/is-active/);
+  });
+
+  test('Models overlay localizes mobile menu triggers and closes the mobile panel', async ({ page }) => {
+    await seedCookieConsent(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto('/');
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveAttribute('aria-hidden', 'false');
+    await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+    let overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'AI Models');
+    await expect(page.locator('#mobileNav')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'IMAGE GENERATION',
+      'MUSIC GENERATION',
+      'VIDEO GENERATION',
+    ]);
+    await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveAttribute('aria-hidden', 'true');
+
+    await page.goto('/de/');
+    await page.locator('#mobileMenuBtn').click();
+    await expect(page.locator('#mobileNav')).toHaveAttribute('aria-hidden', 'false');
+    await page.locator('#mobileNav').getByRole('button', { name: 'Modelle' }).click();
+    overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'KI-Modelle');
+    await expect(page.locator('#mobileNav')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'BILDGENERIERUNG',
+      'MUSIKGENERIERUNG',
+      'VIDEOGENERIERUNG',
+    ]);
+    await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'IMAGE GENERATION' })).toHaveCount(0);
+    await expect(overlay.getByRole('button', { name: 'Modelle schließen' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  test('mobile navigation labels stay localized in English and German', async ({ page }) => {
+    await seedCookieConsent(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto('/');
+    await page.locator('#mobileMenuBtn').click();
+    let mobileNav = page.locator('#mobileNav');
+    await expect(mobileNav).toHaveAttribute('aria-label', 'Navigation menu');
+    await expect(mobileNav).toContainText('Models');
+    await expect(mobileNav).toContainText('Gallery');
+    await expect(mobileNav).toContainText('Contact');
+    await expect(mobileNav).toContainText('Cookie Settings');
+    await expect(mobileNav).not.toContainText('Modelle');
+    await expect(mobileNav).not.toContainText('Galerie');
+    await expect(mobileNav).not.toContainText('Cookie-Einstellungen');
+
+    await page.goto('/de/');
+    await page.locator('#mobileMenuBtn').click();
+    mobileNav = page.locator('#mobileNav');
+    await expect(mobileNav).toHaveAttribute('aria-label', 'Navigationsmenü');
+    await expect(mobileNav).toContainText('Modelle');
+    await expect(mobileNav).toContainText('Galerie');
+    await expect(mobileNav).toContainText('Kontakt');
+    await expect(mobileNav).toContainText('Cookie-Einstellungen');
+    await expect(mobileNav).not.toContainText('Models');
+    await expect(mobileNav).not.toContainText('Gallery');
+    await expect(mobileNav).not.toContainText('Contact');
+    await expect(mobileNav).not.toContainText('Cookie Settings');
+  });
+
+  test('shared subpage mobile Models entry follows the active locale', async ({ page }) => {
+    await seedCookieConsent(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto('/legal/privacy.html');
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+    let overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'AI Models');
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'IMAGE GENERATION',
+      'MUSIC GENERATION',
+      'VIDEO GENERATION',
+    ]);
+
+    await page.goto('/de/legal/datenschutz.html');
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileNav').getByRole('button', { name: 'Modelle' }).click();
+    overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'KI-Modelle');
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'BILDGENERIERUNG',
+      'MUSIKGENERIERUNG',
+      'VIDEOGENERIERUNG',
+    ]);
+  });
+
   test('German static pages keep JavaScript-critical identifiers and avoid known untranslated UI copy', async () => {
     const deIndex = repoFile('de/index.html');
     for (const id of ['galleryExplore', 'videoExplore', 'soundLabExplore']) {
@@ -104,6 +260,8 @@ test.describe('Bilingual locale pages', () => {
     for (const translatedId of ['galleryEntdecken', 'videoEntdecken', 'soundLabEntdecken']) {
       expect(deIndex).not.toContain(`id="${translatedId}"`);
     }
+    expect(deIndex).toContain('data-models-link="desktop"');
+    expect(deIndex).toContain('data-models-link="mobile"');
 
     const criticalPairs = [
       ['index.html', 'de/index.html'],
@@ -273,6 +431,20 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('.site-nav__links')).toContainText('Gallery');
     await expect(page.locator('body')).not.toContainText('Galerie');
     await expect(page.locator('body')).not.toContainText('Hauptnavigation');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+    const overlay = page.locator('.models-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveAttribute('aria-label', 'AI Models');
+    await expect(overlay.locator('.models-overlay__category')).toHaveText([
+      'IMAGE GENERATION',
+      'MUSIC GENERATION',
+      'VIDEO GENERATION',
+    ]);
+    await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'BILDGENERIERUNG' })).toHaveCount(0);
+    await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
   });
 });
 
