@@ -224,6 +224,14 @@ test.describe('Bilingual locale pages', () => {
     expect(deRoot).toContain('"url": "https://bitbi.ai/de/"');
   });
 
+  test('repo agent instructions document bilingual non-admin parity and Admin exception', async () => {
+    const instructions = repoFile('AGENTS.md');
+    expect(instructions).toContain('All future non-admin changes must be checked and implemented for both English and German');
+    expect(instructions).toContain('Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity');
+    expect(instructions).toContain('The Admin area is the exception: Admin remains English-only');
+    expect(instructions).toContain('/de/admin');
+  });
+
   test('German SEO metadata stays on German canonical URLs', async () => {
     for (const file of listHtmlFiles('de')) {
       const html = repoFile(file);

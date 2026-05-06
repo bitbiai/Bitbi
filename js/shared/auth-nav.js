@@ -96,8 +96,6 @@ function renderDesktop() {
     const navLinks = document.querySelector('.site-nav__links');
     const oldAdminLink = navLinks?.querySelector('.auth-nav__admin-link');
     if (oldAdminLink) oldAdminLink.remove();
-    const oldPricingLink = navLinks?.querySelector('.auth-nav__pricing-link');
-    if (oldPricingLink) oldPricingLink.remove();
     const oldProfileLink = navLinks?.querySelector('.auth-nav__profile-link');
     if (oldProfileLink) oldProfileLink.remove();
 
@@ -136,14 +134,8 @@ function renderDesktop() {
             navLinks.appendChild(profileLink);
         }
 
-        // Controlled rollout links — only for admin role
+        // Admin link — Pricing is a public shared-header link for every visitor.
         if (user?.role === 'admin' && navLinks) {
-            const pricingLink = document.createElement('a');
-            pricingLink.href = localizedHref('/pricing.html');
-            pricingLink.className = 'site-nav__link nav-link auth-nav__pricing-link';
-            pricingLink.textContent = localeText('auth.pricing');
-            navLinks.insertBefore(pricingLink, navLinks.firstElementChild || null);
-
             const adminLink = document.createElement('a');
             adminLink.href = localizedHref('/admin/');
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
@@ -193,16 +185,6 @@ function renderMobile() {
                 return link;
             })()
             : null;
-        const pricingLink = user?.role === 'admin'
-            ? (() => {
-                const link = document.createElement('a');
-                link.href = localizedHref('/pricing.html');
-                link.className = 'auth-nav__mobile-pricing';
-                link.textContent = localeText('auth.pricing');
-                return link;
-            })()
-            : null;
-
         if (hasAvatar(user)) {
             const accountWrap = document.createElement('div');
             accountWrap.className = 'auth-nav__mobile-account';
@@ -220,7 +202,6 @@ function renderMobile() {
             identityLink.appendChild(label);
 
             accountWrap.appendChild(identityLink);
-            if (pricingLink) accountWrap.appendChild(pricingLink);
             if (adminLink) accountWrap.appendChild(adminLink);
             accountWrap.appendChild(logout);
             authContainer.appendChild(accountWrap);
@@ -238,7 +219,6 @@ function renderMobile() {
             profileLink.textContent = localeText('auth.profile');
             actionsWrap.appendChild(profileLink);
 
-            if (pricingLink) actionsWrap.appendChild(pricingLink);
             if (adminLink) actionsWrap.appendChild(adminLink);
             actionsWrap.appendChild(logout);
             authContainer.appendChild(actionsWrap);

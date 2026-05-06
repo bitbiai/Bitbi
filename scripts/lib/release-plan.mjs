@@ -129,6 +129,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "package-lock.json"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
+    || normalized === "AGENTS.md"
     || normalized === "CLAUDE.md"
     || normalized === "README.md"
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)

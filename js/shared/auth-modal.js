@@ -199,7 +199,7 @@ function clearMsg(el) {
     el.className = 'auth-modal__msg';
 }
 
-export function openAuthModal(tab) {
+export function openAuthModal(tab, options = {}) {
     if (!overlay) return;
 
     /* Restore overlay to rendering tree (may have been set to display:none
@@ -220,6 +220,14 @@ export function openAuthModal(tab) {
     }
     clearMsg(document.getElementById('authLoginMsg'));
     clearMsg(document.getElementById('authRegisterMsg'));
+    const message = typeof options?.message === 'string' ? options.message.trim() : '';
+    if (message) {
+        const target = options?.target === 'login' ? 'authLoginMsg' : 'authRegisterMsg';
+        const type = typeof options?.messageType === 'string' && options.messageType.trim()
+            ? options.messageType.trim()
+            : 'info';
+        showMsg(document.getElementById(target), type, message);
+    }
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
     focusTrapCleanup = setupFocusTrap(overlay);

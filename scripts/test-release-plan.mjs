@@ -104,6 +104,7 @@ function createContext() {
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
       "tests/workers.spec.js",
+      "AGENTS.md",
       "AUDIT_NEXT_LEVEL.md",
       "PHASE0_REMEDIATION_REPORT.md",
       "PHASE0B_REMEDIATION_REPORT.md",
@@ -118,6 +119,7 @@ function createContext() {
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "AGENTS.md",
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
     "AUDIT_NEXT_LEVEL.md",
     "CURRENT_IMPLEMENTATION_HANDOFF.md",

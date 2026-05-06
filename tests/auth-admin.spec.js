@@ -3504,27 +3504,66 @@ test.describe('Pricing credit-pack rollout', () => {
     await seedCookieConsent(page);
   });
 
-  test('shows the Pricing header link only for authenticated admins', async ({ page }) => {
+  test('shows the Pricing header link for anonymous visitors, members, and admins', async ({ page }) => {
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
     await page.goto('/');
-    await expect(page.locator('.auth-nav__pricing-link')).toHaveCount(0);
+    let pricingLink = page.locator('.site-nav__links [data-pricing-link]');
+    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
+    await expect(pricingLink).toHaveText('Pricing');
+    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
+    await expect
+      .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
 
     await page.unroute('**/api/me');
     await mockAuthenticatedHeader(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
     await page.goto('/');
-    await expect(page.locator('.auth-nav__pricing-link')).toHaveCount(0);
+    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
+    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
+    await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
 
     await page.unroute('**/api/me');
     await mockAuthenticatedHeader(page, { role: 'admin', email: 'admin-pricing@bitbi.ai' });
     await page.goto('/');
-    const pricingLink = page.locator('.site-nav__links .auth-nav__pricing-link');
+    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
     await expect(pricingLink).toBeVisible({ timeout: 10_000 });
     await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
     await expect
       .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Pricing', 'Gallery', 'Video', 'Sound Lab', 'Profile', 'Admin']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Profile', 'Admin']);
+
+    await page.unroute('**/api/me');
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.goto('/de/');
+    pricingLink = page.locator('.site-nav__links [data-pricing-link]');
+    await expect(pricingLink).toBeVisible({ timeout: 10_000 });
+    await expect(pricingLink).toHaveText('Preise');
+    await expect(pricingLink).toHaveAttribute('href', '/de/pricing.html');
+  });
+
+  test('shows the public Pricing link in English and German mobile menus', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+
+    await page.goto('/');
+    await page.locator('#mobileMenuBtn').click();
+    const mobileExplore = page.locator('#mobileNav .mobile-nav__section[aria-label="Explore"]');
+    const mobilePricing = mobileExplore.getByRole('link', { name: 'Pricing' });
+    await expect(mobilePricing).toBeVisible();
+    await expect(mobilePricing).toHaveAttribute('href', '/pricing.html');
+
+    await page.goto('/de/');
+    await page.locator('#mobileMenuBtn').click();
+    const mobileExploreDe = page.locator('#mobileNav .mobile-nav__section[aria-label="Entdecken"]');
+    const mobilePricingDe = mobileExploreDe.getByRole('link', { name: 'Preise' });
+    await expect(mobilePricingDe).toBeVisible();
+    await expect(mobilePricingDe).toHaveAttribute('href', '/de/pricing.html');
   });
 
   test('keeps direct Pricing access public for logged-out and member visitors', async ({ page }) => {
@@ -3547,16 +3586,43 @@ test.describe('Pricing credit-pack rollout', () => {
   });
 
   test('logged-out Pricing CTA opens registration instead of Stripe checkout', async ({ page }) => {
+    let checkoutRequests = 0;
     await page.route('**/api/me', async (route) => {
       await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.route('**/api/account/billing/checkout/live-credit-pack', async (route) => {
+      checkoutRequests += 1;
+      await fulfillJson(route, { ok: false, error: 'unexpected checkout request' }, 500);
     });
     await page.goto('/pricing.html');
     await page.locator('[data-pricing-pack="live_credits_5000"]').click();
     await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
     await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
     await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Create an account or sign in to buy credits.');
     const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
     expect(pendingPack).toBe('live_credits_5000');
+    expect(checkoutRequests).toBe(0);
+  });
+
+  test('German logged-out Pricing CTA opens registration with localized copy instead of checkout', async ({ page }) => {
+    let checkoutRequests = 0;
+    await page.route('**/api/me', async (route) => {
+      await fulfillJson(route, { loggedIn: false, user: null });
+    });
+    await page.route('**/api/account/billing/checkout/live-credit-pack', async (route) => {
+      checkoutRequests += 1;
+      await fulfillJson(route, { ok: false, error: 'unexpected checkout request' }, 500);
+    });
+    await page.goto('/de/pricing.html');
+    await page.locator('[data-pricing-pack="live_credits_5000"]').click();
+    await expect(page.locator('.auth-modal__overlay')).toHaveClass(/active/);
+    await expect(page.locator('.auth-modal__tab[data-tab="register"]')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterForm')).toHaveClass(/active/);
+    await expect(page.locator('#authRegisterMsg')).toHaveText('Erstelle ein Konto oder melde dich an, um Credits zu kaufen.');
+    const pendingPack = await page.evaluate(() => sessionStorage.getItem('bitbi_pending_credit_pack'));
+    expect(pendingPack).toBe('live_credits_5000');
+    expect(checkoutRequests).toBe(0);
   });
 
   test('renders the live credit-pack tiers without stale Testmode pricing copy', async ({
@@ -3606,6 +3672,8 @@ test.describe('Pricing credit-pack rollout', () => {
 
   test('logged-in Pricing checkout requires both legal confirmations before live checkout', async ({ page }) => {
     const { checkoutRequests } = await mockPricingAccount(page, {
+      role: 'user',
+      email: 'member-pricing@bitbi.ai',
       checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_live_pricing_5000',
     });
     await page.goto('/pricing.html');
@@ -6540,7 +6608,7 @@ test.describe('Profile page (authenticated mobile)', () => {
     await expect(page.locator('.auth-nav__mobile-account')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-identity-label')).toHaveText('mobile-header@example.com');
-    await expect(page.locator('.auth-nav__mobile-pricing')).toBeVisible();
+    await expect(page.locator('.auth-nav__mobile-pricing')).toHaveCount(0);
     await expect(page.locator('.auth-nav__mobile-admin')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-logout')).toBeVisible();
     await expect(page.locator('.auth-nav__mobile-profile')).toHaveCount(0);
@@ -6550,7 +6618,6 @@ test.describe('Profile page (authenticated mobile)', () => {
     );
     expect(mobileAccountOrder).toEqual([
       'auth-nav__mobile-identity',
-      'auth-nav__mobile-pricing',
       'auth-nav__mobile-admin',
       'auth-nav__mobile-logout',
     ]);

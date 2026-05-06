@@ -32,7 +32,7 @@ const COPY = Object.freeze({
         loggedOutCta: 'Create account to buy',
         selectedPack: 'Selected pack',
         selectPack: 'Select pack',
-        loggedOutMessage: 'Create an account or sign in first. After that, review the terms and continue to checkout.',
+        loggedOutMessage: 'Create an account or sign in to buy credits.',
         packSelected: '{title} selected. Review the legal confirmations below before checkout.',
         loggedOutDestination: 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.',
         memberDestination: 'Credit destination: your BITBI member account. No organization setup or owner role is required.',
@@ -44,7 +44,7 @@ const COPY = Object.freeze({
         checkoutBusy: 'Opening checkout…',
         checkout: 'Continue to secure checkout',
         legalError: 'Please accept the Terms and confirm immediate provision of the digital credits.',
-        loginFirst: 'Create an account or sign in first. Stripe Checkout starts only after login and legal confirmation.',
+        loginFirst: 'Create an account or sign in to buy credits.',
         checkoutFailed: 'Checkout could not be opened. Please try again.',
         unsafeCheckout: 'Checkout response was not a safe Stripe URL. No payment was started.',
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
@@ -88,7 +88,7 @@ const COPY = Object.freeze({
         loggedOutCta: 'Konto erstellen und kaufen',
         selectedPack: 'Paket ausgewählt',
         selectPack: 'Paket auswählen',
-        loggedOutMessage: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Danach prüfen Sie die Bedingungen und fahren mit dem Checkout fort.',
+        loggedOutMessage: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
         packSelected: '{title} ausgewählt. Bitte prüfen Sie unten die rechtlichen Bestätigungen vor dem Checkout.',
         loggedOutDestination: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Die Credits werden nach bestätigter Stripe-Zahlung Ihrem BITBI-Mitgliedskonto gutgeschrieben.',
         memberDestination: 'Credit-Ziel: Ihr BITBI-Mitgliedskonto. Keine Organisationseinrichtung und keine Owner-Rolle erforderlich.',
@@ -100,7 +100,7 @@ const COPY = Object.freeze({
         checkoutBusy: 'Checkout wird geöffnet…',
         checkout: 'Weiter zum sicheren Checkout',
         legalError: 'Bitte akzeptieren Sie die AGB und bestätigen Sie die sofortige Bereitstellung der digitalen Credits.',
-        loginFirst: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Stripe Checkout startet erst nach Anmeldung und rechtlicher Bestätigung.',
+        loginFirst: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
         checkoutFailed: 'Checkout konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
         unsafeCheckout: 'Die Checkout-Antwort war keine sichere Stripe-URL. Es wurde keine Zahlung gestartet.',
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
@@ -283,7 +283,11 @@ function createPackCard(pack, auth) {
         if (!auth.loggedIn) {
             sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
             setInlineMessage(t('loggedOutMessage'), 'info');
-            openAuthModal('register');
+            openAuthModal('register', {
+                message: t('loggedOutMessage'),
+                messageType: 'info',
+                target: 'register',
+            });
             return;
         }
         sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
@@ -437,7 +441,11 @@ async function handleCheckout(auth) {
     if (!auth.loggedIn) {
         sessionStorage.setItem(PENDING_PACK_KEY, getSelectedPack().id);
         setInlineMessage(t('loginFirst'), 'info');
-        openAuthModal('register');
+        openAuthModal('register', {
+            message: t('loginFirst'),
+            messageType: 'info',
+            target: 'register',
+        });
         return;
     }
     if (!termsAccepted || !immediateDeliveryAccepted) {

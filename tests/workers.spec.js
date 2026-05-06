@@ -3745,7 +3745,15 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(missingTermsBody.code).toBe('terms_acceptance_required');
 
     const memberCheckout = await worker.fetch(
-      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', credits: 1, ...LIVE_TERMS_ACCEPTANCE }, {
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
+        pack_id: 'live_credits_5000',
+        credits: 1,
+        amount_cents: 1,
+        user_id: 'attacker-user',
+        org_id: ORG_ID,
+        stripe_price_id: 'price_attacker_override',
+        ...LIVE_TERMS_ACCEPTANCE,
+      }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${memberToken}`,
         'Idempotency-Key': 'phase2m-member-live-5000',
@@ -3770,6 +3778,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       currency: 'eur',
     }));
     expect(calls).toHaveLength(1);
+    expect(calls[0].form['line_items[0][price_data][unit_amount]']).toBe('999');
     expect(calls[0].form['metadata[checkout_scope]']).toBe('member');
     expect(calls[0].form['metadata[authorization_scope]']).toBe('member');
     expect(calls[0].form['metadata[user_id]']).toBe(member.id);

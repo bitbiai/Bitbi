@@ -411,6 +411,13 @@
         color: #22c55e;
     }
 
+    .auth-modal__msg--info {
+        display: block;
+        background: rgba(0, 240, 255, 0.08);
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        color: rgba(170, 245, 255, 0.9);
+    }
+
     .auth-modal__hint {
         font-size: 0.7rem;
         color: rgba(255, 255, 255, 0.25);

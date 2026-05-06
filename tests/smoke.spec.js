@@ -532,7 +532,7 @@ test.describe('Homepage', () => {
       .toBeGreaterThan(120);
   });
 
-  test('desktop header keeps only the centered homepage section links', async ({ page }) => {
+  test('desktop header keeps the centered public navigation links', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/');
     const nav = page.locator('#navbar .site-nav__links');
@@ -540,12 +540,13 @@ test.describe('Homepage', () => {
     await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
 
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
 
     const centerDelta = await page.evaluate(() => {
       const navEl = document.querySelector('#navbar .site-nav__links');
@@ -970,7 +971,7 @@ test.describe('Homepage', () => {
     await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Models']);
 
     const modelsButton = page.locator('#mobileNav').getByRole('button', { name: 'Models' });
     await modelsButton.click();
@@ -3356,7 +3357,7 @@ test.describe('Legal pages', () => {
 });
 
 test.describe('Shared MODELS overlay', () => {
-  test('shared subpage desktop header keeps only the centered homepage section links', async ({ page }) => {
+  test('shared subpage desktop header keeps the centered public navigation links', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/legal/imprint.html');
 
@@ -3364,9 +3365,10 @@ test.describe('Shared MODELS overlay', () => {
     const videoLink = nav.getByRole('link', { name: 'Video' });
     await expect(videoLink).toBeVisible();
     await expect(videoLink).toHaveAttribute('href', /\/#video-creations$/);
+    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
 
@@ -3389,9 +3391,10 @@ test.describe('Shared MODELS overlay', () => {
 
     const nav = page.locator('.site-nav__links');
     await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
     await expect
       .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
     await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
@@ -3411,7 +3414,7 @@ test.describe('Shared MODELS overlay', () => {
         await expect(page.locator('#mobileNav')).toHaveCount(1);
         await expect
           .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-          .toEqual(['Gallery', 'Video', 'Sound Lab']);
+          .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
         await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
         await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
         await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
@@ -3430,7 +3433,7 @@ test.describe('Shared MODELS overlay', () => {
     const mobileConnect = page.locator('#mobileNav .mobile-nav__section[aria-label="Connect"]');
     await expect
       .poll(() => mobileExplore.locator(':scope > .mobile-nav__link').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Models']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Models']);
     await expect(mobileConnect.getByRole('link', { name: 'Contact' })).toBeVisible();
   });
 
