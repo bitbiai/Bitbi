@@ -1,6 +1,7 @@
 import {
     getLocalizedUrl,
     getLocaleCookie,
+    isAdminPath,
     isGermanPath,
     mapLocalizedPath,
     normalizeLocale,
@@ -1055,6 +1056,7 @@ function format(template, values = {}) {
 }
 
 export function getCurrentLocale() {
+    if (typeof window !== 'undefined' && isAdminPath(window.location.pathname)) return 'en';
     if (typeof window !== 'undefined' && isGermanPath(window.location.pathname)) return 'de';
     return getLocaleCookie(getCookieHeader()) || 'en';
 }
@@ -1088,6 +1090,7 @@ export function initLocaleSwitcher(container = document) {
     const targets = container.querySelectorAll('[data-locale-switcher]');
     targets.forEach((target) => {
         target.replaceChildren();
+        if (typeof window !== 'undefined' && isAdminPath(window.location.pathname)) return;
         const locale = getCurrentLocale();
         const wrap = document.createElement('span');
         wrap.className = 'locale-switcher';

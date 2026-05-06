@@ -108,7 +108,6 @@ test.describe('Bilingual locale pages', () => {
     const criticalPairs = [
       ['index.html', 'de/index.html'],
       ['generate-lab/index.html', 'de/generate-lab/index.html'],
-      ['admin/index.html', 'de/admin/index.html'],
       ['account/profile.html', 'de/account/profile.html'],
       ['account/assets-manager.html', 'de/account/assets-manager.html'],
       ['account/credits.html', 'de/account/credits.html'],
@@ -240,6 +239,29 @@ test.describe('Bilingual locale pages', () => {
       expect(html, `${file} German privacy links`).not.toContain('/de/legal/privacy.html');
     }
   });
+
+  test('Admin stays English-only and is not exposed as a German localized page', async ({ page }) => {
+    expect(fs.existsSync(path.join(__dirname, '..', 'de/admin/index.html'))).toBe(false);
+
+    const adminHtml = repoFile('admin/index.html');
+    expect(adminHtml).toContain('<html lang="en">');
+    expect(adminHtml).not.toContain('/de/admin');
+    expect(visibleHtmlText(adminHtml)).not.toContain('Hauptnavigation');
+    expect(visibleHtmlText(adminHtml)).not.toContain('Admin-Bereiche');
+
+    await page.goto('/');
+    await page.evaluate(() => {
+      document.cookie = 'bitbi_locale=de; Path=/; Max-Age=31536000; SameSite=Lax';
+    });
+
+    await page.goto('/admin/index.html');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('.locale-switcher__link')).toHaveCount(0);
+    await expect(page.locator('#navbar')).toHaveAttribute('aria-label', 'Main navigation');
+    await expect(page.locator('.site-nav__links')).toContainText('Gallery');
+    await expect(page.locator('body')).not.toContainText('Galerie');
+    await expect(page.locator('body')).not.toContainText('Hauptnavigation');
+  });
 });
 
 test.describe('DACH locale routing helpers', () => {
@@ -313,6 +335,64 @@ test.describe('DACH locale routing helpers', () => {
     expect(routing.toGermanPath('/de')).toBe('/de/');
     expect(routing.toGermanPath('/de/')).toBe('/de/');
     expect(routing.toGermanPath('/de')).not.toBe('/de/de');
+  });
+
+  test('keeps Admin routes out of German path mapping and geo redirects', async () => {
+    const routing = await loadLocaleRouting();
+
+    for (const pathname of [
+      '/admin',
+      '/admin/',
+      '/admin/index.html',
+      '/admin/users',
+      '/de/admin',
+      '/de/admin/',
+      '/de/admin/index.html',
+      '/de/admin/users',
+    ]) {
+      expect(routing.isAdminPath(pathname), `${pathname} is admin`).toBe(true);
+    }
+
+    expect(routing.toGermanPath('/admin')).toBe('/admin/');
+    expect(routing.toGermanPath('/admin/')).toBe('/admin/');
+    expect(routing.toGermanPath('/admin/index.html')).toBe('/admin/index.html');
+    expect(routing.toGermanPath('/admin/users')).toBe('/admin/users');
+    expect(routing.toGermanPath('/de/admin/')).toBe('/admin/');
+    expect(routing.toEnglishPath('/de/admin/index.html')).toBe('/admin/index.html');
+
+    expect(routing.toGermanPath('/admin')).not.toBe('/de/admin/');
+    expect(routing.toGermanPath('/admin/')).not.toBe('/de/admin/');
+    expect(routing.toGermanPath('/admin/index.html')).not.toBe('/de/admin/index.html');
+
+    expect(routing.shouldGeoRedirect({
+      method: 'GET',
+      url: 'https://bitbi.ai/admin/',
+      headers: new Headers({ 'CF-IPCountry': 'DE' }),
+    })).toBe(false);
+
+    expect(routing.shouldGeoRedirect({
+      method: 'GET',
+      url: 'https://bitbi.ai/admin/',
+      headers: new Headers({ Cookie: 'bitbi_locale=de' }),
+    })).toBe(false);
+
+    expect(routing.getGeoRedirectLocation({
+      method: 'GET',
+      url: 'https://bitbi.ai/admin/',
+      headers: new Headers({ 'CF-IPCountry': 'DE' }),
+    })).toBe('');
+
+    expect(routing.getGeoRedirectLocation({
+      method: 'GET',
+      url: 'https://bitbi.ai/admin/',
+      headers: new Headers({ Cookie: 'bitbi_locale=de' }),
+    })).toBe('');
+
+    expect(routing.getGeoRedirectLocation({
+      method: 'GET',
+      url: 'https://bitbi.ai/admin/index.html',
+      headers: new Headers({ Cookie: 'bitbi_locale=de' }),
+    })).toBe('');
   });
 
   test('does not geo-redirect non-DACH users, locale-cookie users, API routes, or assets', async () => {
