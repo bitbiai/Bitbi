@@ -15,6 +15,7 @@ import {
     getAiImageModelConfig,
     getAiImageModelOptions,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
+import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let currentImageData = null;
@@ -51,7 +52,7 @@ function escapeHtml(str) {
 /* ── Quota indicator ── */
 function renderQuota() {
     if (!$quotaEl || creditBalance === null) return;
-    $quotaEl.textContent = `${creditBalance} credits available`;
+    $quotaEl.textContent = localeText('studio.creditsAvailable', { count: creditBalance });
     $quotaEl.classList.toggle('studio__quota--empty', creditBalance <= 0);
 }
 
@@ -76,7 +77,7 @@ function injectQuotaEl(anchorEl) {
 function populateFolderOptions(selectEl) {
     const safeFolders = Array.isArray(folders) ? folders : [];
     const current = selectEl.value;
-    const opts = ['<option value="">Assets</option>'];
+    const opts = [`<option value="">${escapeHtml(localeText('studio.assetsOption'))}</option>`];
     for (const f of safeFolders) {
         opts.push(`<option value="${f.id}">${escapeHtml(f.name)}</option>`);
     }
@@ -102,17 +103,18 @@ function getEstimatedImageCredits() {
 }
 
 function formatCreditEstimate(credits) {
-    return `${credits} credit${credits === 1 ? '' : 's'}`;
+    return localeText('studio.creditEstimate', { count: credits, plural: credits === 1 ? '' : 's' });
 }
 
 function renderGenerateButtonLabel() {
     if (!$generateBtn) return;
     const credits = getEstimatedImageCredits();
-    const label = `Generate \u00b7 ${formatCreditEstimate(credits)}`;
+    const cost = formatCreditEstimate(credits);
+    const label = localeText('studio.generateImageCost', { cost });
     $generateBtn.textContent = label;
-    $generateBtn.setAttribute('aria-label', `Generate image, estimated cost ${formatCreditEstimate(credits)}`);
+    $generateBtn.setAttribute('aria-label', localeText('studio.generateImageAria', { cost }));
     if ($costLabel) {
-        $costLabel.textContent = formatCreditEstimate(credits);
+        $costLabel.textContent = cost;
     }
 }
 
@@ -134,18 +136,18 @@ async function loadFolders() {
 async function handleGenerate() {
     const prompt = $prompt.value.trim();
     if (!prompt) {
-        showMsg($genMsg, 'Please enter a prompt.', 'error');
+        showMsg($genMsg, localeText('studio.promptRequiredImage'), 'error');
         return;
     }
 
     hideMsg($genMsg);
     $generateBtn.disabled = true;
-    $generateBtn.textContent = 'Generating\u2026';
+    $generateBtn.textContent = localeText('studio.generating');
     $saveBar.classList.remove('visible');
     currentImageData = null;
     currentMeta = null;
 
-    $preview.innerHTML = '<div class="studio__loading"><div class="studio__spinner"></div><span>Creating your image\u2026</span></div>';
+    $preview.innerHTML = `<div class="studio__loading"><div class="studio__spinner"></div><span>${escapeHtml(localeText('studio.creatingImage'))}</span></div>`;
 
     const steps = $steps.value ? Number($steps.value) : null;
     const seed  = $seed.value  ? Number($seed.value)  : null;
@@ -156,8 +158,8 @@ async function handleGenerate() {
         res = await apiAiGenerateImage(prompt, steps, seed, model);
     } catch (error) {
         console.warn('Gallery studio generate failed:', error);
-        $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
-        showMsg($genMsg, 'Generation failed. Please try again.', 'error');
+        $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.generationFailedTitle'))}</div>`;
+        showMsg($genMsg, localeText('studio.generationFailed'), 'error');
         return;
     } finally {
         $generateBtn.disabled = false;
@@ -165,7 +167,7 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        $preview.innerHTML = '<div class="studio__preview-empty">Generation failed</div>';
+        $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.generationFailedTitle'))}</div>`;
         showMsg($genMsg, res.error, 'error');
         if (res.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
             creditBalance = 0;
@@ -178,8 +180,8 @@ async function handleGenerate() {
     const imageBase64 = d.imageBase64;
     const mimeType = d.mimeType || 'image/png';
     if (!imageBase64) {
-        $preview.innerHTML = '<div class="studio__preview-empty">No image in response</div>';
-        showMsg($genMsg, 'No image data returned.', 'error');
+        $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.noImageInResponse'))}</div>`;
+        showMsg($genMsg, localeText('studio.noImageReturned'), 'error');
         return;
     }
 
@@ -199,7 +201,7 @@ async function handleGenerate() {
     $preview.appendChild(img);
 
     $saveBar.classList.add('visible');
-    showMsg($genMsg, 'Image generated.', 'success');
+    showMsg($genMsg, localeText('studio.imageGenerated'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
     if (typeof balanceAfter === 'number') {
@@ -214,7 +216,7 @@ async function handleSave() {
     if (!currentMeta || (!currentImageData && !currentMeta.saveReference)) return;
 
     $saveBtn.disabled = true;
-    $saveBtn.textContent = 'Saving\u2026';
+    $saveBtn.textContent = localeText('studio.saving');
 
     const folderId = $folderSelect.value || null;
     let res;
@@ -244,11 +246,11 @@ async function handleSave() {
         }
     } catch (error) {
         console.warn('Gallery studio save failed:', error);
-        showMsg($genMsg, 'Save failed. Please try again.', 'error');
+        showMsg($genMsg, localeText('studio.saveFailed'), 'error');
         return;
     } finally {
         $saveBtn.disabled = false;
-        $saveBtn.textContent = 'Save';
+        $saveBtn.textContent = localeText('studio.save');
     }
 
     if (!res.ok) {
@@ -256,7 +258,11 @@ async function handleSave() {
         return;
     }
 
-    $genMsg.innerHTML = 'Image saved. <a href="/account/assets-manager.html" class="studio__save-link">Open in Assets Manager</a>';
+    const assetsLink = document.createElement('a');
+    assetsLink.href = localizedHref('/account/assets-manager.html');
+    assetsLink.className = 'studio__save-link';
+    assetsLink.textContent = localeText('studio.openAssetsManager');
+    $genMsg.replaceChildren(document.createTextNode(localeText('studio.imageSavedPrefix')), assetsLink);
     $genMsg.className = 'studio__msg studio__msg--success';
     $saveBar.classList.remove('visible');
     currentImageData = null;

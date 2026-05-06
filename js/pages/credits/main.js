@@ -14,6 +14,7 @@ import {
     resolveActiveOrganizationId,
     setActiveOrganizationId,
 } from '../../shared/active-organization.js?v=__ASSET_VERSION__';
+import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('creditsLoading');
 const $denied = document.getElementById('creditsDenied');
@@ -63,7 +64,7 @@ function setError(message) {
     hide($dashboard);
     hide($denied);
     if ($error) {
-        $error.textContent = message || 'Credits dashboard is unavailable.';
+        $error.textContent = message || localeText('credits.unavailable');
         show($error);
     }
 }
@@ -77,12 +78,12 @@ function setDenied() {
 
 function setMode(mode) {
     activeMode = mode === 'member' ? 'member' : 'organization';
-    if ($eyebrow) $eyebrow.textContent = activeMode === 'member' ? 'Member credits' : 'Organization billing';
-    if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? 'Member account' : 'Organization';
+    if ($eyebrow) $eyebrow.textContent = activeMode === 'member' ? localeText('credits.memberCredits') : localeText('credits.organizationBilling');
+    if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? localeText('credits.memberAccount') : localeText('credits.organization');
     if ($subtitle) {
         $subtitle.textContent = activeMode === 'member'
-            ? 'View your personal credit balance, buy prepaid credits, and inspect recent usage charges.'
-            : 'Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.';
+            ? localeText('credits.memberSubtitle')
+            : localeText('credits.organizationSubtitle');
     }
 }
 
@@ -97,8 +98,8 @@ function setNeedsOrganizationSelection() {
     hide($error);
     hide($denied);
     show($dashboard);
-    if ($orgName) $orgName.textContent = 'Select an organization';
-    if ($accessScope) $accessScope.textContent = 'Choose the organization whose credits you want to inspect or use for checkout.';
+    if ($orgName) $orgName.textContent = localeText('credits.selectOrganization');
+    if ($accessScope) $accessScope.textContent = localeText('credits.selectOrganizationHelp');
     renderOrgPicker();
     renderSummary({});
     renderCheckoutStatus({ enabled: false, configured: false }, currentUser?.role === 'admin' ? 'platform_admin' : 'org_owner');
@@ -109,13 +110,13 @@ function setNeedsOrganizationSelection() {
 }
 
 function formatCredits(value) {
-    return `${NUMBER_FORMATTER.format(Number(value || 0))} credits`;
+    return localeText('credits.credits', { count: NUMBER_FORMATTER.format(Number(value || 0)) });
 }
 
 function formatDate(value) {
-    if (!value) return 'Not reported';
+    if (!value) return localeText('credits.notReported');
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? 'Not reported' : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? localeText('credits.notReported') : date.toLocaleString();
 }
 
 function formatMoney(amountCents, currency = 'eur') {
@@ -159,11 +160,11 @@ function normalizeOrganizations(data, { platformAdmin = false } = {}) {
 async function loadEligibleOrganizations() {
     if (currentUser?.role === 'admin') {
         const res = await apiAdminOrganizations({ limit: 100 });
-        if (!res.ok) throw new Error(res.error || 'Could not load admin organizations.');
+        if (!res.ok) throw new Error(res.error || localeText('credits.adminOrgsFailed'));
         return normalizeOrganizations(res.data, { platformAdmin: true });
     }
     const res = await apiListOrganizations({ limit: 100 });
-    if (!res.ok) throw new Error(res.error || 'Could not load organizations.');
+    if (!res.ok) throw new Error(res.error || localeText('credits.orgsFailed'));
     return normalizeOrganizations(res.data, { platformAdmin: false });
 }
 
@@ -172,10 +173,10 @@ function renderReturnState() {
     const state = params.get('checkout');
     if (!$returnState || !state) return;
     if (state === 'success') {
-        $returnState.textContent = 'Payment was returned from Stripe. Credits appear after the verified webhook confirms the paid live Checkout Session.';
+        $returnState.textContent = localeText('credits.checkoutSuccess');
         show($returnState);
     } else if (state === 'cancel') {
-        $returnState.textContent = 'Checkout was cancelled. No credits were added and your balance is unchanged.';
+        $returnState.textContent = localeText('credits.checkoutCancel');
         show($returnState);
     }
 }
@@ -184,7 +185,7 @@ function renderOrgPicker() {
     if (!$orgPicker || !$orgPickerWrap) return;
     $orgPicker.textContent = '';
     if (eligibleOrganizations.length !== 1) {
-        $orgPicker.append(new Option('Select organization', ''));
+        $orgPicker.append(new Option(localeText('credits.selectOrganizationOption'), ''));
     }
     for (const org of eligibleOrganizations) {
         const option = document.createElement('option');
@@ -214,21 +215,21 @@ function renderSummary(balance = {}) {
     $summaryGrid.textContent = '';
     if (activeMode === 'member') {
         $summaryGrid.append(
-            summaryCard('Current balance', formatCredits(balance.current)),
-            summaryCard('Daily top-up target', formatCredits(balance.dailyAllowance)),
-            summaryCard('Daily top-ups', formatCredits(balance.lifetimeDailyTopUps)),
-            summaryCard('Manual grants', formatCredits(balance.lifetimeManualGrants)),
-            summaryCard('Consumed', formatCredits(balance.lifetimeConsumed)),
-            summaryCard('Incoming credits', formatCredits(balance.lifetimeIncoming)),
+            summaryCard(localeText('credits.currentBalance'), formatCredits(balance.current)),
+            summaryCard(localeText('credits.dailyTopupTarget'), formatCredits(balance.dailyAllowance)),
+            summaryCard(localeText('credits.dailyTopups'), formatCredits(balance.lifetimeDailyTopUps)),
+            summaryCard(localeText('credits.manualGrants'), formatCredits(balance.lifetimeManualGrants)),
+            summaryCard(localeText('credits.consumed'), formatCredits(balance.lifetimeConsumed)),
+            summaryCard(localeText('credits.incomingCredits'), formatCredits(balance.lifetimeIncoming)),
         );
     } else {
         $summaryGrid.append(
-            summaryCard('Current balance', formatCredits(balance.current)),
-            summaryCard('Available', formatCredits(balance.available)),
-            summaryCard('Reserved', formatCredits(balance.reserved)),
-            summaryCard('Live purchased', formatCredits(balance.lifetimePurchasedLive)),
-            summaryCard('Manual grants', formatCredits(balance.lifetimeManualGrants)),
-            summaryCard('Consumed', formatCredits(balance.lifetimeConsumed)),
+            summaryCard(localeText('credits.currentBalance'), formatCredits(balance.current)),
+            summaryCard(localeText('credits.available'), formatCredits(balance.available)),
+            summaryCard(localeText('credits.reserved'), formatCredits(balance.reserved)),
+            summaryCard(localeText('credits.livePurchased'), formatCredits(balance.lifetimePurchasedLive)),
+            summaryCard(localeText('credits.manualGrants'), formatCredits(balance.lifetimeManualGrants)),
+            summaryCard(localeText('credits.consumed'), formatCredits(balance.lifetimeConsumed)),
         );
     }
 }
@@ -237,7 +238,7 @@ function renderCheckoutStatus(status = {}, accessScope) {
     const enabled = status.enabled === true && status.configured === true;
     if ($checkoutStatus) {
         $checkoutStatus.className = `credits-badge ${enabled ? 'credits-badge--live' : 'credits-badge--blocked'}`;
-        $checkoutStatus.textContent = enabled ? 'Live checkout enabled' : 'Live checkout unavailable';
+        $checkoutStatus.textContent = enabled ? localeText('credits.liveEnabled') : localeText('credits.liveUnavailable');
     }
     if ($configNote) {
         const missing = Array.isArray(status.missingConfigNames) ? status.missingConfigNames : [];
@@ -245,8 +246,8 @@ function renderCheckoutStatus(status = {}, accessScope) {
             $configNote.hidden = true;
         } else {
             $configNote.textContent = accessScope === 'platform_admin' && missing.length
-                ? `Operator config missing: ${missing.join(', ')}. Values are never shown here.`
-                : 'Checkout is currently unavailable. Please try again later or contact an administrator.';
+                ? localeText('credits.operatorMissing', { names: missing.join(', ') })
+                : localeText('credits.checkoutUnavailableTryLater');
             show($configNote);
         }
     }
@@ -263,7 +264,7 @@ function renderLegalBlock(visible) {
 
     const title = document.createElement('h3');
     title.className = 'credits-legal__title';
-    title.textContent = 'Checkout confirmations';
+    title.textContent = localeText('credits.checkoutConfirmations');
 
     const termsLabel = document.createElement('label');
     termsLabel.className = 'credits-legal__check';
@@ -277,14 +278,14 @@ function renderLegalBlock(visible) {
         renderLegalBlock(true);
     });
     const termsText = document.createElement('span');
-    termsText.appendChild(document.createTextNode('Ich akzeptiere die '));
+    termsText.appendChild(document.createTextNode(localeText('credits.acceptTermsPrefix')));
     const termsLink = document.createElement('a');
-    termsLink.href = '/legal/terms.html';
+    termsLink.href = localizedHref('/legal/terms.html');
     termsLink.target = '_blank';
     termsLink.rel = 'noopener noreferrer';
-    termsLink.textContent = 'AGB von BITBI';
+    termsLink.textContent = localeText('credits.termsLink');
     termsText.appendChild(termsLink);
-    termsText.appendChild(document.createTextNode('.'));
+    termsText.appendChild(document.createTextNode(localeText('credits.acceptTermsSuffix')));
     termsLabel.append(termsInput, termsText);
 
     const deliveryLabel = document.createElement('label');
@@ -300,7 +301,7 @@ function renderLegalBlock(visible) {
     });
     deliveryLabel.append(
         deliveryInput,
-        document.createTextNode('Ich verlange die sofortige Bereitstellung der Credits und bestätige, dass mein Widerrufsrecht nach Bereitstellung oder Nutzung der digitalen Credits erlöschen kann, soweit gesetzlich zulässig.'),
+        document.createTextNode(localeText('credits.immediateDelivery')),
     );
 
     $legalBlock.append(title, termsLabel, deliveryLabel);
@@ -327,13 +328,13 @@ function renderPacks(packs = [], checkoutEnabled) {
         price.textContent = pack.displayPrice || formatMoney(pack.amountCents, pack.currency);
         const meta = document.createElement('p');
         meta.className = 'credits-pack__meta';
-        meta.textContent = 'One-time live Stripe card payment. Credits are granted only after the verified webhook confirms payment.';
+        meta.textContent = localeText('credits.oneTimeStripe');
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'btn btn-primary credits-pack__cta';
         button.dataset.checkoutPack = pack.id;
         button.disabled = !checkoutEnabled;
-        button.textContent = checkoutEnabled ? 'Continue to checkout' : 'Checkout unavailable';
+        button.textContent = checkoutEnabled ? localeText('credits.continueCheckout') : localeText('credits.checkoutUnavailable');
         card.append(title, price, meta, button);
         $packGrid.appendChild(card);
     }
@@ -347,7 +348,7 @@ function renderPurchases(rows = []) {
         const cell = document.createElement('td');
         cell.colSpan = 5;
         cell.className = 'credits-empty';
-        cell.textContent = 'No live credit-pack purchases yet.';
+        cell.textContent = localeText('credits.noPurchases');
         row.appendChild(cell);
         $purchasesBody.appendChild(row);
         return;
@@ -356,10 +357,10 @@ function renderPurchases(rows = []) {
         const row = document.createElement('tr');
         for (const value of [
             formatDate(item.createdAt),
-            item.creditPack?.id || 'Not reported',
-            item.status || 'Not reported',
+            item.creditPack?.id || localeText('credits.notReported'),
+            item.status || localeText('credits.notReported'),
             formatMoney(item.creditPack?.amountCents, item.creditPack?.currency),
-            item.authorizationScope || 'Not reported',
+            item.authorizationScope || localeText('credits.notReported'),
         ]) {
             const cell = document.createElement('td');
             cell.textContent = value;
@@ -377,7 +378,7 @@ function renderLedger(rows = []) {
         const cell = document.createElement('td');
         cell.colSpan = 6;
         cell.className = 'credits-empty';
-        cell.textContent = 'No recent credit ledger activity.';
+        cell.textContent = localeText('credits.noLedger');
         row.appendChild(cell);
         $ledgerBody.appendChild(row);
         return;
@@ -390,12 +391,12 @@ function renderLedger(rows = []) {
                 item.usage.action,
                 item.usage.pricingSource,
             ].filter(Boolean).join(' • ')
-            : (item.featureKey || item.createdByEmail || 'Not reported');
+            : (item.featureKey || item.createdByEmail || localeText('credits.notReported'));
         for (const value of [
             formatDate(item.createdAt),
-            item.type || item.entryType || 'Not reported',
-            item.description || item.source || 'Not reported',
-            details || 'Not reported',
+            item.type || item.entryType || localeText('credits.notReported'),
+            item.description || item.source || localeText('credits.notReported'),
+            details || localeText('credits.notReported'),
             formatCredits(item.amount),
             formatCredits(item.balanceAfter),
         ]) {
@@ -414,12 +415,12 @@ function renderMemberDashboard(dashboard) {
     hide($error);
     hide($denied);
     show($dashboard);
-    if ($orgName) $orgName.textContent = 'Personal credits';
+    if ($orgName) $orgName.textContent = localeText('credits.personalCredits');
     if ($accessScope) {
         const topUp = dashboard.dailyTopUp;
         $accessScope.textContent = topUp
-            ? `Daily top-up: ${formatCredits(topUp.grantedCredits)} granted today.`
-            : 'Personal member credit account.';
+            ? localeText('credits.dailyTopupGranted', { credits: formatCredits(topUp.grantedCredits) })
+            : localeText('credits.personalAccount');
     }
     removeMemberIrrelevantOrgPicker();
     if ($packsSection) $packsSection.hidden = false;
@@ -441,11 +442,11 @@ function renderDashboard(dashboard) {
     show($dashboard);
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
-    if ($orgName) $orgName.textContent = dashboard.organization?.name || 'Organization';
+    if ($orgName) $orgName.textContent = dashboard.organization?.name || localeText('credits.organization');
     if ($accessScope) {
         $accessScope.textContent = dashboard.organization?.accessScope === 'platform_admin'
-            ? 'Platform admin access.'
-            : 'Active organization owner access.';
+            ? localeText('credits.platformAdminAccess')
+            : localeText('credits.orgOwnerAccess');
     }
     renderOrgPicker();
     renderSummary(dashboard.balance);
@@ -463,7 +464,7 @@ async function loadMemberDashboard() {
     const res = await apiAccountCreditsDashboard({ limit: 50 });
     if (!res.ok) {
         if (res.status === 401 || res.status === 403) return setDenied();
-        return setError(res.error || 'Credits dashboard is unavailable.');
+        return setError(res.error || localeText('credits.unavailable'));
     }
     renderMemberDashboard(res.data?.dashboard || {});
 }
@@ -476,7 +477,7 @@ async function loadDashboard() {
     const res = await apiOrganizationCreditsDashboard(selectedOrganizationId, { limit: 25 });
     if (!res.ok) {
         if (res.status === 401 || res.status === 403 || res.status === 404) return setDenied();
-        return setError(res.error || 'Credits dashboard is unavailable.');
+        return setError(res.error || localeText('credits.unavailable'));
     }
     renderDashboard(res.data?.dashboard || {});
 }
@@ -485,13 +486,13 @@ async function startCheckout(packId, button) {
     if (!packId) return;
     if (activeMode !== 'member' && !selectedOrganizationId) return;
     if (!termsAccepted || !immediateDeliveryAccepted) {
-        legalError = 'Bitte akzeptiere die AGB und bestätige die sofortige Bereitstellung der digitalen Credits.';
+        legalError = localeText('credits.legalError');
         renderLegalBlock(true);
         return;
     }
     const original = button.textContent;
     button.disabled = true;
-    button.textContent = 'Creating checkout...';
+    button.textContent = localeText('credits.creatingCheckout');
     const payload = {
         packId,
         idempotencyKey: idempotencyKey(packId, selectedOrganizationId),
@@ -506,7 +507,7 @@ async function startCheckout(packId, button) {
     if (!res.ok) {
         button.disabled = false;
         button.textContent = original;
-        setError(res.error || 'Checkout could not be created.');
+        setError(res.error || localeText('credits.checkoutFailed'));
         if (currentDashboard) {
             if (activeMode === 'member') renderMemberDashboard(currentDashboard);
             else renderDashboard(currentDashboard);
@@ -520,7 +521,7 @@ async function startCheckout(packId, button) {
     }
     button.disabled = false;
     button.textContent = original;
-    setError('Checkout response was invalid.');
+    setError(localeText('credits.invalidCheckout'));
 }
 
 async function init() {
@@ -538,7 +539,7 @@ async function init() {
     try {
         eligibleOrganizations = await loadEligibleOrganizations();
     } catch (error) {
-        return setError(error?.message || 'Could not load organization access.');
+        return setError(error?.message || localeText('credits.orgLoadFailed'));
     }
     if (!eligibleOrganizations.length) return loadMemberDashboard();
     selectedOrganizationId = resolveActiveOrganizationId(eligibleOrganizations);
@@ -562,5 +563,5 @@ $packGrid?.addEventListener('click', (event) => {
 
 init().catch((error) => {
     console.warn(error);
-    setError('Credits dashboard failed to load.');
+    setError(localeText('credits.unavailable'));
 });

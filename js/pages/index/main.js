@@ -29,7 +29,7 @@ import { loadFavorites } from '../../shared/favorites.js';
 import { initWalletController } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { initGlobalAudioUI } from '../../shared/audio/audio-ui.js?v=__ASSET_VERSION__';
 import { clearGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
-import { initLocaleSwitcher } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { initLocaleSwitcher, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 try {
     if (!window.name || window.name === 'bitbi-generate-lab') {
@@ -239,17 +239,17 @@ function initMobileGuestBanner() {
     function syncBannerCopy() {
         if (!cta || !eyebrow || !title || !hint) return;
 
-        eyebrow.textContent = 'Free Account';
-        title.textContent = 'Create your BITBI account for free';
+        eyebrow.textContent = localeText('index.freeAccount');
+        title.textContent = localeText('index.createAccountFree');
 
         if (desktopQuery.matches) {
-            cta.setAttribute('aria-label', 'Create a free BITBI account');
-            hint.textContent = 'Sign in or register to start creating';
+            cta.setAttribute('aria-label', localeText('index.createFreeAccountAria'));
+            hint.textContent = localeText('index.signInOrRegister');
             return;
         }
 
-        cta.setAttribute('aria-label', 'Open the menu to create a free BITBI account');
-        hint.textContent = 'Open the menu to sign in or register';
+        cta.setAttribute('aria-label', localeText('index.openMenuCreateAccountAria'));
+        hint.textContent = localeText('index.openMenuSignIn');
     }
 
     function renderBanner() {

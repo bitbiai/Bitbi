@@ -27,6 +27,7 @@ import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import {
     GENERATE_LAB_MEDIA_TYPES,
     calculateGenerateLabCredits,
@@ -143,17 +144,17 @@ function installHeaderStatusPanel() {
         panel.append(
             el('span', {
                 className: 'generate-lab__account-status',
-                text: 'Checking session...',
+                text: localeText('generateLab.checkingSession'),
                 attrs: { id: 'labAccountStatus' },
             }),
             el('strong', {
                 className: 'generate-lab__credit-status',
-                text: 'Credits unavailable',
+                text: localeText('generateLab.creditsUnavailable'),
                 attrs: { id: 'labCreditStatus' },
             }),
             el('button', {
                 className: 'generate-lab__assets-link',
-                text: 'Assets Manager',
+                text: localeText('generateLab.assetsManager'),
                 attrs: { id: 'labAssetsOpen', type: 'button' },
             }),
         );
@@ -170,7 +171,7 @@ function installHeaderStatusPanel() {
 
 function formatCredits(credits) {
     const safe = Number.isFinite(Number(credits)) ? Number(credits) : 0;
-    return `${safe} credit${safe === 1 ? '' : 's'}`;
+    return localeText('generateLab.credits', { count: safe, plural: safe === 1 ? '' : 's' });
 }
 
 function createIdempotencyKey(prefix) {
@@ -244,7 +245,7 @@ function setBusy(nextBusy, label = '') {
     state.busy = nextBusy;
     if (refs.generate) {
         refs.generate.disabled = nextBusy;
-        refs.generate.textContent = nextBusy ? label : 'Generate';
+        refs.generate.textContent = nextBusy ? label : localeText('generateLab.generate');
     }
     for (const control of document.querySelectorAll('[data-generate-lab-workspace] input, [data-generate-lab-workspace] select, [data-generate-lab-workspace] textarea')) {
         control.disabled = nextBusy;
@@ -260,7 +261,7 @@ function requireMember() {
     try {
         openAuthModal('register');
     } catch {
-        setMessage('Please sign in to generate media.', 'error');
+        setMessage(localeText('generateLab.pleaseSignIn'), 'error');
     }
     return false;
 }
@@ -274,8 +275,8 @@ function getAssetsBrowserRefs() {
 function createAssetsBrowser() {
     assetsBrowser = createSavedAssetsBrowser({
         refs: getAssetsBrowserRefs(),
-        emptyStateMessage: 'No saved assets yet. Generate images, videos, or music, then manage them here.',
-        foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
+        emptyStateMessage: localeText('generateLab.noSavedAssetsDetailed'),
+        foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
     });
     return assetsBrowser;
 }
@@ -310,7 +311,7 @@ async function openAssetsOverlay() {
         console.warn('Generate Lab assets overlay load failed:', error);
         const msg = byId('labAssetsMsg');
         if (msg) {
-            msg.textContent = 'Assets could not be loaded. Please try again.';
+            msg.textContent = localeText('generateLab.assetsLoadFailed');
             msg.classList.add('studio__msg--error');
         }
     }
@@ -319,17 +320,17 @@ async function openAssetsOverlay() {
 function updateAccountPanel() {
     if (refs.accountStatus) {
         if (state.loggedIn) {
-            const email = state.user?.email || 'Member';
-            refs.accountStatus.textContent = `Signed in as ${email}`;
+            const email = state.user?.email || localeText('generateLab.member');
+            refs.accountStatus.textContent = localeText('generateLab.signedInAs', { email });
         } else {
-            refs.accountStatus.textContent = 'Sign in required';
+            refs.accountStatus.textContent = localeText('generateLab.signInRequired');
         }
     }
     if (refs.creditStatus) {
         if (state.creditBalance === null) {
-            refs.creditStatus.textContent = state.loggedIn ? 'Credits unavailable' : 'Credits after sign-in';
+            refs.creditStatus.textContent = state.loggedIn ? localeText('generateLab.creditsUnavailable') : localeText('generateLab.creditsAfterSignIn');
         } else {
-            refs.creditStatus.textContent = `${state.creditBalance} credits`;
+            refs.creditStatus.textContent = localeText('credits.credits', { count: state.creditBalance });
         }
     }
 }
@@ -347,20 +348,22 @@ function updateActionState() {
     if (refs.imageAutoCostHint) refs.imageAutoCostHint.hidden = !usesAutoImageSetting;
     if (refs.balance) {
         if (!state.loggedIn) {
-            refs.balance.textContent = 'Sign in to check credits and generate.';
+            refs.balance.textContent = localeText('generateLab.signInToCheck');
             refs.balance.classList.remove('is-low');
         } else if (state.creditBalance === null) {
-            refs.balance.textContent = 'Credit balance unavailable.';
+            refs.balance.textContent = localeText('generateLab.creditBalanceUnavailable');
             refs.balance.classList.remove('is-low');
         } else {
-            refs.balance.textContent = `${state.creditBalance} credits available`;
+            refs.balance.textContent = localeText('generateLab.creditsAvailable', { count: state.creditBalance });
             refs.balance.classList.toggle('is-low', insufficient);
         }
     }
     if (refs.generate && !state.busy) {
-        refs.generate.textContent = state.loggedIn ? (insufficient ? 'Insufficient Credits' : 'Generate') : 'Sign in to Generate';
+        refs.generate.textContent = state.loggedIn
+            ? (insufficient ? localeText('generateLab.insufficientCredits') : localeText('generateLab.generate'))
+            : localeText('generateLab.signInToGenerate');
         refs.generate.disabled = state.loggedIn && insufficient;
-        refs.generate.setAttribute('aria-label', `${refs.generate.textContent}, estimated cost ${formatCredits(price)}`);
+        refs.generate.setAttribute('aria-label', localeText('generateLab.generateAria', { label: refs.generate.textContent, cost: formatCredits(price) }));
     }
 }
 
@@ -368,8 +371,8 @@ function renderFolderOptions() {
     if (!refs.folderSelect) return;
     const current = refs.folderSelect.value;
     const options = [
-        el('option', { text: 'Assets', attrs: { value: '' } }),
-        ...state.folders.map((folder) => el('option', { text: folder.name || 'Untitled folder', attrs: { value: folder.id } })),
+        el('option', { text: localeText('assets.assets'), attrs: { value: '' } }),
+        ...state.folders.map((folder) => el('option', { text: folder.name || localeText('generateLab.untitledFolder'), attrs: { value: folder.id } })),
     ];
     refs.folderSelect.replaceChildren(...options);
     if (current) refs.folderSelect.value = current;
@@ -434,8 +437,8 @@ function renderPromptCopy() {
         refs.prompt.setAttribute('aria-describedby', 'labPromptHelp');
     }
     if (refs.promptHelp) refs.promptHelp.textContent = media.promptHelp;
-    if (refs.composerEyebrow) refs.composerEyebrow.textContent = `${media.label} composer`;
-    if (refs.composerTitle) refs.composerTitle.textContent = `${media.label} prompt stage`;
+    if (refs.composerEyebrow) refs.composerEyebrow.textContent = localeText('generateLab.composer', { label: media.label });
+    if (refs.composerTitle) refs.composerTitle.textContent = localeText('generateLab.promptStage', { label: media.label });
 }
 
 function renderSettingsGroups() {
@@ -514,13 +517,13 @@ function readFileAsDataUri(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
+        reader.onerror = () => reject(reader.error || new Error(localeText('generateLab.couldNotReadFile')));
         reader.readAsDataURL(file);
     });
 }
 
 function getImageReferenceLabel(index) {
-    return `Reference image ${index + 1}`;
+    return localeText('generateLab.referenceImage', { count: index + 1 });
 }
 
 function clearImageReference(index) {
@@ -537,12 +540,12 @@ async function handleImageReferenceChange(index, input) {
     }
     if (!GPT_IMAGE_REFERENCE_MIME_TYPES.has(file.type)) {
         input.value = '';
-        setMessage('Reference images must be PNG, JPEG, or WebP files.', 'error');
+        setMessage(localeText('generateLab.referenceImagesType'), 'error');
         return;
     }
     if (file.size > MAX_GPT_IMAGE_REFERENCE_BYTES) {
         input.value = '';
-        setMessage('Each reference image must be 10 MB or smaller.', 'error');
+        setMessage(localeText('generateLab.referenceImagesTooLarge'), 'error');
         return;
     }
     try {
@@ -558,7 +561,7 @@ async function handleImageReferenceChange(index, input) {
         updateActionState();
     } catch {
         input.value = '';
-        setMessage('Reference image could not be read.', 'error');
+        setMessage(localeText('generateLab.referenceImageReadFailed'), 'error');
     }
 }
 
@@ -600,11 +603,11 @@ function createImageReferenceSlot(index, disabled) {
     if (selected) {
         const remove = el('button', {
             className: 'generate-lab-ref-images__remove',
-            text: 'Remove',
+            text: localeText('profile.remove'),
             attrs: {
                 type: 'button',
                 disabled,
-                'aria-label': `Remove ${getImageReferenceLabel(index)}`,
+                'aria-label': localeText('generateLab.removeReferenceImage', { label: getImageReferenceLabel(index) }),
             },
         });
         remove.addEventListener('click', () => clearImageReference(index));
@@ -639,9 +642,9 @@ function renderImageReferenceSlots() {
         refs.imageRefToggle.disabled = disabled;
         refs.imageRefToggle.setAttribute('aria-expanded', state.imageRefsExpanded ? 'true' : 'false');
         const label = hiddenSelectedCount > 0
-            ? `More reference images (${hiddenSelectedCount} selected)`
-            : 'More reference images';
-        const helper = state.imageRefsExpanded ? 'Hide optional references' : 'Optional: add up to 13 more references';
+            ? localeText('generateLab.moreReferenceImagesSelected', { count: hiddenSelectedCount })
+            : localeText('generateLab.moreReferenceImages');
+        const helper = state.imageRefsExpanded ? localeText('generateLab.hideOptionalReferences') : localeText('generateLab.addMoreReferences');
         refs.imageRefToggle.replaceChildren(
             el('span', { text: label }),
             el('small', { text: helper }),
@@ -653,7 +656,7 @@ function renderImageReferenceSlots() {
 function clearVideoReference() {
     state.videoReferenceDataUri = '';
     if (refs.videoReference) refs.videoReference.value = '';
-    if (refs.videoReferenceLabel) refs.videoReferenceLabel.textContent = 'Optional image-to-video reference';
+    if (refs.videoReferenceLabel) refs.videoReferenceLabel.textContent = localeText('generateLab.optionalVideoReference');
     if (refs.videoReferenceRemove) refs.videoReferenceRemove.hidden = true;
     refs.videoReferenceShell?.classList.remove('has-file');
 }
@@ -666,23 +669,23 @@ async function handleVideoReferenceChange() {
     }
     if (!file.type.startsWith('image/')) {
         clearVideoReference();
-        setMessage('Reference image must be an image file.', 'error');
+        setMessage(localeText('studio.referenceImageMustImage'), 'error');
         return;
     }
     if (file.size > MAX_VIDEO_REFERENCE_BYTES) {
         clearVideoReference();
-        setMessage('Reference image must be 10 MB or smaller.', 'error');
+        setMessage(localeText('studio.referenceImageTooLarge'), 'error');
         return;
     }
     try {
         state.videoReferenceDataUri = await readFileAsDataUri(file);
-        if (refs.videoReferenceLabel) refs.videoReferenceLabel.textContent = file.name || 'Reference image selected';
+        if (refs.videoReferenceLabel) refs.videoReferenceLabel.textContent = file.name || localeText('generateLab.referenceImageSelected');
         if (refs.videoReferenceRemove) refs.videoReferenceRemove.hidden = false;
         refs.videoReferenceShell?.classList.add('has-file');
         setMessage('');
     } catch {
         clearVideoReference();
-        setMessage('Reference image could not be read.', 'error');
+        setMessage(localeText('generateLab.referenceImageReadFailed'), 'error');
     }
 }
 
@@ -799,13 +802,13 @@ function renderImageResult({ imageData, prompt, meta }) {
     });
     const save = el('button', {
         className: 'generate-lab__secondary-btn',
-        text: 'Save to Assets Manager',
+        text: localeText('generateLab.saveToAssets'),
         attrs: { type: 'button' },
     });
     save.addEventListener('click', handleSaveImage);
     const caption = el('div', { className: 'generate-lab__result-meta' },
-        el('strong', { text: meta?.modelLabel || 'Generated image' }),
-        el('span', { text: 'Private until you publish from Assets Manager.' }),
+        el('strong', { text: meta?.modelLabel || localeText('generateLab.generatedImage') }),
+        el('span', { text: localeText('generateLab.imagePrivate') }),
     );
     refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image' }, img, caption, save));
 }
@@ -814,10 +817,10 @@ function renderVideoResult(data) {
     const videoUrl = data?.videoUrl || data?.asset?.file_url || '';
     if (!videoUrl) {
         renderEmptyResult();
-        setMessage('No playable video was returned.', 'error');
+        setMessage(localeText('generateLab.noPlayableVideo'), 'error');
         return;
     }
-    const title = data?.asset?.title || 'Generated video';
+    const title = data?.asset?.title || localeText('generateLab.generatedVideo');
     const video = el('video', {
         className: 'generate-lab__video-output',
         attrs: {
@@ -833,12 +836,12 @@ function renderVideoResult(data) {
 
     const meta = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: title }),
-        el('span', { text: 'Saved as a private video asset.' }),
+        el('span', { text: localeText('generateLab.videoPrivate') }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
         el('button', {
             className: 'generate-lab__secondary-link',
-            text: 'Open in Assets Manager',
+            text: localeText('studio.openAssetsManager'),
             attrs: { type: 'button' },
         }),
     );
@@ -850,10 +853,10 @@ function renderMusicResult(data) {
     const audioUrl = data?.audioUrl || data?.asset?.file_url || '';
     if (!audioUrl) {
         renderEmptyResult();
-        setMessage('No playable audio was returned.', 'error');
+        setMessage(localeText('generateLab.noPlayableAudio'), 'error');
         return;
     }
-    const title = data?.asset?.title || 'Generated music';
+    const title = data?.asset?.title || localeText('generateLab.generatedMusic');
     const coverUrl = data?.asset?.poster_url || data?.coverUrl || '';
     const result = el('div', {
         className: 'generate-lab__result-card generate-lab__result-card--audio',
@@ -867,12 +870,12 @@ function renderMusicResult(data) {
     });
     const meta = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: title }),
-        el('span', { text: 'Saved as a private music asset.' }),
+        el('span', { text: localeText('generateLab.musicPrivate') }),
     );
     const actions = el('div', { className: 'generate-lab__result-actions' },
         el('button', {
             className: 'generate-lab__secondary-link',
-            text: 'Open in Assets Manager',
+            text: localeText('studio.openAssetsManager'),
             attrs: { type: 'button' },
         }),
     );
@@ -883,7 +886,7 @@ function renderMusicResult(data) {
 }
 
 function getAssetTitle(asset) {
-    return String(asset?.title || asset?.filename || asset?.file_name || asset?.prompt || asset?.preview_text || 'Saved asset');
+    return String(asset?.title || asset?.filename || asset?.file_name || asset?.prompt || asset?.preview_text || localeText('generateLab.savedAsset'));
 }
 
 function isVideoAsset(asset) {
@@ -922,7 +925,7 @@ function tryPlaySelectedMedia(media) {
     const playPromise = media?.play?.();
     if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
-            setMessage('Preview is ready. Press play if your browser blocked autoplay.', 'info');
+            setMessage(localeText('generateLab.previewAutoplayBlocked'), 'info');
         });
     }
 }
@@ -932,7 +935,7 @@ function renderRecentImageAsset(asset) {
     const imageUrl = getAssetPreviewUrl(asset);
     if (!imageUrl) {
         renderEmptyResult();
-        setMessage('This image asset has no preview URL.', 'error');
+        setMessage(localeText('generateLab.imageNoPreview'), 'error');
         return;
     }
     const img = el('img', {
@@ -942,10 +945,10 @@ function renderRecentImageAsset(asset) {
     setCrossOriginIfNeeded(img, imageUrl);
     const meta = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: title }),
-        el('span', { text: 'Recent image asset opened in Generate Lab.' }),
+        el('span', { text: localeText('generateLab.recentImageOpened') }),
     );
     refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image generate-lab__result-card--recent' }, img, meta));
-    setMessage('Recent image opened in the preview stage.', 'success');
+    setMessage(localeText('generateLab.recentImageSuccess'), 'success');
 }
 
 function renderRecentVideoAsset(asset) {
@@ -953,7 +956,7 @@ function renderRecentVideoAsset(asset) {
     const videoUrl = getAssetFileUrl(asset);
     if (!videoUrl) {
         renderEmptyResult();
-        setMessage('This video asset has no playable URL.', 'error');
+        setMessage(localeText('generateLab.videoNoUrl'), 'error');
         return;
     }
     const video = el('video', {
@@ -970,10 +973,10 @@ function renderRecentVideoAsset(asset) {
     if (posterUrl) video.poster = posterUrl;
     const meta = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: title }),
-        el('span', { text: 'Recent video asset opened in Generate Lab.' }),
+        el('span', { text: localeText('generateLab.recentVideoOpened') }),
     );
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__result-card generate-lab__result-card--video generate-lab__result-card--recent' }, video, meta));
-    setMessage('Recent video opened in the preview stage.', 'success');
+    setMessage(localeText('generateLab.recentVideoSuccess'), 'success');
     tryPlaySelectedMedia(video);
 }
 
@@ -982,7 +985,7 @@ function renderRecentAudioAsset(asset) {
     const audioUrl = getAssetFileUrl(asset);
     if (!audioUrl) {
         renderEmptyResult();
-        setMessage('This audio asset has no playable URL.', 'error');
+        setMessage(localeText('generateLab.audioNoUrl'), 'error');
         return;
     }
     const cover = el('div', { className: 'generate-lab__audio-cover' });
@@ -994,11 +997,11 @@ function renderRecentAudioAsset(asset) {
     setCrossOriginIfNeeded(audio, audioUrl);
     const meta = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: title }),
-        el('span', { text: 'Recent music asset opened in Generate Lab.' }),
+        el('span', { text: localeText('generateLab.recentMusicOpened') }),
     );
     const result = el('div', { className: 'generate-lab__result-card generate-lab__result-card--audio generate-lab__result-card--recent' }, cover, audio, meta);
     refs.resultStage?.replaceChildren(result);
-    setMessage('Recent audio opened in the preview stage.', 'success');
+    setMessage(localeText('generateLab.recentAudioSuccess'), 'success');
     tryPlaySelectedMedia(audio);
 }
 
@@ -1016,7 +1019,7 @@ function openRecentAsset(asset) {
         renderRecentImageAsset(asset);
     } else {
         renderEmptyResult();
-        setMessage('This asset type is not previewable in Generate Lab yet.', 'error');
+        setMessage(localeText('generateLab.unsupportedAsset'), 'error');
     }
 
     document.querySelectorAll('.generate-lab__recent-card').forEach((card) => {
@@ -1029,7 +1032,7 @@ function openRecentAsset(asset) {
 async function handleSaveImage() {
     if (!state.currentImageMeta || (!state.currentImageData && !state.currentImageMeta.saveReference)) return;
     const folderId = refs.folderSelect?.value || null;
-    setMessage('Saving image...', 'info');
+    setMessage(localeText('generateLab.savingImage'), 'info');
 
     let res;
     try {
@@ -1055,18 +1058,18 @@ async function handleSaveImage() {
         }
     } catch (error) {
         console.warn('Generate Lab image save failed:', error);
-        setMessage('Save failed. Please try again.', 'error');
+        setMessage(localeText('studio.saveFailed'), 'error');
         return;
     }
 
     if (!res.ok) {
-        setMessage(res.error || 'Save failed. Please try again.', 'error');
+        setMessage(res.error || localeText('studio.saveFailed'), 'error');
         return;
     }
 
     state.currentImageData = null;
     state.currentImageMeta = null;
-    setMessage('Image saved. Open Assets Manager to publish, move, or rename it.', 'success');
+    setMessage(localeText('generateLab.imageSaved'), 'success');
     await loadRecentAssets();
 }
 
@@ -1094,7 +1097,7 @@ async function generateImage(prompt) {
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
     if (!data.imageBase64) {
-        return { ok: false, error: 'No image data returned.' };
+        return { ok: false, error: localeText('generateLab.noImageData') };
     }
     const mimeType = data.mimeType || 'image/png';
     const imageData = `data:${mimeType};base64,${data.imageBase64}`;
@@ -1167,24 +1170,24 @@ async function handleGenerate() {
 
     const prompt = refs.prompt?.value.trim() || '';
     if (!prompt) {
-        setMessage('Prompt is required.', 'error');
+        setMessage(localeText('studio.promptRequired'), 'error');
         refs.prompt?.focus();
         return;
     }
 
     const price = currentCreditEstimate();
     if (state.creditBalance !== null && state.creditBalance < price) {
-        setMessage(`You need ${formatCredits(price)} for this generation.`, 'error');
+        setMessage(localeText('generateLab.needCredits', { cost: formatCredits(price) }), 'error');
         return;
     }
 
     setMessage('');
-    setBusy(true, state.mediaType === 'music' ? 'Generating Music...' : state.mediaType === 'video' ? 'Generating Video...' : 'Generating Image...');
+    setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
     renderLoadingResult(state.mediaType === 'music'
-        ? 'Creating your track. This can take up to 2 minutes...'
+        ? localeText('generateLab.creatingTrack')
         : state.mediaType === 'video'
-            ? 'Generating and saving your PixVerse video...'
-            : 'Creating your image...');
+            ? localeText('generateLab.generatingPixverse')
+            : localeText('generateLab.creatingImage'));
 
     let res;
     try {
@@ -1193,14 +1196,14 @@ async function handleGenerate() {
         else res = await generateMusic(prompt);
     } catch (error) {
         console.warn('Generate Lab generation failed:', error);
-        res = { ok: false, error: 'Generation failed. Please try again.' };
+        res = { ok: false, error: localeText('studio.generationFailed') };
     } finally {
         setBusy(false);
     }
 
     if (!res?.ok) {
         renderEmptyResult();
-        setMessage(res?.error || 'Generation failed. Please try again.', 'error');
+        setMessage(res?.error || localeText('studio.generationFailed'), 'error');
         return;
     }
 
@@ -1210,10 +1213,10 @@ async function handleGenerate() {
         updateAccountPanel();
     }
     const success = state.mediaType === 'image'
-        ? 'Image generated. Save it when you are ready.'
+        ? localeText('generateLab.imageGeneratedSave')
         : state.mediaType === 'video'
-            ? 'Video generated and saved.'
-            : 'Music generated and saved.';
+            ? localeText('generateLab.videoGeneratedSaved')
+            : localeText('generateLab.musicGeneratedSaved');
     setMessage(success, 'success');
     await loadRecentAssets();
 }
@@ -1239,11 +1242,11 @@ function mediaPreviewForAsset(asset) {
 function renderRecentAssets(assets) {
     if (!refs.recentAssets) return;
     if (!state.loggedIn) {
-        refs.recentAssets.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: 'Sign in to load recent assets.' }));
+        refs.recentAssets.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: localeText('generateLab.signInRecentAssets') }));
         return;
     }
     if (!assets.length) {
-        refs.recentAssets.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: 'No saved assets yet.' }));
+        refs.recentAssets.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: localeText('generateLab.noSavedAssets') }));
         return;
     }
     const cards = assets.slice(0, 6).map((asset) => {
@@ -1252,7 +1255,7 @@ function renderRecentAssets(assets) {
             className: 'generate-lab__recent-card',
             attrs: {
                 type: 'button',
-                'aria-label': `Open ${title} in Generate Lab preview`,
+                'aria-label': localeText('generateLab.openRecentAsset', { title }),
                 'aria-pressed': 'false',
                 'data-asset-id': asset?.id || '',
             },
@@ -1277,7 +1280,7 @@ async function loadRecentAssets() {
         renderRecentAssets(result.assets || []);
     } catch (error) {
         console.warn('Generate Lab recent asset load failed:', error);
-        refs.recentAssets?.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: 'Recent assets could not be loaded.' }));
+        refs.recentAssets?.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: localeText('generateLab.recentAssetsLoadFailed') }));
     }
 }
 
@@ -1447,7 +1450,7 @@ async function init() {
             enableGlobalAudio: false,
             homeTarget: 'bitbi-main',
             homeRel: 'noopener',
-            contextLabel: 'Desktop Workspace',
+            contextLabel: document.documentElement.lang === 'de' ? 'Desktop-Arbeitsbereich' : 'Desktop Workspace',
             isGenerateLabPage: true,
         });
     } catch (error) { console.warn(error); }

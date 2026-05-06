@@ -77,29 +77,29 @@
     <section class="credits-hero" aria-labelledby="creditsTitle">
         <div class="credits-hero__glow credits-hero__glow--cyan" aria-hidden="true"></div>
         <div class="credits-hero__glow credits-hero__glow--gold" aria-hidden="true"></div>
-        <p id="creditsEyebrow" class="credits-eyebrow">Organization billing</p>
+        <p id="creditsEyebrow" class="credits-eyebrow">Organisationsabrechnung</p>
         <h1 id="creditsTitle" class="credits-title gt-gold-cyan">Credits</h1>
-        <p id="creditsSubtitle" class="credits-subtitle">Buy one-time live Stripe credit packs for eligible organization usage. Access is limited to platform admins and active organization owners.</p>
+        <p id="creditsSubtitle" class="credits-subtitle">Kaufen Sie einmalige Live-Stripe-Credit-Pakete für berechtigte Organisationen. Normale Mitglieder können persönliche Credits separat nutzen.</p>
         <div id="creditsReturnState" class="credits-return" hidden></div>
     </section>
 
-    <section class="credits-shell" aria-label="Credits dashboard">
-        <div id="creditsLoading" class="credits-state glass glass-card">Loading credits dashboard...</div>
+    <section class="credits-shell" aria-label="Credits-Dashboard">
+        <div id="creditsLoading" class="credits-state glass glass-card">Credits-Dashboard wird geladen...</div>
         <div id="creditsDenied" class="credits-state glass glass-card" hidden>
-            <h2>Credits are not available for this account</h2>
-            <p>Please sign in to view your personal credit balance and activity.</p>
+            <h2>Credits sind für dieses Konto nicht verfügbar</h2>
+            <p>Bitte melden Sie sich an, um Ihr persönliches Credit-Guthaben und Ihre Aktivitäten zu sehen.</p>
         </div>
         <div id="creditsError" class="credits-state credits-state--error glass glass-card" hidden></div>
 
         <div id="creditsDashboard" hidden>
             <div class="credits-toolbar glass glass-card">
                 <div>
-                    <p id="creditsScopeLabel" class="credits-eyebrow">Organization</p>
-                    <h2 id="creditsOrgName">Not selected</h2>
-                    <p id="creditsAccessScope" class="credits-muted">Access scope pending.</p>
+                    <p id="creditsScopeLabel" class="credits-eyebrow">Organisation</p>
+                    <h2 id="creditsOrgName">Nicht ausgewählt</h2>
+                    <p id="creditsAccessScope" class="credits-muted">Zugriffsbereich ausstehend.</p>
                 </div>
                 <label id="creditsOrgPickerWrap" class="credits-picker" hidden>
-                    <span>Switch organization</span>
+                    <span>Organisation wechseln</span>
                     <select id="creditsOrgPicker"></select>
                 </label>
             </div>
@@ -109,10 +109,10 @@
             <section id="creditsPacksSection" class="credits-section" aria-labelledby="creditsPacksTitle">
                 <div class="credits-section__header">
                     <div>
-                        <p class="credits-eyebrow">Live checkout</p>
-                        <h2 id="creditsPacksTitle">Credit packs</h2>
+                        <p class="credits-eyebrow">Live-Checkout</p>
+                        <h2 id="creditsPacksTitle">Credit-Pakete</h2>
                     </div>
-                    <span id="creditsCheckoutStatus" class="credits-badge credits-badge--blocked">Checking config</span>
+                    <span id="creditsCheckoutStatus" class="credits-badge credits-badge--blocked">Konfiguration wird geprüft</span>
                 </div>
                 <div id="creditsConfigNote" class="credits-note" hidden></div>
                 <div id="creditsLegalBlock" class="credits-legal" hidden></div>
@@ -122,19 +122,19 @@
             <section id="creditsPurchasesSection" class="credits-section" aria-labelledby="creditsPurchasesTitle">
                 <div class="credits-section__header">
                     <div>
-                        <p class="credits-eyebrow">History</p>
-                        <h2 id="creditsPurchasesTitle">Recent purchases</h2>
+                        <p class="credits-eyebrow">Verlauf</p>
+                        <h2 id="creditsPurchasesTitle">Letzte Käufe</h2>
                     </div>
                 </div>
                 <div class="credits-table-wrap">
                     <table class="credits-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Pack</th>
+                                <th>Datum</th>
+                                <th>Paket</th>
                                 <th>Status</th>
-                                <th>Amount</th>
-                                <th>Scope</th>
+                                <th>Betrag</th>
+                                <th>Bereich</th>
                             </tr>
                         </thead>
                         <tbody id="creditsPurchasesBody"></tbody>
@@ -146,19 +146,19 @@
                 <div class="credits-section__header">
                     <div>
                         <p class="credits-eyebrow">Ledger</p>
-                        <h2 id="creditsLedgerTitle">Recent credit activity</h2>
+                        <h2 id="creditsLedgerTitle">Letzte Credit-Aktivität</h2>
                     </div>
                 </div>
                 <div class="credits-table-wrap">
                     <table class="credits-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Description</th>
+                                <th>Datum</th>
+                                <th>Typ</th>
+                                <th>Beschreibung</th>
                                 <th>Details</th>
-                                <th>Amount</th>
-                                <th>Balance</th>
+                                <th>Betrag</th>
+                                <th>Guthaben</th>
                             </tr>
                         </thead>
                         <tbody id="creditsLedgerBody"></tbody>

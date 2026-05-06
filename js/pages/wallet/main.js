@@ -4,7 +4,9 @@
    wallet workspace entry point on the homepage.
    ============================================================ */
 
-const target = new URL('/', window.location.origin);
+import { localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
+
+const target = new URL(localizedHref('/'), window.location.origin);
 target.hash = 'wallet-workspace';
 
 const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;

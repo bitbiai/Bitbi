@@ -9,6 +9,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 
 const MEMPICS_CATEGORY = 'mempics';
@@ -47,7 +48,7 @@ export function initGallery() {
     const $loadMore = document.createElement('button');
     $loadMore.type = 'button';
     $loadMore.className = 'browse-pagination__btn';
-    $loadMore.textContent = 'Load More';
+    $loadMore.textContent = localeText('browse.loadMore');
     $pagination?.append($paginationStatus, $drawerToggle, $loadMore);
 
     function bindMediaQueryChange(query, listener) {
@@ -101,13 +102,13 @@ export function initGallery() {
         openMobileMediaGrid({
             title: 'Mempics',
             items: mempicsState.items,
-            emptyText: 'No Mempics published yet.',
+            emptyText: localeText('browse.noMempics'),
             className: 'mobile-media-grid-overlay--gallery',
             renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--image';
-                button.setAttribute('aria-label', item.title || `Show Mempic ${index + 1}`);
+                button.setAttribute('aria-label', item.title || localeText('browse.showMempic', { count: index + 1 }));
 
                 const img = new Image();
                 img.src = item.thumb?.url || item.preview?.url || '';
@@ -160,7 +161,7 @@ export function initGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
-            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Mempics grid' });
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMempicsGrid') });
             $drawerToggle.hidden = true;
             $drawerToggle.textContent = '';
             $loadMore.hidden = true;
@@ -170,7 +171,7 @@ export function initGallery() {
         }
         if (!mempicsState.items.length) {
             $pagination.style.display = 'none';
-            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Mempics grid' });
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMempicsGrid') });
             return;
         }
         const drawerAvailable = hasCollapsedMempics();
@@ -179,25 +180,25 @@ export function initGallery() {
         const showLoadMore = mempicsState.hasMore;
         $pagination.style.display = '';
         if (drawerAvailable && !mempicsDrawerExpanded) {
-            $paginationStatus.textContent = `Showing all ${visibleCount} Mempics`;
+            $paginationStatus.textContent = localeText('browse.showingAllMempics', { count: visibleCount });
         } else if (mempicsState.hasMore) {
-            $paginationStatus.textContent = `Showing ${visibleCount} Mempics.`;
+            $paginationStatus.textContent = localeText('browse.showingMempicsComplete', { count: visibleCount });
         } else {
-            $paginationStatus.textContent = `Showing all ${visibleCount} Mempics.`;
+            $paginationStatus.textContent = localeText('browse.showingAllMempicsComplete', { count: visibleCount });
         }
         syncMobileMediaTrigger($paginationStatus, {
             enabled: mempicsState.items.length > 0,
-            label: 'Open all Mempics in a grid',
+            label: localeText('browse.openMempicsGrid'),
         });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
-            ? (mempicsDrawerExpanded ? 'Show Less' : 'Show More')
+            ? (mempicsDrawerExpanded ? localeText('browse.showLess') : localeText('browse.showMore'))
             : '';
         $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && mempicsDrawerExpanded));
         $loadMore.hidden = !showLoadMore;
         $loadMore.disabled = mempicsState.loadingMore;
         $loadMore.textContent = showLoadMore
-            ? (mempicsState.loadingMore ? 'Loading...' : 'Load More')
+            ? (mempicsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
     }
 
@@ -333,7 +334,7 @@ export function initGallery() {
 
         const cta = document.createElement('span');
         cta.className = 'public-media-meta__cta';
-        cta.textContent = 'View Full →';
+        cta.textContent = localeText('browse.viewFull');
         copy.appendChild(cta);
 
         overlay.appendChild(copy);
@@ -367,7 +368,7 @@ export function initGallery() {
 
         let list = [];
         if (filter === MEMPICS_CATEGORY) {
-            renderGalleryState('Loading Mempics…');
+            renderGalleryState(localeText('browse.loadingMempics'));
             try {
                 await ensureMempicsLoaded();
                 list = mempicsState.items.slice();
@@ -383,7 +384,7 @@ export function initGallery() {
         }
 
         if (!list.length) {
-            renderGalleryState('No Mempics published yet.');
+            renderGalleryState(localeText('browse.noMempics'));
             updateMempicsPagination(filter);
             return;
         }
@@ -541,7 +542,7 @@ export function initGallery() {
         galDotsEl = document.createElement('div');
         galDotsEl.className = 'gal-deck-dots';
         galDotsEl.setAttribute('role', 'tablist');
-        galDotsEl.setAttribute('aria-label', 'Gallery cards');
+        galDotsEl.setAttribute('aria-label', localeText('browse.galleryCards'));
         all.forEach((_, i) => {
             const d = document.createElement('button');
             d.type = 'button';

@@ -10,6 +10,7 @@ import { initBinaryFooter }  from '../../shared/binary-footer.js';
 import { initScrollReveal }  from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { apiForgotPassword } from '../../shared/auth-api.js';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $form    = document.getElementById('forgotForm');
@@ -37,17 +38,17 @@ $form.addEventListener('submit', async (e) => {
     if (!email) return;
 
     $submit.disabled = true;
-    $submit.textContent = 'Sending...';
+    $submit.textContent = localeText('account.sending');
 
     const res = await apiForgotPassword(email);
 
     $submit.disabled = false;
-    $submit.textContent = 'Send Reset Link';
+    $submit.textContent = localeText('account.sendResetLink');
 
     // Always show generic success (even on network error, to not leak info)
     showMsg(
         res.data?.message ||
-        'If an account with this email exists, a reset link has been sent.',
+        localeText('account.resetGeneric'),
         'success'
     );
 

@@ -77,7 +77,7 @@ const MOBILE_NAV_HTML = `
                 <span class="mobile-nav__legal-dot">&bull;</span>
                 <a href="/legal/privacy.html" class="mobile-nav__legal-link">Privacy</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <a href="/legal/terms.html" class="mobile-nav__legal-link">AGB</a>
+                <a href="/legal/terms.html" class="mobile-nav__legal-link">Terms</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
                 <button id="mobileOpenCookieSettings" class="mobile-nav__legal-link" type="button">Cookie Settings</button>
             </div>

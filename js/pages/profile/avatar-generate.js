@@ -15,6 +15,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { DEFAULT_AI_IMAGE_MODEL } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 export const AVATAR_GENERATION_MODEL = DEFAULT_AI_IMAGE_MODEL;
 export const AVATAR_GENERATION_STEPS = 4;
@@ -67,7 +68,7 @@ function renderQuota() {
         return;
     }
     $quota.hidden = false;
-    $quota.textContent = `${creditBalance} credits available`;
+    $quota.textContent = localeText('profile.creditsAvailable', { count: creditBalance });
     $quota.classList.toggle('profile-avatar-generate__quota--empty', creditBalance <= 0);
 }
 
@@ -84,11 +85,11 @@ async function loadQuota() {
     renderQuota();
 }
 
-function setBusy(state, generateLabel = 'Generate', useLabel = 'Use') {
+function setBusy(state, generateLabel = localeText('profile.generate'), useLabel = localeText('profile.use')) {
     busy = state;
     if ($generateBtn) {
         $generateBtn.disabled = state;
-        $generateBtn.textContent = state ? generateLabel : 'Generate';
+        $generateBtn.textContent = state ? generateLabel : localeText('profile.generate');
     }
     if ($useBtn) {
         $useBtn.textContent = useLabel;
@@ -107,7 +108,7 @@ function clearPreview() {
     if (!$preview) return;
     const empty = document.createElement('div');
     empty.className = 'profile-avatar-generate__preview-empty';
-    empty.textContent = 'Your avatar will appear here.';
+    empty.textContent = localeText('profile.avatarWillAppear');
     $preview.replaceChildren(empty);
 }
 
@@ -119,7 +120,7 @@ function setPreviewLoading() {
     spinner.className = 'profile-avatar-generate__spinner';
     spinner.setAttribute('aria-hidden', 'true');
     const label = document.createElement('span');
-    label.textContent = 'Creating your avatar…';
+    label.textContent = localeText('profile.creatingAvatar');
     wrap.append(spinner, label);
     $preview.replaceChildren(wrap);
 }
@@ -145,17 +146,17 @@ async function handleGenerate() {
     if (busy) return;
     const prompt = ($prompt?.value || '').trim();
     if (!prompt) {
-        showMsg('Please describe your avatar.', 'error');
+        showMsg(localeText('profile.describeAvatarRequired'), 'error');
         $prompt?.focus();
         return;
     }
     if (!isAdmin && creditBalance !== null && creditBalance <= 0) {
-        showMsg('No image credits available.', 'error');
+        showMsg(localeText('profile.noImageCredits'), 'error');
         return;
     }
 
     hideMsg();
-    setBusy(true, 'Generating…');
+    setBusy(true, localeText('profile.generating'));
     setUseEnabled(false);
     generatedImageDataUrl = null;
     setPreviewLoading();
@@ -172,7 +173,7 @@ async function handleGenerate() {
         );
     } catch (error) {
         console.warn('Avatar generation failed:', error);
-        showMsg('Generation failed. Please try again.', 'error');
+        showMsg(localeText('profile.generationFailed'), 'error');
         clearPreview();
         setBusy(false);
         return;
@@ -181,7 +182,7 @@ async function handleGenerate() {
     }
 
     if (!res?.ok) {
-        const msg = res?.error || 'Generation failed. Please try again.';
+        const msg = res?.error || localeText('profile.generationFailed');
         showMsg(msg, 'error');
         clearPreview();
         if (res?.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
@@ -195,7 +196,7 @@ async function handleGenerate() {
     const imageBase64 = data.imageBase64;
     const mimeType = data.mimeType || 'image/png';
     if (!imageBase64) {
-        showMsg('No image returned. Please try again.', 'error');
+        showMsg(localeText('profile.noImageReturned'), 'error');
         clearPreview();
         return;
     }
@@ -203,7 +204,7 @@ async function handleGenerate() {
     generatedImageDataUrl = `data:${mimeType};base64,${imageBase64}`;
     setPreviewImage(generatedImageDataUrl, prompt);
     setUseEnabled(true);
-    showMsg('Avatar ready. Press Use to apply it.', 'success');
+    showMsg(localeText('profile.avatarReady'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
     if (!isAdmin && typeof balanceAfter === 'number') {
@@ -216,7 +217,7 @@ function loadImage(src) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Could not decode generated image.'));
+        img.onerror = () => reject(new Error(localeText('profile.decodeFailed')));
         img.src = src;
     });
 }
@@ -226,7 +227,7 @@ function canvasToBlob(canvas, mime, quality) {
         canvas.toBlob(
             (blob) => {
                 if (blob) resolve(blob);
-                else reject(new Error('Could not encode avatar image.'));
+                else reject(new Error(localeText('profile.encodeFailed')));
             },
             mime,
             quality,
@@ -294,7 +295,7 @@ async function reencodeForAvatar(dataUrl, encodingProfile = getAvatarUploadEncod
     canvas.width = targetSize;
     canvas.height = targetSize;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D context unavailable.');
+    if (!ctx) throw new Error(localeText('profile.canvasUnavailable'));
     const sourceSize = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
     const sx = ((img.naturalWidth || img.width) - sourceSize) / 2;
     const sy = ((img.naturalHeight || img.height) - sourceSize) / 2;
@@ -306,8 +307,8 @@ async function reencodeForAvatar(dataUrl, encodingProfile = getAvatarUploadEncod
             AVATAR_UPLOAD_PREFERRED_MIME,
             Number(encodingProfile?.quality) || AVATAR_UPLOAD_DESKTOP_QUALITY,
         );
-        if (!blob || blob.size === 0) throw new Error('Empty blob.');
-        if (!isKnownImageMimeType(blob.type)) throw new Error('Unknown encoded avatar type.');
+        if (!blob || blob.size === 0) throw new Error(localeText('profile.emptyBlob'));
+        if (!isKnownImageMimeType(blob.type)) throw new Error(localeText('profile.unknownAvatarType'));
         return createAvatarUploadFile(blob);
     } catch {
         const pngBlob = await canvasToBlob(canvas, 'image/png');
@@ -318,7 +319,7 @@ async function reencodeForAvatar(dataUrl, encodingProfile = getAvatarUploadEncod
 async function handleUse() {
     if (busy || !generatedImageDataUrl) return;
 
-    setBusy(true, 'Generate', 'Applying…');
+    setBusy(true, localeText('profile.generate'), localeText('profile.applying'));
     if ($useBtn) $useBtn.disabled = true;
     hideMsg();
 
@@ -327,7 +328,7 @@ async function handleUse() {
         const result = await apiUploadAvatar(file);
 
         if (!result?.ok) {
-            showMsg(result?.error || 'Could not apply avatar. Please try again.', 'error');
+            showMsg(result?.error || localeText('profile.applyAvatarFailed'), 'error');
             if ($useBtn) $useBtn.disabled = false;
             return;
         }
@@ -336,11 +337,11 @@ async function handleUse() {
         closeAvatarGenerateModal({ resetForm: true });
     } catch (error) {
         console.warn('Avatar apply failed:', error);
-        showMsg('Could not apply avatar. Please try again.', 'error');
+        showMsg(localeText('profile.applyAvatarFailed'), 'error');
         if ($useBtn) $useBtn.disabled = false;
     } finally {
         setBusy(false);
-        if ($useBtn) $useBtn.textContent = 'Use';
+        if ($useBtn) $useBtn.textContent = localeText('profile.use');
     }
 }
 

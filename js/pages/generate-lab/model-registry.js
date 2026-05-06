@@ -76,7 +76,7 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
             provider: 'OpenAI',
             route: '/api/ai/generate-image',
             outputType: 'image',
-            status: 'NEW',
+            status: DE ? 'NEU' : 'NEW',
             summary: DE ? 'OpenAI-Bildgenerierung und -Bearbeitung über Cloudflare AI Gateway.' : 'OpenAI image generation and editing via Cloudflare AI Gateway.',
             capabilities: Object.freeze([
                 DE ? 'Text zu Bild' : 'Text to image',
@@ -152,8 +152,8 @@ const pixverseV6Model = Object.freeze({
     capabilities: Object.freeze([
         DE ? 'Text zu Video' : 'Text-to-video',
         DE ? 'Optionale Bild-zu-Video-Referenz' : 'Optional image-to-video reference',
-        `${PIXVERSE_V6_MIN_DURATION}-${PIXVERSE_V6_MAX_DURATION} second duration`,
-        `${PIXVERSE_V6_QUALITIES.join(', ')} quality`,
+        DE ? `${PIXVERSE_V6_MIN_DURATION}-${PIXVERSE_V6_MAX_DURATION} Sekunden Dauer` : `${PIXVERSE_V6_MIN_DURATION}-${PIXVERSE_V6_MAX_DURATION} second duration`,
+        DE ? `${PIXVERSE_V6_QUALITIES.join(', ')} Qualität` : `${PIXVERSE_V6_QUALITIES.join(', ')} quality`,
         DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
     ]),
     defaults: Object.freeze({

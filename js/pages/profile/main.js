@@ -19,6 +19,7 @@ import {
     unlinkLinkedWallet,
 } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 import {
     apiAiGetFolders,
@@ -212,80 +213,80 @@ function renderWalletSection(state = walletViewState) {
     $walletSectionActions.innerHTML = '';
 
     if (!state.authReady) {
-        $walletSectionCopy.textContent = 'Loading wallet and account status…';
-        $walletSectionRows.appendChild(createWalletRow('Status', 'Loading…'));
+        $walletSectionCopy.textContent = localeText('profile.loadingWallet');
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), localeText('profile.loading')));
         return;
     }
 
     if (!linkedWallet && !isConnected) {
-        $walletSectionCopy.textContent = 'No wallet is linked yet. Connect an Ethereum Mainnet wallet to link it to this BITBI account.';
-        $walletSectionRows.appendChild(createWalletRow('Status', createWalletPill('No wallet linked')));
+        $walletSectionCopy.textContent = localeText('profile.noWalletCopy');
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.noWalletLinked'))));
 
         const connectBtn = document.createElement('button');
         connectBtn.type = 'button';
         connectBtn.className = 'profile__wallet-btn';
-        connectBtn.textContent = 'Connect Wallet';
+        connectBtn.textContent = localeText('profile.connectWallet');
         connectBtn.addEventListener('click', () => openWalletPanelView());
         $walletSectionActions.appendChild(connectBtn);
         return;
     }
 
     if (!linkedWallet && isConnected) {
-        $walletSectionCopy.textContent = 'Your wallet is connected in this browser, but it is not linked to your BITBI account yet.';
-        $walletSectionRows.appendChild(createWalletRow('Status', createWalletPill('Connected, not linked', 'warning')));
-        $walletSectionRows.appendChild(createWalletRow('Connected wallet', connectedAddress));
-        $walletSectionRows.appendChild(createWalletRow('Network', state.active?.chainLabel || '\u2014'));
+        $walletSectionCopy.textContent = localeText('profile.connectedNotLinkedCopy');
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.connectedNotLinked'), 'warning')));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.connectedWallet'), connectedAddress));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.network'), state.active?.chainLabel || '\u2014'));
 
         const linkBtn = document.createElement('button');
         linkBtn.type = 'button';
         linkBtn.className = 'profile__wallet-btn';
         linkBtn.disabled = actionBusy;
-        linkBtn.textContent = actionBusy ? 'Working…' : 'Link Connected Wallet';
+        linkBtn.textContent = actionBusy ? localeText('profile.working') : localeText('profile.linkConnectedWallet');
         linkBtn.addEventListener('click', () => requestWalletLink());
         $walletSectionActions.appendChild(linkBtn);
 
         const panelBtn = document.createElement('button');
         panelBtn.type = 'button';
         panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
-        panelBtn.textContent = 'Open Wallet Panel';
+        panelBtn.textContent = localeText('profile.openWalletPanel');
         panelBtn.addEventListener('click', () => openWalletPanelView());
         $walletSectionActions.appendChild(panelBtn);
         return;
     }
 
     if (linkedWallet) {
-        $walletSectionRows.appendChild(createWalletRow('Linked wallet', linkedWallet.address));
-        $walletSectionRows.appendChild(createWalletRow('Network', 'Ethereum Mainnet'));
-        $walletSectionRows.appendChild(createWalletRow('Linked at', formatDate(linkedWallet.linkedAt)));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.linkedWallet'), linkedWallet.address));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.network'), 'Ethereum Mainnet'));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.linkedAt'), formatDate(linkedWallet.linkedAt)));
         if (linkedWallet.lastLoginAt) {
-            $walletSectionRows.appendChild(createWalletRow('Last wallet sign-in', formatDate(linkedWallet.lastLoginAt)));
+            $walletSectionRows.appendChild(createWalletRow(localeText('profile.lastWalletSignIn'), formatDate(linkedWallet.lastLoginAt)));
         }
     }
 
     if (linkedWallet && linkedMatchesConnected) {
-        $walletSectionCopy.textContent = 'The connected wallet matches the wallet linked to this BITBI account.';
-        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Linked and connected', 'success')));
+        $walletSectionCopy.textContent = localeText('profile.walletMatches');
+        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.linkedConnected'), 'success')));
     } else if (linkedWallet && connectedDiffersFromLinked) {
-        $walletSectionCopy.textContent = 'A different wallet is connected in this browser than the wallet currently linked to this BITBI account.';
-        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Different wallet connected', 'danger')));
-        $walletSectionRows.appendChild(createWalletRow('Connected wallet', connectedAddress));
+        $walletSectionCopy.textContent = localeText('profile.differentWallet');
+        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.differentWalletConnected'), 'danger')));
+        $walletSectionRows.appendChild(createWalletRow(localeText('profile.connectedWallet'), connectedAddress));
     } else if (linkedWallet) {
-        $walletSectionCopy.textContent = 'A wallet is linked to this BITBI account. You can keep your BITBI session active even when the wallet is not currently connected.';
-        $walletSectionRows.prepend(createWalletRow('Status', createWalletPill('Linked', 'success')));
+        $walletSectionCopy.textContent = localeText('profile.walletLinkedCopy');
+        $walletSectionRows.prepend(createWalletRow(localeText('profile.status'), createWalletPill(localeText('profile.linked'), 'success')));
     }
 
     if (!isConnected) {
         const connectBtn = document.createElement('button');
         connectBtn.type = 'button';
         connectBtn.className = 'profile__wallet-btn';
-        connectBtn.textContent = 'Connect Wallet';
+        connectBtn.textContent = localeText('profile.connectWallet');
         connectBtn.addEventListener('click', () => openWalletPanelView());
         $walletSectionActions.appendChild(connectBtn);
     } else {
         const panelBtn = document.createElement('button');
         panelBtn.type = 'button';
         panelBtn.className = 'profile__wallet-btn profile__wallet-btn--ghost';
-        panelBtn.textContent = 'Open Wallet Panel';
+        panelBtn.textContent = localeText('profile.openWalletPanel');
         panelBtn.addEventListener('click', () => openWalletPanelView());
         $walletSectionActions.appendChild(panelBtn);
     }
@@ -294,14 +295,14 @@ function renderWalletSection(state = walletViewState) {
     unlinkBtn.type = 'button';
     unlinkBtn.className = 'profile__wallet-btn profile__wallet-btn--danger';
     unlinkBtn.disabled = actionBusy;
-    unlinkBtn.textContent = state.identityAction === 'unlinking' ? 'Unlinking…' : 'Unlink Wallet';
+    unlinkBtn.textContent = state.identityAction === 'unlinking' ? localeText('profile.unlinking') : localeText('profile.unlinkWallet');
     unlinkBtn.addEventListener('click', async () => {
         showWalletSectionMsg('', 'success');
         try {
             await unlinkLinkedWallet();
-            showWalletSectionMsg('Wallet unlinked from this BITBI account.', 'success');
+            showWalletSectionMsg(localeText('profile.walletUnlinked'), 'success');
         } catch {
-            showWalletSectionMsg('Could not unlink that wallet.', 'error');
+            showWalletSectionMsg(localeText('profile.walletUnlinkFailed'), 'error');
         }
     });
     $walletSectionActions.appendChild(unlinkBtn);
@@ -312,7 +313,7 @@ const AVATAR_URL = '/api/profile/avatar';
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const AVATAR_UNFOLDERED_FILTER = '__unfoldered__';
-const AVATAR_DEFAULT_STATUS = 'Choose an image for your profile photo.';
+const AVATAR_DEFAULT_STATUS = localeText('profile.chooseProfilePhoto');
 
 const avatarModalCleanups = new Map();
 const avatarPickerState = {
@@ -352,14 +353,14 @@ function loadAvatar(bustCache) {
     img.src = src;
 }
 
-function setAvatarActionState(isBusy, text = 'Change Photo') {
+function setAvatarActionState(isBusy, text = localeText('profile.changePhoto')) {
     avatarActionBusy = isBusy;
     if ($avatarChangeBtn) $avatarChangeBtn.disabled = isBusy;
     if ($avatarInput) $avatarInput.disabled = isBusy;
     if ($avatarChooseSavedAssets) $avatarChooseSavedAssets.disabled = isBusy;
     if ($avatarChooseUploadDevice) $avatarChooseUploadDevice.disabled = isBusy;
     if ($avatarChooseGenerate) $avatarChooseGenerate.disabled = isBusy;
-    if ($avatarUploadText) $avatarUploadText.textContent = isBusy ? text : 'Change Photo';
+    if ($avatarUploadText) $avatarUploadText.textContent = isBusy ? text : localeText('profile.changePhoto');
 }
 
 function setAvatarAssetsStatus(text, type = 'neutral') {
@@ -438,21 +439,21 @@ function getAvatarAssetPreviewState(asset) {
     if (status === 'failed') {
         return {
             variant: 'failed',
-            label: 'Thumbnail unavailable',
-            hint: 'This image still needs a generated thumbnail before it can be used as your profile photo.',
+            label: localeText('profile.thumbnailUnavailable'),
+            hint: localeText('profile.thumbnailUnavailableHint'),
         };
     }
     if (status === 'processing') {
         return {
             variant: 'pending',
-            label: 'Preparing preview',
-            hint: 'The thumbnail is still being generated.',
+            label: localeText('profile.thumbnailPreparing'),
+            hint: localeText('profile.thumbnailPreparingHint'),
         };
     }
     return {
         variant: 'pending',
-        label: 'Preview pending',
-        hint: 'This image needs a thumbnail before it can be used as your profile photo.',
+        label: localeText('profile.thumbnailPending'),
+        hint: localeText('profile.thumbnailPendingHint'),
     };
 }
 
@@ -468,7 +469,7 @@ function buildAvatarAssetPlaceholder(asset) {
 
     const title = document.createElement('span');
     title.className = 'studio__image-preview-title';
-    title.textContent = asset.title || asset.preview_text || 'Saved image';
+    title.textContent = asset.title || asset.preview_text || localeText('profile.savedImage');
     placeholder.appendChild(title);
 
     const hint = document.createElement('span');
@@ -481,20 +482,20 @@ function buildAvatarAssetPlaceholder(asset) {
 
 function getAvatarAssetMeta(asset) {
     const folderLabel = asset.folder_id
-        ? avatarPickerState.folderNames.get(asset.folder_id) || 'Saved Assets'
-        : 'Unfoldered';
+        ? avatarPickerState.folderNames.get(asset.folder_id) || localeText('profile.savedAssets')
+        : localeText('profile.unfoldered');
     const dateLabel = asset.created_at ? formatDate(asset.created_at) : null;
     return [folderLabel, dateLabel].filter(Boolean).join(' / ');
 }
 
 function getAvatarAssetActionLabel(asset) {
     if (avatarPickerState.actionId === asset.id) {
-        return 'Working\u2026';
+        return localeText('profile.working');
     }
     if (asset.thumb_url) {
-        return 'Use Photo';
+        return localeText('profile.usePhoto');
     }
-    return asset.derivatives_status === 'failed' ? 'Retry Preview' : 'Prepare Preview';
+    return asset.derivatives_status === 'failed' ? localeText('profile.retryPreview') : localeText('profile.preparePreview');
 }
 
 function renderAvatarAssetsGrid() {
@@ -505,7 +506,7 @@ function renderAvatarAssetsGrid() {
     if (avatarPickerState.loading) {
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
-        empty.textContent = 'Loading saved images...';
+        empty.textContent = localeText('profile.loadingSavedImages');
         $avatarAssetsGrid.appendChild(empty);
         return;
     }
@@ -513,7 +514,7 @@ function renderAvatarAssetsGrid() {
     if (!avatarPickerState.assets.length) {
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
-        empty.textContent = 'No saved images available in this view.';
+        empty.textContent = localeText('profile.noSavedImages');
         $avatarAssetsGrid.appendChild(empty);
         return;
     }
@@ -533,7 +534,7 @@ function renderAvatarAssetsGrid() {
         if (asset.thumb_url) {
             const img = document.createElement('img');
             img.src = asset.thumb_url;
-            img.alt = asset.title || asset.preview_text || 'Saved image';
+            img.alt = asset.title || asset.preview_text || localeText('profile.savedImage');
             img.loading = 'lazy';
             img.decoding = 'async';
             img.crossOrigin = 'use-credentials';
@@ -547,7 +548,7 @@ function renderAvatarAssetsGrid() {
 
         const title = document.createElement('span');
         title.className = 'profile-avatar-picker__asset-title';
-        title.textContent = asset.title || asset.preview_text || 'Saved image';
+        title.textContent = asset.title || asset.preview_text || localeText('profile.savedImage');
         body.appendChild(title);
 
         const meta = document.createElement('span');
@@ -581,13 +582,13 @@ function renderAvatarAssetsFilter({ unfolderedCount = 0 } = {}) {
 
     const allOption = document.createElement('option');
     allOption.value = '';
-    allOption.textContent = 'All Saved Images';
+    allOption.textContent = localeText('profile.allSavedImages');
     $avatarAssetsFilter.appendChild(allOption);
 
     if (unfolderedCount > 0) {
         const unfolderedOption = document.createElement('option');
         unfolderedOption.value = AVATAR_UNFOLDERED_FILTER;
-        unfolderedOption.textContent = 'Unfoldered';
+        unfolderedOption.textContent = localeText('profile.unfoldered');
         $avatarAssetsFilter.appendChild(unfolderedOption);
     }
 
@@ -614,7 +615,7 @@ async function loadAvatarPickerFolders() {
 
 async function loadAvatarPickerAssets() {
     avatarPickerState.loading = true;
-    setAvatarAssetsStatus('Loading saved images...', 'neutral');
+    setAvatarAssetsStatus(localeText('profile.loadingSavedImages'), 'neutral');
     renderAvatarAssetsGrid();
 
     const filterValue = $avatarAssetsFilter?.value || '';
@@ -628,7 +629,7 @@ async function loadAvatarPickerAssets() {
     avatarPickerState.loading = false;
     renderAvatarAssetsGrid();
     setAvatarAssetsStatus(
-        avatarPickerState.assets.length ? AVATAR_DEFAULT_STATUS : 'No saved images available in this view.',
+        avatarPickerState.assets.length ? AVATAR_DEFAULT_STATUS : localeText('profile.noSavedImages'),
         'neutral'
     );
 }
@@ -646,8 +647,8 @@ async function prepareAvatarAssetPreview(asset) {
     avatarPickerState.actionId = asset.id;
     setAvatarAssetsStatus(
         asset.derivatives_status === 'failed'
-            ? 'Retrying thumbnail generation...'
-            : 'Preparing thumbnail...',
+            ? localeText('profile.retryingThumbnail')
+            : localeText('profile.preparingThumbnail'),
         'neutral'
     );
     renderAvatarAssetsGrid();
@@ -676,9 +677,9 @@ async function prepareAvatarAssetPreview(asset) {
             target.medium_url = target.medium_url || `/api/ai/images/${asset.id}/medium`;
             target.derivatives_status = 'ready';
         }
-        setAvatarAssetsStatus('Thumbnail ready. Select Use Photo to update your avatar.', 'success');
+        setAvatarAssetsStatus(localeText('profile.thumbnailReady'), 'success');
     } catch {
-        setAvatarAssetsStatus('Network error. Please try again.', 'error');
+        setAvatarAssetsStatus(localeText('profile.networkError'), 'error');
     } finally {
         avatarPickerState.actionId = null;
         renderAvatarAssetsGrid();
@@ -689,8 +690,8 @@ async function assignAvatarFromSavedAsset(asset) {
     if (!asset?.id || avatarPickerState.actionId || avatarActionBusy) return;
 
     avatarPickerState.actionId = asset.id;
-    setAvatarActionState(true, 'Updating\u2026');
-    setAvatarAssetsStatus('Updating profile photo...', 'neutral');
+    setAvatarActionState(true, localeText('profile.updating'));
+    setAvatarAssetsStatus(localeText('profile.updatingProfilePhoto'), 'neutral');
     renderAvatarAssetsGrid();
 
     try {
@@ -702,13 +703,13 @@ async function assignAvatarFromSavedAsset(asset) {
             });
             closeAvatarAssetsModal({ focusEl: $avatarChangeBtn });
             setAvatarAssetsStatus(AVATAR_DEFAULT_STATUS, 'neutral');
-            showAvatarMsg('Photo updated.', 'success');
+            showAvatarMsg(localeText('profile.photoUpdated'), 'success');
             loadAvatar(true);
             return;
         }
 
         setAvatarAssetsStatus(
-            result.error || 'Could not update your profile photo.',
+            result.error || localeText('profile.updatePhotoFailed'),
             result.code === 'avatar_thumb_unavailable' ? 'neutral' : 'error'
         );
     } finally {
@@ -748,22 +749,22 @@ function renderProfile(profile, account) {
 
     const verifiedBadge = document.createElement('span');
     verifiedBadge.className = `profile__badge profile__badge--${isVerified ? 'verified' : isLegacy ? 'legacy' : 'unverified'}`;
-    verifiedBadge.textContent = isVerified ? 'Yes' : isLegacy ? 'Pending' : 'No';
+    verifiedBadge.textContent = isVerified ? localeText('profile.yes') : isLegacy ? localeText('profile.pending') : localeText('profile.no');
     $summaryVerified.appendChild(verifiedBadge);
 
     if (isLegacy) {
         const verifyLink = document.createElement('button');
         verifyLink.type = 'button';
         verifyLink.className = 'profile__verify-link';
-        verifyLink.textContent = 'Verify now';
+        verifyLink.textContent = localeText('profile.verifyNow');
         verifyLink.addEventListener('click', async () => {
             verifyLink.disabled = true;
-            verifyLink.textContent = 'Sending\u2026';
+            verifyLink.textContent = localeText('profile.sending');
             const res = await apiRequestReverification();
             if (res.ok) {
-                verifyLink.textContent = 'Email sent!';
+                verifyLink.textContent = localeText('profile.emailSent');
             } else {
-                verifyLink.textContent = 'Verify now';
+                verifyLink.textContent = localeText('profile.verifyNow');
                 verifyLink.disabled = false;
             }
         });
@@ -978,7 +979,7 @@ const $viewerStar = document.createElement('button');
 $viewerStar.type = 'button';
 $viewerStar.className = 'fav-star fav-star--active fav-viewer__fav-star';
 $viewerStar.setAttribute('aria-pressed', 'true');
-$viewerStar.setAttribute('aria-label', 'Remove from favorites');
+$viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
 $viewerStar.innerHTML = '<svg class="fav-star__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>';
 $viewerStar.style.display = 'none';
 if ($viewer) $viewer.appendChild($viewerStar);
@@ -993,7 +994,7 @@ $viewerStar.addEventListener('click', async () => {
     /* Optimistic UI */
     $viewerStar.classList.remove('fav-star--active');
     $viewerStar.setAttribute('aria-pressed', 'false');
-    $viewerStar.setAttribute('aria-label', 'Removed from favorites');
+    $viewerStar.setAttribute('aria-label', localeText('profile.removedFavorites'));
 
     const res = await apiRemoveFavorite(fav.item_type, fav.item_id);
     if (viewerStarBusyFav === fav) viewerStarBusyFav = null;
@@ -1008,7 +1009,7 @@ $viewerStar.addEventListener('click', async () => {
         /* Revert only if still viewing the same item */
         $viewerStar.classList.add('fav-star--active');
         $viewerStar.setAttribute('aria-pressed', 'true');
-        $viewerStar.setAttribute('aria-label', 'Remove from favorites');
+        $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
     }
 });
 
@@ -1024,7 +1025,7 @@ function removeFavTile(type, id) {
         grid.remove();
         const empty = document.createElement('p');
         empty.className = 'favorites__empty';
-        empty.textContent = 'No favorites yet';
+        empty.textContent = localeText('profile.noFavorites');
         container.appendChild(empty);
     } else if (grid) {
         const container = grid.parentElement;
@@ -1072,7 +1073,7 @@ function openGalleryInViewer(fav) {
         fullLink.target = '_blank';
         fullLink.rel = 'noopener noreferrer';
         fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-        fullLink.appendChild(document.createTextNode(' Open full size'));
+        fullLink.appendChild(document.createTextNode(localeText('profile.openFullSize')));
         info.appendChild(fullLink);
     }
 
@@ -1100,7 +1101,7 @@ function openMempicInViewer(fav) {
     fullLink.target = '_blank';
     fullLink.rel = 'noopener noreferrer';
     fullLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    fullLink.appendChild(document.createTextNode(' Open full size'));
+    fullLink.appendChild(document.createTextNode(localeText('profile.openFullSize')));
     info.appendChild(fullLink);
 
     $viewerBody.innerHTML = '';
@@ -1141,7 +1142,7 @@ function openSoundlabInViewer(fav) {
     playBtn.type = 'button';
     playBtn.className = 'fav-viewer__play-btn';
     playBtn.id = 'fvPlay';
-    playBtn.setAttribute('aria-label', `Play ${title}`);
+    playBtn.setAttribute('aria-label', localeText('profile.play', { title }));
     playBtn.innerHTML = '<svg id="fvPlayIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg id="fvPauseIcon" width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
 
     const trackInfo = document.createElement('div');
@@ -1188,7 +1189,7 @@ function openSoundlabInViewer(fav) {
         artwork: thumbUrl,
         access: 'public',
         collection: 'memtracks',
-        originLabel: 'Profile favorites',
+        originLabel: localeText('profile.profileFavorites'),
         crossOrigin: '',
     };
     if (!track) return;
@@ -1265,7 +1266,7 @@ function openVideoInViewer(fav) {
     openLink.target = '_blank';
     openLink.rel = 'noopener noreferrer';
     openLink.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-    openLink.appendChild(document.createTextNode(' Open video'));
+    openLink.appendChild(document.createTextNode(localeText('profile.openVideo')));
     info.appendChild(openLink);
 
     $viewerBody.innerHTML = '';
@@ -1292,7 +1293,7 @@ function renderFavorites(favorites) {
         if (items.length === 0) {
             const empty = document.createElement('p');
             empty.className = 'favorites__empty';
-            empty.textContent = 'No favorites yet';
+            empty.textContent = localeText('profile.noFavorites');
             container.appendChild(empty);
             continue;
         }
@@ -1361,7 +1362,7 @@ function renderFavorites(favorites) {
             toggle.type = 'button';
             toggle.className = 'favorites__toggle';
             toggle.setAttribute('aria-expanded', 'false');
-            toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show all';
+            toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showAll') + '';
 
             toggle.addEventListener('click', () => {
                 const expanded = toggle.getAttribute('aria-expanded') === 'true';
@@ -1369,11 +1370,11 @@ function renderFavorites(favorites) {
                 if (expanded) {
                     allTiles.forEach((t, i) => { if (i >= LIMIT) t.style.display = 'none'; });
                     toggle.setAttribute('aria-expanded', 'false');
-                    toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show all';
+                    toggle.innerHTML = '<svg class="favorites__toggle-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showAll') + '';
                 } else {
                     allTiles.forEach(t => { t.style.display = ''; });
                     toggle.setAttribute('aria-expanded', 'true');
-                    toggle.innerHTML = '<svg class="favorites__toggle-arrow favorites__toggle-arrow--up" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> Show less';
+                    toggle.innerHTML = '<svg class="favorites__toggle-arrow favorites__toggle-arrow--up" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' + localeText('profile.showLess') + '';
                 }
             });
 
@@ -1386,7 +1387,7 @@ function handleTileClick(fav) {
     viewerCurrentFav = fav;
     $viewerStar.classList.add('fav-star--active');
     $viewerStar.setAttribute('aria-pressed', 'true');
-    $viewerStar.setAttribute('aria-label', 'Remove from favorites');
+    $viewerStar.setAttribute('aria-label', localeText('profile.removeFavorites'));
     $viewerStar.style.display = '';
 
     switch (fav.item_type) {
@@ -1491,7 +1492,7 @@ async function init() {
                 has_avatar: true,
                 avatar_url: `${AVATAR_URL}?t=${Date.now()}`,
             });
-            showAvatarMsg('Photo updated.', 'success');
+            showAvatarMsg(localeText('profile.photoUpdated'), 'success');
             loadAvatar(true);
             syncAvatarModalBodyLock();
             $avatarChangeBtn?.focus();
@@ -1518,18 +1519,18 @@ async function init() {
         hideAvatarMsg();
 
         if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
-            showAvatarMsg('Invalid file type. Allowed: JPEG, PNG, WebP.', 'error');
+            showAvatarMsg(localeText('profile.invalidFile'), 'error');
             $avatarInput.value = '';
             return;
         }
         if (file.size > MAX_AVATAR_SIZE) {
-            showAvatarMsg('File too large. Maximum size is 2 MB.', 'error');
+            showAvatarMsg(localeText('profile.fileTooLarge'), 'error');
             $avatarInput.value = '';
             return;
         }
 
         const wasRemoveDisabled = $avatarRemoveBtn.disabled;
-        setAvatarActionState(true, 'Uploading\u2026');
+        setAvatarActionState(true, localeText('profile.uploading'));
         $avatarRemoveBtn.disabled = true;
 
         const result = await apiUploadAvatar(file);
@@ -1543,7 +1544,7 @@ async function init() {
                 has_avatar: true,
                 avatar_url: `${AVATAR_URL}?t=${Date.now()}`,
             });
-            showAvatarMsg('Photo updated.', 'success');
+            showAvatarMsg(localeText('profile.photoUpdated'), 'success');
             loadAvatar(true);
         } else {
             showAvatarMsg(result.error, 'error');
@@ -1555,20 +1556,20 @@ async function init() {
         hideAvatarMsg();
         setAvatarActionState(true);
         $avatarRemoveBtn.disabled = true;
-        $avatarRemoveBtn.textContent = 'Removing\u2026';
+        $avatarRemoveBtn.textContent = localeText('profile.removing');
 
         const result = await apiDeleteAvatar();
 
         setAvatarActionState(false);
         $avatarRemoveBtn.disabled = false;
-        $avatarRemoveBtn.textContent = 'Remove';
+        $avatarRemoveBtn.textContent = localeText('profile.remove');
 
         if (result.ok) {
             patchAuthUser({
                 has_avatar: false,
                 avatar_url: null,
             });
-            showAvatarMsg('Photo removed.', 'success');
+            showAvatarMsg(localeText('profile.photoRemoved'), 'success');
             loadAvatar(true);
         } else {
             showAvatarMsg(result.error, 'error');
@@ -1581,7 +1582,7 @@ async function init() {
         hideMsg();
 
         $submitBtn.disabled = true;
-        $submitBtn.textContent = 'Saving...';
+        $submitBtn.textContent = localeText('profile.saving');
 
         const result = await apiUpdateProfile({
             display_name: $displayName.value,
@@ -1590,13 +1591,13 @@ async function init() {
         });
 
         $submitBtn.disabled = false;
-        $submitBtn.textContent = 'Save Changes';
+        $submitBtn.textContent = localeText('profile.saveChanges');
 
         if (result.ok) {
             patchAuthUser({
                 display_name: $displayName.value.trim(),
             });
-            showMsg('Profile updated.', 'success');
+            showMsg(localeText('profile.profileUpdated'), 'success');
             $summaryName.textContent = $displayName.value.trim() || '\u2014';
         } else {
             showMsg(result.error, 'error');

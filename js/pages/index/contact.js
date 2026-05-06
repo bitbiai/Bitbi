@@ -2,6 +2,8 @@
    BITBI — Contact form handler
    ============================================================ */
 
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+
 export function initContact() {
     const section = document.getElementById('contact');
     const form = document.getElementById('contactForm');
@@ -160,7 +162,7 @@ export function initContact() {
         const btn = form.querySelector('button[type=submit]');
         const orig = btn.textContent;
         btn.disabled = true;
-        btn.textContent = 'Sending...';
+        btn.textContent = localeText('contact.sending');
         try {
             const res = await fetch('https://contact.bitbi.ai/', {
                 method: 'POST',
@@ -175,11 +177,11 @@ export function initContact() {
                 })
             });
             if (!res.ok) throw new Error('Failed');
-            btn.textContent = 'Sent!';
+            btn.textContent = localeText('contact.sent');
             form.reset();
             setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
         } catch {
-            btn.textContent = 'Error - try again';
+            btn.textContent = localeText('contact.error');
             btn.disabled = false;
             setTimeout(() => { btn.textContent = orig; }, 3000);
         }

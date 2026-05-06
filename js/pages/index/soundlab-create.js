@@ -9,6 +9,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const BASE_PRICE = 150;
 const SEPARATE_LYRICS_PRICE = 160;
@@ -49,7 +50,7 @@ function renderPreviewLoading() {
     const spinner = document.createElement('div');
     spinner.className = 'studio__spinner';
     const label = document.createElement('span');
-    label.textContent = 'Creating your track...';
+    label.textContent = localeText('studio.creatingTrack');
     loading.append(spinner, label);
     replacePreview(loading);
 }
@@ -126,15 +127,15 @@ function currentPrice() {
 function renderGenerateLabel() {
     if (!$generateBtn) return;
     const price = currentPrice();
-    $generateBtn.textContent = `Generate Music — ${price} Credits`;
+    $generateBtn.textContent = localeText('studio.generateMusicCost', { cost: price });
     if ($costLabel) {
-        $costLabel.textContent = `${price} credits`;
+        $costLabel.textContent = localeText('credits.credits', { count: price });
     }
 }
 
 function renderQuota() {
     if (!$quotaEl || creditBalance === null) return;
-    $quotaEl.textContent = `${creditBalance} credits available`;
+    $quotaEl.textContent = localeText('studio.creditsAvailable', { count: creditBalance });
     $quotaEl.classList.toggle('studio__quota--empty', creditBalance < currentPrice());
 }
 
@@ -182,10 +183,10 @@ function syncOptionState() {
 function renderResult(data) {
     const audioUrl = data?.audioUrl || data?.asset?.file_url || '';
     if (!audioUrl) {
-        renderPreviewEmpty('No playable audio returned');
+        renderPreviewEmpty(localeText('studio.noPlayableAudio'));
         return;
     }
-    const title = data?.asset?.title || 'Generated music';
+    const title = data?.asset?.title || localeText('studio.generatedMusic');
     const lyrics = data?.lyricsPreview || data?.generatedLyrics || '';
     const coverUrl = data?.asset?.poster_url || data?.coverUrl || '';
 
@@ -207,18 +208,18 @@ function renderResult(data) {
     const play = document.createElement('button');
     play.type = 'button';
     play.className = 'sound-create__cover-play';
-    play.setAttribute('aria-label', `Play ${title}`);
+    play.setAttribute('aria-label', localeText('studio.play', { title }));
     play.textContent = '▶';
     play.addEventListener('click', async () => {
         try {
             if (audio.paused) {
                 await audio.play();
                 play.textContent = '||';
-                play.setAttribute('aria-label', `Pause ${title}`);
+                play.setAttribute('aria-label', localeText('studio.pause', { title }));
             } else {
                 audio.pause();
                 play.textContent = '▶';
-                play.setAttribute('aria-label', `Play ${title}`);
+                play.setAttribute('aria-label', localeText('studio.play', { title }));
             }
         } catch (error) {
             console.warn('Sound Lab playback failed:', error);
@@ -226,15 +227,15 @@ function renderResult(data) {
     });
     audio.addEventListener('pause', () => {
         play.textContent = '▶';
-        play.setAttribute('aria-label', `Play ${title}`);
+        play.setAttribute('aria-label', localeText('studio.play', { title }));
     });
     audio.addEventListener('ended', () => {
         play.textContent = '▶';
-        play.setAttribute('aria-label', `Play ${title}`);
+        play.setAttribute('aria-label', localeText('studio.play', { title }));
     });
     audio.addEventListener('play', () => {
         play.textContent = '||';
-        play.setAttribute('aria-label', `Pause ${title}`);
+        play.setAttribute('aria-label', localeText('studio.pause', { title }));
     });
 
     cover.append(play);
@@ -260,8 +261,8 @@ function renderResult(data) {
     if (data?.asset?.id) {
         const link = document.createElement('a');
         link.className = 'studio__save-link';
-        link.href = '/account/assets-manager.html';
-        link.textContent = 'Open in Assets Manager';
+        link.href = localizedHref('/account/assets-manager.html');
+        link.textContent = localeText('studio.openAssetsManager');
         result.append(link);
     }
 
@@ -278,14 +279,14 @@ async function handleGenerate() {
 
     const prompt = ($prompt.value || '').trim();
     if (!prompt) {
-        showMsg($msg, 'Prompt is required.', 'error');
+        showMsg($msg, localeText('studio.promptRequired'), 'error');
         return;
     }
 
     hideMsg($msg);
     syncOptionState();
     $generateBtn.disabled = true;
-    $generateBtn.textContent = 'Generating Music...';
+    $generateBtn.textContent = localeText('studio.generatingMusic');
     renderPreviewLoading();
 
     const payload = {
@@ -305,8 +306,8 @@ async function handleGenerate() {
         });
     } catch (error) {
         console.warn('Sound Lab music generation failed:', error);
-        renderPreviewEmpty('Music generation failed');
-        showMsg($msg, 'Generation failed. Please try again.', 'error');
+        renderPreviewEmpty(localeText('studio.musicGenerationFailed'));
+        showMsg($msg, localeText('studio.generationFailed'), 'error');
         return;
     } finally {
         $generateBtn.disabled = false;
@@ -314,8 +315,8 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        renderPreviewEmpty('Music generation failed');
-        showMsg($msg, res.error || 'Generation failed. Please try again.', 'error');
+        renderPreviewEmpty(localeText('studio.musicGenerationFailed'));
+        showMsg($msg, res.error || localeText('studio.generationFailed'), 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
         }
@@ -324,7 +325,7 @@ async function handleGenerate() {
 
     const data = res.data?.data || res.data || {};
     renderResult(data);
-    showMsg($msg, 'Music generated and saved.', 'success');
+    showMsg($msg, localeText('studio.musicGeneratedSaved'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
     if (typeof balanceAfter === 'number') {

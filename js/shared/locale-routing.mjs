@@ -122,7 +122,8 @@ export function getCountryCode(headers = {}) {
 }
 
 export function isGermanPath(pathname) {
-  return normalizePathname(pathname).startsWith("/de/");
+  const path = normalizePathname(pathname);
+  return path === "/de" || path.startsWith("/de/");
 }
 
 export function isDocumentRoute(pathname) {
@@ -136,6 +137,7 @@ export function isDocumentRoute(pathname) {
 
 export function toGermanPath(pathname) {
   const path = normalizePathname(pathname);
+  if (path === "/de") return "/de/";
   if (path.startsWith("/de/")) return path;
   if (SPECIAL_DE_PATHS.has(path)) return SPECIAL_DE_PATHS.get(path);
   if (path.startsWith("/account/")) return `/de${path}`;
@@ -146,6 +148,7 @@ export function toGermanPath(pathname) {
 
 export function toEnglishPath(pathname) {
   const path = normalizePathname(pathname);
+  if (path === "/de") return "/";
   if (!path.startsWith("/de/")) return path;
   if (SPECIAL_EN_PATHS.has(path)) return SPECIAL_EN_PATHS.get(path);
   return path.slice(3) || "/";
@@ -170,8 +173,11 @@ export function shouldGeoRedirect(requestLike) {
   if (method !== "GET" && method !== "HEAD") return false;
   const url = new URL(requestLike.url || "https://bitbi.ai/");
   if (!isDocumentRoute(url.pathname)) return false;
+  if (url.pathname === "/de") return true;
+  const cookieLocale = getLocaleCookie(requestLike.headers?.get?.("Cookie") || requestLike.headers?.cookie || "");
+  if (cookieLocale === "de") return !isGermanPath(url.pathname);
+  if (cookieLocale === "en") return false;
   if (isGermanPath(url.pathname)) return false;
-  if (getLocaleCookie(requestLike.headers?.get?.("Cookie") || requestLike.headers?.cookie || "")) return false;
   return isDachCountry(getCountryCode(requestLike.headers || {}));
 }
 

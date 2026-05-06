@@ -87,7 +87,7 @@
             <div class="mobile-nav__legal">
                 <a href="/de/legal/imprint.html" class="mobile-nav__legal-link">Impressum</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <a href="/de/legal/privacy.html" class="mobile-nav__legal-link">Datenschutz</a>
+                <a href="/de/legal/datenschutz.html" class="mobile-nav__legal-link">Datenschutz</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
                 <button id="mobileOpenCookieSettings" class="mobile-nav__legal-link" type="button">Cookie-Einstellungen</button>
             </div>
@@ -107,24 +107,24 @@
 
     <div class="hero__content hero__content--narrow">
         <h1 class="legal-hero__title gt-gold-cyan">Assets Manager</h1>
-        <p class="legal-hero__desc">Organize, preview, publish, and manage your saved media.</p>
+        <p class="legal-hero__desc">Organisieren, prüfen, veröffentlichen und verwalten Sie Ihre gespeicherten Medien.</p>
     </div>
 </section>
 
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
-<section class="section" aria-label="Assets Manager content">
+<section class="section" aria-label="Assets-Manager-Inhalt">
     <div class="section__inner--wide studio assets-manager-shell" style="margin-inline:auto">
 
         <!-- Loading State -->
-        <div id="loadingState" class="studio-loading reveal">Loading Assets Manager...</div>
+        <div id="loadingState" class="studio-loading reveal">Assets Manager wird geladen...</div>
 
         <!-- Denied State -->
         <div id="deniedState" class="glass glass-card reveal" style="display:none">
             <div class="studio-denied">
                 <div class="studio-denied__icon" aria-hidden="true">&#128274;</div>
-                <h2 class="studio-denied__title">Sign In Required</h2>
-                <p class="studio-denied__text">Please sign in to use Assets Manager.</p>
+                <h2 class="studio-denied__title">Anmeldung erforderlich</h2>
+                <p class="studio-denied__text">Bitte melden Sie sich an, um den Assets Manager zu nutzen.</p>
                 <p style="margin-block-start:var(--space-4)">
                     <a href="/de/" class="studio__back-link">&larr; Zurück zur Startseite</a>
                 </p>
@@ -134,32 +134,32 @@
         <!-- Assets Manager Content -->
         <div id="studioContent" class="assets-manager" style="display:none">
 
-            <!-- Saved Assets Galerie -->
+            <!-- Gespeicherte Assets Galerie -->
             <div id="studioSavedAssetsCard" class="studio__card assets-manager__dashboard reveal">
                 <div class="assets-manager__intro">
                     <div>
-                        <p class="assets-manager__eyebrow">Media Library</p>
-                        <h2 class="assets-manager__title">Saved Assets</h2>
+                        <p class="assets-manager__eyebrow">Medienbibliothek</p>
+                        <h2 class="assets-manager__title">Gespeicherte Assets</h2>
                         <p class="assets-manager__copy">Verwalten Sie Ordner, prüfen Sie gespeicherte Medien und veröffentlichen Sie Ihre besten Ergebnisse in einem fokussierten Arbeitsbereich.</p>
                     </div>
-                    <span class="assets-manager__status-pill">Private by default</span>
+                    <span class="assets-manager__status-pill">Standardmäßig privat</span>
                 </div>
 
                 <div class="studio__gallery-header assets-manager__toolbar">
-                    <h3 class="studio__card-title">Folders &amp; assets</h3>
+                    <h3 class="studio__card-title">Ordner &amp; Assets</h3>
                     <div class="studio__folder-bar">
                         <select id="studioGalleryFilter" class="studio__folder-filter">
-                            <option value="">All Folders</option>
+                            <option value="">Alle Ordner</option>
                         </select>
-                        <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
-                        <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
-                        <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
+                        <button type="button" id="studioNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Ordner</button>
+                        <button type="button" id="studioDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Ordner</button>
+                        <button type="button" id="studioSelectBtn" class="studio__new-folder-btn studio__folder-action">Auswählen</button>
                         <div class="studio__mobile-actions" id="studioMobileActions">
-                            <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset actions" aria-expanded="false">&#x22EE;</button>
+                            <button type="button" class="studio__mobile-actions-toggle" id="studioMobileActionsToggle" aria-label="Asset-Aktionen" aria-expanded="false">&#x22EE;</button>
                             <div class="studio__mobile-actions-menu" id="studioMobileActionsMenu">
-                                <button type="button" data-action="new-folder">+ Folder</button>
-                                <button type="button" data-action="delete-folder">&minus; Folder</button>
-                                <button type="button" data-action="select">Select</button>
+                                <button type="button" data-action="new-folder">+ Ordner</button>
+                                <button type="button" data-action="delete-folder">&minus; Ordner</button>
+                                <button type="button" data-action="select">Auswählen</button>
                             </div>
                         </div>
                     </div>
@@ -167,38 +167,38 @@
 
                 <!-- New Folder Form (hidden by default) -->
                 <div id="studioNewFolderForm" class="studio__new-folder-form">
-                    <input type="text" id="studioNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
-                    <button type="button" id="studioNewFolderSave" class="studio__new-folder-save">Create</button>
-                    <button type="button" id="studioNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
+                    <input type="text" id="studioNewFolderInput" class="studio__new-folder-input" placeholder="Ordnername" maxlength="100">
+                    <button type="button" id="studioNewFolderSave" class="studio__new-folder-save">Erstellen</button>
+                    <button type="button" id="studioNewFolderCancel" class="studio__new-folder-cancel">Abbrechen</button>
                 </div>
 
                 <!-- Delete Folder Form (hidden by default) -->
                 <div id="studioDeleteFolderForm" class="studio__delete-folder-form">
                     <select id="studioDeleteFolderSelect" class="studio__delete-folder-select"></select>
-                    <button type="button" id="studioDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
-                    <button type="button" id="studioDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
+                    <button type="button" id="studioDeleteFolderConfirm" class="studio__delete-folder-confirm">Löschen</button>
+                    <button type="button" id="studioDeleteFolderCancel" class="studio__delete-folder-cancel">Abbrechen</button>
                 </div>
 
                 <!-- Bulk Actions Bar (visible in selection mode) -->
                 <div id="studioBulkBar" class="studio__bulk-bar">
-                    <span id="studioBulkCount" class="studio__bulk-count">0 selected</span>
-                    <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
-                    <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
-                    <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
-                    <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                    <span id="studioBulkCount" class="studio__bulk-count">0 ausgewählt</span>
+                    <button type="button" id="studioBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Umbenennen</button>
+                    <button type="button" id="studioBulkMove" class="studio__bulk-btn studio__bulk-btn--move">In Ordner verschieben</button>
+                    <button type="button" id="studioBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Auswahl löschen</button>
+                    <button type="button" id="studioBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Abbrechen</button>
                 </div>
 
                 <div id="studioRenameForm" class="studio__bulk-move-form">
-                    <input type="text" id="studioRenameInput" class="studio__new-folder-input" placeholder="New name" maxlength="1000">
-                    <button type="button" id="studioRenameConfirm" class="studio__new-folder-save">Rename</button>
-                    <button type="button" id="studioRenameCancel" class="studio__new-folder-cancel">Cancel</button>
+                    <input type="text" id="studioRenameInput" class="studio__new-folder-input" placeholder="Neuer Name" maxlength="1000">
+                    <button type="button" id="studioRenameConfirm" class="studio__new-folder-save">Umbenennen</button>
+                    <button type="button" id="studioRenameCancel" class="studio__new-folder-cancel">Abbrechen</button>
                 </div>
 
                 <!-- Bulk Move Folder Picker (hidden by default) -->
                 <div id="studioBulkMoveForm" class="studio__bulk-move-form">
                     <select id="studioBulkMoveSelect" class="studio__bulk-move-select"></select>
-                    <button type="button" id="studioBulkMoveConfirm" class="studio__new-folder-save">Move</button>
-                    <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
+                    <button type="button" id="studioBulkMoveConfirm" class="studio__new-folder-save">Verschieben</button>
+                    <button type="button" id="studioBulkMoveCancel" class="studio__new-folder-cancel">Abbrechen</button>
                 </div>
 
                 <div id="studioGalleryMsg" class="studio__msg" role="status"></div>
@@ -208,7 +208,7 @@
 
                 <!-- Back to folders link (visible when inside a folder) -->
                 <div id="studioFolderBack" class="studio__folder-back">
-                    <button type="button" id="studioFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
+                    <button type="button" id="studioFolderBackBtn" class="studio__folder-back-btn">&larr; Alle Ordner</button>
                 </div>
 
                 <div id="studioImageGrid" class="studio__image-grid">
@@ -218,7 +218,7 @@
 
             <!-- Back Link -->
             <div class="studio__back">
-                <a href="/de/account/profile.html" class="studio__back-link">&larr; Back to Profile</a>
+                <a href="/de/account/profile.html" class="studio__back-link">&larr; Zurück zum Profil</a>
             </div>
 
         </div>
@@ -245,7 +245,7 @@
         <div class="site-footer__links">
             <a href="/de/legal/imprint.html" class="site-footer__link">Impressum</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="/de/legal/privacy.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
+            <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
             <span class="site-footer__dot">&bull;</span>
             <a href="#" id="openCookieSettings" class="site-footer__link">Cookie-Einstellungen</a>
         </div>

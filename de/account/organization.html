@@ -78,28 +78,28 @@
     <section class="credits-hero organization-hero" aria-labelledby="organizationTitle">
         <div class="credits-hero__glow credits-hero__glow--cyan" aria-hidden="true"></div>
         <div class="credits-hero__glow credits-hero__glow--gold" aria-hidden="true"></div>
-        <p class="credits-eyebrow">Organization context</p>
-        <h1 id="organizationTitle" class="credits-title gt-gold-cyan">Organization</h1>
-        <p class="credits-subtitle">Select the organization whose credits and role context should be used by Credits and charged Admin AI image tests.</p>
+        <p class="credits-eyebrow">Organisationskontext</p>
+        <h1 id="organizationTitle" class="credits-title gt-gold-cyan">Organisation</h1>
+        <p class="credits-subtitle">Wählen Sie die Organisation aus, deren Credits und Rollen-Kontext für Credits und kostenpflichtige Admin-AI-Bildtests verwendet werden sollen.</p>
     </section>
 
-    <section class="credits-shell organization-shell" aria-label="Organization dashboard">
-        <div id="organizationLoading" class="credits-state glass glass-card">Loading organization dashboard...</div>
+    <section class="credits-shell organization-shell" aria-label="Organisations-Dashboard">
+        <div id="organizationLoading" class="credits-state glass glass-card">Organisations-Dashboard wird geladen...</div>
         <div id="organizationDenied" class="credits-state glass glass-card" hidden>
-            <h2>Organization dashboard is not available</h2>
-            <p>Only platform admins and active organization owners can view this page.</p>
+            <h2>Organisations-Dashboard ist nicht verfügbar</h2>
+            <p>Nur Plattform-Admins und aktive Organisationsinhaber können diese Seite sehen.</p>
         </div>
         <div id="organizationError" class="credits-state credits-state--error glass glass-card" hidden></div>
 
         <div id="organizationDashboard" hidden>
             <div class="credits-toolbar glass glass-card">
                 <div>
-                    <p class="credits-eyebrow">Selected organization</p>
-                    <h2 id="organizationName">Not selected</h2>
-                    <p id="organizationAccess" class="credits-muted">Access scope pending.</p>
+                    <p class="credits-eyebrow">Ausgewählte Organisation</p>
+                    <h2 id="organizationName">Nicht ausgewählt</h2>
+                    <p id="organizationAccess" class="credits-muted">Zugriffsbereich ausstehend.</p>
                 </div>
                 <label id="organizationPickerWrap" class="credits-picker" hidden>
-                    <span>Switch organization</span>
+                    <span>Organisation wechseln</span>
                     <select id="organizationPicker"></select>
                 </label>
             </div>
@@ -111,18 +111,18 @@
                 <div class="credits-section__header">
                     <div>
                         <p class="credits-eyebrow">Credits</p>
-                        <h2 id="organizationLedgerTitle">Recent credit ledger</h2>
+                        <h2 id="organizationLedgerTitle">Letzter Credit-Ledger</h2>
                     </div>
                 </div>
                 <div class="credits-table-wrap">
                     <table class="credits-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Source</th>
-                                <th>Amount</th>
-                                <th>Balance</th>
+                                <th>Datum</th>
+                                <th>Typ</th>
+                                <th>Quelle</th>
+                                <th>Betrag</th>
+                                <th>Guthaben</th>
                             </tr>
                         </thead>
                         <tbody id="organizationLedgerBody"></tbody>
@@ -133,18 +133,18 @@
             <section class="credits-section" aria-labelledby="organizationDebitsTitle">
                 <div class="credits-section__header">
                     <div>
-                        <p class="credits-eyebrow">Admin AI diagnostics</p>
-                        <h2 id="organizationDebitsTitle">Recent admin image-test debits</h2>
+                        <p class="credits-eyebrow">Admin-AI-Diagnose</p>
+                        <h2 id="organizationDebitsTitle">Letzte Admin-Bildtest-Abbuchungen</h2>
                     </div>
                 </div>
                 <div class="credits-table-wrap">
                     <table class="credits-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Source</th>
-                                <th>Amount</th>
-                                <th>Balance</th>
+                                <th>Datum</th>
+                                <th>Quelle</th>
+                                <th>Betrag</th>
+                                <th>Guthaben</th>
                             </tr>
                         </thead>
                         <tbody id="organizationAdminDebitsBody"></tbody>
@@ -156,7 +156,7 @@
                 <div class="credits-section__header">
                     <div>
                         <p class="credits-eyebrow">RBAC</p>
-                        <h2 id="organizationMembersTitle">Members</h2>
+                        <h2 id="organizationMembersTitle">Mitglieder</h2>
                     </div>
                 </div>
                 <div class="credits-table-wrap">
@@ -164,9 +164,9 @@
                         <thead>
                             <tr>
                                 <th>E-Mail</th>
-                                <th>Role</th>
+                                <th>Rolle</th>
                                 <th>Status</th>
-                                <th>Created</th>
+                                <th>Erstellt</th>
                             </tr>
                         </thead>
                         <tbody id="organizationMembersBody"></tbody>

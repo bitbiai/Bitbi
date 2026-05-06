@@ -10,6 +10,7 @@ import { initBinaryFooter }     from '../../shared/binary-footer.js';
 import { initScrollReveal }     from '../../shared/scroll-reveal.js';
 import { initCookieConsent }    from '../../shared/cookie-consent.js';
 import { apiValidateResetToken, apiResetPassword } from '../../shared/auth-api.js';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
 const $loading  = document.getElementById('loadingState');
@@ -78,17 +79,17 @@ $form.addEventListener('submit', async (e) => {
     const confirm  = $confirm.value;
 
     if (password.length < 8) {
-        showMsg('Password must be at least 8 characters long.', 'error');
+        showMsg(localeText('auth.passwordTooShort'), 'error');
         return;
     }
 
     if (password !== confirm) {
-        showMsg('Passwords do not match.', 'error');
+        showMsg(localeText('account.passwordMismatch'), 'error');
         return;
     }
 
     $submit.disabled = true;
-    $submit.textContent = 'Changing...';
+    $submit.textContent = localeText('account.changing');
 
     const res = await apiResetPassword(token, password);
 
@@ -96,7 +97,7 @@ $form.addEventListener('submit', async (e) => {
         showState($success);
     } else {
         $submit.disabled = false;
-        $submit.textContent = 'Change Password';
+        $submit.textContent = localeText('account.changePassword');
         showMsg(res.error, 'error');
     }
 });

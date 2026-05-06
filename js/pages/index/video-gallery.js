@@ -11,6 +11,7 @@ import {
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-overlay.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
 const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
@@ -44,8 +45,8 @@ export function initVideoGallery() {
     container.appendChild(grid);
     const deck = initMobileCardDeck(grid, {
         cardClass: 'video-card',
-        dotsLabel: 'Video cards',
-        itemLabel: 'video',
+        dotsLabel: localeText('browse.videoCards'),
+        itemLabel: localeText('browse.videoItem'),
         deckClass: 'vid-deck',
         dotsClass: 'vid-deck-dots',
         dotClass: 'vid-deck-dot',
@@ -61,7 +62,7 @@ export function initVideoGallery() {
     const $loadMore = document.createElement('button');
     $loadMore.type = 'button';
     $loadMore.className = 'browse-pagination__btn';
-    $loadMore.textContent = 'Load More';
+    $loadMore.textContent = localeText('browse.loadMore');
     $pagination?.append($paginationStatus, $drawerToggle, $loadMore);
 
     function bindMediaQueryChange(query, listener) {
@@ -117,13 +118,13 @@ export function initVideoGallery() {
         openMobileMediaGrid({
             title: 'Memvids',
             items: memvidsState.items,
-            emptyText: 'No Memvids published yet.',
+            emptyText: localeText('browse.noMemvids'),
             className: 'mobile-media-grid-overlay--video',
             renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--video';
-                button.setAttribute('aria-label', item.title || `Show Memvid ${index + 1}`);
+                button.setAttribute('aria-label', item.title || localeText('browse.showMemvid', { count: index + 1 }));
 
                 const poster = item.poster?.url || '';
                 if (poster) {
@@ -186,7 +187,7 @@ export function initVideoGallery() {
         if (errorMessage) {
             $pagination.style.display = '';
             $paginationStatus.textContent = errorMessage;
-            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Memvids grid' });
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMemvidsGrid') });
             $drawerToggle.hidden = true;
             $drawerToggle.textContent = '';
             $loadMore.hidden = true;
@@ -196,7 +197,7 @@ export function initVideoGallery() {
         }
         if (!memvidsState.items.length) {
             $pagination.style.display = 'none';
-            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: 'Open Memvids grid' });
+            syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMemvidsGrid') });
             return;
         }
         const drawerAvailable = hasCollapsedMemvids();
@@ -205,25 +206,25 @@ export function initVideoGallery() {
         const showLoadMore = memvidsState.hasMore;
         $pagination.style.display = '';
         if (drawerAvailable && !memvidsDrawerExpanded) {
-            $paginationStatus.textContent = `Showing all ${visibleCount} Memvids`;
+            $paginationStatus.textContent = localeText('browse.showingAllMemvids', { count: visibleCount });
         } else if (memvidsState.hasMore) {
-            $paginationStatus.textContent = `Showing ${visibleCount} Memvids.`;
+            $paginationStatus.textContent = localeText('browse.showingMemvidsComplete', { count: visibleCount });
         } else {
-            $paginationStatus.textContent = `Showing all ${visibleCount} Memvids.`;
+            $paginationStatus.textContent = localeText('browse.showingAllMemvidsComplete', { count: visibleCount });
         }
         syncMobileMediaTrigger($paginationStatus, {
             enabled: memvidsState.items.length > 0,
-            label: 'Open all Memvids in a grid',
+            label: localeText('browse.openMemvidsGrid'),
         });
         $drawerToggle.hidden = !showDrawerToggle;
         $drawerToggle.textContent = showDrawerToggle
-            ? (memvidsDrawerExpanded ? 'Show Less' : 'Show More')
+            ? (memvidsDrawerExpanded ? localeText('browse.showLess') : localeText('browse.showMore'))
             : '';
         $drawerToggle.setAttribute('aria-expanded', String(showDrawerToggle && memvidsDrawerExpanded));
         $loadMore.hidden = !showLoadMore;
         $loadMore.disabled = memvidsState.loadingMore;
         $loadMore.textContent = showLoadMore
-            ? (memvidsState.loadingMore ? 'Loading...' : 'Load More')
+            ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
     }
 
@@ -361,7 +362,7 @@ export function initVideoGallery() {
 
     async function render() {
         grid.innerHTML = '';
-        renderState('Loading Memvids\u2026');
+        renderState(localeText('browse.loadingMemvids'));
         updateMemvidsPagination();
 
         let items;
@@ -370,15 +371,15 @@ export function initVideoGallery() {
             items = memvidsState.items.slice();
         } catch {
             grid.innerHTML = '';
-            renderState('Could not load Memvids right now.');
-            updateMemvidsPagination('Could not load Memvids right now.');
+            renderState(localeText('browse.memvidsLoadFailed'));
+            updateMemvidsPagination(localeText('browse.memvidsLoadFailed'));
             return;
         }
 
         grid.innerHTML = '';
 
         if (!items.length) {
-            renderState('No Memvids published yet.');
+            renderState(localeText('browse.noMemvids'));
             updateMemvidsPagination();
             return;
         }
@@ -403,7 +404,7 @@ export function initVideoGallery() {
             memvidsState.hasMore = page.hasMore;
             render();
         } catch (error) {
-            errorMessage = 'Could not load more Memvids right now.';
+            errorMessage = localeText('browse.memvidsLoadMoreFailed');
             console.warn('memvids load more:', error);
         } finally {
             memvidsState.loadingMore = false;
@@ -429,7 +430,7 @@ export function initVideoGallery() {
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
         closeBtn.className = 'modal-action modal-action--right video-modal-close';
-        closeBtn.setAttribute('aria-label', 'Close video modal');
+        closeBtn.setAttribute('aria-label', localeText('browse.closeVideoModal'));
         closeBtn.title = 'Close';
         closeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 

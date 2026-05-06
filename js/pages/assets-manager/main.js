@@ -12,6 +12,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 
 import { apiGetMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('loadingState');
 const $denied  = document.getElementById('deniedState');
@@ -64,8 +65,8 @@ function createBrowser() {
             bulkMoveConfirm: document.getElementById('studioBulkMoveConfirm'),
             bulkMoveCancel: document.getElementById('studioBulkMoveCancel'),
         },
-        emptyStateMessage: 'No saved assets yet. Generate images, videos, or music from the homepage Create tools, then manage them here.',
-        foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
+        emptyStateMessage: localeText('assets.emptyDetailed'),
+        foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
     });
 
     return savedAssetsBrowser;

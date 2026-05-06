@@ -19,6 +19,7 @@ import {
     initStudioFolderDeck,
     openStudioVideoModal,
 } from './studio-deck.js?v=__ASSET_VERSION__';
+import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';
@@ -57,6 +58,14 @@ function formatAssetSize(sizeBytes) {
     return `${Math.round(size)} B`;
 }
 
+function formatAssetCount(count) {
+    const number = Number(count || 0);
+    if (getCurrentLocale() === 'de') {
+        return `${number} Asset${number === 1 ? '' : 's'}`;
+    }
+    return `${number} asset${number === 1 ? '' : 's'}`;
+}
+
 function isAudioAsset(asset) {
     if (asset?.asset_type === 'sound') return true;
     return String(asset?.mime_type || '').toLowerCase().startsWith('audio/');
@@ -90,18 +99,18 @@ function getFileBadge(asset) {
 
 function getFileTitle(asset) {
     if (asset?.title) return asset.title;
-    if (isAudioAsset(asset)) return 'Saved audio asset';
+    if (isAudioAsset(asset)) return localeText('assets.savedAudioAsset');
     return asset?.file_name
         || (isVideoAsset(asset)
-            ? 'Saved video asset'
-            : 'Saved asset');
+            ? localeText('assets.savedVideoAsset')
+            : localeText('assets.savedAsset'));
 }
 
 function getFilePreview(asset) {
     if (asset?.preview_text) return asset.preview_text;
-    if (isAudioAsset(asset)) return 'Saved audio asset.';
-    if (isVideoAsset(asset)) return 'Saved video asset.';
-    return 'Saved AI Lab asset.';
+    if (isAudioAsset(asset)) return `${localeText('assets.savedAudioAsset')}.`;
+    if (isVideoAsset(asset)) return `${localeText('assets.savedVideoAsset')}.`;
+    return localeText('assets.savedAiLabAsset');
 }
 
 function splitFileName(fileName) {
@@ -123,7 +132,7 @@ function splitFileName(fileName) {
 
 function getAssetRenameLabel(asset) {
     if (isImageAsset(asset)) {
-        return String(asset?.title || asset?.prompt || asset?.preview_text || 'Saved image').trim();
+        return String(asset?.title || asset?.prompt || asset?.preview_text || localeText('assets.savedImage')).trim();
     }
     if (asset?.title) {
         return String(asset.title).trim();
@@ -139,25 +148,25 @@ function getRenameTargetConfig(target) {
     if (target.kind === 'folder') {
         return {
             maxLength: MAX_FOLDER_NAME_LENGTH,
-            placeholder: 'Folder name',
-            successLabel: 'Folder',
+            placeholder: localeText('assets.folderName'),
+            successLabel: localeText('assets.folder'),
         };
     }
     if (isImageAsset(target.asset)) {
         return {
             maxLength: MAX_IMAGE_NAME_LENGTH,
-            placeholder: 'Image name',
-            successLabel: 'Image',
+            placeholder: localeText('assets.imageName'),
+            successLabel: localeText('assets.image'),
         };
     }
     return {
         maxLength: MAX_FILE_ASSET_NAME_LENGTH,
-        placeholder: 'Asset name',
+        placeholder: localeText('assets.assetName'),
         successLabel: isAudioAsset(target.asset)
-            ? 'Sound asset'
+            ? localeText('assets.soundAsset')
             : isVideoAsset(target.asset)
-                ? 'Video asset'
-                : 'Asset',
+                ? localeText('assets.videoAsset')
+                : localeText('assets.asset'),
     };
 }
 
@@ -166,21 +175,21 @@ function getImagePreviewState(asset) {
     if (status === 'failed') {
         return {
             variant: 'failed',
-            label: 'Preview unavailable',
-            hint: 'Open the original while previews are rebuilt.',
+            label: localeText('assets.previewUnavailable'),
+            hint: localeText('assets.previewUnavailableHint'),
         };
     }
     if (status === 'processing') {
         return {
             variant: 'pending',
-            label: 'Preparing preview',
-            hint: 'Open the original while the queue finishes your preview.',
+            label: localeText('assets.preparingPreview'),
+            hint: localeText('assets.preparingPreviewHint'),
         };
     }
     return {
         variant: 'pending',
-        label: 'Preview pending',
-        hint: 'Open the original while the queue builds your preview.',
+        label: localeText('assets.previewPending'),
+        hint: localeText('assets.previewPendingHint'),
     };
 }
 
@@ -196,7 +205,7 @@ function buildImagePreviewPlaceholder(asset) {
 
     const title = document.createElement('span');
     title.className = 'studio__image-preview-title';
-    title.textContent = asset.title || asset.preview_text || 'Saved image';
+    title.textContent = asset.title || asset.preview_text || localeText('assets.savedImage');
     placeholder.appendChild(title);
 
     const hint = document.createElement('span');
@@ -234,25 +243,25 @@ function buildSoundCoverBackground(asset) {
 function getPublicationLabels(asset) {
     if (isImageAsset(asset)) {
         return {
-            publish: 'Image published to Mempics.',
-            unpublish: 'Image removed from Mempics.',
+            publish: localeText('assets.imagePublished'),
+            unpublish: localeText('assets.imageUnpublished'),
         };
     }
     if (isAudioAsset(asset)) {
         return {
-            publish: 'Track published to Memtracks.',
-            unpublish: 'Track removed from Memtracks.',
+            publish: localeText('assets.publishTrack'),
+            unpublish: localeText('assets.unpublishTrack'),
         };
     }
     if (isVideoAsset(asset)) {
         return {
-            publish: 'Video published to Memvids.',
-            unpublish: 'Video removed from Memvids.',
+            publish: localeText('assets.publishVideo'),
+            unpublish: localeText('assets.unpublishVideo'),
         };
     }
     return {
-        publish: 'Asset published.',
-        unpublish: 'Asset removed from public view.',
+        publish: localeText('assets.assetPublished'),
+        unpublish: localeText('assets.assetUnpublished'),
     };
 }
 
@@ -264,7 +273,7 @@ function normalizeFolders(result) {
     };
 }
 
-function populateFolderOptions(selectEl, folders, placeholder = 'Assets') {
+function populateFolderOptions(selectEl, folders, placeholder = localeText('assets.assets')) {
     if (!selectEl) return;
     const current = selectEl.value;
     selectEl.innerHTML = '';
@@ -293,9 +302,9 @@ function populateGalleryFilter(selectEl, folders) {
     selectEl.innerHTML = '';
 
     [
-        { value: '', label: 'All Folders' },
-        { value: ALL_ASSETS, label: 'All Assets' },
-        { value: UNFOLDERED, label: 'Assets' },
+        { value: '', label: localeText('assets.allFolders') },
+        { value: ALL_ASSETS, label: localeText('assets.allAssets') },
+        { value: UNFOLDERED, label: localeText('assets.assets') },
     ].forEach((entry) => {
         const option = document.createElement('option');
         option.value = entry.value;
@@ -316,8 +325,8 @@ function populateGalleryFilter(selectEl, folders) {
 
 export function createSavedAssetsBrowser({
     refs = {},
-    emptyStateMessage = 'No saved assets yet.',
-    foldersUnavailableMessage = 'Could not load folders. Showing all saved assets.',
+    emptyStateMessage = localeText('assets.empty'),
+    foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
     onFoldersChange = null,
 } = {}) {
     const root = refs.root;
@@ -393,7 +402,7 @@ export function createSavedAssetsBrowser({
     const $assetLoadMore = document.createElement('button');
     $assetLoadMore.type = 'button';
     $assetLoadMore.className = 'studio__pagination-btn';
-    $assetLoadMore.textContent = 'Load More';
+    $assetLoadMore.textContent = localeText('assets.loadMore');
 
     $assetPagination.append($assetPaginationStatus, $assetLoadMore);
     $assetGrid.insertAdjacentElement('afterend', $assetPagination);
@@ -518,18 +527,18 @@ export function createSavedAssetsBrowser({
         if (!shouldShow) return;
 
         if (assetLoadingMore) {
-            $assetPaginationStatus.textContent = 'Loading more assets...';
+            $assetPaginationStatus.textContent = localeText('assets.loadingMore');
         } else if (assetHasMore) {
-            $assetPaginationStatus.textContent = `Showing ${currentAssets.length} saved assets.`;
+            $assetPaginationStatus.textContent = localeText('assets.showingSavedAssets', { count: currentAssets.length });
         } else {
             $assetPaginationStatus.textContent = currentAssets.length
-                ? `Showing all ${currentAssets.length} saved assets.`
+                ? localeText('assets.showingAllSavedAssets', { count: currentAssets.length })
                 : '';
         }
 
         $assetLoadMore.style.display = assetHasMore ? '' : 'none';
         $assetLoadMore.disabled = assetLoadingMore;
-        $assetLoadMore.textContent = assetLoadingMore ? 'Loading…' : 'Load More';
+        $assetLoadMore.textContent = assetLoadingMore ? localeText('assets.loading') : localeText('assets.loadMore');
     }
 
     function appendSelectionCheck(item) {
@@ -570,13 +579,15 @@ export function createSavedAssetsBrowser({
     }
 
     function getSelectionContextLabel() {
-        return selectionScope === 'folder' ? 'folder' : 'asset';
+        return selectionScope === 'folder' ? localeText('assets.folder').toLowerCase() : localeText('assets.asset').toLowerCase();
     }
 
     function updateBulkCount() {
         const count = selectedIds.size;
         if ($bulkCount) {
-            $bulkCount.textContent = `${count} selected${count >= MAX_BULK_SELECT ? ' (max)' : ''}`;
+            $bulkCount.textContent = count >= MAX_BULK_SELECT
+                ? localeText('assets.selectedMax', { count })
+                : localeText('assets.selected', { count });
         }
 
         if ($bulkRename) {
@@ -691,8 +702,8 @@ export function createSavedAssetsBrowser({
         });
         [
             { className: 'studio__folder-card-icon', text: '\u{1F5BC}' },
-            { className: 'studio__folder-card-name', text: 'All Assets' },
-            { className: 'studio__folder-card-count', text: `${total} asset${total === 1 ? '' : 's'}` },
+            { className: 'studio__folder-card-name', text: localeText('assets.allAssets') },
+            { className: 'studio__folder-card-count', text: formatAssetCount(total) },
         ].forEach((entry) => {
             const el = document.createElement('span');
             el.className = entry.className;
@@ -709,8 +720,8 @@ export function createSavedAssetsBrowser({
         });
         [
             { className: 'studio__folder-card-icon', text: '\u{1F4E6}' },
-            { className: 'studio__folder-card-name', text: 'Assets' },
-            { className: 'studio__folder-card-count', text: `${unfolderedCount} asset${unfolderedCount === 1 ? '' : 's'}` },
+            { className: 'studio__folder-card-name', text: localeText('assets.assets') },
+            { className: 'studio__folder-card-count', text: formatAssetCount(unfolderedCount) },
         ].forEach((entry) => {
             const el = document.createElement('span');
             el.className = entry.className;
@@ -743,7 +754,7 @@ export function createSavedAssetsBrowser({
             const count = document.createElement('span');
             count.className = 'studio__folder-card-count';
             const totalCount = folderCounts[folder.id] || 0;
-            count.textContent = `${totalCount} asset${totalCount === 1 ? '' : 's'}`;
+            count.textContent = formatAssetCount(totalCount);
 
             card.append(icon, name, count);
             appendSelectionCheck(card);
@@ -763,7 +774,7 @@ export function createSavedAssetsBrowser({
         if (asset.thumb_url) {
             const imgEl = document.createElement('img');
             imgEl.src = asset.thumb_url;
-            imgEl.alt = asset.title || asset.preview_text || 'Saved image';
+            imgEl.alt = asset.title || asset.preview_text || localeText('assets.savedImage');
             imgEl.loading = 'lazy';
             imgEl.decoding = 'async';
             if (asset.thumb_width) imgEl.width = asset.thumb_width;
@@ -776,7 +787,7 @@ export function createSavedAssetsBrowser({
 
         const visibilityBadge = document.createElement('span');
         visibilityBadge.className = `studio__image-visibility ${isPublishedImageAsset(asset) ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
-        visibilityBadge.textContent = isPublishedImageAsset(asset) ? 'Public' : 'Private';
+        visibilityBadge.textContent = isPublishedImageAsset(asset) ? localeText('assets.public') : localeText('assets.private');
         item.appendChild(visibilityBadge);
 
         const overlay = document.createElement('div');
@@ -785,7 +796,7 @@ export function createSavedAssetsBrowser({
         const publishButton = document.createElement('button');
         publishButton.type = 'button';
         publishButton.className = `studio__image-publish ${isPublishedImageAsset(asset) ? 'studio__image-publish--public' : ''}`;
-        publishButton.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
+        publishButton.textContent = isPublishedImageAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
         publishButton.addEventListener('click', async (event) => {
             event.stopPropagation();
             const nextVisibility = isPublishedImageAsset(asset) ? 'private' : 'public';
@@ -794,13 +805,13 @@ export function createSavedAssetsBrowser({
             const result = await updateAssetPublication(asset, nextVisibility);
             if (!result.ok) {
                 publishButton.disabled = false;
-                publishButton.textContent = isPublishedImageAsset(asset) ? 'Unpublish' : 'Publish';
-                showMsg(result.error || 'Visibility update failed.', 'error');
+                publishButton.textContent = isPublishedImageAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
+                showMsg(result.error || localeText('assets.visibilityUpdateFailed'), 'error');
                 return;
             }
             await refresh();
             showMsg(
-                nextVisibility === 'public' ? 'Image published to Mempics.' : 'Image removed from Mempics.',
+                nextVisibility === 'public' ? localeText('assets.imagePublished') : localeText('assets.imageUnpublished'),
                 'success',
             );
         });
@@ -808,21 +819,21 @@ export function createSavedAssetsBrowser({
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
         deleteButton.className = 'studio__image-delete';
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = localeText('assets.delete');
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
-            if (!confirm('Delete this image?')) return;
+            if (!confirm(localeText('assets.deleteAssetConfirm'))) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
             const result = await deleteSingleAsset(asset);
             if (!result.ok) {
                 deleteButton.disabled = false;
-                deleteButton.textContent = 'Delete';
-                showMsg(result.error || 'Delete failed.', 'error');
+                deleteButton.textContent = localeText('assets.delete');
+                showMsg(result.error || localeText('assets.deleteFailed'), 'error');
                 return;
             }
             await refresh();
-            showMsg('Image deleted.', 'success');
+            showMsg(localeText('assets.imageDeleted'), 'success');
         });
 
         overlay.appendChild(publishButton);
@@ -855,7 +866,7 @@ export function createSavedAssetsBrowser({
             const isPublished = isPublishedAsset(asset);
             const visBadge = document.createElement('span');
             visBadge.className = `studio__image-visibility ${isPublished ? 'studio__image-visibility--public' : 'studio__image-visibility--private'}`;
-            visBadge.textContent = isPublished ? 'Public' : 'Private';
+            visBadge.textContent = isPublished ? localeText('assets.public') : localeText('assets.private');
             item.appendChild(visBadge);
         }
 
@@ -886,7 +897,7 @@ export function createSavedAssetsBrowser({
             const videoTrigger = document.createElement('button');
             videoTrigger.type = 'button';
             videoTrigger.className = 'studio__asset-video-trigger';
-            videoTrigger.setAttribute('aria-label', `Open video ${getFileTitle(asset)}`);
+            videoTrigger.setAttribute('aria-label', localeText('assets.openVideo', { title: getFileTitle(asset) }));
             videoTrigger.disabled = !asset.file_url;
             videoTrigger.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -919,7 +930,7 @@ export function createSavedAssetsBrowser({
 
                 const fallbackLabel = document.createElement('span');
                 fallbackLabel.className = 'studio__asset-video-fallback-label';
-                fallbackLabel.textContent = 'Play video';
+                fallbackLabel.textContent = localeText('assets.playVideo');
 
                 fallback.append(fallbackIcon, fallbackLabel);
                 videoTrigger.appendChild(fallback);
@@ -947,7 +958,7 @@ export function createSavedAssetsBrowser({
             const pubBtn = document.createElement('button');
             pubBtn.type = 'button';
             pubBtn.className = `studio__image-publish studio__image-publish--inline ${isPublished ? 'studio__image-publish--public' : ''}`;
-            pubBtn.textContent = isPublished ? 'Unpublish' : 'Publish';
+            pubBtn.textContent = isPublished ? localeText('assets.unpublish') : localeText('assets.publish');
             pubBtn.addEventListener('click', async (event) => {
                 event.stopPropagation();
                 const nextVis = isPublishedAsset(asset) ? 'private' : 'public';
@@ -956,8 +967,8 @@ export function createSavedAssetsBrowser({
                 const result = await updateAssetPublication(asset, nextVis);
                 if (!result.ok) {
                     pubBtn.disabled = false;
-                    pubBtn.textContent = isPublishedAsset(asset) ? 'Unpublish' : 'Publish';
-                    showMsg(result.error || 'Visibility update failed.', 'error');
+                    pubBtn.textContent = isPublishedAsset(asset) ? localeText('assets.unpublish') : localeText('assets.publish');
+                    showMsg(result.error || localeText('assets.visibilityUpdateFailed'), 'error');
                     return;
                 }
                 await refresh();
@@ -970,26 +981,26 @@ export function createSavedAssetsBrowser({
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
         deleteButton.className = 'studio__image-delete studio__image-delete--inline';
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = localeText('assets.delete');
         deleteButton.addEventListener('click', async (event) => {
             event.stopPropagation();
             const confirmText = isSound
-                ? 'Delete this sound file?'
+                ? localeText('assets.deleteSoundConfirm')
                 : isVideo
-                    ? 'Delete this video asset?'
-                    : 'Delete this saved asset?';
+                    ? localeText('assets.deleteVideoConfirm')
+                    : localeText('assets.deleteAssetConfirm');
             if (!confirm(confirmText)) return;
             deleteButton.disabled = true;
             deleteButton.textContent = '\u2026';
             const result = await deleteSingleAsset(asset);
             if (!result.ok) {
                 deleteButton.disabled = false;
-                deleteButton.textContent = 'Delete';
-                showMsg(result.error || 'Delete failed.', 'error');
+                deleteButton.textContent = localeText('assets.delete');
+                showMsg(result.error || localeText('assets.deleteFailed'), 'error');
                 return;
             }
             await refresh();
-            showMsg(isSound ? 'Sound file deleted.' : isVideo ? 'Video asset deleted.' : 'Asset deleted.', 'success');
+            showMsg(isSound ? localeText('assets.soundDeleted') : isVideo ? localeText('assets.videoDeleted') : localeText('assets.assetDeleted'), 'success');
         });
         actions.appendChild(deleteButton);
 
@@ -1033,7 +1044,7 @@ export function createSavedAssetsBrowser({
             $assetGrid.innerHTML = '';
             const loading = document.createElement('div');
             loading.className = 'studio__gallery-empty';
-            loading.textContent = 'Loading…';
+            loading.textContent = localeText('assets.loading');
             $assetGrid.appendChild(loading);
             updateAssetPaginationUi();
         } else {
@@ -1054,12 +1065,12 @@ export function createSavedAssetsBrowser({
             assetLoadingMore = false;
             if (append) {
                 updateAssetPaginationUi();
-                showMsg('Could not load more saved assets.', 'error');
+                showMsg(localeText('assets.couldNotLoadMore'), 'error');
                 return;
             }
             currentAssets = [];
             renderEmptyState();
-            showMsg('Could not load saved assets.', 'error');
+            showMsg(localeText('assets.couldNotLoadAssets'), 'error');
             return;
         }
 
@@ -1150,7 +1161,7 @@ export function createSavedAssetsBrowser({
             : $assetGrid.querySelectorAll('.studio__image-item[data-asset-id]');
         if (items.length === 0) {
             showMsg(
-                folderScope ? 'No folders available to rename.' : 'No saved assets available to select.',
+                folderScope ? localeText('assets.noFoldersRename') : localeText('assets.noAssetsSelect'),
                 'error',
             );
             return;
@@ -1181,7 +1192,7 @@ export function createSavedAssetsBrowser({
             item.classList.remove('selected');
         } else {
             if (selectedIds.size >= MAX_BULK_SELECT) {
-                showMsg(`You can select up to ${MAX_BULK_SELECT} assets at a time.`, 'error');
+                showMsg(localeText('assets.maxSelected', { max: MAX_BULK_SELECT }), 'error');
                 return;
             }
             selectedIds.add(id);
@@ -1192,12 +1203,12 @@ export function createSavedAssetsBrowser({
 
     function showRenameForm() {
         if (selectedIds.size !== 1) {
-            showMsg(`Select exactly one ${getSelectionContextLabel()} first.`, 'error');
+            showMsg(localeText('assets.selectExactlyOne', { context: getSelectionContextLabel() }), 'error');
             return;
         }
         const target = getSelectedEntity();
         if (!target) {
-            showMsg(`Selected ${getSelectionContextLabel()} could not be loaded. Refresh and try again.`, 'error');
+            showMsg(localeText('assets.selectedCouldNotLoad', { context: getSelectionContextLabel() }), 'error');
             return;
         }
 
@@ -1216,7 +1227,7 @@ export function createSavedAssetsBrowser({
     async function handleRenameConfirm() {
         const target = getSelectedEntity();
         if (!target) {
-            showMsg(`Select exactly one ${getSelectionContextLabel()} first.`, 'error');
+            showMsg(localeText('assets.selectExactlyOne', { context: getSelectionContextLabel() }), 'error');
             return;
         }
 
@@ -1237,17 +1248,17 @@ export function createSavedAssetsBrowser({
 
         if ($renameConfirm) {
             $renameConfirm.disabled = false;
-            $renameConfirm.textContent = 'Rename';
+            $renameConfirm.textContent = localeText('assets.rename');
         }
         if (!result.ok) {
-            showMsg(result.error || 'Rename failed.', 'error');
+            showMsg(result.error || localeText('assets.renameFailed'), 'error');
             return;
         }
 
         hideRenameForm();
         const config = getRenameTargetConfig(target);
         if (result.data?.unchanged) {
-            showMsg(`${config?.successLabel || 'Item'} name unchanged.`, 'success');
+            showMsg(localeText('assets.nameUnchanged', { label: config?.successLabel || localeText('assets.asset') }), 'success');
             return;
         }
 
@@ -1255,16 +1266,16 @@ export function createSavedAssetsBrowser({
         const selectedScope = selectionScope;
         await refresh({ preserveView: true });
         await restoreSingleSelection(selectedId, selectedScope);
-        showMsg(`${config?.successLabel || 'Item'} renamed.`, 'success');
+        showMsg(localeText('assets.renamed', { label: config?.successLabel || localeText('assets.asset') }), 'success');
     }
 
     function showBulkMoveForm() {
         if (selectionScope === 'folder') {
-            showMsg('Move is only available for saved assets.', 'error');
+            showMsg(localeText('assets.moveAssetOnly'), 'error');
             return;
         }
         if (selectedIds.size === 0) {
-            showMsg('Select at least one asset first.', 'error');
+            showMsg(localeText('assets.selectAtLeastOne'), 'error');
             return;
         }
         hideRenameForm();
@@ -1283,29 +1294,29 @@ export function createSavedAssetsBrowser({
         const result = await apiAiBulkMoveAssets(Array.from(selectedIds), folderId);
         if ($bulkMoveConfirm) {
             $bulkMoveConfirm.disabled = false;
-            $bulkMoveConfirm.textContent = 'Move';
+            $bulkMoveConfirm.textContent = localeText('assets.move');
         }
         if (!result.ok) {
-            showMsg(result.error || 'Failed to move assets.', 'error');
+            showMsg(result.error || localeText('assets.moveFailed'), 'error');
             return;
         }
         const movedCount = selectedIds.size;
         exitSelectMode();
         await refresh();
-        showMsg(`${movedCount} asset${movedCount === 1 ? '' : 's'} moved.`, 'success');
+        showMsg(localeText('assets.moved', { count: movedCount, plural: movedCount === 1 ? '' : 's' }), 'success');
     }
 
     async function handleBulkDelete() {
         if (selectionScope === 'folder') {
-            showMsg('Delete is only available from the folder delete action.', 'error');
+            showMsg(localeText('assets.deleteAssetOnly'), 'error');
             return;
         }
         if (selectedIds.size === 0) {
-            showMsg('Select at least one asset first.', 'error');
+            showMsg(localeText('assets.selectAtLeastOne'), 'error');
             return;
         }
         const count = selectedIds.size;
-        if (!confirm(`Delete ${count} selected asset${count === 1 ? '' : 's'}?\n\nThis cannot be undone.`)) {
+        if (!confirm(localeText('assets.deleteSelectedConfirm', { count, plural: count === 1 ? '' : 's' }))) {
             return;
         }
         if ($bulkDelete) {
@@ -1315,15 +1326,15 @@ export function createSavedAssetsBrowser({
         const result = await apiAiBulkDeleteAssets(Array.from(selectedIds));
         if ($bulkDelete) {
             $bulkDelete.disabled = false;
-            $bulkDelete.textContent = 'Delete Selected';
+            $bulkDelete.textContent = localeText('assets.deleteSelected');
         }
         if (!result.ok) {
-            showMsg(result.error || 'Failed to delete assets.', 'error');
+            showMsg(result.error || localeText('assets.deleteAssetsFailed'), 'error');
             return;
         }
         exitSelectMode();
         await refresh();
-        showMsg(`${count} asset${count === 1 ? '' : 's'} deleted.`, 'success');
+        showMsg(localeText('assets.deleted', { count, plural: count === 1 ? '' : 's' }), 'success');
     }
 
     function hideNewFolderForm() {
@@ -1347,12 +1358,12 @@ export function createSavedAssetsBrowser({
         const result = await apiAiCreateFolder(name);
         if ($newFolderSave) $newFolderSave.disabled = false;
         if (!result.ok) {
-            showMsg(result.error || 'Folder creation failed.', 'error');
+            showMsg(result.error || localeText('assets.folderCreationFailed'), 'error');
             return;
         }
         hideNewFolderForm();
         await refresh({ preserveView: folderViewActive });
-        showMsg(`Folder "${name}" created.`, 'success');
+        showMsg(localeText('assets.folderCreated', { name }), 'success');
     }
 
     async function showDeleteFolderForm() {
@@ -1366,7 +1377,7 @@ export function createSavedAssetsBrowser({
         }
 
         if (!Array.isArray(deletableFolders) || deletableFolders.length === 0) {
-            showMsg('No folders to delete.', 'error');
+            showMsg(localeText('assets.noFoldersDelete'), 'error');
             return;
         }
 
@@ -1376,7 +1387,7 @@ export function createSavedAssetsBrowser({
                 const option = document.createElement('option');
                 option.value = folder.id;
                 option.textContent = folder.status === 'deleting'
-                    ? `${folder.name} (retry delete)`
+                    ? `${folder.name} (${localeText('assets.retryDelete')})`
                     : folder.name;
                 $deleteFolderSelect.appendChild(option);
             });
@@ -1394,8 +1405,8 @@ export function createSavedAssetsBrowser({
         if (!folderId) return;
 
         const targetFolder = folders.find((folder) => folder.id === folderId);
-        const name = targetFolder?.name || 'this folder';
-        if (!confirm(`Delete folder "${name}" and all its assets?\n\nThis cannot be undone.`)) {
+        const name = targetFolder?.name || localeText('assets.thisFolder');
+        if (!confirm(localeText('assets.deleteFolderConfirm', { name }))) {
             return;
         }
 
@@ -1406,10 +1417,10 @@ export function createSavedAssetsBrowser({
         const result = await apiAiDeleteFolder(folderId);
         if ($deleteFolderConfirm) {
             $deleteFolderConfirm.disabled = false;
-            $deleteFolderConfirm.textContent = 'Delete';
+            $deleteFolderConfirm.textContent = localeText('assets.delete');
         }
         if (!result.ok) {
-            showMsg(result.error || 'Failed to delete folder.', 'error');
+            showMsg(result.error || localeText('assets.folderDeleteFailed'), 'error');
             return;
         }
 
@@ -1419,7 +1430,7 @@ export function createSavedAssetsBrowser({
             folderViewActive = true;
         }
         await refresh({ preserveView: true });
-        showMsg(`Folder "${name}" deleted.`, 'success');
+        showMsg(localeText('assets.folderDeleted', { name }), 'success');
     }
 
     async function refresh({ preserveView = true } = {}) {

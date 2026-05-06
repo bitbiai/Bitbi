@@ -41,7 +41,7 @@
         <div class="site-nav__bar">
             <a href="/de/" class="site-nav__logo" target="bitbi-main" rel="noopener">
                 <span class="site-nav__logo-text gt-hero">BITBI</span>
-                <span class="site-nav__context-label">Desktop Workspace</span>
+                <span class="site-nav__context-label">Desktop-Arbeitsbereich</span>
                 <span class="site-nav__logo-glow" aria-hidden="true"></span>
             </a>
             <div class="site-nav__links site-nav__links--empty"></div>
@@ -112,7 +112,7 @@
             <section class="generate-lab__panel generate-lab__panel--stage" aria-labelledby="labComposerTitle">
                 <div class="generate-lab__panel-head generate-lab__panel-head--stage">
                     <div>
-                        <p class="generate-lab__panel-kicker" id="labComposerEyebrow">Composer</p>
+                        <p class="generate-lab__panel-kicker" id="labComposerEyebrow">Bild-Composer</p>
                         <h2 class="generate-lab__panel-title" id="labComposerTitle">Prompt-Bereich</h2>
                     </div>
                     <span id="labModelBadge" class="generate-lab__badge">FLUX.1 Schnell</span>
@@ -120,7 +120,7 @@
 
                 <div class="generate-lab__prompt-shell">
                     <label id="labPromptLabel" for="labPrompt" class="generate-lab__label">Beschreiben Sie Ihr Bild</label>
-                    <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="7" placeholder="A luminous glass sculpture in a rain-soaked cyberpunk gallery..."></textarea>
+                    <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="7" placeholder="Eine leuchtende Glasskulptur in einer regennassen Cyberpunk-Galerie..."></textarea>
                     <p id="labPromptHelp" class="generate-lab__help">Beschreiben Sie Motiv, Umgebung, Stil, Stimmung und Licht.</p>
                 </div>
 
@@ -162,7 +162,7 @@
                             </label>
                             <label class="generate-lab__field" for="labImageSeed">
                                 <span class="generate-lab__label">Seed</span>
-                                <input id="labImageSeed" class="generate-lab__input" type="number" min="0" placeholder="Random" inputmode="numeric">
+                                <input id="labImageSeed" class="generate-lab__input" type="number" min="0" placeholder="Zufällig" inputmode="numeric">
                             </label>
                         </div>
                         <div id="labImageGptControls" class="generate-lab__gpt-controls" hidden>
@@ -240,7 +240,7 @@
                                         <span id="labVideoReferenceLabel">Optionale Bild-zu-Video-Referenz</span>
                                     </span>
                                 </label>
-                                <button id="labVideoReferenceRemove" class="generate-lab__ghost-btn" type="button" hidden>Remove</button>
+                                <button id="labVideoReferenceRemove" class="generate-lab__ghost-btn" type="button" hidden>Entfernen</button>
                             </div>
                         </div>
                         <div class="generate-lab__field-grid">
@@ -363,61 +363,61 @@
             <div id="labAssetsBrowserRoot" class="assets-manager">
                 <div class="studio__card assets-manager__dashboard">
                     <div class="studio__gallery-header assets-manager__toolbar">
-                        <h3 class="studio__card-title">Folders &amp; assets</h3>
+                        <h3 class="studio__card-title">Ordner &amp; Assets</h3>
                         <div class="studio__folder-bar">
                             <select id="labAssetsFilter" class="studio__folder-filter">
-                                <option value="">All Folders</option>
+                                <option value="">Alle Ordner</option>
                             </select>
-                            <button type="button" id="labAssetsNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Folder</button>
-                            <button type="button" id="labAssetsDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Folder</button>
-                            <button type="button" id="labAssetsSelectBtn" class="studio__new-folder-btn studio__folder-action">Select</button>
+                            <button type="button" id="labAssetsNewFolderBtn" class="studio__new-folder-btn studio__folder-action">+ Ordner</button>
+                            <button type="button" id="labAssetsDeleteFolderBtn" class="studio__new-folder-btn studio__folder-action">&minus; Ordner</button>
+                            <button type="button" id="labAssetsSelectBtn" class="studio__new-folder-btn studio__folder-action">Auswählen</button>
                             <div class="studio__mobile-actions" id="labAssetsMobileActions">
-                                <button type="button" class="studio__mobile-actions-toggle" id="labAssetsMobileActionsToggle" aria-label="Asset actions" aria-expanded="false">&#x22EE;</button>
+                                <button type="button" class="studio__mobile-actions-toggle" id="labAssetsMobileActionsToggle" aria-label="Asset-Aktionen" aria-expanded="false">&#x22EE;</button>
                                 <div class="studio__mobile-actions-menu" id="labAssetsMobileActionsMenu">
-                                    <button type="button" data-action="new-folder">+ Folder</button>
-                                    <button type="button" data-action="delete-folder">&minus; Folder</button>
-                                    <button type="button" data-action="select">Select</button>
+                                    <button type="button" data-action="new-folder">+ Ordner</button>
+                                    <button type="button" data-action="delete-folder">&minus; Ordner</button>
+                                    <button type="button" data-action="select">Auswählen</button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div id="labAssetsNewFolderForm" class="studio__new-folder-form">
-                        <input type="text" id="labAssetsNewFolderInput" class="studio__new-folder-input" placeholder="Folder name" maxlength="100">
-                        <button type="button" id="labAssetsNewFolderSave" class="studio__new-folder-save">Create</button>
-                        <button type="button" id="labAssetsNewFolderCancel" class="studio__new-folder-cancel">Cancel</button>
+                        <input type="text" id="labAssetsNewFolderInput" class="studio__new-folder-input" placeholder="Ordnername" maxlength="100">
+                        <button type="button" id="labAssetsNewFolderSave" class="studio__new-folder-save">Erstellen</button>
+                        <button type="button" id="labAssetsNewFolderCancel" class="studio__new-folder-cancel">Abbrechen</button>
                     </div>
 
                     <div id="labAssetsDeleteFolderForm" class="studio__delete-folder-form">
                         <select id="labAssetsDeleteFolderSelect" class="studio__delete-folder-select"></select>
-                        <button type="button" id="labAssetsDeleteFolderConfirm" class="studio__delete-folder-confirm">Delete</button>
-                        <button type="button" id="labAssetsDeleteFolderCancel" class="studio__delete-folder-cancel">Cancel</button>
+                        <button type="button" id="labAssetsDeleteFolderConfirm" class="studio__delete-folder-confirm">Löschen</button>
+                        <button type="button" id="labAssetsDeleteFolderCancel" class="studio__delete-folder-cancel">Abbrechen</button>
                     </div>
 
                     <div id="labAssetsBulkBar" class="studio__bulk-bar">
                         <span id="labAssetsBulkCount" class="studio__bulk-count">0 selected</span>
-                        <button type="button" id="labAssetsBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Rename</button>
-                        <button type="button" id="labAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">Move to Folder</button>
-                        <button type="button" id="labAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Delete Selected</button>
-                        <button type="button" id="labAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Cancel</button>
+                        <button type="button" id="labAssetsBulkRename" class="studio__bulk-btn studio__bulk-btn--rename" disabled>Umbenennen</button>
+                        <button type="button" id="labAssetsBulkMove" class="studio__bulk-btn studio__bulk-btn--move">In Ordner verschieben</button>
+                        <button type="button" id="labAssetsBulkDelete" class="studio__bulk-btn studio__bulk-btn--delete">Auswahl löschen</button>
+                        <button type="button" id="labAssetsBulkCancel" class="studio__bulk-btn studio__bulk-btn--cancel">Abbrechen</button>
                     </div>
 
                     <div id="labAssetsRenameForm" class="studio__bulk-move-form">
-                        <input type="text" id="labAssetsRenameInput" class="studio__new-folder-input" placeholder="New name" maxlength="1000">
-                        <button type="button" id="labAssetsRenameConfirm" class="studio__new-folder-save">Rename</button>
-                        <button type="button" id="labAssetsRenameCancel" class="studio__new-folder-cancel">Cancel</button>
+                        <input type="text" id="labAssetsRenameInput" class="studio__new-folder-input" placeholder="Neuer Name" maxlength="1000">
+                        <button type="button" id="labAssetsRenameConfirm" class="studio__new-folder-save">Umbenennen</button>
+                        <button type="button" id="labAssetsRenameCancel" class="studio__new-folder-cancel">Abbrechen</button>
                     </div>
 
                     <div id="labAssetsBulkMoveForm" class="studio__bulk-move-form">
                         <select id="labAssetsBulkMoveSelect" class="studio__bulk-move-select"></select>
-                        <button type="button" id="labAssetsBulkMoveConfirm" class="studio__new-folder-save">Move</button>
-                        <button type="button" id="labAssetsBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
+                        <button type="button" id="labAssetsBulkMoveConfirm" class="studio__new-folder-save">Verschieben</button>
+                        <button type="button" id="labAssetsBulkMoveCancel" class="studio__new-folder-cancel">Abbrechen</button>
                     </div>
 
                     <div id="labAssetsMsg" class="studio__msg" role="status"></div>
                     <div id="labAssetsFolderGrid" class="studio__folder-grid"></div>
                     <div id="labAssetsFolderBack" class="studio__folder-back">
-                        <button type="button" id="labAssetsFolderBackBtn" class="studio__folder-back-btn">&larr; All Folders</button>
+                        <button type="button" id="labAssetsFolderBackBtn" class="studio__folder-back-btn">&larr; Alle Ordner</button>
                     </div>
                     <div id="labAssetsGrid" class="studio__image-grid">
                         <div class="studio__gallery-empty">Gespeicherte Assets werden geladen...</div>
@@ -444,7 +444,7 @@
         <div class="site-footer__links">
             <a href="/de/legal/imprint.html?returnContext=generate-lab" class="site-footer__link">Impressum</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="/de/legal/privacy.html?returnContext=generate-lab" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html?returnContext=generate-lab" class="site-footer__link">Datenschutz</a>
+            <a href="/de/legal/datenschutz.html?returnContext=generate-lab" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html?returnContext=generate-lab" class="site-footer__link">Datenschutz</a>
             <span class="site-footer__dot">&bull;</span>
             <a href="#" id="openCookieSettings" class="site-footer__link">Cookie-Einstellungen</a>
         </div>

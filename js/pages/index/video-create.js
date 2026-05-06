@@ -9,6 +9,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
+import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import {
     calculatePixverseV6MemberCredits,
     PIXVERSE_V6_MAX_DURATION,
@@ -79,7 +80,7 @@ function renderPreviewEmpty(text) {
     const title = document.createElement('strong');
     title.textContent = text;
     const copy = document.createElement('span');
-    copy.textContent = 'Adjust the prompt and settings, then generate a new PixVerse clip.';
+    copy.textContent = localeText('studio.adjustVideo');
     empty.append(icon, title, copy);
     replacePreview(empty);
 }
@@ -90,7 +91,7 @@ function renderPreviewLoading() {
     const spinner = document.createElement('div');
     spinner.className = 'studio__spinner';
     const label = document.createElement('span');
-    label.textContent = 'Generating your PixVerse video...';
+    label.textContent = localeText('studio.generatingPixverse');
     loading.append(spinner, label);
     replacePreview(loading);
 }
@@ -169,10 +170,10 @@ function currentPrice() {
 function renderGenerateLabel() {
     if (!$generateBtn) return;
     const price = currentPrice();
-    $generateBtn.textContent = 'Generate Video';
-    $generateBtn.setAttribute('aria-label', `Generate PixVerse V6 video for ${price} credits`);
+    $generateBtn.textContent = localeText('studio.generateVideo');
+    $generateBtn.setAttribute('aria-label', localeText('studio.generatePixverseAria', { cost: price }));
     if ($creditEstimate) {
-        $creditEstimate.textContent = `${price} credits`;
+        $creditEstimate.textContent = localeText('credits.credits', { count: price });
     }
 }
 
@@ -181,11 +182,11 @@ function renderQuota() {
     const hasBalance = typeof creditBalance === 'number';
     const insufficient = hasBalance && creditBalance < currentPrice();
     if (!hasBalance) {
-        $quotaEl.textContent = 'Balance unavailable';
+        $quotaEl.textContent = localeText('studio.balanceUnavailable');
     } else if (insufficient) {
-        $quotaEl.textContent = `${creditBalance} credits available - not enough for this setting`;
+        $quotaEl.textContent = localeText('studio.creditsAvailableNotEnough', { count: creditBalance });
     } else {
-        $quotaEl.textContent = `${creditBalance} credits available`;
+        $quotaEl.textContent = localeText('studio.creditsAvailable', { count: creditBalance });
     }
     $quotaEl.classList.toggle('video-create__balance--empty', insufficient);
     $actionCard?.classList.toggle('is-insufficient', insufficient);
@@ -194,7 +195,7 @@ function renderQuota() {
 async function loadQuota() {
     const q = await apiAiGetQuota();
     if (!q || q.isAdmin) {
-        if ($quotaEl) $quotaEl.textContent = 'Admin preview';
+        if ($quotaEl) $quotaEl.textContent = localeText('studio.adminPreview');
         creditBalance = null;
         return;
     }
@@ -217,13 +218,13 @@ function updatePricingState() {
 function renderReferencePreview(fileName) {
     if (!$imagePreview) return;
     if (!referenceImageDataUri) {
-        $imagePreview.textContent = 'Optional image-to-video reference';
+        $imagePreview.textContent = localeText('studio.optionalVideoReference');
         $imagePreview.classList.remove('video-create__reference-preview--ready');
         $uploadShell?.classList.remove('is-ready');
         if ($referenceRemove) $referenceRemove.hidden = true;
         return;
     }
-    $imagePreview.textContent = fileName ? fileName : 'Reference image ready';
+    $imagePreview.textContent = fileName ? fileName : localeText('studio.referenceImageReady');
     $imagePreview.classList.add('video-create__reference-preview--ready');
     $uploadShell?.classList.add('is-ready');
     if ($referenceRemove) $referenceRemove.hidden = false;
@@ -256,13 +257,13 @@ async function handleReferenceImageChange() {
     if (!file.type?.startsWith('image/')) {
         $imageInput.value = '';
         renderReferencePreview('');
-        showMsg($msg, 'Reference image must be an image file.', 'error');
+        showMsg($msg, localeText('studio.referenceImageMustImage'), 'error');
         return;
     }
     if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
         $imageInput.value = '';
         renderReferencePreview('');
-        showMsg($msg, 'Reference image must be 10 MB or smaller.', 'error');
+        showMsg($msg, localeText('studio.referenceImageTooLarge'), 'error');
         return;
     }
     try {
@@ -271,17 +272,17 @@ async function handleReferenceImageChange() {
     } catch {
         $imageInput.value = '';
         renderReferencePreview('');
-        showMsg($msg, 'Reference image could not be read.', 'error');
+        showMsg($msg, localeText('studio.referenceImageReadFailed'), 'error');
     }
 }
 
 function renderResult(data) {
     const videoUrl = data?.videoUrl || data?.asset?.file_url || '';
     if (!videoUrl) {
-        renderPreviewEmpty('No playable video returned');
+        renderPreviewEmpty(localeText('studio.noPlayableVideo'));
         return;
     }
-    const title = data?.asset?.title || 'Generated video';
+    const title = data?.asset?.title || localeText('studio.generatedVideo');
     const result = document.createElement('div');
     result.className = 'video-create__result';
 
@@ -310,8 +311,8 @@ function renderResult(data) {
     if (data?.asset?.id) {
         const link = document.createElement('a');
         link.className = 'studio__save-link';
-        link.href = '/account/assets-manager.html';
-        link.textContent = 'Open in Assets Manager';
+        link.href = localizedHref('/account/assets-manager.html');
+        link.textContent = localeText('studio.openAssetsManager');
         result.append(link);
     }
 
@@ -327,14 +328,14 @@ async function handleGenerate() {
 
     const prompt = ($prompt.value || '').trim();
     if (!prompt) {
-        showMsg($msg, 'Prompt is required.', 'error');
+        showMsg($msg, localeText('studio.promptRequired'), 'error');
         return;
     }
 
     hideMsg($msg);
     updatePricingState();
     $generateBtn.disabled = true;
-    $generateBtn.textContent = 'Generating Video...';
+    $generateBtn.textContent = localeText('studio.generatingVideo');
     renderPreviewLoading();
 
     const payload = {
@@ -357,8 +358,8 @@ async function handleGenerate() {
         });
     } catch (error) {
         console.warn('Video generation failed:', error);
-        renderPreviewEmpty('Video generation failed');
-        showMsg($msg, 'Generation failed. Please try again.', 'error');
+        renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
+        showMsg($msg, localeText('studio.generationFailed'), 'error');
         return;
     } finally {
         $generateBtn.disabled = false;
@@ -366,8 +367,8 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        renderPreviewEmpty('Video generation failed');
-        showMsg($msg, res.error || 'Generation failed. Please try again.', 'error');
+        renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
+        showMsg($msg, res.error || localeText('studio.generationFailed'), 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
         }
@@ -376,7 +377,7 @@ async function handleGenerate() {
 
     const data = res.data?.data || res.data || {};
     renderResult(data);
-    showMsg($msg, 'Video generated and saved.', 'success');
+    showMsg($msg, localeText('studio.videoGeneratedSaved'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
     if (typeof balanceAfter === 'number') {

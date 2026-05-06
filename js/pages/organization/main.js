@@ -11,6 +11,7 @@ import {
     resolveActiveOrganizationId,
     setActiveOrganizationId,
 } from '../../shared/active-organization.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const $loading = document.getElementById('organizationLoading');
 const $denied = document.getElementById('organizationDenied');
@@ -41,13 +42,13 @@ function hide(node) {
 }
 
 function formatCredits(value) {
-    return `${NUMBER_FORMATTER.format(Number(value || 0))} credits`;
+    return localeText('credits.credits', { count: NUMBER_FORMATTER.format(Number(value || 0)) });
 }
 
 function formatDate(value) {
-    if (!value) return 'Not reported';
+    if (!value) return localeText('organization.notReported');
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? 'Not reported' : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? localeText('organization.notReported') : date.toLocaleString();
 }
 
 function setDenied() {
@@ -62,7 +63,7 @@ function setError(message) {
     hide($dashboard);
     hide($denied);
     if ($error) {
-        $error.textContent = message || 'Organization dashboard is unavailable.';
+        $error.textContent = message || localeText('organization.unavailable');
         show($error);
     }
 }
@@ -83,11 +84,11 @@ function normalizeOrganizations(data, { platformAdmin = false } = {}) {
 async function loadEligibleOrganizations() {
     if (currentUser?.role === 'admin') {
         const res = await apiAdminOrganizations({ limit: 100 });
-        if (!res.ok) throw new Error(res.error || 'Could not load admin-visible organizations.');
+        if (!res.ok) throw new Error(res.error || localeText('organization.adminOrgsFailed'));
         return normalizeOrganizations(res.data, { platformAdmin: true });
     }
     const res = await apiListOrganizations({ limit: 100 });
-    if (!res.ok) throw new Error(res.error || 'Could not load organizations.');
+    if (!res.ok) throw new Error(res.error || localeText('organization.orgsFailed'));
     return normalizeOrganizations(res.data, { platformAdmin: false });
 }
 
@@ -95,7 +96,7 @@ function renderPicker() {
     if (!$picker || !$pickerWrap) return;
     $picker.textContent = '';
     if (eligibleOrganizations.length !== 1) {
-        $picker.append(new Option('Select organization', ''));
+        $picker.append(new Option(localeText('organization.selectOrganization'), ''));
     }
     for (const org of eligibleOrganizations) {
         $picker.append(new Option(org.name, org.id));
@@ -123,12 +124,12 @@ function renderSummary(dashboard = {}) {
     const access = dashboard.access || {};
     $summaryGrid.textContent = '';
     $summaryGrid.append(
-        summaryCard('Current balance', formatCredits(balance.current)),
-        summaryCard('Available', formatCredits(balance.available)),
-        summaryCard('Reserved', formatCredits(balance.reserved)),
-        summaryCard('Platform admin', access.platformAdmin ? 'yes' : 'no'),
-        summaryCard('Organization role', access.organizationRole || 'none'),
-        summaryCard('Admin image tests', access.canUseAdminImageTests ? 'available' : 'not available'),
+        summaryCard(localeText('organization.currentBalance'), formatCredits(balance.current)),
+        summaryCard(localeText('organization.available'), formatCredits(balance.available)),
+        summaryCard(localeText('organization.reserved'), formatCredits(balance.reserved)),
+        summaryCard(localeText('organization.platformAdmin'), access.platformAdmin ? localeText('organization.yes') : localeText('organization.no')),
+        summaryCard(localeText('organization.organizationRole'), access.organizationRole || localeText('organization.none')),
+        summaryCard(localeText('organization.adminImageTests'), access.canUseAdminImageTests ? localeText('organization.availableState') : localeText('organization.notAvailable')),
     );
 }
 
@@ -159,25 +160,25 @@ function renderRows(tbody, rows, columns, emptyText, colspan) {
 function renderTables(dashboard = {}) {
     renderRows($ledgerBody, dashboard.recentLedger || [], [
         (item) => formatDate(item.createdAt),
-        (item) => item.entryType || 'Not reported',
-        (item) => item.source || 'Not reported',
+        (item) => item.entryType || localeText('organization.notReported'),
+        (item) => item.source || localeText('organization.notReported'),
         (item) => formatCredits(item.amount),
         (item) => formatCredits(item.balanceAfter),
-    ], 'No recent credit ledger activity.', 5);
+    ], localeText('organization.noLedger'), 5);
 
     renderRows($adminDebitsBody, dashboard.recentAdminImageTestDebits || [], [
         (item) => formatDate(item.createdAt),
         (item) => item.source || 'admin_ai_image_test',
         (item) => formatCredits(item.amount),
         (item) => formatCredits(item.balanceAfter),
-    ], 'No recent admin image-test debits for this organization.', 4);
+    ], localeText('organization.noAdminDebits'), 4);
 
     renderRows($membersBody, dashboard.members || [], [
-        (item) => item.email || item.userId || 'Not reported',
-        (item) => item.role || 'Not reported',
-        (item) => item.status || 'Not reported',
+        (item) => item.email || item.userId || localeText('organization.notReported'),
+        (item) => item.role || localeText('organization.notReported'),
+        (item) => item.status || localeText('organization.notReported'),
         (item) => formatDate(item.createdAt),
-    ], 'No active members reported.', 4);
+    ], localeText('organization.noMembers'), 4);
 }
 
 function renderNeedsSelection() {
@@ -185,8 +186,8 @@ function renderNeedsSelection() {
     hide($error);
     hide($denied);
     show($dashboard);
-    if ($name) $name.textContent = 'Select an organization';
-    if ($access) $access.textContent = 'Choose an active organization to inspect its credits, members, and role context.';
+    if ($name) $name.textContent = localeText('organization.selectOrganizationTitle');
+    if ($access) $access.textContent = localeText('organization.selectOrganizationHelp');
     if ($warning) hide($warning);
     renderPicker();
     renderSummary({});
@@ -201,9 +202,13 @@ function renderDashboard(dashboard = {}) {
     renderPicker();
     const org = dashboard.organization || {};
     const access = dashboard.access || {};
-    if ($name) $name.textContent = org.name || org.id || 'Organization';
+    if ($name) $name.textContent = org.name || org.id || localeText('organization.organization');
     if ($access) {
-        $access.textContent = `Platform admin: ${access.platformAdmin ? 'yes' : 'no'} · Organization role: ${access.organizationRole || 'none'} · Organization id: ${org.id || 'not reported'}`;
+        $access.textContent = localeText('organization.accessLine', {
+            platformAdmin: access.platformAdmin ? localeText('organization.yes') : localeText('organization.no'),
+            role: access.organizationRole || localeText('organization.none'),
+            id: org.id || localeText('organization.notReported'),
+        });
     }
     const warning = Array.isArray(dashboard.warnings) ? dashboard.warnings[0] : null;
     if ($warning) {
@@ -226,7 +231,7 @@ async function loadDashboard() {
     const res = await apiOrganizationDashboard(selectedOrganizationId, { limit: 25 });
     if (!res.ok) {
         if (res.status === 401 || res.status === 403 || res.status === 404) return setDenied();
-        return setError(res.error || 'Organization dashboard is unavailable.');
+        return setError(res.error || localeText('organization.unavailable'));
     }
     renderDashboard(res.data?.dashboard || {});
 }
@@ -242,7 +247,7 @@ async function init() {
     try {
         eligibleOrganizations = await loadEligibleOrganizations();
     } catch (error) {
-        return setError(error?.message || 'Could not load organization access.');
+        return setError(error?.message || localeText('organization.orgLoadFailed'));
     }
     if (!eligibleOrganizations.length) return setDenied();
     selectedOrganizationId = resolveActiveOrganizationId(eligibleOrganizations);
@@ -259,5 +264,5 @@ $picker?.addEventListener('change', async () => {
 
 init().catch((error) => {
     console.warn(error);
-    setError('Organization dashboard failed to load.');
+    setError(localeText('organization.failedToLoad'));
 });

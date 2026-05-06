@@ -14,7 +14,7 @@
     <meta property="og:title" content="BITBI | Mein digitaler Spielraum">
     <meta property="og:description" content="KI-Kunst • Video Creations • Sound Lab • Ein kreativer digitaler Spielraum">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://bitbi.ai/">
+    <meta property="og:url" content="https://bitbi.ai/de/">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="BITBI | Mein digitaler Spielraum">
     <meta name="twitter:description" content="KI-Kunst • Video Creations • Sound Lab • Ein kreativer digitaler Spielraum">
@@ -50,7 +50,7 @@
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "BITBI",
-        "url": "https://bitbi.ai/",
+        "url": "https://bitbi.ai/de/",
         "description": "Experimentelle Websites, KI-Kunst, Video Creations, Sound Lab und kreative Systeme.",
         "sameAs": [
             "https://x.com/bitbi_ai"
@@ -122,7 +122,7 @@
             <div class="mobile-nav__legal">
                 <a href="/de/legal/imprint.html" class="mobile-nav__legal-link">Impressum</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
-                <a href="/de/legal/privacy.html" class="mobile-nav__legal-link">Datenschutz</a>
+                <a href="/de/legal/datenschutz.html" class="mobile-nav__legal-link">Datenschutz</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
                 <a href="/de/legal/terms.html" class="mobile-nav__legal-link">AGB</a>
                 <span class="mobile-nav__legal-dot">&bull;</span>
@@ -207,7 +207,7 @@
                         <h2 class="section__title gt-cyan-mag" style="margin-block-start:0">AI Creations Galerie</h2>
                     </div>
                 </div>
-                <div class="gallery-mode reveal" role="tablist" aria-label="Galerie mode">
+                <div class="gallery-mode reveal" role="tablist" aria-label="Galerie-Modus">
                     <div class="gallery-mode__item">
                         <button class="gallery-mode__btn gallery-mode__btn--explore active" data-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -222,7 +222,7 @@
                         </button>
                     </div>
                 </div>
-                <div id="galleryEntdecken">
+                <div id="galleryExplore">
                     <div id="galleryGrid" class="grid-gallery"></div>
                     <div id="galleryPagination" class="browse-pagination" style="display:none"></div>
                 </div>
@@ -232,43 +232,43 @@
                             <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="galleryCreateTitle">
                                 <div class="creator-create__panel-head">
                                     <div>
-                                        <p class="creator-create__eyebrow">Galerie Create</p>
+                                        <p class="creator-create__eyebrow">Galerie erstellen</p>
                                         <h2 id="galleryCreateTitle" class="creator-create__title">FLUX.1 Schnell</h2>
                                     </div>
-                                    <span class="creator-create__badge">Text to image</span>
+                                    <span class="creator-create__badge">Text zu Bild</span>
                                 </div>
 
                                 <div class="creator-create__group creator-create__group--prompt">
-                                    <label for="galStudioPrompt" class="creator-create__label">Describe your image</label>
-                                    <textarea id="galStudioPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="A luminous glass sculpture in a rain-soaked cyberpunk gallery..." maxlength="1000" rows="6"></textarea>
-                                    <p class="creator-create__help">Describe the subject, setting, style, mood, and lighting.</p>
+                                    <label for="galStudioPrompt" class="creator-create__label">Bild beschreiben</label>
+                                    <textarea id="galStudioPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="Eine leuchtende Glasskulptur in einer regennassen Cyberpunk-Galerie..." maxlength="1000" rows="6"></textarea>
+                                    <p class="creator-create__help">Beschreiben Sie Motiv, Umgebung, Stil, Stimmung und Licht.</p>
                                 </div>
 
                                 <div class="creator-create__group">
                                     <div class="creator-create__group-head">
-                                        <h3 class="creator-create__group-title">Image settings</h3>
-                                        <span class="creator-create__optional">Fast generation</span>
+                                        <h3 class="creator-create__group-title">Bildeinstellungen</h3>
+                                        <span class="creator-create__optional">Schnelle Generierung</span>
                                     </div>
                                     <div class="studio__controls creator-create__settings-grid gallery-create__settings-grid">
                                         <div class="studio__field creator-create__field">
-                                            <label for="galStudioModel" class="studio__field-label creator-create__label">Model</label>
+                                            <label for="galStudioModel" class="studio__field-label creator-create__label">Modell</label>
                                             <select id="galStudioModel" class="studio__field-input creator-create__select"></select>
                                         </div>
                                         <div class="studio__field creator-create__field">
-                                            <label for="galStudioSteps" class="studio__field-label creator-create__label">Steps</label>
+                                            <label for="galStudioSteps" class="studio__field-label creator-create__label">Schritte</label>
                                             <select id="galStudioSteps" class="studio__field-input creator-create__select">
                                                 <option value="2">2</option>
                                                 <option value="3">3</option>
-                                                <option value="4" selected>4 (default)</option>
+                                                <option value="4" selected>4 (Standard)</option>
                                                 <option value="6">6</option>
-                                                <option value="8">8 (max)</option>
+                                                <option value="8">8 (Maximum)</option>
                                             </select>
                                         </div>
                                         <div class="studio__field creator-create__field">
                                             <label for="galStudioSeed" class="studio__field-label creator-create__label">Seed</label>
                                             <div class="studio__seed-wrap creator-create__seed-wrap">
-                                                <input type="number" id="galStudioSeed" class="studio__field-input creator-create__input" placeholder="Random" min="0">
-                                                <button type="button" id="galStudioRandomize" class="studio__randomize creator-create__icon-btn" title="Randomize seed" aria-label="Randomize seed">&#x1f3b2;</button>
+                                                <input type="number" id="galStudioSeed" class="studio__field-input creator-create__input" placeholder="Zufällig" min="0">
+                                                <button type="button" id="galStudioRandomize" class="studio__randomize creator-create__icon-btn" title="Seed zufällig setzen" aria-label="Seed zufällig setzen">&#x1f3b2;</button>
                                             </div>
                                         </div>
                                     </div>
@@ -276,8 +276,8 @@
 
                                 <div class="creator-create__action-card" aria-live="polite">
                                     <div class="creator-create__cost">
-                                        <span>Estimated cost</span>
-                                        <strong id="galStudioCreditEstimate">1 credit</strong>
+                                        <span>Geschätzte Kosten</span>
+                                        <strong id="galStudioCreditEstimate">1 Credit</strong>
                                     </div>
                                     <div class="studio__actions">
                                         <button type="button" id="galStudioGenerate" class="studio__generate-btn creator-create__generate">Generieren</button>
@@ -287,24 +287,24 @@
                                 <div id="galStudioGenMsg" class="studio__msg creator-create__msg" role="status"></div>
                                 <div id="galStudioSaveBar" class="studio__save-bar creator-create__save-bar">
                                     <select id="galStudioFolderSelect" class="studio__folder-select creator-create__select"><option value="">Assets</option></select>
-                                    <button type="button" id="galStudioSaveBtn" class="studio__save-btn creator-create__save-btn">Save</button>
+                                    <button type="button" id="galStudioSaveBtn" class="studio__save-btn creator-create__save-btn">Speichern</button>
                                 </div>
                             </section>
                             <section class="studio__card creator-create__panel creator-create__panel--preview reveal" aria-labelledby="galleryPreviewTitle">
                                 <div class="creator-create__panel-head">
                                     <div>
-                                        <p class="creator-create__eyebrow">Result</p>
-                                        <h2 id="galleryPreviewTitle" class="creator-create__title">Preview</h2>
+                                        <p class="creator-create__eyebrow">Ergebnis</p>
+                                        <h2 id="galleryPreviewTitle" class="creator-create__title">Vorschau</h2>
                                     </div>
-                                    <span class="creator-create__preview-note">Save to Assets Manager</span>
+                                    <span class="creator-create__preview-note">Im Assets Manager speichern</span>
                                 </div>
                                 <div id="galStudioPreview" class="studio__preview creator-create__preview">
                                     <div class="studio__preview-empty creator-create__empty">
                                         <span class="creator-create__empty-icon" aria-hidden="true">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 16-5-5L5 21"/></svg>
                                         </span>
-                                        <strong>Your generated image will appear here.</strong>
-                                        <span>Save the result into Assets Manager when you are ready.</span>
+                                        <strong>Ihr generiertes Bild erscheint hier.</strong>
+                                        <span>Speichern Sie das Ergebnis im Assets Manager, sobald es bereit ist.</span>
                                     </div>
                                 </div>
                             </section>
@@ -315,14 +315,14 @@
         </section>
 
         <!-- VIDEO CREATIONS -->
-        <section id="video-creations" class="section home-categories__panel is-active" data-category-panel="video" aria-label="AI Video Creations" aria-hidden="false">
+        <section id="video-creations" class="section home-categories__panel is-active" data-category-panel="video" aria-label="AI-Video-Kreationen" aria-hidden="false">
             <div class="section__inner">
                 <div class="section__header--sm reveal">
                     <div style="text-align:center">
-                        <h2 class="section__title gt-gold-cyan" style="margin-block-start:0">Video Creations</h2>
+                        <h2 class="section__title gt-gold-cyan" style="margin-block-start:0">Video-Kreationen</h2>
                     </div>
                 </div>
-                <div class="video-mode reveal" role="tablist" aria-label="Video actions">
+                <div class="video-mode reveal" role="tablist" aria-label="Video-Aktionen">
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--explore active" data-video-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -332,41 +332,41 @@
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-video-mode="create" role="tab" aria-selected="false" tabindex="-1">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
-                            <span class="video-mode__label">Create</span>
+                            <span class="video-mode__label">Erstellen</span>
                         </button>
                     </div>
                 </div>
-                <div id="videoEntdecken" class="video-explore reveal"></div>
+                <div id="videoExplore" class="video-explore reveal"></div>
                 <div id="videoPagination" class="browse-pagination" style="display:none"></div>
                 <div id="videoCreate" class="video-create" style="display:none">
                     <div class="video-create__shell">
                         <section class="video-create__panel video-create__panel--controls reveal" aria-labelledby="videoCreateTitle">
                             <div class="video-create__panel-head">
                                 <div>
-                                    <p class="video-create__eyebrow">Video Create</p>
+                                    <p class="video-create__eyebrow">Video erstellen</p>
                                     <h2 id="videoCreateTitle" class="video-create__title">PixVerse V6</h2>
                                 </div>
-                                <span class="video-create__badge">Text &amp; image to video</span>
+                                <span class="video-create__badge">Text &amp; Bild zu Video</span>
                             </div>
 
                             <div class="video-create__group video-create__group--prompt">
-                                <label for="videoPrompt" class="video-create__label">Describe your video</label>
-                                <textarea id="videoPrompt" class="video-create__textarea video-create__textarea--prompt" maxlength="2048" placeholder="A cinematic neon city street at night, slow camera push-in, rain reflections, dramatic lighting..." rows="6"></textarea>
-                                <p class="video-create__help">Describe the scene, motion, subject, light, and camera feel.</p>
+                                <label for="videoPrompt" class="video-create__label">Video beschreiben</label>
+                                <textarea id="videoPrompt" class="video-create__textarea video-create__textarea--prompt" maxlength="2048" placeholder="Eine cineastische Neon-Stadtstraße bei Nacht, langsame Kamerafahrt, Regenreflexionen, dramatisches Licht..." rows="6"></textarea>
+                                <p class="video-create__help">Beschreiben Sie Szene, Bewegung, Motiv, Licht und Kameragefühl.</p>
                             </div>
 
                             <div class="video-create__group">
                                 <div class="video-create__group-head">
-                                    <h3 class="video-create__group-title">Creative controls</h3>
+                                    <h3 class="video-create__group-title">Kreativsteuerung</h3>
                                     <span class="video-create__optional">Optional</span>
                                 </div>
                                 <div class="video-create__creative-grid">
                                     <div class="video-create__field">
-                                        <label for="videoNegativePrompt" class="video-create__label">Negative prompt</label>
-                                        <textarea id="videoNegativePrompt" class="video-create__textarea" maxlength="2048" placeholder="Optional: blur, distorted faces, low quality..." rows="3"></textarea>
+                                        <label for="videoNegativePrompt" class="video-create__label">Negativer Prompt</label>
+                                        <textarea id="videoNegativePrompt" class="video-create__textarea" maxlength="2048" placeholder="Optional: Unschärfe, verzerrte Gesichter, niedrige Qualität..." rows="3"></textarea>
                                     </div>
                                     <div class="video-create__field">
-                                        <label class="video-create__label" for="videoReferenceImage">Reference image</label>
+                                        <label class="video-create__label" for="videoReferenceImage">Referenzbild</label>
                                         <div class="video-create__upload-shell">
                                             <input id="videoReferenceImage" class="video-create__file-input" type="file" accept="image/*">
                                             <label for="videoReferenceImage" class="video-create__upload">
@@ -374,42 +374,42 @@
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/><path d="M4 19h16"/></svg>
                                                 </span>
                                                 <span class="video-create__upload-copy">
-                                                    <strong>Add reference image</strong>
-                                                    <span id="videoReferencePreview" class="video-create__reference-preview">Optional image-to-video reference</span>
+                                                    <strong>Referenzbild hinzufügen</strong>
+                                                    <span id="videoReferencePreview" class="video-create__reference-preview">Optionale Bild-zu-Video-Referenz</span>
                                                 </span>
                                             </label>
-                                            <button id="videoReferenceRemove" class="video-create__upload-remove" type="button" hidden>Remove</button>
+                                            <button id="videoReferenceRemove" class="video-create__upload-remove" type="button" hidden>Entfernen</button>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="video-create__group">
-                                <h3 class="video-create__group-title">Video settings</h3>
+                                <h3 class="video-create__group-title">Videoeinstellungen</h3>
                                 <div class="video-create__settings-grid">
                                     <label class="video-create__field">
-                                        <span class="video-create__label">Duration</span>
-                                        <select id="videoDuration" class="video-create__select" aria-label="Video duration">
-                                            <option value="1">1 second</option>
-                                            <option value="2">2 seconds</option>
-                                            <option value="3">3 seconds</option>
-                                            <option value="4">4 seconds</option>
-                                            <option value="5" selected>5 seconds</option>
-                                            <option value="6">6 seconds</option>
-                                            <option value="7">7 seconds</option>
-                                            <option value="8">8 seconds</option>
-                                            <option value="9">9 seconds</option>
-                                            <option value="10">10 seconds</option>
-                                            <option value="11">11 seconds</option>
-                                            <option value="12">12 seconds</option>
-                                            <option value="13">13 seconds</option>
-                                            <option value="14">14 seconds</option>
-                                            <option value="15">15 seconds</option>
+                                        <span class="video-create__label">Dauer</span>
+                                        <select id="videoDuration" class="video-create__select" aria-label="Videodauer">
+                                            <option value="1">1 Sekunde</option>
+                                            <option value="2">2 Sekunden</option>
+                                            <option value="3">3 Sekunden</option>
+                                            <option value="4">4 Sekunden</option>
+                                            <option value="5" selected>5 Sekunden</option>
+                                            <option value="6">6 Sekunden</option>
+                                            <option value="7">7 Sekunden</option>
+                                            <option value="8">8 Sekunden</option>
+                                            <option value="9">9 Sekunden</option>
+                                            <option value="10">10 Sekunden</option>
+                                            <option value="11">11 Sekunden</option>
+                                            <option value="12">12 Sekunden</option>
+                                            <option value="13">13 Sekunden</option>
+                                            <option value="14">14 Sekunden</option>
+                                            <option value="15">15 Sekunden</option>
                                         </select>
                                     </label>
                                     <label class="video-create__field">
-                                        <span class="video-create__label">Aspect</span>
-                                        <select id="videoAspectRatio" class="video-create__select" aria-label="Video aspect ratio">
+                                        <span class="video-create__label">Seitenverhältnis</span>
+                                        <select id="videoAspectRatio" class="video-create__select" aria-label="Video-Seitenverhältnis">
                                             <option value="16:9" selected>16:9</option>
                                             <option value="4:3">4:3</option>
                                             <option value="1:1">1:1</option>
@@ -422,7 +422,7 @@
                                     </label>
                                     <label class="video-create__field">
                                         <span class="video-create__label">Qualität</span>
-                                        <select id="videoQuality" class="video-create__select" aria-label="Video quality">
+                                        <select id="videoQuality" class="video-create__select" aria-label="Videoqualität">
                                             <option value="360p">360p</option>
                                             <option value="540p">540p</option>
                                             <option value="720p" selected>720p</option>
@@ -434,12 +434,12 @@
                                         <span class="video-create__toggle-ui" aria-hidden="true"></span>
                                         <span class="video-create__toggle-copy">
                                             <strong>Audio</strong>
-                                            <span>Generieren sound with the clip</span>
+                                            <span>Ton mit dem Clip generieren</span>
                                         </span>
                                     </label>
                                 </div>
                                 <details class="video-create__advanced">
-                                    <summary>Advanced seed</summary>
+                                    <summary>Erweiterter Seed</summary>
                                     <label class="video-create__field">
                                         <span class="video-create__label">Seed</span>
                                         <input id="videoSeed" class="video-create__input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="Optional">
@@ -449,11 +449,11 @@
 
                             <div class="video-create__action-card" aria-live="polite">
                                 <div class="video-create__cost">
-                                    <span>Estimated cost</span>
-                                    <strong id="videoCreditEstimate">185 credits</strong>
+                                    <span>Geschätzte Kosten</span>
+                                    <strong id="videoCreditEstimate">185 Credits</strong>
                                 </div>
-                                <div id="videoCreditBalance" class="video-create__balance">Checking balance...</div>
-                                <button id="videoGenerate" type="button" class="video-create__generate">Generieren Video</button>
+                                <div id="videoCreditBalance" class="video-create__balance">Guthaben wird geprüft...</div>
+                                <button id="videoGenerate" type="button" class="video-create__generate">Video generieren</button>
                             </div>
                             <div id="videoMsg" class="studio__msg video-create__msg" aria-live="polite"></div>
                         </section>
@@ -461,18 +461,18 @@
                         <section class="video-create__panel video-create__panel--preview reveal" aria-labelledby="videoPreviewTitle">
                             <div class="video-create__panel-head">
                                 <div>
-                                    <p class="video-create__eyebrow">Result</p>
-                                    <h2 id="videoPreviewTitle" class="video-create__title">Preview</h2>
+                                    <p class="video-create__eyebrow">Ergebnis</p>
+                                    <h2 id="videoPreviewTitle" class="video-create__title">Vorschau</h2>
                                 </div>
-                                <span class="video-create__preview-note">Private until published</span>
+                                <span class="video-create__preview-note">Privat bis zur Veröffentlichung</span>
                             </div>
                             <div id="videoPreview" class="video-create__preview">
                                 <div class="video-create__empty">
                                     <span class="video-create__empty-icon" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10.5 20 7v10l-5-3.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M7 9h4"/><path d="M7 13h2"/></svg>
                                     </span>
-                                    <strong>Your generated video will appear here.</strong>
-                                    <span>PixVerse clips save into Assets Manager so you can review and publish them later.</span>
+                                    <strong>Ihr generiertes Video erscheint hier.</strong>
+                                    <span>PixVerse-Clips werden im Assets Manager gespeichert, damit Sie sie später prüfen und veröffentlichen können.</span>
                                 </div>
                             </div>
                         </section>
@@ -489,7 +489,7 @@
                         <h2 class="section__title gt-gold-cyan" style="margin-block-start:0">Sound Lab</h2>
                     </div>
                 </div>
-                <div class="video-mode reveal" role="tablist" aria-label="Sound Lab actions">
+                <div class="video-mode reveal" role="tablist" aria-label="Sound-Lab-Aktionen">
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--explore active" data-sound-mode="explore" role="tab" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -499,11 +499,11 @@
                     <div class="video-mode__item">
                         <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-sound-mode="create" role="tab" aria-selected="false" tabindex="-1">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
-                            <span class="video-mode__label">Create</span>
+                            <span class="video-mode__label">Erstellen</span>
                         </button>
                     </div>
                 </div>
-                <div id="soundLabEntdecken" class="section__inner section__inner--soundlab">
+                <div id="soundLabExplore" class="section__inner section__inner--soundlab">
                     <div class="card-stack" id="soundLabTracks"></div>
                     <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
                 </div>
@@ -513,16 +513,16 @@
                             <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="soundCreateTitle">
                                 <div class="creator-create__panel-head">
                                     <div>
-                                        <p class="creator-create__eyebrow">Sound Lab Create</p>
+                                        <p class="creator-create__eyebrow">Sound Lab erstellen</p>
                                         <h2 id="soundCreateTitle" class="creator-create__title">Music 2.6</h2>
                                     </div>
-                                    <span class="creator-create__badge">Text to music</span>
+                                    <span class="creator-create__badge">Text zu Musik</span>
                                 </div>
 
                                 <div class="creator-create__group creator-create__group--prompt">
-                                    <label for="soundMusicPrompt" class="creator-create__label">Describe your track</label>
-                                    <textarea id="soundMusicPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="A glossy synth-pop track with warm bass, late-night city energy, and bright vocal hooks..." maxlength="2000" rows="6"></textarea>
-                                    <p class="creator-create__help">Describe style, energy, instruments, vocal feel, and mood.</p>
+                                    <label for="soundMusicPrompt" class="creator-create__label">Track beschreiben</label>
+                                    <textarea id="soundMusicPrompt" class="studio__prompt creator-create__textarea creator-create__textarea--prompt" placeholder="Ein glänzender Synth-Pop-Track mit warmem Bass, nächtlicher City-Energie und hellen Vocal-Hooks..." maxlength="2000" rows="6"></textarea>
+                                    <p class="creator-create__help">Beschreiben Sie Stil, Energie, Instrumente, Gesangsstimmung und Atmosphäre.</p>
                                 </div>
 
                                 <div class="creator-create__group">
@@ -532,29 +532,29 @@
                                     </div>
                                     <div class="studio__controls sound-create__controls">
                                         <div class="studio__field sound-create__lyrics-field creator-create__field">
-                                            <label for="soundMusicLyrics" class="studio__field-label creator-create__label">Manual lyrics</label>
-                                            <textarea id="soundMusicLyrics" class="studio__field-input sound-create__lyrics creator-create__textarea" placeholder="Optional lyrics" maxlength="3500" rows="5"></textarea>
+                                            <label for="soundMusicLyrics" class="studio__field-label creator-create__label">Eigene Lyrics</label>
+                                            <textarea id="soundMusicLyrics" class="studio__field-input sound-create__lyrics creator-create__textarea" placeholder="Optionale Lyrics" maxlength="3500" rows="5"></textarea>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="creator-create__group">
-                                    <h3 class="creator-create__group-title">Music options</h3>
+                                    <h3 class="creator-create__group-title">Musikoptionen</h3>
                                     <div class="sound-create__toggles">
                                         <label class="sound-create__toggle creator-create__toggle">
                                             <input type="checkbox" id="soundMusicInstrumental">
                                             <span class="creator-create__toggle-ui" aria-hidden="true"></span>
                                             <span class="creator-create__toggle-copy">
                                                 <strong>Instrumental</strong>
-                                                <span>No vocals or lyrics</span>
+                                                <span>Keine Vocals oder Lyrics</span>
                                             </span>
                                         </label>
                                         <label class="sound-create__toggle creator-create__toggle">
                                             <input type="checkbox" id="soundMusicGenerateLyrics">
                                             <span class="creator-create__toggle-ui" aria-hidden="true"></span>
                                             <span class="creator-create__toggle-copy">
-                                                <strong>Generieren lyrics first</strong>
-                                                <span>Adds the lyrics step</span>
+                                                <strong>Lyrics zuerst generieren</strong>
+                                                <span>Fügt den Lyrics-Schritt hinzu</span>
                                             </span>
                                         </label>
                                     </div>
@@ -562,11 +562,11 @@
 
                                 <div class="creator-create__action-card" aria-live="polite">
                                     <div class="creator-create__cost">
-                                        <span>Estimated cost</span>
-                                        <strong id="soundMusicCreditEstimate">150 credits</strong>
+                                        <span>Geschätzte Kosten</span>
+                                        <strong id="soundMusicCreditEstimate">150 Credits</strong>
                                     </div>
                                     <div class="studio__actions">
-                                        <button type="button" id="soundMusicGenerate" class="studio__generate-btn creator-create__generate">Generieren Music — 150 Credits</button>
+                                        <button type="button" id="soundMusicGenerate" class="studio__generate-btn creator-create__generate">Musik generieren - 150 Credits</button>
                                         <span class="studio__hint creator-create__hint">Ctrl+Enter</span>
                                     </div>
                                 </div>
@@ -575,19 +575,19 @@
                             <section class="studio__card creator-create__panel creator-create__panel--preview reveal" aria-labelledby="soundPreviewTitle">
                                 <div class="creator-create__panel-head">
                                     <div>
-                                        <p class="creator-create__eyebrow">Result</p>
-                                        <h2 id="soundPreviewTitle" class="creator-create__title">Preview</h2>
+                                        <p class="creator-create__eyebrow">Ergebnis</p>
+                                        <h2 id="soundPreviewTitle" class="creator-create__title">Vorschau</h2>
                                     </div>
-                                    <span class="creator-create__preview-note">Saved automatically</span>
+                                    <span class="creator-create__preview-note">Automatisch gespeichert</span>
                                 </div>
-                                <p class="sound-create__info">Music generation can take up to 2 minutes.</p>
+                                <p class="sound-create__info">Die Musikgenerierung kann bis zu 2 Minuten dauern.</p>
                                 <div id="soundMusicPreview" class="studio__preview sound-create__preview creator-create__preview">
                                     <div class="studio__preview-empty creator-create__empty">
                                         <span class="creator-create__empty-icon" aria-hidden="true">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                                         </span>
-                                        <strong>Your generated music will appear here.</strong>
-                                        <span>The track saves into Assets Manager with its cover when generation completes.</span>
+                                        <strong>Ihre generierte Musik erscheint hier.</strong>
+                                        <span>Der Track wird nach Abschluss der Generierung mit Cover im Assets Manager gespeichert.</span>
                                     </div>
                                 </div>
                             </section>
@@ -603,10 +603,10 @@
 <div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
     <div class="modal-content">
         <div class="modal-card">
-            <a id="modalFullLink" class="modal-action modal-action--left" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open full resolution image" title="Open full size" hidden>
+            <a id="modalFullLink" class="modal-action modal-action--left" href="#" target="_blank" rel="noopener noreferrer" aria-label="Bild in voller Auflösung öffnen" title="In voller Größe öffnen" hidden>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </a>
-            <button type="button" class="modal-action modal-action--right modal-close" aria-label="Close gallery modal" title="Close">
+            <button type="button" class="modal-action modal-action--right modal-close" aria-label="Galerie-Dialog schließen" title="Schließen">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
             <div id="modalImage" class="modal-image"></div>
@@ -652,7 +652,7 @@
             <div id="contactDrawerPanel" class="contact-drawer__panel" aria-hidden="true">
                 <div class="contact-drawer__panel-inner">
                     <div class="contact-drawer__panel-header">
-                        <h3 class="contact-drawer__panel-title gt-gold-cyan">Say Hello</h3>
+                        <h3 class="contact-drawer__panel-title gt-gold-cyan">Nachricht senden</h3>
                     </div>
                     <div class="contact-drawer__form-shell">
                         <form id="contactForm" class="glass rounded-2xl contact-form" style="padding:var(--space-6)">
@@ -667,15 +667,15 @@
                                 </div>
                                 <div>
                                     <label for="contactEmail" class="sr-only">E-Mail</label>
-                                    <input type="email" name="email" id="contactEmail" placeholder="Email" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
+                                    <input type="email" name="email" id="contactEmail" placeholder="E-Mail" required class="form-input" autocomplete="email" spellcheck="false" autocapitalize="off">
                                 </div>
                             </div>
-                            <label for="contactSubject" class="sr-only">Subject</label>
-                            <input type="text" name="subject" id="contactSubject" placeholder="Subject" class="form-input">
-                            <label for="contactMessage" class="sr-only">Your message</label>
-                            <textarea name="message" id="contactMessage" rows="5" placeholder="Your message..." required class="form-input form-textarea"></textarea>
-                            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">By submitting you agree to processing via <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a>. Details in our <a href="/de/legal/privacy.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Datenschutzerklärung &sect;5</a>.</p>
-                            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Send Message</button>
+                            <label for="contactSubject" class="sr-only">Betreff</label>
+                            <input type="text" name="subject" id="contactSubject" placeholder="Betreff" class="form-input">
+                            <label for="contactMessage" class="sr-only">Ihre Nachricht</label>
+                            <textarea name="message" id="contactMessage" rows="5" placeholder="Ihre Nachricht..." required class="form-input form-textarea"></textarea>
+                            <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);line-height:1.5;margin-block:0.75rem 0">Mit dem Absenden stimmen Sie der Verarbeitung über <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Cloudflare</a> und <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" style="color:rgba(0,240,255,0.5);text-decoration:underline">Resend</a> zu. Details finden Sie in unserer <a href="/de/legal/datenschutz.html" style="color:rgba(0,240,255,0.5);text-decoration:underline">Datenschutzerklärung &sect;5</a>.</p>
+                            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">Nachricht senden</button>
                         </form>
                     </div>
                 </div>
@@ -685,7 +685,7 @@
         <div class="site-footer__links">
             <a href="/de/legal/imprint.html" class="site-footer__link">Impressum</a>
             <span class="site-footer__dot">&bull;</span>
-            <a href="/de/legal/privacy.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
+            <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutzerklärung</a> / <a href="/de/legal/datenschutz.html" class="site-footer__link">Datenschutz</a>
             <span class="site-footer__dot">&bull;</span>
             <a href="/de/legal/terms.html" class="site-footer__link">AGB</a>
             <span class="site-footer__dot">&bull;</span>

@@ -18,6 +18,7 @@ import {
     resumeGlobalAudio,
     seekGlobalAudio,
 } from '../../shared/audio/audio-manager.js?v=__ASSET_VERSION__';
+import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
 
@@ -99,11 +100,11 @@ export function initSoundLab(revealObserver) {
         const show = memtracksState.loading || memtracksState.error || (memtracksState.loaded && !memtracksState.items.length);
         statusEl.hidden = !show;
         if (memtracksState.loading) {
-            statusEl.textContent = 'Loading published tracks...';
+            statusEl.textContent = localeText('browse.loadingTracks');
         } else if (memtracksState.error) {
             statusEl.textContent = memtracksState.error;
         } else if (memtracksState.loaded && !memtracksState.items.length) {
-            statusEl.textContent = 'No published tracks yet.';
+            statusEl.textContent = localeText('browse.noTracks');
         } else {
             statusEl.textContent = '';
         }
@@ -113,13 +114,13 @@ export function initSoundLab(revealObserver) {
         openMobileMediaGrid({
             title: 'Memtracks',
             items: memtracksState.items,
-            emptyText: 'No published tracks yet.',
+            emptyText: localeText('browse.noTracks'),
             className: 'mobile-media-grid-overlay--sound',
             renderItem(item, index, { openDetail } = {}) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--sound';
-                button.setAttribute('aria-label', `Play ${item.title || `Memtrack ${index + 1}`}`);
+                button.setAttribute('aria-label', localeText('browse.play', { title: item.title || `Memtrack ${index + 1}` }));
 
                 const poster = item.poster?.url || '';
                 if (poster) {
@@ -171,7 +172,7 @@ export function initSoundLab(revealObserver) {
                                 title.textContent = item.title || `Memtrack ${index + 1}`;
                                 const status = document.createElement('p');
                                 status.className = 'mobile-media-detail-overlay__sound-status';
-                                status.textContent = 'Loading...';
+                                status.textContent = localeText('browse.loading');
                                 const controls = document.createElement('div');
                                 controls.className = 'mobile-media-detail-overlay__sound-controls';
                                 const play = document.createElement('button');
@@ -246,13 +247,13 @@ export function initSoundLab(revealObserver) {
         paginationEl.hidden = !hasItems;
         if (!hasItems) {
             paginationStatus.textContent = '';
-            syncMobileMediaTrigger(paginationStatus, { enabled: false, label: 'Open Memtracks grid' });
+            syncMobileMediaTrigger(paginationStatus, { enabled: false, label: localeText('browse.openMemtracksGrid') });
             return;
         }
         paginationStatus.textContent = `Showing all ${memtracksState.items.length} Memtracks.`;
         syncMobileMediaTrigger(paginationStatus, {
             enabled: hasItems,
-            label: 'Open all Memtracks in a grid',
+            label: localeText('browse.openMemtracksGrid'),
         });
     }
 
@@ -361,7 +362,7 @@ export function initSoundLab(revealObserver) {
         const playButton = document.createElement('button');
         playButton.type = 'button';
         playButton.className = 'snd-play snd-memtrack-play';
-        playButton.setAttribute('aria-label', `Play ${item.title || 'Memtrack'}`);
+        playButton.setAttribute('aria-label', localeText('browse.play', { title: item.title || 'Memtrack' }));
         playButton.style.cssText = 'width:40px;height:40px;border-radius:50%;background:rgba(0,240,255,0.07);border:1px solid rgba(0,240,255,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background 0.2s';
         const playIcon = document.createElement('span');
         playIcon.className = 'pi';
@@ -574,7 +575,7 @@ export function initSoundLab(revealObserver) {
             dotsEl = document.createElement('div');
             dotsEl.className = 'snd-deck-dots';
             dotsEl.setAttribute('role', 'tablist');
-            dotsEl.setAttribute('aria-label', 'Sound Lab tracks');
+            dotsEl.setAttribute('aria-label', localeText('browse.soundLabTracks'));
             cards.forEach((_, i) => {
                 const dot = document.createElement('button');
                 dot.type = 'button';
