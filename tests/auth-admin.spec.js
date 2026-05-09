@@ -4804,12 +4804,58 @@ test.describe('Assets Manager (authenticated)', () => {
       return { left: rect.left, right: rect.right, width: rect.width, viewportWidth: window.innerWidth };
     }));
     expect(mobileLayout.every((rect) => rect.left >= 0 && rect.right <= rect.viewportWidth + 1 && rect.width > 0)).toBe(true);
+    const referenceImageInput = page.locator('#videoReferenceImage');
+    await referenceImageInput.setInputFiles({
+      name: 'reference.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+    const referenceThumb = page.locator('#videoReferenceThumb img');
+    await expect(referenceThumb).toBeVisible();
+    await expect(referenceThumb).toHaveAttribute('src', /^data:image\/png;base64,/);
+    await expect(page.locator('#videoReferencePreview')).toHaveText('reference.png');
+    await expect(page.locator('#videoReferenceRemove')).toBeVisible();
+    await page.locator('#videoReferenceRemove').click();
+    await expect(referenceThumb).toHaveCount(0);
+    await expect(page.locator('#videoReferenceThumb')).toBeHidden();
+    await expect(page.locator('#videoReferencePreview')).toHaveText('Optional image-to-video reference');
+    await referenceImageInput.setInputFiles({
+      name: 'reference.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
+    });
+    await expect(page.locator('#videoReferenceThumb img')).toBeVisible();
 
     await page.locator('#videoPrompt').fill('A dramatic product reveal in a luminous glass studio.');
     await page.locator('#videoGenerate').click();
-    await expect(page.locator('#videoPreview video')).toBeVisible();
-    await expect(page.locator('#videoPreview video')).toHaveAttribute('src', '/api/ai/text-assets/video-home-1/file');
+    const videoPreview = page.locator('#videoPreview');
+    const generatedVideo = page.locator('#videoPreview video.video-create__player');
+    await expect(generatedVideo).toBeVisible();
+    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/video-home-1/file');
+    await expect(videoPreview).toBeInViewport();
+    await expect(videoPreview).toBeFocused();
     await expect(page.locator('#videoMsg')).toContainText('Video generated and saved.');
+    const mobilePlayerLayout = await generatedVideo.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      return {
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        viewportWidth: window.innerWidth,
+        maxWidth: style.maxWidth,
+        height: style.height,
+        playsInline: node.playsInline,
+        playsInlineAttr: node.getAttribute('playsinline'),
+      };
+    });
+    expect(mobilePlayerLayout.left).toBeGreaterThanOrEqual(0);
+    expect(mobilePlayerLayout.right).toBeLessThanOrEqual(mobilePlayerLayout.viewportWidth + 1);
+    expect(mobilePlayerLayout.width).toBeGreaterThan(0);
+    expect(mobilePlayerLayout.maxWidth).toBe('100%');
+    expect(parseFloat(mobilePlayerLayout.height)).toBeGreaterThan(0);
+    expect(mobilePlayerLayout.playsInline).toBe(true);
+    expect(mobilePlayerLayout.playsInlineAttr).not.toBeNull();
 
     expect(videoRequests).toHaveLength(1);
     expect(videoRequests[0].idempotencyKey).toMatch(/^video-pixverse-/);
@@ -4820,8 +4866,71 @@ test.describe('Assets Manager (authenticated)', () => {
       aspect_ratio: '16:9',
       generate_audio: false,
     }));
+    expect(videoRequests[0].body.image_input).toMatch(/^data:image\/png;base64,/);
     expect(videoRequests[0].body.price).toBeUndefined();
     expect(videoRequests[0].body.credits).toBeUndefined();
+  });
+
+  test('German homepage mobile Video Create renders PixVerse V6 results in a reachable preview', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], updated_at: '2026-05-09T00:00:00.000Z' }),
+      });
+    });
+    await page.route('**/api/ai/generate-video', async (route) => {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            prompt: body.prompt,
+            model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+            duration: body.duration,
+            aspect_ratio: body.aspect_ratio,
+            quality: body.quality,
+            generate_audio: body.generate_audio,
+            mimeType: 'video/mp4',
+            videoUrl: '/api/ai/text-assets/video-home-de-1/file',
+            asset: {
+              id: 'video-home-de-1',
+              title: 'Homepage PixVerse Video DE',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              file_url: '/api/ai/text-assets/video-home-de-1/file',
+            },
+          },
+          billing: {
+            credits_charged: 185,
+            balance_after: 1015,
+          },
+        }),
+      });
+    });
+
+    const response = await page.goto('/de/');
+    expect(response.status()).toBe(200);
+    const createButton = page.locator('#video-creations .video-mode__btn[data-video-mode="create"]');
+    await expect(createButton).toBeVisible({ timeout: 10_000 });
+    await createButton.click();
+    await expect(page.locator('#videoCreate')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#videoPreview')).toBeVisible();
+
+    await page.locator('#videoPrompt').fill('Eine ruhige Kamerafahrt durch ein leuchtendes Studio.');
+    await page.locator('#videoGenerate').click();
+
+    const videoPreview = page.locator('#videoPreview');
+    const generatedVideo = page.locator('#videoPreview video.video-create__player');
+    await expect(generatedVideo).toBeVisible();
+    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/video-home-de-1/file');
+    await expect(videoPreview).toBeInViewport();
+    await expect(videoPreview).toBeFocused();
+    await expect(page.locator('#videoMsg')).toContainText('Video generiert und gespeichert.');
   });
 
   test('homepage create studio recovers button state and shows errors when generate/save requests abort', async ({

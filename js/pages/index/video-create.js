@@ -39,6 +39,7 @@ let $msg;
 let $quotaEl;
 let $creditEstimate;
 let $referenceRemove;
+let $referenceThumb;
 let $uploadShell;
 let $actionCard;
 
@@ -55,6 +56,36 @@ function hideMsg(el) {
 function replacePreview(...nodes) {
     if (!$preview) return;
     $preview.replaceChildren(...nodes);
+}
+
+function isMobilePreviewFlow() {
+    return Boolean(window.matchMedia?.('(max-width: 767px)').matches);
+}
+
+function prefersReducedMotion() {
+    return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+}
+
+function focusPreviewSafely() {
+    if (!$preview) return;
+    try {
+        $preview.focus({ preventScroll: true });
+    } catch {
+        $preview.focus();
+    }
+}
+
+function scrollPreviewIntoViewOnMobile({ focus = false } = {}) {
+    if (!$preview || !isMobilePreviewFlow()) return;
+    const target = $preview.closest('.video-create__panel--preview') || $preview;
+    window.requestAnimationFrame(() => {
+        if (focus) focusPreviewSafely();
+        target.scrollIntoView({
+            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+            block: 'start',
+            inline: 'nearest',
+        });
+    });
 }
 
 function renderPreviewEmpty(text) {
@@ -218,12 +249,25 @@ function updatePricingState() {
 
 function renderReferencePreview(fileName) {
     if (!$imagePreview) return;
+    if ($referenceThumb) {
+        $referenceThumb.replaceChildren();
+        $referenceThumb.hidden = true;
+    }
     if (!referenceImageDataUri) {
         $imagePreview.textContent = localeText('studio.optionalVideoReference');
         $imagePreview.classList.remove('video-create__reference-preview--ready');
         $uploadShell?.classList.remove('is-ready');
         if ($referenceRemove) $referenceRemove.hidden = true;
         return;
+    }
+    if ($referenceThumb) {
+        const image = document.createElement('img');
+        image.src = referenceImageDataUri;
+        image.alt = '';
+        image.decoding = 'async';
+        image.setAttribute('aria-hidden', 'true');
+        $referenceThumb.appendChild(image);
+        $referenceThumb.hidden = false;
     }
     $imagePreview.textContent = fileName ? fileName : localeText('studio.referenceImageReady');
     $imagePreview.classList.add('video-create__reference-preview--ready');
@@ -291,6 +335,8 @@ function renderResult(data) {
     video.className = 'video-create__player';
     video.controls = true;
     video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
     const posterUrl = data?.posterUrl || data?.asset?.poster_url || '';
     video.preload = posterUrl ? 'metadata' : 'auto';
     video.src = videoUrl;
@@ -338,6 +384,7 @@ async function handleGenerate() {
     $generateBtn.disabled = true;
     $generateBtn.textContent = localeText('studio.generatingVideo');
     renderPreviewLoading();
+    scrollPreviewIntoViewOnMobile();
 
     const payload = {
         prompt,
@@ -360,6 +407,7 @@ async function handleGenerate() {
     } catch (error) {
         console.warn('Video generation failed:', error);
         renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
+        scrollPreviewIntoViewOnMobile({ focus: true });
         showMsg($msg, localeText('studio.generationFailed'), 'error');
         return;
     } finally {
@@ -369,6 +417,7 @@ async function handleGenerate() {
 
     if (!res.ok) {
         renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
+        scrollPreviewIntoViewOnMobile({ focus: true });
         showMsg($msg, res.error || localeText('studio.generationFailed'), 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
@@ -378,6 +427,7 @@ async function handleGenerate() {
 
     const data = res.data?.data || res.data || {};
     renderResult(data);
+    scrollPreviewIntoViewOnMobile({ focus: true });
     showMsg($msg, localeText('studio.videoGeneratedSaved'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
@@ -406,10 +456,12 @@ export function initVideoCreate() {
     $quotaEl = document.getElementById('videoCreditBalance');
     $creditEstimate = document.getElementById('videoCreditEstimate');
     $referenceRemove = document.getElementById('videoReferenceRemove');
+    $referenceThumb = document.getElementById('videoReferenceThumb');
     $uploadShell = document.querySelector('#videoCreate .video-create__upload-shell');
     $actionCard = document.querySelector('#videoCreate .video-create__action-card');
 
     if (!$prompt || !$generateBtn) return;
+    $preview?.setAttribute('tabindex', '-1');
 
     loadQuota();
 
