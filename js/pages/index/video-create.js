@@ -20,6 +20,8 @@ import { calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=
 const DEFAULT_DURATION = 5;
 const DEFAULT_QUALITY = '720p';
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MOBILE_PLAYBACK_TIMEOUT_MS = 8000;
+const MOBILE_RISKY_VIDEO_MIME_TYPES = new Set(['video/webm', 'video/quicktime']);
 
 let initialized = false;
 let creditBalance = null;
@@ -177,6 +179,84 @@ function attachVideoPosterAfterFrame(data, video) {
     }
 }
 
+function normalizeMimeType(value) {
+    const text = String(value || '').trim().toLowerCase();
+    return text || '';
+}
+
+function mimeTypeBase(mimeType) {
+    return normalizeMimeType(mimeType).split(';')[0].trim();
+}
+
+function resultMimeType(data) {
+    return normalizeMimeType(data?.mimeType || data?.asset?.mime_type || data?.asset?.mimeType || '');
+}
+
+function canPreviewMimeType(video, mimeType) {
+    if (!mimeType || typeof video?.canPlayType !== 'function') return 'unknown';
+    return video.canPlayType(mimeType) ? 'supported' : 'unsupported';
+}
+
+function isRiskyMobileVideoMime(mimeType) {
+    return MOBILE_RISKY_VIDEO_MIME_TYPES.has(mimeTypeBase(mimeType));
+}
+
+function createPlaybackFallback(videoUrl) {
+    const fallback = document.createElement('div');
+    fallback.className = 'video-create__playback-fallback';
+    fallback.hidden = true;
+    fallback.setAttribute('role', 'status');
+    fallback.setAttribute('aria-live', 'polite');
+
+    const copy = document.createElement('p');
+    copy.textContent = localeText('studio.videoMobilePreviewUnsupported');
+    fallback.append(copy);
+
+    const actions = document.createElement('div');
+    actions.className = 'video-create__fallback-actions';
+    if (videoUrl) {
+        const openVideo = document.createElement('a');
+        openVideo.className = 'studio__save-link video-create__direct-link';
+        openVideo.href = videoUrl;
+        openVideo.target = '_blank';
+        openVideo.rel = 'noopener';
+        openVideo.textContent = localeText('studio.openVideoFile');
+        actions.append(openVideo);
+    }
+    fallback.append(actions);
+
+    return fallback;
+}
+
+function watchMobilePlayback(video, fallback, mimeType) {
+    if (!video || !fallback || !isMobilePreviewFlow()) return;
+
+    let playable = video.readyState >= HTMLMediaElement.HAVE_METADATA;
+    let timerId = 0;
+
+    const showFallback = () => {
+        if (playable) return;
+        fallback.hidden = false;
+    };
+    const markPlayable = () => {
+        playable = true;
+        fallback.hidden = true;
+        if (timerId) window.clearTimeout(timerId);
+    };
+
+    const mimeSupport = canPreviewMimeType(video, mimeType);
+    if (mimeSupport === 'unsupported' || isRiskyMobileVideoMime(mimeType)) {
+        showFallback();
+    }
+
+    video.addEventListener('loadedmetadata', markPlayable, { once: true });
+    video.addEventListener('canplay', markPlayable, { once: true });
+    video.addEventListener('error', showFallback, { once: true });
+    video.addEventListener('stalled', showFallback, { once: true });
+    video.addEventListener('abort', showFallback, { once: true });
+    timerId = window.setTimeout(showFallback, MOBILE_PLAYBACK_TIMEOUT_MS);
+}
+
 function selectedDuration() {
     const value = Number($duration?.value || DEFAULT_DURATION);
     if (!Number.isInteger(value)) return DEFAULT_DURATION;
@@ -327,6 +407,7 @@ function renderResult(data) {
         renderPreviewEmpty(localeText('studio.noPlayableVideo'));
         return;
     }
+    const mimeType = resultMimeType(data);
     const title = data?.asset?.title || localeText('studio.generatedVideo');
     const result = document.createElement('div');
     result.className = 'video-create__result';
@@ -337,6 +418,9 @@ function renderResult(data) {
     video.playsInline = true;
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
+    if (mimeType) {
+        video.dataset.mimeType = mimeType;
+    }
     const posterUrl = data?.posterUrl || data?.asset?.poster_url || '';
     video.preload = posterUrl ? 'metadata' : 'auto';
     video.src = videoUrl;
@@ -344,6 +428,9 @@ function renderResult(data) {
         video.poster = posterUrl;
     }
     result.append(video);
+    const fallback = createPlaybackFallback(videoUrl);
+    result.append(fallback);
+    watchMobilePlayback(video, fallback, mimeType);
     attachVideoPosterAfterFrame(data, video);
 
     const meta = document.createElement('div');

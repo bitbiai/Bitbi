@@ -5116,6 +5116,128 @@ test.describe('Assets Manager (authenticated)', () => {
     }
   });
 
+  for (const scenario of [
+    {
+      locale: 'English',
+      path: '/',
+      assetId: 'abc123bb',
+      prompt: 'A mobile PixVerse WebM compatibility diagnostic.',
+      fallbackText: 'Video generated and saved, but this mobile browser cannot preview this video format.',
+      openVideoText: 'Open video in new tab',
+      assetsText: 'Open in Assets Manager',
+      successText: 'Video generated and saved.',
+    },
+    {
+      locale: 'German',
+      path: '/de/',
+      assetId: 'abc123bd',
+      prompt: 'Eine mobile PixVerse-WebM-Kompatibilitätsprüfung.',
+      fallbackText: 'Das Video wurde generiert und gespeichert, aber dieser mobile Browser kann dieses Videoformat nicht als Vorschau abspielen.',
+      openVideoText: 'Video in neuem Tab öffnen',
+      assetsText: 'Assets Manager öffnen',
+      successText: 'Video generiert und gespeichert.',
+    },
+  ]) {
+    test(`homepage mobile PixVerse preview keeps saved result visible for unsupported WebM media (${scenario.locale})`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        userAgent: MOBILE_CHROME_USER_AGENT,
+        isMobile: true,
+        hasTouch: true,
+      });
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        const originalCanPlayType = HTMLMediaElement.prototype.canPlayType;
+        HTMLMediaElement.prototype.canPlayType = function canPlayType(type) {
+          if (String(type || '').toLowerCase().includes('video/webm')) return '';
+          return originalCanPlayType.call(this, type);
+        };
+      });
+      await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
+      await page.route('**/api/public/news-pulse**', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], updated_at: '2026-05-09T00:00:00.000Z' }),
+        });
+      });
+      await page.route('**/api/ai/generate-video', async (route) => {
+        const body = route.request().postDataJSON();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            data: {
+              prompt: body.prompt,
+              model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+              duration: body.duration,
+              aspect_ratio: body.aspect_ratio,
+              quality: body.quality,
+              generate_audio: body.generate_audio,
+              mimeType: 'video/webm',
+              videoUrl: `/api/ai/text-assets/${scenario.assetId}/file`,
+              asset: {
+                id: scenario.assetId,
+                title: 'Homepage PixVerse WebM Video',
+                source_module: 'video',
+                mime_type: 'video/webm',
+                file_url: `/api/ai/text-assets/${scenario.assetId}/file`,
+              },
+            },
+            billing: {
+              credits_charged: 185,
+              balance_after: 1015,
+            },
+          }),
+        });
+      });
+      await page.route(`**/api/ai/text-assets/${scenario.assetId}/file`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Accept-Ranges': 'bytes',
+            'Content-Type': 'video/webm',
+            'Content-Disposition': 'inline; filename="pixverse-preview.webm"',
+            'Content-Length': '4',
+          },
+          body: Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+        });
+      });
+
+      try {
+        const response = await page.goto(scenario.path);
+        expect(response.status()).toBe(200);
+        const createButton = page.locator('#video-creations .video-mode__btn[data-video-mode="create"]');
+        await expect(createButton).toBeVisible({ timeout: 10_000 });
+        await createButton.click();
+        await expect(page.locator('#videoCreate')).toBeVisible({ timeout: 10_000 });
+
+        await page.locator('#videoPrompt').fill(scenario.prompt);
+        const generationResponsePromise = page.waitForResponse((response) =>
+          response.url().endsWith('/api/ai/generate-video') && response.request().method() === 'POST'
+        );
+        await page.locator('#videoGenerate').click();
+        const generationResponse = await generationResponsePromise;
+        expect(generationResponse.ok()).toBe(true);
+
+        const generatedVideo = page.locator('#videoPreview video.video-create__player');
+        await expect(generatedVideo).toBeVisible({ timeout: 10_000 });
+        await expect(generatedVideo).toHaveAttribute('src', `/api/ai/text-assets/${scenario.assetId}/file`);
+        await expect(generatedVideo).toHaveAttribute('data-mime-type', 'video/webm');
+        await expect(page.locator('#videoPreview .video-create__playback-fallback')).toBeVisible();
+        await expect(page.locator('#videoPreview .video-create__playback-fallback')).toContainText(scenario.fallbackText);
+        await expect(page.locator('#videoPreview').getByRole('link', { name: scenario.openVideoText }))
+          .toHaveAttribute('href', `/api/ai/text-assets/${scenario.assetId}/file`);
+        await expect(page.locator('#videoPreview').getByRole('link', { name: scenario.assetsText })).toBeVisible();
+        await expect(page.locator('#videoMsg')).toContainText(scenario.successText);
+        await expect(page.locator('#videoMsg')).not.toContainText(/failed|fehlgeschlagen/i);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+
   test('German homepage mobile Video Create renders PixVerse V6 results in a reachable preview', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });

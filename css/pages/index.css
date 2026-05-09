@@ -2261,6 +2261,40 @@
         box-shadow: 0 18px 55px rgba(0, 0, 0, 0.35);
     }
 
+    .video-create__playback-fallback {
+        display: grid;
+        gap: 0.7rem;
+        padding: 0.85rem 0.95rem;
+        border: 1px solid rgba(0, 240, 255, 0.16);
+        border-radius: var(--radius-md);
+        background: rgba(0, 240, 255, 0.07);
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 0.86rem;
+        line-height: 1.45;
+    }
+
+    .video-create__playback-fallback[hidden] {
+        display: none;
+    }
+
+    .video-create__playback-fallback p {
+        margin: 0;
+    }
+
+    .video-create__fallback-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .video-create__direct-link,
+    .video-create__result > .studio__save-link {
+        color: var(--color-cyan);
+        font-weight: 700;
+        text-decoration: underline;
+        text-underline-offset: 0.18em;
+    }
+
     .video-create__result-meta {
         display: flex;
         flex-wrap: wrap;
