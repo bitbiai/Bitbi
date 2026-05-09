@@ -225,11 +225,11 @@
                     </section>
 
                     <section class="generate-lab__settings-group" data-settings-for="video" aria-label="Video settings" hidden>
-                        <label class="generate-lab__field" for="labVideoNegative">
+                        <label id="labVideoNegativeField" class="generate-lab__field" for="labVideoNegative">
                             <span class="generate-lab__label">Negative prompt</span>
                             <textarea id="labVideoNegative" class="generate-lab__textarea" maxlength="2048" rows="3" placeholder="Optional: blur, distorted faces, low quality..."></textarea>
                         </label>
-                        <div class="generate-lab__field">
+                        <div id="labVideoReferenceField" class="generate-lab__field">
                             <label class="generate-lab__label" for="labVideoReference">Reference image</label>
                             <div class="generate-lab__upload-shell" id="labVideoReferenceShell">
                                 <input id="labVideoReference" class="generate-lab__file-input" type="file" accept="image/*">
@@ -265,7 +265,7 @@
                                 </select>
                             </label>
                             <label class="generate-lab__field" for="labVideoQuality">
-                                <span class="generate-lab__label">Quality</span>
+                                <span id="labVideoQualityLabel" class="generate-lab__label">Quality</span>
                                 <select id="labVideoQuality" class="generate-lab__select">
                                     <option value="360p">360p</option>
                                     <option value="540p">540p</option>
@@ -274,7 +274,7 @@
                                 </select>
                             </label>
                             <label class="generate-lab__field" for="labVideoAspect">
-                                <span class="generate-lab__label">Aspect</span>
+                                <span id="labVideoAspectLabel" class="generate-lab__label">Aspect</span>
                                 <select id="labVideoAspect" class="generate-lab__select">
                                     <option value="16:9" selected>16:9</option>
                                     <option value="4:3">4:3</option>
@@ -291,12 +291,20 @@
                                 <input id="labVideoSeed" class="generate-lab__input" type="number" min="0" max="2147483647" step="1" placeholder="Optional" inputmode="numeric">
                             </label>
                         </div>
-                        <label class="generate-lab__toggle">
+                        <label id="labVideoAudioField" class="generate-lab__toggle">
                             <input id="labVideoAudio" type="checkbox" checked>
                             <span class="generate-lab__toggle-ui" aria-hidden="true"></span>
                             <span class="generate-lab__toggle-copy">
                                 <strong>Audio</strong>
                                 <span>Generate sound with the clip</span>
+                            </span>
+                        </label>
+                        <label id="labVideoWatermarkField" class="generate-lab__toggle" hidden>
+                            <input id="labVideoWatermark" type="checkbox">
+                            <span class="generate-lab__toggle-ui" aria-hidden="true"></span>
+                            <span class="generate-lab__toggle-copy">
+                                <strong>Watermark</strong>
+                                <span>Add the provider watermark when supported</span>
                             </span>
                         </label>
                     </section>

@@ -4825,6 +4825,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
   async function createMemberVideoHarness({
     user = createContractUser({ id: 'phase2v-video-user', role: 'user' }),
     creditBalance = 2000,
+    missingTables = [],
     aiRun,
     fetch,
   } = {}) {
@@ -4834,6 +4835,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const createdAt = '2026-05-03T10:00:00.000Z';
     const env = createAuthTestEnv({
       users: [user],
+      missingTables,
       aiRun: async (modelId, payload, options) => {
         calls.push({ modelId, payload, options });
         if (aiRun) return aiRun(modelId, payload, options, calls);
@@ -4885,6 +4887,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     env,
     token,
     body = {},
+    includePixverseDefaults = true,
     idempotencyKey = 'member-video-key-123456',
   }) {
     const headers = {
@@ -4892,13 +4895,16 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       Cookie: `bitbi_session=${token}`,
     };
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    const defaultBody = includePixverseDefaults ? {
+      duration: 5,
+      aspect_ratio: '16:9',
+      quality: '720p',
+      generate_audio: true,
+    } : {};
     return worker.fetch(
       authJsonRequest('/api/ai/generate-video', 'POST', {
         prompt: 'A neon city timelapse with cinematic motion.',
-        duration: 5,
-        aspect_ratio: '16:9',
-        quality: '720p',
-        generate_audio: true,
+        ...defaultBody,
         ...body,
       }, headers),
       env,
@@ -5304,6 +5310,266 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         outputOptions: expect.objectContaining({ format: 'image/webp', quality: 82 }),
       }),
     ]));
+  });
+
+  test('member HappyHorse T2V generation charges shared pricing and saves a video asset', async () => {
+    const { calculateHappyHorseT2vCreditPricing } = await loadHappyHorseT2vPricingModule();
+    const expectedPricing = calculateHappyHorseT2vCreditPricing({
+      duration: 6,
+      resolution: '1080P',
+      ratio: '9:16',
+      watermark: true,
+    });
+    const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness({
+      creditBalance: 2500,
+      aiRun: async () => ({
+        result: {
+          data: {
+            video: 'https://video.example/happyhorse.mp4',
+            thumbnail_url: 'https://video.example/happyhorse-poster.webp',
+          },
+        },
+      }),
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      includePixverseDefaults: false,
+      body: {
+        model: 'alibaba/hh1-t2v',
+        prompt: 'A luminous horse-shaped constellation moving through a glass city.',
+        duration: 6,
+        resolution: '1080P',
+        ratio: '9:16',
+        seed: 123,
+        watermark: true,
+      },
+      idempotencyKey: 'member-happyhorse-key-123456',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        videoUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+        model: {
+          id: 'alibaba/hh1-t2v',
+          label: 'HappyHorse 1.0 T2V',
+          vendor: 'Alibaba',
+        },
+        duration: 6,
+        resolution: '1080P',
+        ratio: '9:16',
+        seed: 123,
+        watermark: true,
+        asset: {
+          source_module: 'video',
+          mime_type: 'video/mp4',
+        },
+      },
+      billing: {
+        user_id: user.id,
+        feature: 'ai.video.generate',
+        credits_charged: expectedPricing.credits,
+        price: expectedPricing.credits,
+        balance_after: 2500 - expectedPricing.credits,
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.objectContaining({
+      modelId: 'alibaba/hh1-t2v',
+      options: { gateway: { id: 'default' } },
+    }));
+    expect(calls[0].payload).toEqual({
+      prompt: 'A luminous horse-shaped constellation moving through a glass city.',
+      duration: 6,
+      resolution: '1080P',
+      ratio: '9:16',
+      watermark: true,
+      seed: 123,
+    });
+    expect(calls[0].payload).not.toHaveProperty('quality');
+    expect(calls[0].payload).not.toHaveProperty('aspect_ratio');
+    expect(calls[0].payload).not.toHaveProperty('generate_audio');
+    expect(calls[0].payload).not.toHaveProperty('image_input');
+    expect(fetchCalls.map((call) => call.url)).toEqual([
+      'https://video.example/happyhorse.mp4',
+      'https://video.example/happyhorse-poster.webp',
+    ]);
+
+    const consume = env.DB.state.memberCreditLedger.find((row) =>
+      row.user_id === user.id && row.feature_key === 'ai.video.generate' && row.entry_type === 'consume'
+    );
+    expect(consume).toEqual(expect.objectContaining({
+      amount: -expectedPricing.credits,
+      balance_after: 2500 - expectedPricing.credits,
+      source: 'member_video_generation',
+    }));
+    const usage = env.DB.state.memberUsageEvents.find((row) => row.feature_key === 'ai.video.generate');
+    expect(JSON.parse(usage.metadata_json)).toEqual(expect.objectContaining({
+      model: 'alibaba/hh1-t2v',
+      preset: 'member_video_happyhorse_1_0_t2v',
+      request_mode: 'workers-ai-gateway',
+      pricing_source: 'happyhorse-1-0-t2v-shared-pricing',
+      duration: 6,
+      resolution: '1080P',
+      ratio: '9:16',
+      watermark: true,
+      source_module: 'video',
+      asset_id: body.data.asset.id,
+    }));
+    const metadata = JSON.parse(env.DB.state.aiTextAssets[0].metadata_json);
+    const metadataModel = typeof metadata.model === 'string' ? JSON.parse(metadata.model) : metadata.model;
+    expect(metadata).toEqual(expect.objectContaining({
+      source_module: 'video',
+      provider: 'workers-ai',
+      duration: 6,
+      resolution: '1080P',
+      ratio: '9:16',
+      seed: 123,
+      watermark: true,
+      workflow: 'text-to-video',
+    }));
+    expect(metadataModel).toEqual(expect.objectContaining({
+      id: 'alibaba/hh1-t2v',
+      label: 'HappyHorse 1.0 T2V',
+      vendor: 'Alibaba',
+    }));
+  });
+
+  test('member HappyHorse T2V rejects unsupported models, PixVerse-only fields, and invalid options', async () => {
+    const { authWorker, env, token, calls } = await createMemberVideoHarness();
+
+    const unsupportedModel = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      includePixverseDefaults: false,
+      body: { model: 'vidu/q3-pro' },
+      idempotencyKey: 'member-happyhorse-unsupported-model',
+    });
+    expect(unsupportedModel.status).toBe(400);
+    await expect(unsupportedModel.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'model_not_allowed',
+    });
+
+    const unsupportedFields = [
+      { image_input: 'data:image/png;base64,iVBORw0KGgo=' },
+      { negative_prompt: 'blur' },
+      { quality: '720p' },
+      { generate_audio: true },
+      { aspect_ratio: '16:9' },
+    ];
+    for (const [index, field] of unsupportedFields.entries()) {
+      const res = await postGenerateVideo({
+        worker: authWorker,
+        env,
+        token,
+        includePixverseDefaults: false,
+        body: {
+          model: 'alibaba/hh1-t2v',
+          duration: 5,
+          resolution: '720P',
+          ratio: '16:9',
+          ...field,
+        },
+        idempotencyKey: `member-happyhorse-unsupported-field-${index}`,
+      });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'unsupported_option',
+      });
+    }
+
+    const invalidOptions = [
+      { body: { resolution: '720p' }, code: 'invalid_resolution' },
+      { body: { ratio: '21:9' }, code: 'invalid_ratio' },
+      { body: { duration: 2 }, code: 'invalid_duration' },
+      { body: { seed: 2147483648 }, code: 'invalid_seed' },
+    ];
+    for (const [index, entry] of invalidOptions.entries()) {
+      const res = await postGenerateVideo({
+        worker: authWorker,
+        env,
+        token,
+        includePixverseDefaults: false,
+        body: {
+          model: 'alibaba/hh1-t2v',
+          duration: 5,
+          resolution: '720P',
+          ratio: '16:9',
+          ...entry.body,
+        },
+        idempotencyKey: `member-happyhorse-invalid-option-${index}`,
+      });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: false,
+        code: entry.code,
+      });
+    }
+
+    expect(calls).toHaveLength(0);
+  });
+
+  test('member HappyHorse T2V provider and final billing failures do not leave saved assets available', async () => {
+    const providerFailure = await createMemberVideoHarness({
+      aiRun: async () => {
+        throw new Error('happyhorse provider down');
+      },
+    });
+    const providerRes = await postGenerateVideo({
+      worker: providerFailure.authWorker,
+      env: providerFailure.env,
+      token: providerFailure.token,
+      includePixverseDefaults: false,
+      body: {
+        model: 'alibaba/hh1-t2v',
+        duration: 5,
+        resolution: '720P',
+        ratio: '16:9',
+      },
+      idempotencyKey: 'member-happyhorse-provider-fail',
+    });
+    expect(providerRes.status).toBe(502);
+    await expect(providerRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'upstream_error',
+    });
+    expect(providerFailure.env.DB.state.memberUsageEvents.filter((row) =>
+      row.feature_key === 'ai.video.generate'
+    )).toHaveLength(0);
+    expect(providerFailure.env.DB.state.aiTextAssets).toHaveLength(0);
+
+    const billingFailure = await createMemberVideoHarness({
+      missingTables: ['member_usage_events'],
+    });
+    const billingRes = await postGenerateVideo({
+      worker: billingFailure.authWorker,
+      env: billingFailure.env,
+      token: billingFailure.token,
+      includePixverseDefaults: false,
+      body: {
+        model: 'alibaba/hh1-t2v',
+        duration: 5,
+        resolution: '720P',
+        ratio: '16:9',
+      },
+      idempotencyKey: null,
+    });
+    expect(billingRes.status).toBe(503);
+    await expect(billingRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ai_usage_policy_unavailable',
+    });
+    expect(billingFailure.env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(Array.from(billingFailure.env.USER_IMAGES.objects.keys()).filter((key) => key.includes('/video/'))).toHaveLength(0);
   });
 
   test('member PixVerse V6 video poster can be attached from captured preview frame', async () => {

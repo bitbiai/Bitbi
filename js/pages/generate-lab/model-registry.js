@@ -14,6 +14,21 @@ import {
     GPT_IMAGE_2_MODEL_ID,
 } from '../../shared/gpt-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
+    HAPPYHORSE_T2V_DEFAULT_DURATION,
+    HAPPYHORSE_T2V_DEFAULT_RATIO,
+    HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+    HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+    HAPPYHORSE_T2V_MAX_DURATION,
+    HAPPYHORSE_T2V_MAX_PROMPT_LENGTH,
+    HAPPYHORSE_T2V_MAX_SEED,
+    HAPPYHORSE_T2V_MIN_DURATION,
+    HAPPYHORSE_T2V_MODEL_ID,
+    HAPPYHORSE_T2V_MODEL_LABEL,
+    HAPPYHORSE_T2V_RATIOS,
+    HAPPYHORSE_T2V_RESOLUTIONS,
+    HAPPYHORSE_T2V_VENDOR,
+} from '../../shared/happyhorse-t2v-pricing.mjs?v=__ASSET_VERSION__';
+import {
     PIXVERSE_V6_ASPECT_RATIOS,
     PIXVERSE_V6_MAX_DURATION,
     PIXVERSE_V6_MIN_DURATION,
@@ -47,7 +62,7 @@ export const GENERATE_LAB_MEDIA_TYPES = Object.freeze([
         promptPlaceholder: DE ? 'Eine cineastische Neon-Stadtstraße bei Nacht, langsame Kamerafahrt, Regenreflexionen, dramatisches Licht...' : 'A cinematic neon city street at night, slow camera push-in, rain reflections, dramatic lighting...',
         promptHelp: DE ? 'Beschreiben Sie Handlung, Kamerabewegung, Stil, Stimmung und Licht.' : 'Describe the action, camera movement, style, mood, and lighting.',
         emptyTitle: DE ? 'Ihr generiertes Video erscheint hier.' : 'Your generated video will appear here.',
-        emptyCopy: DE ? 'PixVerse speichert erfolgreiche Mitgliedervideos im Assets Manager.' : 'PixVerse saves member videos into Assets Manager when generation succeeds.',
+        emptyCopy: DE ? 'Erfolgreiche Mitgliedervideos werden im Assets Manager gespeichert.' : 'Successful member videos are saved into Assets Manager.',
     }),
     Object.freeze({
         id: 'music',
@@ -170,10 +185,72 @@ const pixverseV6Model = Object.freeze({
         negativePrompt: '',
         seed: '',
     }),
+    options: Object.freeze({
+        duration: Object.freeze({ min: PIXVERSE_V6_MIN_DURATION, max: PIXVERSE_V6_MAX_DURATION }),
+        quality: Object.freeze([...PIXVERSE_V6_QUALITIES]),
+        aspectRatio: Object.freeze([...PIXVERSE_V6_ASPECT_RATIOS]),
+    }),
+    controls: Object.freeze({
+        supportsImageInput: true,
+        supportsNegativePrompt: true,
+        supportsAudioToggle: true,
+        supportsSeed: true,
+        supportsWatermark: false,
+        resolutionField: 'quality',
+        aspectField: 'aspectRatio',
+        maxSeed: 2147483647,
+    }),
     estimateCredits: ({ duration, quality, generateAudio }) => estimateModelCredits('video', PIXVERSE_V6_MODEL_ID, {
         duration,
         quality,
         generateAudio,
+    }),
+});
+
+const happyHorseT2vModel = Object.freeze({
+    id: HAPPYHORSE_T2V_MODEL_ID,
+    displayName: HAPPYHORSE_T2V_MODEL_LABEL,
+    mediaType: 'video',
+    provider: `${HAPPYHORSE_T2V_VENDOR} / Workers AI via AI Gateway`,
+    route: '/api/ai/generate-video',
+    outputType: 'video',
+    status: 'LIVE',
+    summary: DE ? 'Alibaba Text-zu-Video mit Dauer, Auflösung, Format, Seed und optionalem Wasserzeichen.' : 'Alibaba text-to-video with duration, resolution, ratio, seed, and optional watermark.',
+    capabilities: Object.freeze([
+        DE ? 'Text zu Video' : 'Text-to-video',
+        DE ? `${HAPPYHORSE_T2V_MIN_DURATION}-${HAPPYHORSE_T2V_MAX_DURATION} Sekunden Dauer` : `${HAPPYHORSE_T2V_MIN_DURATION}-${HAPPYHORSE_T2V_MAX_DURATION} second duration`,
+        DE ? `${HAPPYHORSE_T2V_RESOLUTIONS.join(', ')} Auflösung` : `${HAPPYHORSE_T2V_RESOLUTIONS.join(', ')} resolution`,
+        DE ? `${HAPPYHORSE_T2V_RATIOS.join(', ')} Formate` : `${HAPPYHORSE_T2V_RATIOS.join(', ')} ratios`,
+        DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
+    ]),
+    defaults: Object.freeze({
+        duration: HAPPYHORSE_T2V_DEFAULT_DURATION,
+        resolution: HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+        ratio: HAPPYHORSE_T2V_DEFAULT_RATIO,
+        watermark: HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+        seed: '',
+    }),
+    options: Object.freeze({
+        duration: Object.freeze({ min: HAPPYHORSE_T2V_MIN_DURATION, max: HAPPYHORSE_T2V_MAX_DURATION }),
+        resolution: HAPPYHORSE_T2V_RESOLUTIONS,
+        ratio: HAPPYHORSE_T2V_RATIOS,
+    }),
+    controls: Object.freeze({
+        supportsImageInput: false,
+        supportsNegativePrompt: false,
+        supportsAudioToggle: false,
+        supportsSeed: true,
+        supportsWatermark: true,
+        resolutionField: 'resolution',
+        aspectField: 'ratio',
+        maxSeed: HAPPYHORSE_T2V_MAX_SEED,
+        maxPromptLength: HAPPYHORSE_T2V_MAX_PROMPT_LENGTH,
+    }),
+    estimateCredits: ({ duration, resolution, ratio, watermark }) => estimateModelCredits('video', HAPPYHORSE_T2V_MODEL_ID, {
+        duration,
+        resolution,
+        ratio,
+        watermark,
     }),
 });
 
@@ -204,6 +281,7 @@ const music26Model = Object.freeze({
 const models = Object.freeze([
     ...imageModels,
     pixverseV6Model,
+    happyHorseT2vModel,
     music26Model,
 ]);
 

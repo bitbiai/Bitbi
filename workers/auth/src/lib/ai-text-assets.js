@@ -361,6 +361,7 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
   };
 
   if (payload.model) metadata.model = payload.model;
+  if (payload.provider) metadata.provider = payload.provider;
   if (payload.prompt || payload.prompt === null) metadata.prompt = payload.prompt;
   if (payload.duration !== undefined && payload.duration !== null) metadata.duration = payload.duration;
   if (payload.aspect_ratio) metadata.aspect_ratio = payload.aspect_ratio;

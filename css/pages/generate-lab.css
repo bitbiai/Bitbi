@@ -490,10 +490,9 @@
         gap: 0.55rem;
     }
 
-    .generate-lab__settings-group[hidden] {
-        display: none;
-    }
-
+    .generate-lab__settings-group[hidden],
+    .generate-lab__field[hidden],
+    .generate-lab__toggle[hidden],
     .generate-lab__field-grid[hidden] {
         display: none;
     }

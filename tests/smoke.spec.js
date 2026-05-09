@@ -74,7 +74,10 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   const liveImageById = new Map(liveImageModels.map((entry) => [entry.id, entry]));
   const renderedLiveImageIds = new Set();
   const liveMusicIds = new Set([contractModule.ADMIN_AI_MUSIC_MODEL_ID]);
-  const liveVideoById = new Map([[contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }]]);
+  const liveVideoById = new Map([
+    [contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }],
+    [contractModule.ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, { label: contractModule.HAPPYHORSE_T2V_MODEL_LABEL }],
+  ]);
   const liveVideoIds = new Set(liveVideoById.keys());
 
   const imageEntries = [];
@@ -1684,9 +1687,33 @@ test.describe('Homepage', () => {
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
     await expectLabAccent('0, 240, 255', '255, 179, 0');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
+
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
+    await expect(page.locator('#labCost')).toHaveText('459 credits');
+    await expect(page.locator('#labVideoNegativeField')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceField')).toBeHidden();
+    await expect(page.locator('#labVideoAudioField')).toBeHidden();
+    await expect(page.locator('#labVideoWatermarkField')).toBeVisible();
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Resolution');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Ratio');
+    await expect(page.locator('#labVideoDuration option').first()).toHaveAttribute('value', '3');
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);
+    await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
+    await expect(page.locator('#labVideoAspect option[value="21:9"]')).toHaveCount(0);
+    await page.selectOption('#labVideoQuality', '1080P');
+    await expect(page.locator('#labCost')).toHaveText('917 credits');
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
+    await expect(page.locator('#labCost')).toHaveText('185 credits');
+    await expect(page.locator('#labVideoNegativeField')).toBeVisible();
+    await expect(page.locator('#labVideoReferenceField')).toBeVisible();
+    await expect(page.locator('#labVideoAudioField')).toBeVisible();
+    await expect(page.locator('#labVideoWatermarkField')).toBeHidden();
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Quality');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Aspect');
 
     await page.getByRole('tab', { name: 'Music' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'music');
@@ -1694,6 +1721,54 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');
+  });
+
+  test('German Generate Lab shows HappyHorse video controls with localized labels', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-de-member', email: 'labor@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 900 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { folders: [], counts: {}, unfolderedCount: 0 } }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
+      });
+    });
+    await page.goto('/de/generate-lab/');
+
+    await page.getByRole('tab', { name: 'Video' }).click();
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
+    await expect(page.locator('#labVideoNegativeField')).toBeHidden();
+    await expect(page.locator('#labVideoReferenceField')).toBeHidden();
+    await expect(page.locator('#labVideoAudioField')).toBeHidden();
+    await expect(page.locator('#labVideoWatermarkField')).toBeVisible();
+    await expect(page.locator('#labVideoWatermarkField')).toContainText('Wasserzeichen');
+    await expect(page.locator('#labVideoQualityLabel')).toHaveText('Auflösung');
+    await expect(page.locator('#labVideoAspectLabel')).toHaveText('Seitenverhältnis');
+    await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);
+    await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
   });
 
   test('Generate Lab opens Assets Manager as an in-page overlay', async ({ page }) => {

@@ -1,4 +1,19 @@
 import {
+  HAPPYHORSE_T2V_DEFAULT_DURATION,
+  HAPPYHORSE_T2V_DEFAULT_RATIO,
+  HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+  HAPPYHORSE_T2V_DEFAULT_WATERMARK,
+  HAPPYHORSE_T2V_MAX_DURATION,
+  HAPPYHORSE_T2V_MAX_PROMPT_LENGTH,
+  HAPPYHORSE_T2V_MAX_SEED,
+  HAPPYHORSE_T2V_MIN_DURATION,
+  HAPPYHORSE_T2V_MODEL_ID,
+  HAPPYHORSE_T2V_MODEL_LABEL,
+  HAPPYHORSE_T2V_RATIOS,
+  HAPPYHORSE_T2V_RESOLUTIONS,
+  HAPPYHORSE_T2V_VENDOR,
+} from "../../../../../js/shared/happyhorse-t2v-pricing.mjs";
+import {
   isPixverseV6AspectRatio,
   isPixverseV6Quality,
   PIXVERSE_V6_ASPECT_RATIOS,
@@ -61,7 +76,9 @@ const DEFAULT_ASPECT_RATIO = "16:9";
 const DEFAULT_QUALITY = "720p";
 const DEFAULT_GENERATE_AUDIO = true;
 const DEFAULT_TITLE = "PixVerse Video";
-const ALLOWED_BODY_FIELDS = new Set([
+const HAPPYHORSE_DEFAULT_TITLE = "HappyHorse Video";
+const PIXVERSE_ALLOWED_BODY_FIELDS = new Set([
+  "model",
   "prompt",
   "negative_prompt",
   "image_input",
@@ -70,6 +87,18 @@ const ALLOWED_BODY_FIELDS = new Set([
   "quality",
   "seed",
   "generate_audio",
+  "folder_id",
+  "folderId",
+  "title",
+]);
+const HAPPYHORSE_ALLOWED_BODY_FIELDS = new Set([
+  "model",
+  "prompt",
+  "duration",
+  "resolution",
+  "ratio",
+  "seed",
+  "watermark",
   "folder_id",
   "folderId",
   "title",
@@ -124,6 +153,26 @@ function normalizeEnum(value, allowed, fallback, fieldName) {
   return raw;
 }
 
+function enumIncludes(allowedValues) {
+  return (value) => allowedValues.includes(value);
+}
+
+function normalizeModelId(value) {
+  const modelId = value === undefined || value === null || value === ""
+    ? PIXVERSE_V6_MODEL_ID
+    : String(value).trim();
+  if (modelId === PIXVERSE_V6_MODEL_ID || modelId === HAPPYHORSE_T2V_MODEL_ID) return modelId;
+  throw validationError("Video model is not available for member generation.", "model_not_allowed");
+}
+
+function assertAllowedBodyFields(body, allowedFields) {
+  for (const key of Object.keys(body)) {
+    if (!allowedFields.has(key)) {
+      throw validationError("Unsupported video generation option.", "unsupported_option");
+    }
+  }
+}
+
 function normalizeFolderId(body) {
   const raw = body.folder_id ?? body.folderId ?? null;
   if (raw === undefined || raw === null || raw === "") return null;
@@ -134,9 +183,9 @@ function normalizeFolderId(body) {
   return value;
 }
 
-function titleFromPrompt(prompt) {
+function titleFromPrompt(prompt, fallback = DEFAULT_TITLE) {
   const compact = String(prompt || "").replace(/\s+/g, " ").trim();
-  if (!compact) return DEFAULT_TITLE;
+  if (!compact) return fallback;
   return compact.slice(0, MAX_TITLE_LENGTH);
 }
 
@@ -178,16 +227,8 @@ function normalizeImageInput(value) {
   return trimmed;
 }
 
-async function normalizeMemberVideoBody(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw validationError("JSON body is required.", "bad_request");
-  }
-  for (const key of Object.keys(body)) {
-    if (!ALLOWED_BODY_FIELDS.has(key)) {
-      throw validationError("Unsupported video generation option.", "unsupported_option");
-    }
-  }
-
+async function normalizePixverseBody(body) {
+  assertAllowedBodyFields(body, PIXVERSE_ALLOWED_BODY_FIELDS);
   const prompt = normalizeOptionalString(body.prompt, PIXVERSE_V6_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
   if (!prompt) {
     throw validationError(`prompt must be 1-${PIXVERSE_V6_MAX_PROMPT_LENGTH} safe characters.`, "invalid_prompt");
@@ -229,6 +270,12 @@ async function normalizeMemberVideoBody(body) {
   const imageInputHash = imageInput ? await sha256Hex(imageInput) : null;
 
   return {
+    modelId: PIXVERSE_V6_MODEL_ID,
+    modelLabel: PIXVERSE_V6_MODEL_LABEL,
+    vendor: "PixVerse",
+    provider: "workers-ai",
+    preset: "member_video_pixverse_v6",
+    pricingSource: "pixverse-v6-shared-pricing",
     prompt,
     negativePrompt,
     duration,
@@ -255,6 +302,91 @@ async function normalizeMemberVideoBody(body) {
   };
 }
 
+function normalizeHappyHorseBody(body) {
+  assertAllowedBodyFields(body, HAPPYHORSE_ALLOWED_BODY_FIELDS);
+  const prompt = normalizeOptionalString(body.prompt, HAPPYHORSE_T2V_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
+  if (!prompt) {
+    throw validationError(`prompt must be 1-${HAPPYHORSE_T2V_MAX_PROMPT_LENGTH} safe characters.`, "invalid_prompt");
+  }
+  const duration = normalizeInteger(body.duration, {
+    fieldName: "duration",
+    min: HAPPYHORSE_T2V_MIN_DURATION,
+    max: HAPPYHORSE_T2V_MAX_DURATION,
+    fallback: HAPPYHORSE_T2V_DEFAULT_DURATION,
+  });
+  const resolution = normalizeEnum(
+    body.resolution,
+    enumIncludes(HAPPYHORSE_T2V_RESOLUTIONS),
+    HAPPYHORSE_T2V_DEFAULT_RESOLUTION,
+    "resolution"
+  );
+  const ratio = normalizeEnum(
+    body.ratio,
+    enumIncludes(HAPPYHORSE_T2V_RATIOS),
+    HAPPYHORSE_T2V_DEFAULT_RATIO,
+    "ratio"
+  );
+  const seed = body.seed === undefined || body.seed === null || body.seed === ""
+    ? null
+    : normalizeInteger(body.seed, {
+      fieldName: "seed",
+      min: 0,
+      max: HAPPYHORSE_T2V_MAX_SEED,
+    });
+  const watermark = normalizeBoolean(body.watermark, HAPPYHORSE_T2V_DEFAULT_WATERMARK);
+  const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title") || titleFromPrompt(prompt, HAPPYHORSE_DEFAULT_TITLE);
+  const folderId = normalizeFolderId(body);
+  const pricing = calculateAiVideoCreditCost(HAPPYHORSE_T2V_MODEL_ID, {
+    duration,
+    resolution,
+    ratio,
+    watermark,
+  });
+  if (!pricing) {
+    throw validationError("Video model pricing is unavailable.", "pricing_unavailable", 503);
+  }
+  const price = pricing.credits;
+
+  return {
+    modelId: HAPPYHORSE_T2V_MODEL_ID,
+    modelLabel: HAPPYHORSE_T2V_MODEL_LABEL,
+    vendor: HAPPYHORSE_T2V_VENDOR,
+    provider: "workers-ai",
+    preset: "member_video_happyhorse_1_0_t2v",
+    pricingSource: "happyhorse-1-0-t2v-shared-pricing",
+    prompt,
+    duration,
+    resolution,
+    ratio,
+    seed,
+    watermark,
+    workflow: "text-to-video",
+    title,
+    folderId,
+    price,
+    policyBody: {
+      model: HAPPYHORSE_T2V_MODEL_ID,
+      prompt,
+      duration,
+      resolution,
+      ratio,
+      seed,
+      watermark,
+    },
+  };
+}
+
+async function normalizeMemberVideoBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw validationError("JSON body is required.", "bad_request");
+  }
+  const modelId = normalizeModelId(body.model);
+  if (modelId === HAPPYHORSE_T2V_MODEL_ID) {
+    return normalizeHappyHorseBody(body);
+  }
+  return normalizePixverseBody(body);
+}
+
 function buildPixversePayload(input) {
   const payload = {
     prompt: input.prompt,
@@ -269,6 +401,23 @@ function buildPixversePayload(input) {
   return payload;
 }
 
+function buildHappyHorsePayload(input) {
+  const payload = {
+    prompt: input.prompt,
+    duration: input.duration,
+    resolution: input.resolution,
+    ratio: input.ratio,
+    watermark: input.watermark,
+  };
+  if (input.seed !== null && input.seed !== undefined) payload.seed = input.seed;
+  return payload;
+}
+
+function buildProviderPayload(input) {
+  if (input.modelId === HAPPYHORSE_T2V_MODEL_ID) return buildHappyHorsePayload(input);
+  return buildPixversePayload(input);
+}
+
 function findUrl(value, fieldNames) {
   if (!value || typeof value !== "object") return "";
   for (const field of fieldNames) {
@@ -279,46 +428,46 @@ function findUrl(value, fieldNames) {
   return "";
 }
 
-function extractPixverseVideoUrl(raw) {
+function extractProviderVideoUrl(raw) {
   if (!raw) return "";
   if (typeof raw === "string") return raw.trim();
-  const direct = findUrl(raw, ["video", "video_url", "url", "output_url"]);
+  const direct = findUrl(raw, ["video", "video_url", "url", "output_url", "file_url", "asset_url"]);
   if (direct) return direct;
   if (raw.result) {
-    const nested = extractPixverseVideoUrl(raw.result);
+    const nested = extractProviderVideoUrl(raw.result);
     if (nested) return nested;
   }
   if (raw.data) {
-    const nested = extractPixverseVideoUrl(raw.data);
+    const nested = extractProviderVideoUrl(raw.data);
     if (nested) return nested;
   }
   if (raw.output) {
-    const nested = extractPixverseVideoUrl(raw.output);
+    const nested = extractProviderVideoUrl(raw.output);
     if (nested) return nested;
   }
   return "";
 }
 
-function extractPixversePosterUrl(raw) {
+function extractProviderPosterUrl(raw) {
   if (!raw || typeof raw !== "object") return "";
-  const direct = findUrl(raw, ["poster", "poster_url", "thumbnail", "thumbnail_url", "cover", "cover_url"]);
+  const direct = findUrl(raw, ["poster", "poster_url", "thumbnail", "thumbnail_url", "cover", "cover_url", "image_url"]);
   if (direct) return direct;
   if (raw.result) {
-    const nested = extractPixversePosterUrl(raw.result);
+    const nested = extractProviderPosterUrl(raw.result);
     if (nested) return nested;
   }
   if (raw.data) {
-    const nested = extractPixversePosterUrl(raw.data);
+    const nested = extractProviderPosterUrl(raw.data);
     if (nested) return nested;
   }
   if (raw.output) {
-    const nested = extractPixversePosterUrl(raw.output);
+    const nested = extractProviderPosterUrl(raw.output);
     if (nested) return nested;
   }
   return "";
 }
 
-async function invokePixverse(env, payload, { correlationId, userId }) {
+async function invokeMemberVideoModel(env, modelId, payload, { correlationId, userId }) {
   const startedAt = Date.now();
   if (!env?.AI || typeof env.AI.run !== "function") {
     return {
@@ -330,7 +479,7 @@ async function invokePixverse(env, payload, { correlationId, userId }) {
   }
 
   try {
-    const result = await env.AI.run(PIXVERSE_V6_MODEL_ID, payload, { gateway: { id: "default" } });
+    const result = await env.AI.run(modelId, payload, { gateway: { id: "default" } });
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-video",
@@ -338,7 +487,7 @@ async function invokePixverse(env, payload, { correlationId, userId }) {
       correlationId,
       user_id: userId,
       duration_ms: getDurationMs(startedAt),
-      model: PIXVERSE_V6_MODEL_ID,
+      model: modelId,
     });
     return { ok: true, result, elapsedMs: getDurationMs(startedAt) };
   } catch (error) {
@@ -350,7 +499,7 @@ async function invokePixverse(env, payload, { correlationId, userId }) {
       correlationId,
       user_id: userId,
       duration_ms: getDurationMs(startedAt),
-      model: PIXVERSE_V6_MODEL_ID,
+      model: modelId,
       ...getErrorFields(error, { includeMessage: false }),
     });
     return {
@@ -363,7 +512,7 @@ async function invokePixverse(env, payload, { correlationId, userId }) {
 }
 
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
-  const videoUrl = extractPixverseVideoUrl(providerResult);
+  const videoUrl = extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
     error.status = 502;
@@ -378,7 +527,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
   });
 
   let posterBytes = null;
-  const posterUrl = extractPixversePosterUrl(providerResult);
+  const posterUrl = extractProviderPosterUrl(providerResult);
   if (posterUrl) {
     try {
       const posterAsset = await fetchRemoteAsset(env, posterUrl, {
@@ -410,18 +559,21 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
     payload: {
       prompt: input.prompt,
       model: {
-        id: PIXVERSE_V6_MODEL_ID,
-        label: PIXVERSE_V6_MODEL_LABEL,
-        vendor: "PixVerse",
+        id: input.modelId,
+        label: input.modelLabel,
+        vendor: input.vendor,
       },
-      provider: "workers-ai",
+      provider: input.provider,
       duration: input.duration,
       aspect_ratio: input.aspectRatio,
       quality: input.quality,
+      resolution: input.resolution,
+      ratio: input.ratio,
       seed: input.seed,
       generate_audio: input.generateAudio,
+      watermark: input.watermark,
       hasImageInput: Boolean(input.imageInput),
-      workflow: input.imageInput ? "image-to-video" : "text-to-video",
+      workflow: input.workflow || (input.imageInput ? "image-to-video" : "text-to-video"),
       elapsedMs,
       receivedAt: new Date().toISOString(),
     },
@@ -540,8 +692,8 @@ export async function handleGenerateVideo(ctx) {
     }
   }
 
-  const providerPayload = buildPixversePayload(input);
-  const providerResponse = await invokePixverse(env, providerPayload, { correlationId, userId });
+  const providerPayload = buildProviderPayload(input);
+  const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId });
   if (!providerResponse.ok) {
     return respond({
       ok: false,
@@ -581,13 +733,16 @@ export async function handleGenerateVideo(ctx) {
   let billingMetadata = null;
   try {
     billingMetadata = await usagePolicy.chargeAfterSuccess({
-      model: PIXVERSE_V6_MODEL_ID,
-      preset: "member_video_pixverse_v6",
+      model: input.modelId,
+      preset: input.preset,
       request_mode: "workers-ai-gateway",
-      pricing_source: "pixverse-v6-shared-pricing",
+      pricing_source: input.pricingSource,
       duration: input.duration,
       quality: input.quality,
+      resolution: input.resolution,
+      ratio: input.ratio,
       generate_audio: input.generateAudio,
+      watermark: input.watermark,
       asset_id: savedAsset.id,
       source_module: "video",
     });
@@ -612,13 +767,17 @@ export async function handleGenerateVideo(ctx) {
     data: {
       prompt: input.prompt,
       model: {
-        id: PIXVERSE_V6_MODEL_ID,
-        label: PIXVERSE_V6_MODEL_LABEL,
-        vendor: "PixVerse",
+        id: input.modelId,
+        label: input.modelLabel,
+        vendor: input.vendor,
       },
       duration: input.duration,
       aspect_ratio: input.aspectRatio,
       quality: input.quality,
+      resolution: input.resolution,
+      ratio: input.ratio,
+      seed: input.seed,
+      watermark: input.watermark,
       generate_audio: input.generateAudio,
       mimeType: savedAsset.mime_type,
       videoUrl: savedAsset.file_url,

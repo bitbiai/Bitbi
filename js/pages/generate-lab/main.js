@@ -209,14 +209,34 @@ function selectedImageReferences() {
         .filter(Boolean);
 }
 
+function currentVideoEstimateValues(model = selectedModel()) {
+    const controls = model.controls || {};
+    const values = {
+        duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
+    };
+    if (controls.resolutionField === 'resolution') {
+        values.resolution = refs.videoQuality?.value || model.defaults?.resolution;
+    } else {
+        values.quality = refs.videoQuality?.value || model.defaults?.quality;
+    }
+    if (controls.aspectField === 'ratio') {
+        values.ratio = refs.videoAspect?.value || model.defaults?.ratio;
+    } else {
+        values.aspectRatio = refs.videoAspect?.value || model.defaults?.aspectRatio;
+    }
+    if (controls.supportsAudioToggle) {
+        values.generateAudio = refs.videoAudio?.checked !== false;
+    }
+    if (controls.supportsWatermark) {
+        values.watermark = refs.videoWatermark?.checked === true;
+    }
+    return values;
+}
+
 function currentCreditEstimate() {
     const model = selectedModel();
     if (model.mediaType === 'video') {
-        return calculateGenerateLabCredits(model.id, {
-            duration: Number(refs.videoDuration?.value || model.defaults.duration),
-            quality: refs.videoQuality?.value || model.defaults.quality,
-            generateAudio: refs.videoAudio?.checked !== false,
-        });
+        return calculateGenerateLabCredits(model.id, currentVideoEstimateValues(model));
     }
     if (model.mediaType === 'music') {
         return calculateGenerateLabCredits(model.id, {
@@ -251,6 +271,7 @@ function setBusy(nextBusy, label = '') {
         control.disabled = nextBusy;
     }
     syncImageOptionState();
+    syncVideoOptionState();
     syncMusicOptionState();
     updateActionState();
 }
@@ -447,6 +468,24 @@ function renderSettingsGroups() {
     });
 }
 
+function setSelectOptions(select, values, selectedValue, format = (value) => String(value)) {
+    if (!select) return;
+    const normalized = values.map((value) => String(value));
+    select.replaceChildren(
+        ...normalized.map((value) => el('option', {
+            text: format(value),
+            attrs: { value },
+        })),
+    );
+    select.value = normalized.includes(String(selectedValue)) ? String(selectedValue) : normalized[0] || '';
+}
+
+function durationOptions(duration = {}) {
+    const min = Number(duration.min || 1);
+    const max = Number(duration.max || min);
+    return Array.from({ length: Math.max(0, max - min + 1) }, (_, index) => min + index);
+}
+
 function syncImageOptionState() {
     const model = selectedModel();
     const isImage = model.mediaType === 'image';
@@ -476,6 +515,87 @@ function syncImageOptionState() {
     renderImageReferenceSlots();
 }
 
+function syncVideoOptionState({ reset = false } = {}) {
+    const model = selectedModel();
+    const isVideo = model.mediaType === 'video';
+    const controls = model.controls || {};
+    const negativeField = refs.videoNegative?.closest('.generate-lab__field');
+    const referenceField = refs.videoReferenceShell?.closest('.generate-lab__field');
+    const seedField = refs.videoSeed?.closest('.generate-lab__field');
+    const audioToggle = refs.videoAudio?.closest('.generate-lab__toggle');
+    const watermarkToggle = refs.videoWatermark?.closest('.generate-lab__toggle');
+
+    if (!isVideo) return;
+
+    const supportsNegative = controls.supportsNegativePrompt === true;
+    const supportsReference = controls.supportsImageInput === true;
+    const supportsSeed = controls.supportsSeed === true;
+    const supportsAudio = controls.supportsAudioToggle === true;
+    const supportsWatermark = controls.supportsWatermark === true;
+    const durationValues = durationOptions(model.options?.duration);
+    const resolutionField = controls.resolutionField || 'quality';
+    const aspectField = controls.aspectField || 'aspectRatio';
+    const resolutionValues = model.options?.[resolutionField] || [];
+    const aspectValues = model.options?.[aspectField] || [];
+
+    if (negativeField) negativeField.hidden = !supportsNegative;
+    if (referenceField) referenceField.hidden = !supportsReference;
+    if (audioToggle) audioToggle.hidden = !supportsAudio;
+    if (watermarkToggle) watermarkToggle.hidden = !supportsWatermark;
+    if (seedField) seedField.classList.toggle('is-disabled', !supportsSeed);
+
+    if (refs.videoQualityLabel) {
+        refs.videoQualityLabel.textContent = resolutionField === 'resolution'
+            ? localeText('generateLab.resolution')
+            : localeText('generateLab.quality');
+    }
+    if (refs.videoAspectLabel) {
+        refs.videoAspectLabel.textContent = aspectField === 'ratio'
+            ? localeText('generateLab.ratio')
+            : localeText('generateLab.aspect');
+    }
+
+    if (refs.videoDuration) {
+        const selected = reset ? model.defaults?.duration : (refs.videoDuration.value || model.defaults?.duration);
+        setSelectOptions(refs.videoDuration, durationValues, selected, (value) => `${value} s`);
+        refs.videoDuration.disabled = state.busy;
+    }
+    if (refs.videoQuality) {
+        const selected = reset
+            ? (model.defaults?.[resolutionField] || resolutionValues[0])
+            : (refs.videoQuality.value || model.defaults?.[resolutionField]);
+        setSelectOptions(refs.videoQuality, resolutionValues, selected);
+        refs.videoQuality.disabled = state.busy;
+    }
+    if (refs.videoAspect) {
+        const selected = reset
+            ? (model.defaults?.[aspectField] || aspectValues[0])
+            : (refs.videoAspect.value || model.defaults?.[aspectField]);
+        setSelectOptions(refs.videoAspect, aspectValues, selected);
+        refs.videoAspect.disabled = state.busy;
+    }
+    if (refs.videoSeed) {
+        if (reset) refs.videoSeed.value = model.defaults?.seed || '';
+        refs.videoSeed.max = String(controls.maxSeed || 2147483647);
+        refs.videoSeed.disabled = state.busy || !supportsSeed;
+        refs.videoSeed.setAttribute('aria-disabled', refs.videoSeed.disabled ? 'true' : 'false');
+    }
+    if (refs.videoNegative) {
+        if (!supportsNegative || reset) refs.videoNegative.value = '';
+        refs.videoNegative.disabled = state.busy || !supportsNegative;
+        refs.videoNegative.setAttribute('aria-disabled', refs.videoNegative.disabled ? 'true' : 'false');
+    }
+    if (refs.videoAudio) {
+        if (!supportsAudio || reset) refs.videoAudio.checked = supportsAudio && model.defaults?.generateAudio !== false;
+        refs.videoAudio.disabled = state.busy || !supportsAudio;
+    }
+    if (refs.videoWatermark) {
+        if (!supportsWatermark || reset) refs.videoWatermark.checked = supportsWatermark && model.defaults?.watermark === true;
+        refs.videoWatermark.disabled = state.busy || !supportsWatermark;
+    }
+    if (!supportsReference) clearVideoReference();
+}
+
 function renderEmptyResult() {
     const media = selectedMediaType();
     const marker = el('span', { className: `generate-lab__empty-mark generate-lab__empty-mark--${media.id}`, attrs: { 'aria-hidden': 'true' } });
@@ -502,6 +622,7 @@ function renderAllForSelection({ keepResult = false } = {}) {
     renderPromptCopy();
     renderSettingsGroups();
     syncImageOptionState();
+    syncVideoOptionState({ reset: true });
     syncMusicOptionState();
     updateActionState();
     if (!keepResult) {
@@ -1120,18 +1241,36 @@ async function generateImage(prompt) {
 }
 
 async function generateVideo(prompt) {
+    const model = selectedModel();
+    const controls = model.controls || {};
     const payload = {
+        model: model.id,
         prompt,
-        duration: Number(refs.videoDuration?.value || 5),
-        aspect_ratio: refs.videoAspect?.value || '16:9',
-        quality: refs.videoQuality?.value || '720p',
-        generate_audio: refs.videoAudio?.checked !== false,
+        duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
     };
-    const negative = refs.videoNegative?.value.trim() || '';
+    if (controls.resolutionField === 'resolution') {
+        payload.resolution = refs.videoQuality?.value || model.defaults?.resolution;
+    } else {
+        payload.quality = refs.videoQuality?.value || model.defaults?.quality || '720p';
+    }
+    if (controls.aspectField === 'ratio') {
+        payload.ratio = refs.videoAspect?.value || model.defaults?.ratio;
+    } else {
+        payload.aspect_ratio = refs.videoAspect?.value || model.defaults?.aspectRatio || '16:9';
+    }
+    if (controls.supportsAudioToggle) {
+        payload.generate_audio = refs.videoAudio?.checked !== false;
+    }
+    if (controls.supportsWatermark) {
+        payload.watermark = refs.videoWatermark?.checked === true;
+    }
+    const negative = controls.supportsNegativePrompt ? (refs.videoNegative?.value.trim() || '') : '';
     if (negative) payload.negative_prompt = negative;
-    const seed = parseOptionalInteger(refs.videoSeed?.value, { min: 0, max: 2147483647 });
+    const seed = controls.supportsSeed
+        ? parseOptionalInteger(refs.videoSeed?.value, { min: 0, max: controls.maxSeed || 2147483647 })
+        : null;
     if (seed !== null) payload.seed = seed;
-    if (state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
+    if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
 
@@ -1360,6 +1499,8 @@ function bindEvents() {
     refs.videoQuality?.addEventListener('change', updateActionState);
     refs.videoAspect?.addEventListener('change', updateActionState);
     refs.videoAudio?.addEventListener('change', updateActionState);
+    refs.videoSeed?.addEventListener('input', updateActionState);
+    refs.videoWatermark?.addEventListener('change', updateActionState);
     refs.videoReference?.addEventListener('change', handleVideoReferenceChange);
     refs.videoReferenceRemove?.addEventListener('click', clearVideoReference);
     refs.musicInstrumental?.addEventListener('change', syncMusicOptionState);
@@ -1424,9 +1565,12 @@ function cacheRefs() {
         videoReferenceRemove: byId('labVideoReferenceRemove'),
         videoDuration: byId('labVideoDuration'),
         videoQuality: byId('labVideoQuality'),
+        videoQualityLabel: byId('labVideoQualityLabel'),
         videoAspect: byId('labVideoAspect'),
+        videoAspectLabel: byId('labVideoAspectLabel'),
         videoSeed: byId('labVideoSeed'),
         videoAudio: byId('labVideoAudio'),
+        videoWatermark: byId('labVideoWatermark'),
         musicLyrics: byId('labMusicLyrics'),
         musicInstrumental: byId('labMusicInstrumental'),
         musicGenerateLyrics: byId('labMusicGenerateLyrics'),

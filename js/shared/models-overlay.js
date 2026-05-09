@@ -6,7 +6,9 @@
 
 import {
     ADMIN_AI_MUSIC_MODEL_ID,
+    ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
     ADMIN_AI_VIDEO_MODEL_ID,
+    HAPPYHORSE_T2V_MODEL_LABEL,
     listAdminAiCatalog,
 } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import { getGenerateLabAiImageModelOptions } from './ai-image-models.mjs?v=__ASSET_VERSION__';
@@ -26,6 +28,7 @@ const USER_LIVE_MODELS = {
     ],
     video: [
         { id: ADMIN_AI_VIDEO_MODEL_ID, label: 'PixVerse V6' },
+        { id: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, label: HAPPYHORSE_T2V_MODEL_LABEL },
     ],
 };
 

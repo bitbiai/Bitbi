@@ -3975,6 +3975,11 @@ test.describe('AI model credit pricing registry', () => {
             params: { duration: 5, quality: '720p', generateAudio: true },
           },
           {
+            mediaType: 'video',
+            modelId: 'alibaba/hh1-t2v',
+            params: { duration: 6, resolution: '1080P', ratio: '9:16', watermark: false },
+          },
+          {
             mediaType: 'music',
             modelId: 'minimax/music-2.6',
             params: { generateLyrics: true },
@@ -3995,7 +4000,7 @@ test.describe('AI model credit pricing registry', () => {
       for (const row of result.comparisons) {
         expect(row.frontendCredits, `${path} ${row.modelId}`).toBe(row.sharedCredits);
       }
-      expect(result.hasHappyHorseInGenerateLab).toBe(false);
+      expect(result.hasHappyHorseInGenerateLab).toBe(true);
     }
   });
 });
@@ -4812,7 +4817,7 @@ test.describe('Assets Manager (authenticated)', () => {
     const viduCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' });
     await expect(viduCard.locator('.models-overlay__status')).toHaveText('Coming soon');
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
-    await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('Coming soon');
+    await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
     await expect.poll(() => overlay.locator('.models-overlay__status').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent?.trim() || ''),
