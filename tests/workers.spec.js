@@ -20877,6 +20877,92 @@ test.describe('Worker routes', () => {
     expect(await res.text()).toBe('4567');
   });
 
+  test('AI text asset video file route supports HEAD and byte ranges for mobile playback probes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const videoBytes = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32]);
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'seek-video-user', role: 'user' })],
+      aiTextAssets: [
+        {
+          id: 'abc777cc',
+          user_id: 'seek-video-user',
+          folder_id: null,
+          r2_key: 'users/seek-video-user/folders/unsorted/video/seekable.mp4',
+          title: 'Seekable Video',
+          file_name: 'seekable-video.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: videoBytes.byteLength,
+          preview_text: 'seekable video',
+          metadata_json: '{}',
+          visibility: 'private',
+          published_at: null,
+          created_at: '2026-04-10T12:00:00.000Z',
+        },
+      ],
+      userImages: {
+        'users/seek-video-user/folders/unsorted/video/seekable.mp4': {
+          body: videoBytes.buffer.slice(0),
+          httpMetadata: {
+            contentType: 'video/mp4',
+            contentDisposition: 'inline; filename="seekable-video.mp4"',
+          },
+          size: videoBytes.byteLength,
+        },
+      },
+    });
+    const token = await seedSession(env, 'seek-video-user');
+
+    const headRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc777cc/file', 'HEAD', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(headRes.status).toBe(200);
+    expect(headRes.headers.get('accept-ranges')).toBe('bytes');
+    expect(headRes.headers.get('content-length')).toBe(String(videoBytes.byteLength));
+    expect(headRes.headers.get('content-type')).toContain('video/mp4');
+    expect(headRes.headers.get('content-disposition')).toBe('inline; filename="seekable-video.mp4"');
+    expect(await headRes.text()).toBe('');
+
+    const rangeHeadRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc777cc/file', 'HEAD', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        Range: 'bytes=4-7',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(rangeHeadRes.status).toBe(206);
+    expect(rangeHeadRes.headers.get('accept-ranges')).toBe('bytes');
+    expect(rangeHeadRes.headers.get('content-range')).toBe(`bytes 4-7/${videoBytes.byteLength}`);
+    expect(rangeHeadRes.headers.get('content-length')).toBe('4');
+    expect(await rangeHeadRes.text()).toBe('');
+
+    const rangeGetRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/abc777cc/file', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        Range: 'bytes=4-7',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(rangeGetRes.status).toBe(206);
+    expect(rangeGetRes.headers.get('accept-ranges')).toBe('bytes');
+    expect(rangeGetRes.headers.get('content-range')).toBe(`bytes 4-7/${videoBytes.byteLength}`);
+    expect(rangeGetRes.headers.get('content-length')).toBe('4');
+    expect(rangeGetRes.headers.get('content-type')).toContain('video/mp4');
+    expect(new Uint8Array(await rangeGetRes.arrayBuffer())).toEqual(videoBytes.slice(4, 8));
+  });
+
   test('AI text asset file route rejects unsatisfiable byte ranges cleanly', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const audioBytes = new TextEncoder().encode('0123456789abcdef');

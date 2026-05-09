@@ -512,6 +512,7 @@ const baseManifest = {
         "GET /api/ai/images/:id/thumb",
         "GET /api/ai/images/:id/medium",
         "GET /api/ai/text-assets/:id/file",
+        "HEAD /api/ai/text-assets/:id/file",
         "GET /api/ai/text-assets/:id/poster",
         "DELETE /api/ai/images/:id",
         "PATCH /api/ai/images/:id/publication",
@@ -885,6 +886,7 @@ function createValidContext() {
       if (mediumMatch && method === "GET") return handleGetImageDerivative();
       const textFileMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/file$/);
       if (textFileMatch && method === "GET") return handleGetTextAssetFile();
+      if (textFileMatch && method === "HEAD") return handleGetTextAssetFile();
       const textPosterMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/poster$/);
       if (textPosterMatch && method === "GET") return handleGetTextAssetPoster();
       const deleteMatch = pathname.match(/^\/api\/ai\/images\/([a-f0-9]+)$/);

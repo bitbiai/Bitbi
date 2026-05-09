@@ -1,7 +1,12 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
+const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
+const MOBILE_CHROME_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
 
 function createSvgUpload(width, height) {
   return {
@@ -16,6 +21,108 @@ function createSvgUpload(width, height) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fulfillTestMp4(route, bytes = TEST_MP4_BYTES) {
+  const rangeHeader = route.request().headers().range || '';
+  const rangeMatch = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': 'video/mp4',
+    'Content-Disposition': 'inline; filename="pixverse-preview.mp4"',
+  };
+
+  if (rangeMatch) {
+    const start = Number.parseInt(rangeMatch[1], 10);
+    const requestedEnd = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : bytes.length - 1;
+    const end = Math.min(requestedEnd, bytes.length - 1);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= bytes.length) {
+      await route.fulfill({
+        status: 416,
+        headers: {
+          ...headers,
+          'Content-Range': `bytes */${bytes.length}`,
+        },
+        body: Buffer.alloc(0),
+      });
+      return;
+    }
+    const body = bytes.subarray(start, end + 1);
+    await route.fulfill({
+      status: 206,
+      headers: {
+        ...headers,
+        'Content-Length': String(body.length),
+        'Content-Range': `bytes ${start}-${end}/${bytes.length}`,
+      },
+      body,
+    });
+    return;
+  }
+
+  await route.fulfill({
+    status: 200,
+    headers: {
+      ...headers,
+      'Content-Length': String(bytes.length),
+    },
+    body: bytes,
+  });
+}
+
+async function waitForVideoMediaState(videoLocator) {
+  return videoLocator.evaluate((video) => new Promise((resolve) => {
+    const events = [];
+    const watchedEvents = ['loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'error', 'stalled', 'suspend', 'abort'];
+    let timeoutId = 0;
+
+    const snapshot = () => ({
+      events,
+      currentSrc: video.currentSrc,
+      src: video.getAttribute('src') || '',
+      controls: video.controls,
+      playsInline: video.playsInline,
+      playsInlineAttr: video.getAttribute('playsinline'),
+      webkitPlaysInlineAttr: video.getAttribute('webkit-playsinline'),
+      preload: video.preload,
+      poster: video.getAttribute('poster') || '',
+      readyState: video.readyState,
+      networkState: video.networkState,
+      error: video.error ? {
+        code: video.error.code,
+        message: video.error.message || '',
+      } : null,
+    });
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      watchedEvents.forEach((eventName) => video.removeEventListener(eventName, onEvent));
+    };
+
+    const finish = () => {
+      cleanup();
+      resolve(snapshot());
+    };
+
+    function onEvent(event) {
+      events.push(event.type);
+      if (event.type === 'loadedmetadata' || event.type === 'canplay' || event.type === 'error') {
+        finish();
+      }
+    }
+
+    watchedEvents.forEach((eventName) => video.addEventListener(eventName, onEvent));
+    timeoutId = window.setTimeout(finish, 6000);
+
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA || video.error) {
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        events.push('already-have-metadata');
+      }
+      finish();
+      return;
+    }
+    video.load();
+  }));
 }
 
 function cloneJson(value) {
@@ -4735,13 +4842,13 @@ test.describe('Assets Manager (authenticated)', () => {
             quality: body.quality,
             generate_audio: body.generate_audio,
             mimeType: 'video/mp4',
-            videoUrl: '/api/ai/text-assets/video-home-1/file',
+            videoUrl: '/api/ai/text-assets/abc12001/file',
             asset: {
-              id: 'video-home-1',
+              id: 'abc12001',
               title: 'Homepage PixVerse Video',
               source_module: 'video',
               mime_type: 'video/mp4',
-              file_url: '/api/ai/text-assets/video-home-1/file',
+              file_url: '/api/ai/text-assets/abc12001/file',
             },
           },
           billing: {
@@ -4750,6 +4857,9 @@ test.describe('Assets Manager (authenticated)', () => {
           },
         }),
       });
+    });
+    await page.route('**/api/ai/text-assets/abc12001/file', async (route) => {
+      await fulfillTestMp4(route);
     });
 
     const response = await page.goto('/');
@@ -4831,7 +4941,7 @@ test.describe('Assets Manager (authenticated)', () => {
     const videoPreview = page.locator('#videoPreview');
     const generatedVideo = page.locator('#videoPreview video.video-create__player');
     await expect(generatedVideo).toBeVisible();
-    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/video-home-1/file');
+    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/abc12001/file');
     await expect(videoPreview).toBeInViewport();
     await expect(videoPreview).toBeFocused();
     await expect(page.locator('#videoMsg')).toContainText('Video generated and saved.');
@@ -4871,6 +4981,141 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(videoRequests[0].body.credits).toBeUndefined();
   });
 
+  test('homepage mobile PixVerse preview loads playable saved MP4 media', async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      userAgent: MOBILE_CHROME_USER_AGENT,
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    const videoRequests = [];
+    await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], updated_at: '2026-05-09T00:00:00.000Z' }),
+      });
+    });
+    await page.route('**/api/ai/generate-video', async (route) => {
+      const body = route.request().postDataJSON();
+      videoRequests.push({
+        kind: 'generate',
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'],
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            prompt: body.prompt,
+            model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+            duration: body.duration,
+            aspect_ratio: body.aspect_ratio,
+            quality: body.quality,
+            generate_audio: body.generate_audio,
+            mimeType: 'video/mp4',
+            videoUrl: '/api/ai/text-assets/abc123ef/file',
+            asset: {
+              id: 'abc123ef',
+              title: 'Homepage PixVerse Video',
+              source_module: 'video',
+              mime_type: 'video/mp4',
+              file_url: '/api/ai/text-assets/abc123ef/file',
+            },
+          },
+          billing: {
+            credits_charged: 185,
+            balance_after: 1015,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/text-assets/abc123ef/file', async (route) => {
+      videoRequests.push({
+        kind: 'media',
+        method: route.request().method(),
+        range: route.request().headers().range || '',
+      });
+      await fulfillTestMp4(route);
+    });
+
+    try {
+      const response = await page.goto('/');
+      expect(response.status()).toBe(200);
+      const createButton = page.locator('#video-creations .video-mode__btn[data-video-mode="create"]');
+      await expect(createButton).toBeVisible({ timeout: 10_000 });
+      await createButton.click();
+      await expect(page.locator('#videoCreate')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('#videoPreview')).toBeVisible();
+      await expect(page.locator('.video-create__panel--preview')).toBeVisible();
+      await expect(page.locator('#videoGenerate')).toBeEnabled();
+
+      const activeState = await page.evaluate(() => {
+        const selectors = [
+          '#videoCreate',
+          '#videoPreview',
+          '.video-create__shell',
+          '.video-create__panel--preview',
+          '#videoGenerate',
+        ];
+        return selectors.map((selector) => {
+          const node = document.querySelector(selector);
+          const rect = node?.getBoundingClientRect();
+          const blockedByAncestor = [];
+          for (let el = node; el; el = el.parentElement) {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none') blockedByAncestor.push(`${el.id || el.className || el.tagName}:display:none`);
+            if (style.visibility === 'hidden') blockedByAncestor.push(`${el.id || el.className || el.tagName}:visibility:hidden`);
+            if (style.pointerEvents === 'none') blockedByAncestor.push(`${el.id || el.className || el.tagName}:pointer-events:none`);
+            if (el.hasAttribute('inert')) blockedByAncestor.push(`${el.id || el.className || el.tagName}:inert`);
+            if (el.getAttribute('aria-hidden') === 'true') blockedByAncestor.push(`${el.id || el.className || el.tagName}:aria-hidden`);
+          }
+          return {
+            selector,
+            exists: Boolean(node),
+            width: rect?.width || 0,
+            height: rect?.height || 0,
+            blockedByAncestor,
+          };
+        });
+      });
+      expect(activeState.every((entry) => entry.exists && entry.width > 0 && entry.height > 0)).toBe(true);
+      expect(activeState.flatMap((entry) => entry.blockedByAncestor)).toEqual([]);
+
+      await page.locator('#videoPrompt').fill('A compact mobile PixVerse playback diagnostic.');
+      const generationResponsePromise = page.waitForResponse((response) =>
+        response.url().endsWith('/api/ai/generate-video') && response.request().method() === 'POST'
+      );
+      await page.locator('#videoGenerate').click();
+      const generationResponse = await generationResponsePromise;
+      expect(generationResponse.ok()).toBe(true);
+
+      const videoPreview = page.locator('#videoPreview');
+      const generatedVideo = page.locator('#videoPreview video.video-create__player');
+      await expect(generatedVideo).toBeVisible({ timeout: 10_000 });
+      await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/abc123ef/file');
+      await expect(videoPreview).toBeInViewport();
+
+      const mediaState = await waitForVideoMediaState(generatedVideo);
+      expect(mediaState.error).toBeNull();
+      expect(mediaState.currentSrc).toContain('/api/ai/text-assets/abc123ef/file');
+      expect(mediaState.controls).toBe(true);
+      expect(mediaState.playsInline).toBe(true);
+      expect(mediaState.playsInlineAttr).not.toBeNull();
+      expect(mediaState.webkitPlaysInlineAttr).not.toBeNull();
+      expect(mediaState.readyState).toBeGreaterThanOrEqual(1);
+      expect(mediaState.events.some((eventName) => eventName === 'loadedmetadata' || eventName === 'already-have-metadata')).toBe(true);
+      expect(videoRequests.some((entry) => entry.kind === 'generate')).toBe(true);
+      expect(videoRequests.some((entry) => entry.kind === 'media' && entry.method === 'GET')).toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('German homepage mobile Video Create renders PixVerse V6 results in a reachable preview', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
@@ -4896,13 +5141,13 @@ test.describe('Assets Manager (authenticated)', () => {
             quality: body.quality,
             generate_audio: body.generate_audio,
             mimeType: 'video/mp4',
-            videoUrl: '/api/ai/text-assets/video-home-de-1/file',
+            videoUrl: '/api/ai/text-assets/abc123de/file',
             asset: {
-              id: 'video-home-de-1',
+              id: 'abc123de',
               title: 'Homepage PixVerse Video DE',
               source_module: 'video',
               mime_type: 'video/mp4',
-              file_url: '/api/ai/text-assets/video-home-de-1/file',
+              file_url: '/api/ai/text-assets/abc123de/file',
             },
           },
           billing: {
@@ -4911,6 +5156,9 @@ test.describe('Assets Manager (authenticated)', () => {
           },
         }),
       });
+    });
+    await page.route('**/api/ai/text-assets/abc123de/file', async (route) => {
+      await fulfillTestMp4(route);
     });
 
     const response = await page.goto('/de/');
@@ -4922,14 +5170,23 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#videoPreview')).toBeVisible();
 
     await page.locator('#videoPrompt').fill('Eine ruhige Kamerafahrt durch ein leuchtendes Studio.');
+    const generationResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith('/api/ai/generate-video') && response.request().method() === 'POST'
+    );
     await page.locator('#videoGenerate').click();
+    const generationResponse = await generationResponsePromise;
+    expect(generationResponse.ok()).toBe(true);
 
     const videoPreview = page.locator('#videoPreview');
     const generatedVideo = page.locator('#videoPreview video.video-create__player');
-    await expect(generatedVideo).toBeVisible();
-    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/video-home-de-1/file');
+    await expect(generatedVideo).toBeVisible({ timeout: 10_000 });
+    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/abc123de/file');
     await expect(videoPreview).toBeInViewport();
     await expect(videoPreview).toBeFocused();
+    const mediaState = await waitForVideoMediaState(generatedVideo);
+    expect(mediaState.error).toBeNull();
+    expect(mediaState.readyState).toBeGreaterThanOrEqual(1);
+    expect(mediaState.events.some((eventName) => eventName === 'loadedmetadata' || eventName === 'already-have-metadata')).toBe(true);
     await expect(page.locator('#videoMsg')).toContainText('Video generiert und gespeichert.');
   });
 

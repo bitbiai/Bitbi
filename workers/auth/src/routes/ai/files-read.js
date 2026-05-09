@@ -155,14 +155,37 @@ export async function handleGetTextAssetFile(ctx, assetId) {
     return json({ ok: false, error: "Saved asset not found." }, { status: 404 });
   }
 
+  const isHead = request.method === "HEAD";
   const rangeHeader = request.headers.get("Range");
-  const rangeHead = rangeHeader ? await env.USER_IMAGES.head(row.r2_key) : null;
-  if (rangeHeader && !rangeHead) {
+  const metadataHead = isHead || rangeHeader ? await env.USER_IMAGES.head(row.r2_key) : null;
+  if ((isHead || rangeHeader) && !metadataHead) {
     return json({ ok: false, error: "Saved asset file not found." }, { status: 404 });
   }
-  const range = rangeHeader ? parseByteRange(rangeHeader, rangeHead?.size) : null;
+  const range = rangeHeader ? parseByteRange(rangeHeader, metadataHead?.size) : null;
   if (range?.invalid) {
-    return buildUnsatisfiableRangeResponse(rangeHead?.size || 0);
+    return buildUnsatisfiableRangeResponse(metadataHead?.size || 0);
+  }
+
+  if (isHead) {
+    const contentLength = range
+      ? range.end - range.start + 1
+      : metadataHead?.size;
+    const headers = new Headers();
+    headers.set("Content-Type", row.mime_type || metadataHead?.httpMetadata?.contentType || "text/plain; charset=utf-8");
+    headers.set("Cache-Control", "private, max-age=3600");
+    if (contentLength) {
+      headers.set("Content-Length", String(contentLength));
+    }
+    headers.set("Accept-Ranges", "bytes");
+    headers.set("X-Content-Type-Options", "nosniff");
+    if (row.file_name) {
+      headers.set("Content-Disposition", `inline; filename=\"${row.file_name}\"`);
+    }
+    if (range) {
+      headers.set("Content-Range", `bytes ${range.start}-${range.end}/${range.size}`);
+      return new Response(null, { status: 206, headers });
+    }
+    return new Response(null, { headers });
   }
 
   const object = range

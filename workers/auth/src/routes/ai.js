@@ -122,6 +122,9 @@ export async function handleAI(ctx) {
   if (textFileMatch && method === "GET") {
     return handleGetTextAssetFile(ctx, textFileMatch[1]);
   }
+  if (textFileMatch && method === "HEAD") {
+    return handleGetTextAssetFile(ctx, textFileMatch[1]);
+  }
 
   const textPosterMatch = pathname.match(/^\/api\/ai\/text-assets\/([a-f0-9]+)\/poster$/);
   if (textPosterMatch && method === "GET") {
