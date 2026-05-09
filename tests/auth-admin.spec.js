@@ -3734,6 +3734,9 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-info-grid')).toContainText('Secure checkout');
     await expect(page.locator('.pricing-info-grid')).toContainText('Digital credits');
     await expect(page.locator('.pricing-info-grid')).toContainText('AI output responsibility');
+    await expect(page.locator('.pricing-hero')).toContainText('Secure payment continues on pay.bitbi.ai.');
+    await expect(page.locator('.pricing-legal')).toContainText('Secure payment continues on pay.bitbi.ai.');
+    await expect(page.locator('.pricing-org__state')).toContainText('not tokens, currency, crypto, or transferable value');
 
     const pricingSpacing = await page.evaluate(() => {
       const header = document.querySelector('.site-nav__bar')?.getBoundingClientRect();
@@ -3772,10 +3775,17 @@ test.describe('Pricing credit-pack rollout', () => {
   });
 
   test('logged-in Pricing checkout requires both legal confirmations before live checkout', async ({ page }) => {
+    await page.route('https://pay.bitbi.ai/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>Stripe Checkout</title><main>Stripe-hosted checkout</main>',
+      });
+    });
     const { checkoutRequests } = await mockPricingAccount(page, {
       role: 'user',
       email: 'member-pricing@bitbi.ai',
-      checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_live_pricing_5000',
+      checkoutUrl: 'https://pay.bitbi.ai/c/pay/cs_live_pricing_5000',
     });
     await page.goto('/pricing.html');
 
@@ -3799,12 +3809,14 @@ test.describe('Pricing credit-pack rollout', () => {
     }));
     expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
     expect(checkoutRequests[0].idempotencyKey).toMatch(/^pricing-member-live:/);
+    await expect(page).toHaveURL('https://pay.bitbi.ai/c/pay/cs_live_pricing_5000');
   });
 
   test('Pricing success and cancel return states render without granting credits client-side', async ({ page }) => {
     await mockPricingAccount(page);
     await page.goto('/pricing?checkout=success');
     await expect(page.locator('.pricing-return--success')).toContainText('Payment successful');
+    await expect(page.locator('.pricing-return--success')).toContainText('back on BITBI');
     await expect(page.locator('.pricing-return--success a[href="/account/credits.html"]')).toContainText('View credits');
 
     await page.goto('/pricing?checkout=cancel');
@@ -3926,6 +3938,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsPackGrid [data-checkout-pack]')).toHaveCount(2);
     await expect(page.locator('.credits-pack').nth(0)).toContainText('9,99 €');
     await expect(page.locator('.credits-pack').nth(1)).toContainText('19,99 €');
+    await expect(page.locator('#creditsLegalBlock')).toContainText('Secure payment continues on pay.bitbi.ai.');
     const creditsShellWidth = await page.locator('.credits-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
@@ -4141,6 +4154,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Tägliche Aufladungen');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manuelle Gutschriften');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Eingehende Credits');
+    await expect(page.locator('#creditsLegalBlock')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
     const currentCard = page.locator('#creditsLedgerBody .credits-ledger-card--current');
     await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0, 'de-DE'));
     await expect(currentCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(5);

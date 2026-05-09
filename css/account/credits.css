@@ -124,6 +124,17 @@
     line-height: 1.5;
   }
 
+  .credits-legal__host-note {
+    margin: 0;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid rgba(0, 240, 255, 0.18);
+    border-radius: 1rem;
+    background: rgba(0, 240, 255, 0.065);
+    color: rgba(0, 240, 255, 0.88);
+    font-weight: 750;
+    line-height: 1.55;
+  }
+
   .credits-state,
   .credits-toolbar,
   .credits-section {

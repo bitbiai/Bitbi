@@ -42,6 +42,10 @@ const TERMS_VERSION = '2026-05-05';
 const LEDGER_VISIBLE_LIMIT = 5;
 const LOCALE = getCurrentLocale();
 const DATE_LOCALE = LOCALE === 'de' ? 'de-DE' : 'en-US';
+const STRIPE_CHECKOUT_ORIGINS = new Set([
+    'https://checkout.stripe.com',
+    'https://pay.bitbi.ai',
+]);
 const EURO_FORMATTER = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
 const MONTH_FORMATTER = new Intl.DateTimeFormat(DATE_LOCALE, { month: 'long', year: 'numeric' });
@@ -167,7 +171,7 @@ function isSafeCheckoutRedirect(value) {
     if (typeof value !== 'string' || !value) return false;
     try {
         const url = new URL(value, window.location.href);
-        if (url.origin === 'https://checkout.stripe.com') return true;
+        if (STRIPE_CHECKOUT_ORIGINS.has(url.origin)) return true;
         return url.origin === window.location.origin && url.pathname.startsWith('/account/credits');
     } catch {
         return false;
@@ -332,6 +336,10 @@ function renderLegalBlock(visible) {
     );
 
     $legalBlock.append(title, termsLabel, deliveryLabel);
+    const hostNote = document.createElement('p');
+    hostNote.className = 'credits-legal__host-note';
+    hostNote.textContent = localeText('credits.securePayment');
+    $legalBlock.appendChild(hostNote);
     if (legalError) {
         const error = document.createElement('p');
         error.className = 'credits-legal__error';

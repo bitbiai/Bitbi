@@ -136,12 +136,14 @@
     }
 
     .pricing-hero__badges {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
         align-self: start;
-        justify-content: flex-end;
-        align-content: flex-end;
-        gap: 0.55rem;
+        justify-items: end;
+        gap: 0.6rem;
+    }
+
+    .pricing-hero__badges .pricing-badge {
+        justify-self: end;
     }
 
     .pricing-badge {
@@ -167,6 +169,39 @@
         border-color: rgba(255, 179, 0, 0.34);
         color: rgba(255, 220, 140, 0.95);
         background: rgba(255, 179, 0, 0.11);
+    }
+
+    .pricing-hero__checkout-note,
+    .pricing-hero__host-detail,
+    .pricing-legal__host-note {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.78);
+        line-height: 1.55;
+    }
+
+    .pricing-hero__checkout-note,
+    .pricing-legal__host-note {
+        padding: 0.8rem 0.9rem;
+        border: 1px solid rgba(0, 240, 255, 0.18);
+        border-radius: 16px;
+        background: rgba(0, 240, 255, 0.065);
+        font-weight: 750;
+    }
+
+    .pricing-hero__checkout-note {
+        max-inline-size: 20rem;
+        text-align: right;
+    }
+
+    .pricing-hero__host-detail {
+        max-inline-size: 20rem;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.9rem;
+        text-align: right;
+    }
+
+    .pricing-legal__host-note {
+        color: rgba(0, 240, 255, 0.88);
     }
 
     .pricing-grid {
@@ -481,6 +516,18 @@
         .pricing-hero__badges,
         .pricing-legal__actions {
             justify-content: flex-start;
+        }
+
+        .pricing-hero__badges,
+        .pricing-hero__badges .pricing-badge {
+            justify-items: start;
+            justify-self: start;
+        }
+
+        .pricing-hero__checkout-note,
+        .pricing-hero__host-detail {
+            max-inline-size: none;
+            text-align: left;
         }
 
         .pricing-card__copy {

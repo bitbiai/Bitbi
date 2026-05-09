@@ -15,6 +15,10 @@ const TERMS_VERSION = '2026-05-05';
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
 const LOCALE = getCurrentLocale();
 const NUMBER_FORMATTER = new Intl.NumberFormat(LOCALE === 'de' ? 'de-DE' : 'en-US');
+const STRIPE_CHECKOUT_ORIGINS = new Set([
+    'https://checkout.stripe.com',
+    'https://pay.bitbi.ai',
+]);
 
 const COPY = Object.freeze({
     en: Object.freeze({
@@ -23,12 +27,14 @@ const COPY = Object.freeze({
         pricing: 'Pricing',
         subtitle: 'Create more with flexible prepaid credits.',
         heroCopy: 'Generate images, videos, music, and AI assets without a subscription. Buy credits once and use them across BITBI’s creative tools.',
-        trust: ['Secure Stripe checkout', 'Credits after successful payment', 'No subscription required'],
+        trust: ['Secure Stripe checkout', 'Account-bound BITBI credits', 'No subscription required'],
+        securePayment: 'Secure payment continues on pay.bitbi.ai.',
+        checkoutHostDetail: 'Start on BITBI, review your pack here, then complete the Stripe-hosted payment form on pay.bitbi.ai.',
         successful: 'Payment successful',
-        successCopy: 'Your credits will appear shortly after the verified Stripe payment confirmation is processed.',
+        successCopy: 'You are back on BITBI. Your account-bound credits will appear shortly after the verified Stripe payment confirmation is processed.',
         viewCredits: 'View credits',
         cancelled: 'Checkout was cancelled',
-        cancelCopy: 'You have not been charged. You can choose a credit pack whenever you are ready.',
+        cancelCopy: 'You have not been charged. Your selected BITBI credit pack is still available if you want to continue later.',
         oneTime: 'One-time payment',
         loggedOutCta: 'Create account to buy',
         selectedPack: 'Selected pack',
@@ -36,7 +42,7 @@ const COPY = Object.freeze({
         loggedOutMessage: 'Create an account or sign in to buy credits.',
         packSelected: '{title} selected. Review the legal confirmations below before checkout.',
         loggedOutDestination: 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.',
-        memberDestination: 'Credit destination: your BITBI member account. No organization setup or owner role is required.',
+        memberDestination: 'Credit destination: your BITBI member account. No organization setup or owner role is required. Credits are account-bound usage units, not tokens, currency, crypto, or transferable value.',
         checkoutRequirements: 'Checkout requirements',
         selectedSummary: 'Selected pack: {title} · {credits} credits · {price}. Prices include statutory VAT where applicable.',
         acceptTermsPrefix: 'I accept the ',
@@ -47,7 +53,7 @@ const COPY = Object.freeze({
         legalError: 'Please accept the Terms and confirm immediate provision of the digital credits.',
         loginFirst: 'Create an account or sign in to buy credits.',
         checkoutFailed: 'Checkout could not be opened. Please try again.',
-        unsafeCheckout: 'Checkout response was not a safe Stripe URL. No payment was started.',
+        unsafeCheckout: 'Checkout response was not a recognized Stripe-hosted payment URL. No payment was started.',
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
         creditPacks: 'Credit packs',
         creditsLabel: 'credits',
@@ -69,8 +75,8 @@ const COPY = Object.freeze({
         info: Object.freeze([
             ['How credits work', 'Credits are prepaid digital usage units. Each AI generation uses credits depending on model, quality, duration, reference images, and compute cost. Buy a pack, generate, save, and publish your creative assets.', ['Buy a credit pack once.', 'Credits are added after successful Stripe payment.', 'Use credits across supported BITBI AI tools.', 'Higher quality or reference-heavy generations may use more credits.']],
             ['No subscription', 'Credit packs are not a subscription. There is no monthly lock-in and no automatic renewal. You buy credits when you need them.'],
-            ['Secure checkout', 'Payments are processed securely by Stripe. BITBI does not store full card details. Stripe may perform payment validation, fraud prevention, and authentication checks.'],
-            ['Digital credits', 'Credits are digital prepaid usage units. They are not cash, not transferable, not reloadable, not interest-bearing, and not redeemable for money except where required by law.'],
+            ['Secure checkout', 'Payments continue on pay.bitbi.ai, a Stripe-hosted Checkout domain. BITBI does not store full card details. Stripe may perform payment validation, fraud prevention, and authentication checks.'],
+            ['Digital credits', 'Credits are account-bound digital prepaid usage units for BITBI tools. They are not cash, not tokens, not crypto, not transferable, not reloadable, not interest-bearing, and not redeemable for money except where required by law.'],
             ['AI output responsibility', 'AI results can vary. You are responsible for prompts, uploaded reference material, rights clearance, and how you use or publish generated content.'],
         ]),
     }),
@@ -80,12 +86,14 @@ const COPY = Object.freeze({
         pricing: 'Preise',
         subtitle: 'Mehr erstellen mit flexiblen Prepaid-Credits.',
         heroCopy: 'Generieren Sie Bilder, Videos, Musik und KI-Assets ohne Abonnement. Kaufen Sie Credits einmalig und nutzen Sie sie in den kreativen BITBI-Werkzeugen.',
-        trust: ['Sicherer Stripe-Checkout', 'Credits nach erfolgreicher Zahlung', 'Kein Abonnement erforderlich'],
+        trust: ['Sicherer Stripe-Checkout', 'Kontogebundene BITBI Credits', 'Kein Abonnement erforderlich'],
+        securePayment: 'Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.',
+        checkoutHostDetail: 'Starten Sie auf BITBI, prüfen Sie Ihr Paket hier und schließen Sie das von Stripe gehostete Zahlungsformular auf pay.bitbi.ai ab.',
         successful: 'Zahlung erfolgreich',
-        successCopy: 'Ihre Credits erscheinen in Kürze, nachdem die bestätigte Stripe-Zahlung verarbeitet wurde.',
+        successCopy: 'Sie sind zurück auf BITBI. Ihre kontogebundenen Credits erscheinen in Kürze, nachdem die bestätigte Stripe-Zahlung verarbeitet wurde.',
         viewCredits: 'Credits anzeigen',
         cancelled: 'Checkout wurde abgebrochen',
-        cancelCopy: 'Ihnen wurde nichts berechnet. Sie können jederzeit ein Credit-Paket auswählen.',
+        cancelCopy: 'Ihnen wurde nichts berechnet. Ihr ausgewähltes BITBI Credit-Paket bleibt verfügbar, falls Sie später fortfahren möchten.',
         oneTime: 'Einmalzahlung',
         loggedOutCta: 'Konto erstellen und kaufen',
         selectedPack: 'Paket ausgewählt',
@@ -93,7 +101,7 @@ const COPY = Object.freeze({
         loggedOutMessage: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
         packSelected: '{title} ausgewählt. Bitte prüfen Sie unten die rechtlichen Bestätigungen vor dem Checkout.',
         loggedOutDestination: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Die Credits werden nach bestätigter Stripe-Zahlung Ihrem BITBI-Mitgliedskonto gutgeschrieben.',
-        memberDestination: 'Credit-Ziel: Ihr BITBI-Mitgliedskonto. Keine Organisationseinrichtung und keine Owner-Rolle erforderlich.',
+        memberDestination: 'Credit-Ziel: Ihr BITBI-Mitgliedskonto. Keine Organisationseinrichtung und keine Owner-Rolle erforderlich. Credits sind kontogebundene Nutzungseinheiten, keine Token, Währung, Krypto oder übertragbaren Werte.',
         checkoutRequirements: 'Voraussetzungen für den Checkout',
         selectedSummary: 'Ausgewähltes Paket: {title} · {credits} Credits · {price}. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.',
         acceptTermsPrefix: 'Ich akzeptiere die ',
@@ -104,7 +112,7 @@ const COPY = Object.freeze({
         legalError: 'Bitte akzeptieren Sie die AGB und bestätigen Sie die sofortige Bereitstellung der digitalen Credits.',
         loginFirst: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
         checkoutFailed: 'Checkout konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
-        unsafeCheckout: 'Die Checkout-Antwort war keine sichere Stripe-URL. Es wurde keine Zahlung gestartet.',
+        unsafeCheckout: 'Die Checkout-Antwort war keine erkannte von Stripe gehostete Zahlungs-URL. Es wurde keine Zahlung gestartet.',
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
         creditPacks: 'Credit-Pakete',
         creditsLabel: 'Credits',
@@ -126,8 +134,8 @@ const COPY = Object.freeze({
         info: Object.freeze([
             ['So funktionieren Credits', 'Credits sind vorausbezahlte digitale Nutzungseinheiten. Jede KI-Generierung verbraucht Credits abhängig von Modell, Qualität, Dauer, Referenzbildern und Rechenaufwand. Kaufen Sie ein Paket, generieren, speichern und veröffentlichen Sie Ihre kreativen Assets.', ['Credit-Paket einmalig kaufen.', 'Credits werden nach erfolgreicher Stripe-Zahlung gutgeschrieben.', 'Credits in unterstützten BITBI-KI-Werkzeugen nutzen.', 'Höhere Qualität oder referenzintensive Generierungen können mehr Credits verbrauchen.']],
             ['Kein Abonnement', 'Credit-Pakete sind kein Abonnement. Es gibt keine monatliche Bindung und keine automatische Verlängerung. Sie kaufen Credits, wenn Sie sie benötigen.'],
-            ['Sicherer Checkout', 'Zahlungen werden sicher über Stripe verarbeitet. BITBI speichert keine vollständigen Kartendaten. Stripe kann Zahlungsvalidierung, Betrugsprävention und Authentifizierungsprüfungen durchführen.'],
-            ['Digitale Credits', 'Credits sind digitale vorausbezahlte Nutzungseinheiten. Sie sind kein Bargeld, nicht übertragbar, nicht wiederaufladbar, nicht verzinslich und nicht gegen Geld einlösbar, außer soweit gesetzlich vorgeschrieben.'],
+            ['Sicherer Checkout', 'Zahlungen werden auf pay.bitbi.ai fortgesetzt, einer von Stripe gehosteten Checkout-Domain. BITBI speichert keine vollständigen Kartendaten. Stripe kann Zahlungsvalidierung, Betrugsprävention und Authentifizierungsprüfungen durchführen.'],
+            ['Digitale Credits', 'Credits sind kontogebundene digitale vorausbezahlte Nutzungseinheiten für BITBI-Werkzeuge. Sie sind kein Bargeld, keine Token, kein Krypto, nicht übertragbar, nicht wiederaufladbar, nicht verzinslich und nicht gegen Geld einlösbar, außer soweit gesetzlich vorgeschrieben.'],
             ['Verantwortung für KI-Ergebnisse', 'KI-Ergebnisse können variieren. Sie sind verantwortlich für Prompts, hochgeladenes Referenzmaterial, Rechteklärung und die Nutzung oder Veröffentlichung generierter Inhalte.'],
         ]),
     }),
@@ -196,7 +204,7 @@ function isSafeCheckoutRedirect(value) {
     if (typeof value !== 'string' || !value) return false;
     try {
         const url = new URL(value, window.location.href);
-        return url.origin === 'https://checkout.stripe.com';
+        return STRIPE_CHECKOUT_ORIGINS.has(url.origin);
     } catch {
         return false;
     }
@@ -325,6 +333,9 @@ function createHero() {
         createBadge((COPY[LOCALE] || COPY.en).trust[1], 'featured'),
         createBadge((COPY[LOCALE] || COPY.en).trust[2]),
     );
+    const note = createTextElement('p', 'pricing-hero__checkout-note', t('securePayment'));
+    const detail = createTextElement('p', 'pricing-hero__host-detail', t('checkoutHostDetail'));
+    trust.append(note, detail);
     hero.append(copy, trust);
     return hero;
 }
@@ -381,6 +392,7 @@ function createLegalCheckout(auth) {
         }),
     );
     section.appendChild(summary);
+    section.appendChild(createTextElement('p', 'pricing-legal__host-note', t('securePayment')));
 
     const checks = document.createElement('div');
     checks.className = 'pricing-legal__checks';

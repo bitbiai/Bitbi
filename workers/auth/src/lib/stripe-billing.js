@@ -21,7 +21,10 @@ const LIVE_CHECKOUT_SESSION_ID_PATTERN = /^cs_live_[A-Za-z0-9_:-]{8,200}$/;
 const TEST_PAYMENT_INTENT_ID_PATTERN = /^pi_test_[A-Za-z0-9_:-]{8,200}$/;
 const LIVE_PAYMENT_INTENT_ID_PATTERN = /^pi_live_[A-Za-z0-9_:-]{8,200}$/;
 const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
-const CHECKOUT_SESSION_URL_PATTERN = /^https:\/\/checkout\.stripe\.com\/.+/;
+const CHECKOUT_SESSION_URL_ORIGINS = new Set([
+  "https://checkout.stripe.com",
+  "https://pay.bitbi.ai",
+]);
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
 const LIVE_MEMBER_AUTH_SCOPE = "member";
@@ -606,6 +609,17 @@ function paymentIntentPatternForMode(mode) {
     : TEST_PAYMENT_INTENT_ID_PATTERN;
 }
 
+function isStripeCheckoutSessionUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && CHECKOUT_SESSION_URL_ORIGINS.has(url.origin)
+      && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeStripeCheckoutSession(value, { mode = STRIPE_MODE_TEST } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new StripeBillingError("Stripe Checkout Session response is invalid.", {
@@ -624,7 +638,7 @@ function normalizeStripeCheckoutSession(value, { mode = STRIPE_MODE_TEST } = {})
       code: "stripe_checkout_invalid_response",
     });
   }
-  if (!url || !CHECKOUT_SESSION_URL_PATTERN.test(url)) {
+  if (!url || !isStripeCheckoutSessionUrl(url)) {
     throw new StripeBillingError("Stripe Checkout Session URL is invalid.", {
       status: 502,
       code: "stripe_checkout_invalid_response",

@@ -3489,7 +3489,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     };
   }
 
-  function mockLiveStripeCheckoutFetch({ calls, fail = false } = {}) {
+  function mockLiveStripeCheckoutFetch({ calls, fail = false, checkoutOrigin = 'https://checkout.stripe.com' } = {}) {
     return async (url, init = {}) => {
       calls.push({ url, init, form: Object.fromEntries(new URLSearchParams(String(init.body || ''))) });
       if (fail) {
@@ -3504,7 +3504,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
         object: 'checkout.session',
         livemode: true,
         mode: 'payment',
-        url: `https://checkout.stripe.com/c/pay/cs_live_phase2l_${count}`,
+        url: `${checkoutOrigin}/c/pay/cs_live_phase2l_${count}`,
         payment_intent: `pi_live_phase2l_${count}`,
         customer: `cus_live_phase2l_${count}`,
       }), {
@@ -3730,7 +3730,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           users: [member, disabled],
           organizations: [],
           organizationMemberships: [],
-          fetch: mockLiveStripeCheckoutFetch({ calls }),
+          fetch: mockLiveStripeCheckoutFetch({ calls, checkoutOrigin: 'https://pay.bitbi.ai' }),
         },
       }),
     });
@@ -3796,7 +3796,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       mode: 'live',
       checkout_scope: 'member',
       authorization_scope: 'member',
-      checkout_url: 'https://checkout.stripe.com/c/pay/cs_live_phase2l_01',
+      checkout_url: 'https://pay.bitbi.ai/c/pay/cs_live_phase2l_01',
       livePaymentProviderEnabled: true,
     }));
     expect(memberBody.credit_pack).toEqual(expect.objectContaining({
