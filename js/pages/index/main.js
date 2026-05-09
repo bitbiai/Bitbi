@@ -271,9 +271,53 @@ function initMobileGuestBanner() {
     renderBanner();
 }
 
+function initHeroModelsCtaPlacement() {
+    const wrap = document.querySelector('.hero__models-cta-wrap');
+    const button = wrap?.querySelector('.hero__models-cta');
+    const logo = document.querySelector('.site-nav__logo');
+    const galleryLink = document.querySelector('.site-nav__links [data-category-link="gallery"]');
+    const hero = document.querySelector('#hero');
+    if (!wrap || !button || !logo || !galleryLink || !hero) return;
+
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
+    let frame = 0;
+
+    const place = () => {
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(() => {
+            if (!desktopQuery.matches) {
+                wrap.style.removeProperty('--hero-models-cta-inline-start');
+                return;
+            }
+
+            const logoRect = logo.getBoundingClientRect();
+            const galleryRect = galleryLink.getBoundingClientRect();
+            const buttonRect = button.getBoundingClientRect();
+            const heroRect = hero.getBoundingClientRect();
+            if (!logoRect.width || !galleryRect.width || !buttonRect.width || !heroRect.width) return;
+
+            const spaceCenter = logoRect.right + ((galleryRect.left - logoRect.right) / 2);
+            const minLeft = heroRect.left + 16;
+            const maxLeft = galleryRect.left - buttonRect.width - 12;
+            const left = Math.min(Math.max(spaceCenter - (buttonRect.width / 2), minLeft), maxLeft);
+            wrap.style.setProperty('--hero-models-cta-inline-start', `${Math.max(0, left - heroRect.left)}px`);
+        });
+    };
+
+    place();
+    window.addEventListener('resize', place, { passive: true });
+    if (typeof desktopQuery.addEventListener === 'function') {
+        desktopQuery.addEventListener('change', place);
+    } else if (typeof desktopQuery.addListener === 'function') {
+        desktopQuery.addListener(place);
+    }
+    document.fonts?.ready?.then(place).catch(() => {});
+}
+
 const authReady = initAuth().catch(e => console.warn('auth:', e));
 
 try { initHeroBackgroundVideo(); } catch (e) { console.warn('heroVideo:', e); }
+try { initHeroModelsCtaPlacement(); } catch (e) { console.warn('heroModelsCta:', e); }
 try { initMobileGuestBanner(); } catch (e) { console.warn('guestBanner:', e); }
 
 /* Hero particles (index uses more particles, nebulae, connections) */

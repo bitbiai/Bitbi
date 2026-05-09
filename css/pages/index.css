@@ -3636,7 +3636,7 @@
         .hero__models-cta-wrap {
             position: absolute;
             inset-block-start: calc(6.35rem + env(safe-area-inset-top, 0px));
-            inset-inline-start: max(1.5rem, calc((100vw - var(--container-max)) / 2 + var(--space-8)));
+            inset-inline-start: var(--hero-models-cta-inline-start, max(1.5rem, calc((100vw - var(--container-max)) / 2 + var(--space-8))));
             z-index: 12;
             display: inline-flex;
             pointer-events: none;

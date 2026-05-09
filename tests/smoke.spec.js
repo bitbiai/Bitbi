@@ -617,6 +617,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(9);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
     await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
       'href',
@@ -628,6 +629,7 @@ test.describe('Homepage', () => {
       const flowStyle = window.getComputedStyle(node.querySelector('.news-pulse__flow'));
       const trackStyle = window.getComputedStyle(node.querySelector('.news-pulse__track'));
       const itemStyle = window.getComputedStyle(node.querySelector('.news-pulse__item'));
+      const markStyle = window.getComputedStyle(node.querySelector('.news-pulse__mark'));
       const rect = node.getBoundingClientRect();
       const heroRect = hero.getBoundingClientRect();
       const nextRect = nextSection.getBoundingClientRect();
@@ -635,7 +637,10 @@ test.describe('Homepage', () => {
         parentId: node.parentElement?.id || '',
         trackDisplay: trackStyle.display,
         itemAnimationName: itemStyle.animationName,
+        itemAnimationDuration: itemStyle.animationDuration,
         maskImage: flowStyle.maskImage || flowStyle.webkitMaskImage || '',
+        flowPaddingInlineStart: parseFloat(flowStyle.paddingInlineStart || '0'),
+        markWidth: parseFloat(markStyle.width || '0'),
         left: rect.left,
         right: rect.right,
         top: rect.top,
@@ -650,7 +655,9 @@ test.describe('Homepage', () => {
     expect(pulseLayout.parentId).toBe('hero');
     expect(pulseLayout.trackDisplay).not.toBe('flex');
     expect(pulseLayout.itemAnimationName).toContain('news-pulse-wheel');
+    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeLessThan(66);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
+    expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
     expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
     expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
@@ -689,6 +696,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(9);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',
@@ -720,6 +728,58 @@ test.describe('Homepage', () => {
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
     expect(requestedLocales).toContain('de');
+  });
+
+  test('mobile homepages do not render or fetch Live Pulse news', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const requestedUrls = [];
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      requestedUrls.push(route.request().url());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            id: 'mobile-hidden-pulse',
+            title: 'Hidden mobile pulse',
+            summary: 'This should not render on mobile.',
+            source: 'Bitbi Test Source',
+            url: 'https://example.com/mobile-hidden-pulse',
+            category: 'AI',
+          }],
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    for (const path of ['/', '/de/']) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#hero')).toBeVisible();
+      await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+      const pulseState = await page.locator('#newsPulse').evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        return {
+          display: style.display,
+          visibility: style.visibility,
+          width: rect.width,
+          height: rect.height,
+          childCount: node.children.length,
+          text: node.textContent.trim(),
+          ariaHidden: node.getAttribute('aria-hidden'),
+        };
+      });
+      expect(pulseState.display).toBe('none');
+      expect(pulseState.visibility).toBe('hidden');
+      expect(pulseState.width).toBe(0);
+      expect(pulseState.height).toBe(0);
+      expect(pulseState.childCount).toBe(0);
+      expect(pulseState.text).toBe('');
+      expect(pulseState.ariaHidden).toBe('true');
+    }
+
+    await page.waitForTimeout(300);
+    expect(requestedUrls).toEqual([]);
   });
 
   test('homepage Live Pulse handles failed endpoint responses without breaking the page', async ({ page }) => {
@@ -1211,6 +1271,53 @@ test.describe('Homepage', () => {
     await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
     await expectPathUnchanged(page, '/');
   });
+
+  for (const { path, galleryLabel } of [
+    { path: '/', galleryLabel: 'Gallery' },
+    { path: '/de/', galleryLabel: 'Galerie' },
+  ]) {
+    test(`homepage Models image sits between BITBI and ${galleryLabel} on ${path}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.route('**/api/public/news-pulse**', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], updated_at: '2026-05-09T08:00:00.000Z' }),
+        });
+      });
+
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      const modelsButton = page.locator('#hero .hero__models-cta');
+      await expect(modelsButton).toBeVisible();
+      await page.waitForFunction(() => (
+        Boolean(document.querySelector('.hero__models-cta-wrap')?.style.getPropertyValue('--hero-models-cta-inline-start'))
+      ));
+
+      const layout = await page.evaluate(() => {
+        const logo = document.querySelector('.site-nav__logo').getBoundingClientRect();
+        const gallery = document.querySelector('.site-nav__links [data-category-link="gallery"]').getBoundingClientRect();
+        const cta = document.querySelector('#hero .hero__models-cta').getBoundingClientRect();
+        const hero = document.querySelector('#hero').getBoundingClientRect();
+        const centerBetweenLogoAndGallery = logo.right + ((gallery.left - logo.right) / 2);
+        return {
+          ctaCenter: cta.left + (cta.width / 2),
+          centerBetweenLogoAndGallery,
+          ctaTop: cta.top,
+          heroTop: hero.top,
+          logoRight: logo.right,
+          galleryLeft: gallery.left,
+          ctaLeft: cta.left,
+          ctaRight: cta.right,
+        };
+      });
+
+      expect(Math.abs(layout.ctaCenter - layout.centerBetweenLogoAndGallery)).toBeLessThanOrEqual(2);
+      expect(layout.ctaLeft).toBeGreaterThan(layout.logoRight);
+      expect(layout.ctaRight).toBeLessThan(layout.galleryLeft);
+      expect(layout.ctaTop).toBeGreaterThan(layout.heroTop);
+      expect(layout.ctaTop).toBeLessThan(180);
+    });
+  }
 
   test('homepage hero video uses the intended 1.5x playback speed', async ({ page }) => {
     await page.goto('/');

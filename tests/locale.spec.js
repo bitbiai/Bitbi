@@ -119,7 +119,8 @@ test.describe('Bilingual locale pages', () => {
     expect(deHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(css).toContain('position: absolute');
     expect(css).toContain('news-pulse-wheel');
-    expect(css).toContain('@media (max-width: 767px)');
+    expect(css).toContain('@media (max-width: 1023px)');
+    expect(css).toContain('visibility: hidden');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation: none');
   });

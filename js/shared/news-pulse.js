@@ -1,9 +1,12 @@
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const NEWS_PULSE_ENDPOINT = '/api/public/news-pulse';
-const MAX_RENDERED_ITEMS = 6;
-const MIN_WHEEL_DURATION_SECONDS = 45;
-const MAX_WHEEL_DURATION_SECONDS = 75;
+const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
+const MAX_SOURCE_ITEMS = 6;
+const MIN_VISUAL_ITEMS = 9;
+const MAX_VISUAL_ITEMS = 12;
+const MIN_WHEEL_DURATION_SECONDS = 40;
+const MAX_WHEEL_DURATION_SECONDS = 60;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -46,7 +49,7 @@ async function fetchNewsPulse(locale) {
     return (Array.isArray(data?.items) ? data.items : [])
         .map(normalizeItem)
         .filter(Boolean)
-        .slice(0, MAX_RENDERED_ITEMS);
+        .slice(0, MAX_SOURCE_ITEMS);
 }
 
 function createElement(tagName, className, text = '') {
@@ -56,17 +59,25 @@ function createElement(tagName, className, text = '') {
     return element;
 }
 
-function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WHEEL_DURATION_SECONDS } = {}) {
+function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WHEEL_DURATION_SECONDS, isDuplicate = false } = {}) {
     const wrapper = createElement('span', 'news-pulse__item');
     wrapper.setAttribute('role', 'listitem');
+    wrapper.dataset.newsPulseItemId = item.id;
+    wrapper.dataset.newsPulseRenderIndex = String(index);
     wrapper.style.setProperty('--pulse-index', String(index));
     wrapper.style.setProperty('--pulse-delay', `${-(duration / Math.max(total, 1)) * index}s`);
+    if (isDuplicate) {
+        wrapper.setAttribute('aria-hidden', 'true');
+    }
 
     const link = createElement('a', 'news-pulse__link');
     link.href = item.url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.setAttribute('aria-label', `${item.title} - ${localeText('newsPulse.openSource', {}, locale)}`);
+    if (isDuplicate) {
+        link.tabIndex = -1;
+    }
 
     const mark = createElement('span', 'news-pulse__mark');
     mark.setAttribute('aria-hidden', 'true');
@@ -82,18 +93,29 @@ function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WH
     return wrapper;
 }
 
+function buildVisualItems(items) {
+    if (!items.length) return [];
+    const visualItems = [];
+    while (visualItems.length < MIN_VISUAL_ITEMS) {
+        visualItems.push(...items);
+    }
+    return visualItems.slice(0, Math.max(MIN_VISUAL_ITEMS, Math.min(MAX_VISUAL_ITEMS, visualItems.length)));
+}
+
 function renderTrack(items, locale) {
-    const duration = Math.min(MAX_WHEEL_DURATION_SECONDS, Math.max(MIN_WHEEL_DURATION_SECONDS, items.length * 11));
+    const visualItems = buildVisualItems(items);
+    const duration = Math.min(MAX_WHEEL_DURATION_SECONDS, Math.max(MIN_WHEEL_DURATION_SECONDS, items.length * 9.9));
     const track = createElement('div', 'news-pulse__track');
     track.setAttribute('role', 'list');
     track.style.setProperty('--pulse-duration', `${duration}s`);
-    track.style.setProperty('--pulse-count', String(items.length));
+    track.style.setProperty('--pulse-count', String(visualItems.length));
 
-    items.forEach((item, index) => {
+    visualItems.forEach((item, index) => {
         track.appendChild(createPulseItem(item, locale, {
             duration,
             index,
-            total: items.length,
+            total: visualItems.length,
+            isDuplicate: index >= items.length,
         }));
     });
     return track;
@@ -130,16 +152,54 @@ function renderNewsPulse(root, items, locale) {
     root.appendChild(shell);
 }
 
+function clearNewsPulse(root) {
+    root.classList.remove('is-loading', 'is-ready', 'is-empty');
+    root.classList.add('is-disabled');
+    root.setAttribute('aria-hidden', 'true');
+    root.replaceChildren();
+}
+
 export async function initNewsPulse(container = document) {
     const roots = [...container.querySelectorAll('[data-news-pulse]')];
+    const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+
     await Promise.all(roots.map(async (root) => {
-        const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
-        root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
-        root.classList.add('is-loading');
-        try {
-            renderNewsPulse(root, await fetchNewsPulse(locale), locale);
-        } catch {
-            renderEmpty(root, locale);
+        let hasRendered = false;
+
+        const renderForViewport = async () => {
+            if (!desktopQuery.matches) {
+                clearNewsPulse(root);
+                return;
+            }
+            if (hasRendered) return;
+            hasRendered = true;
+
+            const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
+            root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+            root.removeAttribute('aria-hidden');
+            root.classList.remove('is-disabled');
+            root.classList.add('is-loading');
+            try {
+                renderNewsPulse(root, await fetchNewsPulse(locale), locale);
+            } catch {
+                renderEmpty(root, locale);
+            }
+        };
+
+        const handleViewportChange = () => {
+            if (!desktopQuery.matches) {
+                clearNewsPulse(root);
+            } else {
+                hasRendered = false;
+                renderForViewport();
+            }
+        };
+
+        if (typeof desktopQuery.addEventListener === 'function') {
+            desktopQuery.addEventListener('change', handleViewportChange);
+        } else if (typeof desktopQuery.addListener === 'function') {
+            desktopQuery.addListener(handleViewportChange);
         }
+        await renderForViewport();
     }));
 }
