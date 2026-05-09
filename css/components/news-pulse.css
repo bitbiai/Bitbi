@@ -3,9 +3,9 @@
     position: absolute;
     inset-block-start: clamp(5.5rem, 14vh, 8rem);
     inset-block-end: clamp(3.75rem, 8vh, 5.5rem);
-    inset-inline-start: clamp(0.7rem, 2vw, 1.4rem);
+    inset-inline-start: var(--homepage-hero-side-inset, clamp(0.7rem, 2vw, 1.4rem));
     z-index: 3;
-    width: clamp(17rem, 23vw, 25rem);
+    width: var(--homepage-news-pulse-width, clamp(20rem, 29vw, 32rem));
     overflow: hidden;
     pointer-events: none;
     contain: layout paint;
@@ -73,7 +73,7 @@
     inset-block-start: 50%;
     inset-inline-start: 0;
     display: block;
-    width: min(100%, 23rem);
+    width: min(100%, 30rem);
     opacity: 0;
     transform-origin: left center;
     animation: news-pulse-wheel var(--pulse-duration, 56s) linear infinite;

@@ -2746,7 +2746,7 @@
     @media (min-width: 1024px) {
         .mobile-guest-banner {
             inset-block-start: calc(6.35rem + env(safe-area-inset-top, 0px));
-            inset-inline-end: max(1.5rem, calc((100vw - var(--container-max)) / 2 + var(--space-8)));
+            inset-inline-end: calc(var(--homepage-hero-side-inset) + clamp(10.75rem, 13vw, 13.25rem) + 1rem);
             max-inline-size: min(22rem, calc(100vw - 8rem));
         }
 
@@ -3550,6 +3550,11 @@
         cursor: pointer;
     }
 
+    .hero--homepage {
+        --homepage-hero-side-inset: clamp(0.7rem, 2vw, 1.4rem);
+        --homepage-news-pulse-width: clamp(20rem, 29vw, 32rem);
+    }
+
     .hero--homepage .hero__media {
         position: absolute;
         inset: 0;
@@ -3669,8 +3674,9 @@
     @media (min-width: 1024px) {
         .hero__models-cta-wrap {
             position: absolute;
-            inset-block-start: calc(6.35rem + env(safe-area-inset-top, 0px));
-            inset-inline-start: var(--hero-models-cta-inline-start, max(1.5rem, calc((100vw - var(--container-max)) / 2 + var(--space-8))));
+            inset-block-start: calc(5rem + env(safe-area-inset-top, 0px));
+            inset-inline-start: auto;
+            inset-inline-end: var(--homepage-hero-side-inset);
             z-index: 12;
             display: inline-flex;
             pointer-events: none;

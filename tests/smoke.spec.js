@@ -644,6 +644,7 @@ test.describe('Homepage', () => {
         maskImage: flowStyle.maskImage || flowStyle.webkitMaskImage || '',
         flowPaddingInlineStart: parseFloat(flowStyle.paddingInlineStart || '0'),
         markWidth: parseFloat(markStyle.width || '0'),
+        width: rect.width,
         left: rect.left,
         right: rect.right,
         top: rect.top,
@@ -661,6 +662,7 @@ test.describe('Homepage', () => {
     expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(56.4, 1);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
     expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
+    expect(pulseLayout.width).toBeGreaterThan(350);
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
     expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
     expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
@@ -1284,7 +1286,7 @@ test.describe('Homepage', () => {
     { path: '/', galleryLabel: 'Gallery' },
     { path: '/de/', galleryLabel: 'Galerie' },
   ]) {
-    test(`homepage Models image sits between BITBI and ${galleryLabel} on ${path}`, async ({ page }) => {
+    test(`homepage Models image sits on the right below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.route('**/api/public/news-pulse**', async (route) => {
         await route.fulfill({
@@ -1297,33 +1299,40 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const modelsButton = page.locator('#hero .hero__models-cta');
       await expect(modelsButton).toBeVisible();
-      await page.waitForFunction(() => (
-        Boolean(document.querySelector('.hero__models-cta-wrap')?.style.getPropertyValue('--hero-models-cta-inline-start'))
-      ));
 
       const layout = await page.evaluate(() => {
-        const logo = document.querySelector('.site-nav__logo').getBoundingClientRect();
-        const gallery = document.querySelector('.site-nav__links [data-category-link="gallery"]').getBoundingClientRect();
         const cta = document.querySelector('#hero .hero__models-cta').getBoundingClientRect();
+        const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
         const hero = document.querySelector('#hero').getBoundingClientRect();
-        const centerBetweenLogoAndGallery = logo.right + ((gallery.left - logo.right) / 2);
+        const nav = document.querySelector('#navbar').getBoundingClientRect();
+        const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
+        const guestClear = !guest?.width || !guest?.height || (
+          guest.right <= cta.left - 8 ||
+          guest.left >= cta.right + 8 ||
+          guest.bottom <= cta.top - 8 ||
+          guest.top >= cta.bottom + 8
+        );
         return {
-          ctaCenter: cta.left + (cta.width / 2),
-          centerBetweenLogoAndGallery,
+          ctaRightInset: hero.right - cta.right,
+          pulseLeftInset: pulse.left - hero.left,
           ctaTop: cta.top,
-          heroTop: hero.top,
-          logoRight: logo.right,
-          galleryLeft: gallery.left,
           ctaLeft: cta.left,
           ctaRight: cta.right,
+          heroLeft: hero.left,
+          heroRight: hero.right,
+          heroTop: hero.top,
+          heroWidth: hero.width,
+          navBottom: nav.bottom,
+          guestClear,
         };
       });
 
-      expect(Math.abs(layout.ctaCenter - layout.centerBetweenLogoAndGallery)).toBeLessThanOrEqual(2);
-      expect(layout.ctaLeft).toBeGreaterThan(layout.logoRight);
-      expect(layout.ctaRight).toBeLessThan(layout.galleryLeft);
-      expect(layout.ctaTop).toBeGreaterThan(layout.heroTop);
-      expect(layout.ctaTop).toBeLessThan(180);
+      expect(Math.abs(layout.ctaRightInset - layout.pulseLeftInset)).toBeLessThanOrEqual(2);
+      expect(layout.ctaLeft).toBeGreaterThan(layout.heroLeft + layout.heroWidth * 0.72);
+      expect(layout.ctaRight).toBeLessThanOrEqual(layout.heroRight - layout.pulseLeftInset + 1);
+      expect(layout.ctaTop).toBeGreaterThan(layout.navBottom);
+      expect(layout.ctaTop - layout.navBottom).toBeLessThanOrEqual(28);
+      expect(layout.guestClear).toBe(true);
     });
   }
 
