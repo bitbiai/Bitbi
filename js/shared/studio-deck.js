@@ -162,6 +162,7 @@ function _createDeck(grid, {
     deckClass = 'studio-deck',
     dotsClass = 'studio-deck-dots',
     dotClass = 'studio-deck-dot',
+    maxDots = Infinity,
 }) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
@@ -175,6 +176,27 @@ function _createDeck(grid, {
             c => c.style.display !== 'none'
               && c.classList.contains(cardClass),
         );
+    }
+
+    function getDotTargets(cards) {
+        if (!Number.isFinite(maxDots) || maxDots <= 0 || cards.length <= maxDots) {
+            return cards.map((_, index) => index);
+        }
+        const groupSize = Math.ceil(cards.length / maxDots);
+        const targets = [];
+        for (let index = 0; index < cards.length; index += groupSize) {
+            targets.push(index);
+        }
+        return targets;
+    }
+
+    function getActiveDotIndex(targets) {
+        if (!targets.length) return -1;
+        let index = 0;
+        targets.forEach((target, targetIndex) => {
+            if (active >= target) index = targetIndex;
+        });
+        return index;
     }
 
     /* ── Layout (mirrors gallery.js galLayout) ── */
@@ -214,19 +236,21 @@ function _createDeck(grid, {
         dotsEl = null;
         if (grid.offsetParent === null) return;
         const all = getCards();
-        if (all.length <= 1) return;
+        const targets = getDotTargets(all);
+        if (targets.length <= 1) return;
+        const activeDot = getActiveDotIndex(targets);
         dotsEl = document.createElement('div');
         dotsEl.className = dotsClass;
         dotsEl.setAttribute('role', 'tablist');
         dotsEl.setAttribute('aria-label', dotsLabel);
-        all.forEach((_, i) => {
+        targets.forEach((target, i) => {
             const d = document.createElement('button');
             d.type = 'button';
-            d.className = dotClass + (i === active ? ' active' : '');
+            d.className = dotClass + (i === activeDot ? ' active' : '');
             d.setAttribute('role', 'tab');
-            d.setAttribute('aria-selected', i === active ? 'true' : 'false');
-            d.setAttribute('aria-label', `Show ${itemLabel} ${i + 1}`);
-            d.addEventListener('click', () => { active = i; layout(); syncDots(); });
+            d.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
+            d.setAttribute('aria-label', `Show ${itemLabel} ${target + 1}`);
+            d.addEventListener('click', () => { active = target; layout(); syncDots(); });
             dotsEl.appendChild(d);
         });
         grid.after(dotsEl);
@@ -236,10 +260,12 @@ function _createDeck(grid, {
         if (!dotsEl) return;
         const dots = dotsEl.querySelectorAll(`.${dotClass}`);
         const all = getCards();
-        if (dots.length !== all.length) { buildDots(); return; }
+        const targets = getDotTargets(all);
+        if (dots.length !== targets.length) { buildDots(); return; }
+        const activeDot = getActiveDotIndex(targets);
         dots.forEach((d, i) => {
-            d.classList.toggle('active', i === active);
-            d.setAttribute('aria-selected', i === active ? 'true' : 'false');
+            d.classList.toggle('active', i === activeDot);
+            d.setAttribute('aria-selected', i === activeDot ? 'true' : 'false');
         });
     }
 
@@ -392,11 +418,12 @@ function _createDeck(grid, {
  * @param {HTMLElement} grid   — the .studio__image-grid element
  * @returns {{ refresh(): void, destroy(): void, setVisible(v: boolean): void }}
  */
-export function initStudioDeck(grid) {
+export function initStudioDeck(grid, options = {}) {
     return _createDeck(grid, {
         cardClass: 'studio__image-item',
         dotsLabel: 'Saved image cards',
         itemLabel: 'image',
+        maxDots: options.maxDots,
         onClick(e) {
             const item = e.target.closest('.studio__image-item');
             if (!item) return;

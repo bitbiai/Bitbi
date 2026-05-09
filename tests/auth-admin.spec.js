@@ -5643,6 +5643,93 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.studio__pagination-btn')).toBeHidden();
   });
 
+  test('mobile account Assets Manager opens saved assets in the shared media grid with grouped dots', async ({
+    page,
+  }) => {
+    const manyAssets = Array.from({ length: 14 }, (_, index) => ({
+      id: `mobile-asset-${index + 1}`,
+      asset_type: 'image',
+      folder_id: null,
+      title: `Mobile Asset ${index + 1}`,
+      prompt: `Mobile Asset ${index + 1}`,
+      preview_text: `Mobile Asset ${index + 1}`,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+      seed: index + 1,
+      created_at: new Date(Date.UTC(2026, 3, 30, 12, index, 0)).toISOString(),
+      file_url: `/api/ai/images/mobile-asset-${index + 1}/file`,
+      original_url: `/api/ai/images/mobile-asset-${index + 1}/file`,
+      thumb_url: `/api/ai/images/mobile-asset-${index + 1}/thumb`,
+      medium_url: `/api/ai/images/mobile-asset-${index + 1}/medium`,
+    }));
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedAssetsManager(page, [], {
+      assetsPayload: {
+        all: manyAssets,
+      },
+    });
+
+    await page.goto('/account/assets-manager.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(14);
+    await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
+    await expect(page.locator('.studio__mobile-grid-trigger')).toHaveText('All 14 saved assets are displayed.');
+
+    const visibleDots = page.locator('.studio-deck-dots:visible .studio-deck-dot');
+    await expect(visibleDots).toHaveCount(5);
+    await expect.poll(() => visibleDots.count()).toBeLessThan(manyAssets.length);
+
+    await page.locator('.studio__mobile-grid-trigger').click();
+    await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
+    await expect(page.locator('.mobile-media-grid-overlay__item')).toHaveCount(14);
+
+    await page.locator('.mobile-media-grid-overlay__item').first().click();
+    await expect(page.locator('.mobile-media-grid-overlay')).toHaveCount(0);
+    await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
+    await expect(page.locator('#studioImageModal .studio-modal__title')).toContainText('Mobile Asset');
+  });
+
+  test('German mobile account Assets Manager localizes the saved-assets grid trigger', async ({
+    page,
+  }) => {
+    const assets = Array.from({ length: 3 }, (_, index) => ({
+      id: `de-mobile-asset-${index + 1}`,
+      asset_type: 'image',
+      folder_id: null,
+      title: `Mobiles Asset ${index + 1}`,
+      prompt: `Mobiles Asset ${index + 1}`,
+      preview_text: `Mobiles Asset ${index + 1}`,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 4,
+      seed: index + 1,
+      created_at: new Date(Date.UTC(2026, 3, 30, 12, index, 0)).toISOString(),
+      file_url: `/api/ai/images/de-mobile-asset-${index + 1}/file`,
+      original_url: `/api/ai/images/de-mobile-asset-${index + 1}/file`,
+      thumb_url: `/api/ai/images/de-mobile-asset-${index + 1}/thumb`,
+      medium_url: `/api/ai/images/de-mobile-asset-${index + 1}/medium`,
+    }));
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedAssetsManager(page, [], {
+      assetsPayload: {
+        all: assets,
+      },
+    });
+
+    await page.goto('/de/account/assets-manager.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+
+    await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
+    await expect(page.locator('.studio__mobile-grid-trigger')).toHaveText('Alle 3 gespeicherten Assets werden angezeigt.');
+    await page.locator('.studio__mobile-grid-trigger').click();
+    await expect(page.locator('.mobile-media-grid-overlay--assets')).toBeVisible();
+    await expect(page.locator('.mobile-media-grid-overlay__close')).toHaveText('Schließen');
+  });
+
   test('account Assets Manager keeps saved-assets type badges compact on desktop and mobile', async ({
     page,
   }) => {

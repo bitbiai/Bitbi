@@ -1170,6 +1170,18 @@
         text-align: center;
     }
 
+    .studio__mobile-grid-trigger {
+        display: none;
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.46);
+        text-align: center;
+    }
+
     .studio__pagination-btn {
         min-width: 11rem;
         padding: 0.8rem 1.4rem;
@@ -1469,8 +1481,11 @@
         .studio-deck-dots {
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
             gap: 8px;
             margin-block-start: var(--space-4);
+            max-inline-size: min(13rem, 84vw);
+            margin-inline: auto;
         }
 
         .studio-deck-dot {
@@ -1520,6 +1535,165 @@
 
         .studio__asset-play-indicator.is-active .studio__asset-play-bar {
             animation: studioAssetPlayPulse 1.05s ease-in-out infinite;
+        }
+
+        .studio__pagination-status--mobile-hidden {
+            display: none;
+        }
+
+        .studio__mobile-grid-trigger:not([hidden]) {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            max-inline-size: min(100%, 21rem);
+            padding: 0.48rem 0.9rem;
+            border: 1px solid rgba(0, 240, 255, 0.16);
+            border-radius: 999px;
+            background: rgba(0, 240, 255, 0.055);
+            color: rgba(220, 248, 255, 0.72);
+            line-height: 1.45;
+            cursor: pointer;
+        }
+
+        .studio__mobile-grid-trigger:not([hidden]):hover,
+        .studio__mobile-grid-trigger:not([hidden]):focus-visible {
+            border-color: rgba(0, 240, 255, 0.28);
+            background: rgba(0, 240, 255, 0.09);
+            outline: none;
+        }
+
+        .mobile-media-grid-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 80;
+            background: rgba(3, 7, 13, 0.82);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
+
+        .mobile-media-grid-overlay__shell {
+            min-block-size: 100%;
+            max-block-size: 100%;
+            overflow: auto;
+            padding: calc(0.9rem + env(safe-area-inset-top, 0px)) 0.9rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+        }
+
+        .mobile-media-grid-overlay__close {
+            position: sticky;
+            inset-block-start: calc(0.25rem + env(safe-area-inset-top, 0px));
+            z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-block-size: 2.15rem;
+            padding-inline: 0.9rem;
+            border-radius: 999px;
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            background: rgba(6, 14, 24, 0.9);
+            color: rgba(255, 255, 255, 0.82);
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
+        }
+
+        .mobile-media-grid-overlay__close:focus-visible,
+        .mobile-media-grid-overlay__item:focus-visible {
+            outline: 2px solid rgba(0, 240, 255, 0.85);
+            outline-offset: 2px;
+        }
+
+        .mobile-media-grid-overlay__title {
+            margin-block: 1rem 0.85rem;
+            font-family: var(--font-display);
+            font-size: 1.35rem;
+            color: rgba(255, 255, 255, 0.92);
+        }
+
+        .mobile-media-grid-overlay__grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.6rem;
+        }
+
+        .mobile-media-grid-overlay__item {
+            position: relative;
+            min-block-size: 7rem;
+            padding: 0;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 1rem;
+            overflow: hidden;
+            background: rgba(13, 27, 42, 0.68);
+            color: rgba(255, 255, 255, 0.86);
+            text-align: start;
+            cursor: pointer;
+            box-shadow: 0 16px 28px rgba(0, 0, 0, 0.22);
+        }
+
+        .mobile-media-grid-overlay__item img {
+            position: absolute;
+            inset: 0;
+            inline-size: 100%;
+            block-size: 100%;
+            object-fit: cover;
+        }
+
+        .mobile-media-grid-overlay__item::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(3, 7, 13, 0.78), rgba(3, 7, 13, 0.1));
+            pointer-events: none;
+        }
+
+        .mobile-media-grid-overlay__item-label,
+        .mobile-media-grid-overlay__item-meta {
+            position: absolute;
+            inset-inline: 0.65rem;
+            z-index: 1;
+            font-family: var(--font-mono);
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+        }
+
+        .mobile-media-grid-overlay__item-label {
+            inset-block-end: 1.55rem;
+            font-size: 0.66rem;
+            line-height: 1.25;
+            color: rgba(255, 255, 255, 0.88);
+            -webkit-line-clamp: 2;
+        }
+
+        .mobile-media-grid-overlay__item-meta {
+            inset-block-end: 0.55rem;
+            font-size: 0.56rem;
+            line-height: 1.2;
+            color: rgba(255, 255, 255, 0.48);
+            -webkit-line-clamp: 1;
+        }
+
+        .mobile-media-grid-overlay__fallback {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-family: var(--font-mono);
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: rgba(0, 240, 255, 0.58);
+        }
+
+        .mobile-media-grid-overlay__empty {
+            grid-column: 1 / -1;
+            padding: var(--space-6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 1rem;
+            background: rgba(13, 27, 42, 0.45);
+            color: rgba(255, 255, 255, 0.52);
+            text-align: center;
         }
     }
 

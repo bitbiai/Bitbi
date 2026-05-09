@@ -19,6 +19,11 @@ import {
     initStudioFolderDeck,
     openStudioVideoModal,
 } from './studio-deck.js?v=__ASSET_VERSION__';
+import {
+    getMobileMediaGridQuery,
+    openMobileMediaGrid,
+    syncMobileMediaTrigger,
+} from './mobile-media-grid-overlay.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
@@ -28,6 +33,7 @@ const MAX_FOLDER_NAME_LENGTH = 100;
 const MAX_IMAGE_NAME_LENGTH = 1000;
 const MAX_FILE_ASSET_NAME_LENGTH = 120;
 const SAVED_ASSET_PAGE_LIMIT = 60;
+const SAVED_ASSET_MOBILE_DOT_LIMIT = 6;
 const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -391,6 +397,7 @@ export function createSavedAssetsBrowser({
     let assetNextCursor = null;
     let assetHasMore = false;
     let assetLoadingMore = false;
+    const mobileMediaQuery = getMobileMediaGridQuery();
 
     const $assetPagination = document.createElement('div');
     $assetPagination.className = 'studio__pagination';
@@ -399,12 +406,17 @@ export function createSavedAssetsBrowser({
     const $assetPaginationStatus = document.createElement('div');
     $assetPaginationStatus.className = 'studio__pagination-status';
 
+    const $assetMobileGridTrigger = document.createElement('button');
+    $assetMobileGridTrigger.type = 'button';
+    $assetMobileGridTrigger.className = 'studio__mobile-grid-trigger browse-pagination__status';
+    $assetMobileGridTrigger.hidden = true;
+
     const $assetLoadMore = document.createElement('button');
     $assetLoadMore.type = 'button';
     $assetLoadMore.className = 'studio__pagination-btn';
     $assetLoadMore.textContent = localeText('assets.loadMore');
 
-    $assetPagination.append($assetPaginationStatus, $assetLoadMore);
+    $assetPagination.append($assetPaginationStatus, $assetMobileGridTrigger, $assetLoadMore);
     $assetGrid.insertAdjacentElement('afterend', $assetPagination);
 
     function showMsg(text, type) {
@@ -539,6 +551,134 @@ export function createSavedAssetsBrowser({
         $assetLoadMore.style.display = assetHasMore ? '' : 'none';
         $assetLoadMore.disabled = assetLoadingMore;
         $assetLoadMore.textContent = assetLoadingMore ? localeText('assets.loading') : localeText('assets.loadMore');
+
+        const canOpenMobileGrid = !assetLoadingMore && !folderViewActive && !selectMode && currentAssets.length > 0;
+        $assetPaginationStatus.classList.toggle('studio__pagination-status--mobile-hidden', canOpenMobileGrid);
+        $assetMobileGridTrigger.hidden = !canOpenMobileGrid;
+        $assetMobileGridTrigger.textContent = canOpenMobileGrid
+            ? (
+                assetHasMore
+                    ? localeText('assets.showingSavedAssets', { count: currentAssets.length })
+                    : localeText('assets.allSavedAssetsDisplayed', { count: currentAssets.length })
+            )
+            : '';
+        syncMobileMediaTrigger($assetMobileGridTrigger, {
+            enabled: canOpenMobileGrid,
+            label: localeText('assets.openSavedAssetsGrid'),
+        });
+    }
+
+    function getAssetOverlayTitle(asset, index) {
+        if (isImageAsset(asset)) {
+            return asset.title || asset.prompt || asset.preview_text || localeText('assets.savedImage');
+        }
+        return getFileTitle(asset) || `${localeText('assets.savedAsset')} ${index + 1}`;
+    }
+
+    function getAssetOverlayPreviewUrl(asset) {
+        if (isImageAsset(asset)) {
+            return asset.thumb_url || asset.medium_url || asset.original_url || asset.file_url || '';
+        }
+        if (isAudioAsset(asset) || isVideoAsset(asset)) {
+            return asset.poster_url || '';
+        }
+        return '';
+    }
+
+    function getAssetOverlayFallback(asset) {
+        if (isVideoAsset(asset)) return '\u25B6';
+        if (isAudioAsset(asset)) return '\u266B';
+        if (isImageAsset(asset)) return '\u25A7';
+        return 'TXT';
+    }
+
+    function getAssetOverlayMeta(asset) {
+        const parts = [
+            isImageAsset(asset)
+                ? localeText('assets.image')
+                : isAudioAsset(asset)
+                    ? localeText('assets.soundAsset')
+                    : isVideoAsset(asset)
+                        ? localeText('assets.videoAsset')
+                        : localeText('assets.asset'),
+            formatAssetDate(asset.created_at),
+        ];
+        return parts.filter(Boolean).join(' · ');
+    }
+
+    function openAssetFromMobileGrid(asset) {
+        if (!asset?.id || selectMode) return;
+        const item = Array.from($assetGrid.querySelectorAll('.studio__image-item[data-asset-id]'))
+            .find((entry) => entry.dataset.assetId === String(asset.id));
+        if (!item) return;
+
+        if (isVideoAsset(asset)) {
+            const videoTrigger = item.querySelector('.studio__asset-video-trigger');
+            if (videoTrigger) {
+                videoTrigger.click();
+                return;
+            }
+            openVideoAsset(asset);
+            return;
+        }
+
+        if (isImageAsset(asset) || (!isAudioAsset(asset) && asset.file_url)) {
+            item.click();
+            return;
+        }
+
+        item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!item.hasAttribute('tabindex')) item.tabIndex = 0;
+        item.focus({ preventScroll: true });
+    }
+
+    function openAssetsMobileGridOverlay() {
+        if (folderViewActive || selectMode || assetLoadingMore || currentAssets.length === 0) return;
+        openMobileMediaGrid({
+            title: localeText('assets.savedAssets'),
+            items: currentAssets,
+            emptyText: emptyStateMessage,
+            className: 'mobile-media-grid-overlay--assets',
+            renderItem(asset, index, { closeGrid } = {}) {
+                const title = getAssetOverlayTitle(asset, index);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'mobile-media-grid-overlay__item mobile-media-grid-overlay__item--asset';
+                button.setAttribute('aria-label', localeText('assets.openAsset', { title }));
+
+                const previewUrl = getAssetOverlayPreviewUrl(asset);
+                if (previewUrl) {
+                    const img = new Image();
+                    img.src = previewUrl;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    button.appendChild(img);
+                } else {
+                    const fallback = document.createElement('span');
+                    fallback.className = 'mobile-media-grid-overlay__fallback';
+                    fallback.textContent = getAssetOverlayFallback(asset);
+                    button.appendChild(fallback);
+                }
+
+                const label = document.createElement('span');
+                label.className = 'mobile-media-grid-overlay__item-label';
+                label.textContent = title;
+                button.appendChild(label);
+
+                const meta = document.createElement('span');
+                meta.className = 'mobile-media-grid-overlay__item-meta';
+                meta.textContent = getAssetOverlayMeta(asset);
+                button.appendChild(meta);
+
+                button.addEventListener('click', () => {
+                    if (typeof closeGrid === 'function') closeGrid();
+                    openAssetFromMobileGrid(asset);
+                });
+
+                return button;
+            },
+        });
     }
 
     function appendSelectionCheck(item) {
@@ -610,6 +750,7 @@ export function createSavedAssetsBrowser({
         if (folderSelection) {
             $bulkMoveForm?.classList.remove('visible');
         }
+        updateAssetPaginationUi();
     }
 
     async function restoreSingleSelection(id, scope) {
@@ -1471,7 +1612,7 @@ export function createSavedAssetsBrowser({
         if (initialized) return;
         initialized = true;
 
-        assetDeck = initStudioDeck($assetGrid);
+        assetDeck = initStudioDeck($assetGrid, { maxDots: SAVED_ASSET_MOBILE_DOT_LIMIT });
         folderDeck = initStudioFolderDeck($folderGrid);
 
         $galleryFilter.addEventListener('change', () => {
@@ -1527,6 +1668,7 @@ export function createSavedAssetsBrowser({
             if (!assetHasMore || assetLoadingMore) return;
             loadGallery({ append: true });
         });
+        $assetMobileGridTrigger.addEventListener('click', openAssetsMobileGridOverlay);
 
         $assetGrid.addEventListener('click', (event) => {
             if (!selectMode) return;
@@ -1552,6 +1694,7 @@ export function createSavedAssetsBrowser({
         document.addEventListener('click', (event) => {
             if (!root?.contains(event.target)) closeMobileMenu();
         });
+        mobileMediaQuery?.addEventListener?.('change', updateAssetPaginationUi);
 
         const foldersOk = await loadFolders({ preserveFilter: false });
         if (foldersOk) {
