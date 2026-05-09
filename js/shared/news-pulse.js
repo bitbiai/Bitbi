@@ -2,6 +2,8 @@ import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const NEWS_PULSE_ENDPOINT = '/api/public/news-pulse';
 const MAX_RENDERED_ITEMS = 6;
+const MIN_WHEEL_DURATION_SECONDS = 45;
+const MAX_WHEEL_DURATION_SECONDS = 75;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -54,19 +56,17 @@ function createElement(tagName, className, text = '') {
     return element;
 }
 
-function createPulseItem(item, locale, { decorative = false } = {}) {
+function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WHEEL_DURATION_SECONDS } = {}) {
     const wrapper = createElement('span', 'news-pulse__item');
-    if (!decorative) wrapper.setAttribute('role', 'listitem');
+    wrapper.setAttribute('role', 'listitem');
+    wrapper.style.setProperty('--pulse-index', String(index));
+    wrapper.style.setProperty('--pulse-delay', `${-(duration / Math.max(total, 1)) * index}s`);
 
     const link = createElement('a', 'news-pulse__link');
     link.href = item.url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.setAttribute('aria-label', `${item.title} - ${localeText('newsPulse.openSource', {}, locale)}`);
-    if (decorative) {
-        link.tabIndex = -1;
-        link.setAttribute('aria-hidden', 'true');
-    }
 
     const mark = createElement('span', 'news-pulse__mark');
     mark.setAttribute('aria-hidden', 'true');
@@ -82,19 +82,18 @@ function createPulseItem(item, locale, { decorative = false } = {}) {
     return wrapper;
 }
 
-function renderTrack(items, locale, { reverse = false, decorative = false } = {}) {
-    const track = createElement('div', `news-pulse__track${reverse ? ' news-pulse__track--reverse' : ''}`);
-    if (decorative) {
-        track.setAttribute('aria-hidden', 'true');
-    } else {
-        track.setAttribute('role', 'list');
-    }
+function renderTrack(items, locale) {
+    const duration = Math.min(MAX_WHEEL_DURATION_SECONDS, Math.max(MIN_WHEEL_DURATION_SECONDS, items.length * 11));
+    const track = createElement('div', 'news-pulse__track');
+    track.setAttribute('role', 'list');
+    track.style.setProperty('--pulse-duration', `${duration}s`);
+    track.style.setProperty('--pulse-count', String(items.length));
 
-    const ordered = reverse ? [...items].reverse() : items;
-    const repeated = [...ordered, ...ordered];
-    repeated.forEach((item, index) => {
+    items.forEach((item, index) => {
         track.appendChild(createPulseItem(item, locale, {
-            decorative: decorative || index >= ordered.length,
+            duration,
+            index,
+            total: items.length,
         }));
     });
     return track;
@@ -126,10 +125,7 @@ function renderNewsPulse(root, items, locale) {
     const label = createElement('span', 'news-pulse__label', localeText('newsPulse.label', {}, locale));
     const flow = createElement('div', 'news-pulse__flow');
 
-    flow.append(
-        renderTrack(items, locale),
-        renderTrack(items, locale, { reverse: true, decorative: true }),
-    );
+    flow.append(renderTrack(items, locale));
     shell.append(label, flow);
     root.appendChild(shell);
 }

@@ -614,11 +614,48 @@ test.describe('Homepage', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     const pulse = page.locator('#newsPulse');
     await expect(pulse).toHaveAttribute('data-news-pulse-locale', 'en');
+    await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
     await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
       'href',
       'https://example.com/creative-ai-workflow',
     );
+    const pulseLayout = await pulse.evaluate((node) => {
+      const hero = document.querySelector('#hero');
+      const nextSection = document.querySelector('#homeCategories');
+      const flowStyle = window.getComputedStyle(node.querySelector('.news-pulse__flow'));
+      const trackStyle = window.getComputedStyle(node.querySelector('.news-pulse__track'));
+      const itemStyle = window.getComputedStyle(node.querySelector('.news-pulse__item'));
+      const rect = node.getBoundingClientRect();
+      const heroRect = hero.getBoundingClientRect();
+      const nextRect = nextSection.getBoundingClientRect();
+      return {
+        parentId: node.parentElement?.id || '',
+        trackDisplay: trackStyle.display,
+        itemAnimationName: itemStyle.animationName,
+        maskImage: flowStyle.maskImage || flowStyle.webkitMaskImage || '',
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        heroLeft: heroRect.left,
+        heroTop: heroRect.top,
+        heroBottom: heroRect.bottom,
+        heroWidth: heroRect.width,
+        nextTop: nextRect.top,
+      };
+    });
+    expect(pulseLayout.parentId).toBe('hero');
+    expect(pulseLayout.trackDisplay).not.toBe('flex');
+    expect(pulseLayout.itemAnimationName).toContain('news-pulse-wheel');
+    expect(pulseLayout.maskImage).toContain('linear-gradient');
+    expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
+    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
+    expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
+    expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
+    expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
     expect(requestedLocales).toContain('en');
   });
 
@@ -649,11 +686,39 @@ test.describe('Homepage', () => {
     await page.goto('/de/', { waitUntil: 'domcontentloaded' });
     const pulse = page.locator('#newsPulse');
     await expect(pulse).toHaveAttribute('data-news-pulse-locale', 'de');
+    await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',
       'https://example.com/kreativ-ki-workflow',
     );
+    const pulseLayout = await pulse.evaluate((node) => {
+      const hero = document.querySelector('#hero');
+      const nextSection = document.querySelector('#homeCategories');
+      const rect = node.getBoundingClientRect();
+      const heroRect = hero.getBoundingClientRect();
+      const nextRect = nextSection.getBoundingClientRect();
+      return {
+        parentId: node.parentElement?.id || '',
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        heroLeft: heroRect.left,
+        heroTop: heroRect.top,
+        heroBottom: heroRect.bottom,
+        heroWidth: heroRect.width,
+        nextTop: nextRect.top,
+      };
+    });
+    expect(pulseLayout.parentId).toBe('hero');
+    expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
+    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
+    expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
+    expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
+    expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
     expect(requestedLocales).toContain('de');
   });
 
@@ -668,6 +733,7 @@ test.describe('Homepage', () => {
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#hero')).toBeVisible();
+    await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(page.locator('#newsPulse .news-pulse__empty')).toHaveText('Live Pulse is warming up.');
   });
 

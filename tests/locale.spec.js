@@ -112,9 +112,13 @@ test.describe('Bilingual locale pages', () => {
     expect(enHome).toContain('data-news-pulse-locale="en"');
     expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
     expect(enHome).toContain('css/components/news-pulse.css');
+    expect(enHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(deHome).toContain('data-news-pulse-locale="de"');
     expect(deHome).toContain('aria-label="KI-Puls"');
     expect(deHome).toContain('../css/components/news-pulse.css');
+    expect(deHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
+    expect(css).toContain('position: absolute');
+    expect(css).toContain('news-pulse-wheel');
     expect(css).toContain('@media (max-width: 767px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation: none');
