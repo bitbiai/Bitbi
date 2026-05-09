@@ -25,12 +25,24 @@ function resolveHref(href) {
     }
 }
 
+function resolveHttpHref(href) {
+    if (!href) return null;
+    const url = resolveHref(href);
+    if (!url) return null;
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url;
+}
+
 function isSoftNavTarget(url) {
     if (!url) return false;
     if (url.origin !== location.origin) return false;
     if (!SOFT_NAV_PATHS.has(url.pathname)) return false;
     if (url.pathname === location.pathname) return false;
     return true;
+}
+
+export function isSoftNavigableHref(href) {
+    return isSoftNavTarget(resolveHttpHref(href));
 }
 
 function isModifiedClick(e) {
@@ -115,9 +127,7 @@ function handleClick(e) {
     if (anchor.hasAttribute('download')) return;
 
     const href = anchor.getAttribute('href');
-    if (!href || href.startsWith('javascript:')) return;
-
-    const url = resolveHref(href);
+    const url = resolveHttpHref(href);
     if (!isSoftNavTarget(url)) return;
 
     e.preventDefault();

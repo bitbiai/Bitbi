@@ -29,9 +29,9 @@ function repoFile(relativePath) {
 function visibleHtmlText(html) {
   return html
     .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ');
 }
@@ -77,6 +77,25 @@ function criticalAttributes(html) {
 }
 
 test.describe('Bilingual locale pages', () => {
+  test('visibleHtmlText strips hidden blocks with whitespace-tolerant closing tags', () => {
+    const html = [
+      '<p>Visible copy</p>',
+      '<!-- Hidden comment -->',
+      '<script type="application/json">Hidden script copy</script >',
+      '<style media="screen">Hidden style copy</style >',
+      '<svg aria-hidden="true"><text>Hidden svg copy</text></svg >',
+      '<p>Readable <strong>text</strong></p>',
+    ].join('');
+    const text = visibleHtmlText(html);
+
+    expect(text).toContain('Visible copy');
+    expect(text).toContain('Readable text');
+    expect(text).not.toContain('Hidden comment');
+    expect(text).not.toContain('Hidden script copy');
+    expect(text).not.toContain('Hidden style copy');
+    expect(text).not.toContain('Hidden svg copy');
+  });
+
   test('English and German root pages expose the expected lang attributes', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');

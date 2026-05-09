@@ -3493,6 +3493,58 @@ test.describe('Legal pages', () => {
     await expect(page.locator('main')).toContainText('Stand: 05. Mai 2026');
   });
 
+  test('soft navigation only intercepts parsed http and https allowlist targets', async ({ page }) => {
+    await page.goto('/legal/privacy.html');
+    await page.evaluate(async () => {
+      history.replaceState({ softNav: true }, '', '/legal/privacy.html');
+      const { initSoftNav } = await import('/js/shared/soft-nav.js');
+      initSoftNav();
+    });
+
+    const unsafeResults = await page.evaluate(async () => {
+      const { isSoftNavigableHref } = await import('/js/shared/soft-nav.js');
+      return [
+        'javascript:window.__softNavProbe = "javascript"',
+        'data:text/html,unsafe',
+        'vbscript:msgbox(1)',
+        'http://[::1',
+      ].map((href) => ({
+        href,
+        softNavigable: isSoftNavigableHref(href),
+      }));
+    });
+
+    expect(unsafeResults.every((entry) => entry.softNavigable === false)).toBe(true);
+    await expectPathUnchanged(page, '/legal/privacy.html');
+    expect(await page.evaluate(async () => {
+      const { isSoftNavigableHref } = await import('/js/shared/soft-nav.js');
+      return isSoftNavigableHref('/legal/imprint.html');
+    })).toBe(true);
+
+    const allowedPrevented = await page.evaluate(() => {
+      window.__softNavFetches = [];
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (...args) => {
+        window.__softNavFetches.push(String(args[0]));
+        return originalFetch(...args);
+      };
+
+      const anchor = document.createElement('a');
+      anchor.setAttribute('href', '/legal/imprint.html');
+      anchor.textContent = 'Imprint';
+      document.body.appendChild(anchor);
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+      const dispatched = anchor.dispatchEvent(event);
+      return !dispatched || event.defaultPrevented;
+    });
+
+    expect(allowedPrevented).toBe(true);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/legal/imprint.html');
+    await expect(page.locator('.legal-hero__title')).toContainText('Imprint');
+    const fetches = await page.evaluate(() => window.__softNavFetches);
+    expect(fetches.some((url) => new URL(url).pathname === '/legal/imprint.html')).toBe(true);
+  });
+
   test('non-homepage compact heroes remove eyebrow labels while keeping the main hero copy visible', async ({ page }) => {
     for (const pathname of COMPACT_HERO_PATHS) {
       await page.goto(pathname);
