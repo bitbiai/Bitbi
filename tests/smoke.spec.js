@@ -352,6 +352,14 @@ async function routeDefaultMemtracks(page, {
   version = 'vpub',
   title = 'Public Member Track',
 } = {}) {
+  await page.route('**/api/public/news-pulse**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], updated_at: '2026-05-09T08:00:00.000Z' }),
+    });
+  });
+
   await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -577,6 +585,90 @@ test.describe('Homepage', () => {
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
     await expect(page).toHaveTitle(/BITBI/);
+  });
+
+  test('homepage Live Pulse requests the English endpoint and renders source links', async ({ page }) => {
+    const requestedLocales = [];
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            id: 'pulse-test-en',
+            title: 'Creative AI workflow update',
+            summary: 'Short source-attributed summary for the homepage pulse.',
+            source: 'Bitbi Test Source',
+            url: 'https://example.com/creative-ai-workflow',
+            category: 'AI',
+            published_at: '2026-05-09T08:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+          }],
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const pulse = page.locator('#newsPulse');
+    await expect(pulse).toHaveAttribute('data-news-pulse-locale', 'en');
+    await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
+    await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
+      'href',
+      'https://example.com/creative-ai-workflow',
+    );
+    expect(requestedLocales).toContain('en');
+  });
+
+  test('German homepage Live Pulse requests the German endpoint and localizes the layer label', async ({ page }) => {
+    const requestedLocales = [];
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            id: 'pulse-test-de',
+            title: 'Kreativ-KI Workflow-Update',
+            summary: 'Kurze quellenbasierte Zusammenfassung für den Homepage-Puls.',
+            source: 'Bitbi Testquelle',
+            url: 'https://example.com/kreativ-ki-workflow',
+            category: 'KI',
+            published_at: '2026-05-09T08:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+          }],
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/de/', { waitUntil: 'domcontentloaded' });
+    const pulse = page.locator('#newsPulse');
+    await expect(pulse).toHaveAttribute('data-news-pulse-locale', 'de');
+    await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
+    await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
+      'href',
+      'https://example.com/kreativ-ki-workflow',
+    );
+    expect(requestedLocales).toContain('de');
+  });
+
+  test('homepage Live Pulse handles failed endpoint responses without breaking the page', async ({ page }) => {
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#hero')).toBeVisible();
+    await expect(page.locator('#newsPulse .news-pulse__empty')).toHaveText('Live Pulse is warming up.');
   });
 
   test('refreshing mid-page preserves the current scroll position', async ({ page }) => {
@@ -2937,6 +3029,14 @@ test.describe('Homepage', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ ok: true, favorites: [] }),
+      });
+    });
+
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], updated_at: '2026-05-09T00:00:00.000Z' }),
       });
     });
 

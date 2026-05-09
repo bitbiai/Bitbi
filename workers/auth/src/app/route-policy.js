@@ -86,6 +86,12 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB"],
     rateLimit: { noneReason: "Health check is read-only and intentionally public." },
   }),
+  safeRead("public.news_pulse.read", "GET", "/api/public/news-pulse", "homepage", {
+    auth: "anonymous",
+    sensitivity: "low",
+    config: ["DB"],
+    rateLimit: { noneReason: "Read-only public homepage pulse; response is small, cached, and bounded." },
+  }),
   safeRead("auth.me.read", "GET", "/api/me", "auth", {
     auth: "optional-user",
     rateLimit: { noneReason: "Read-only session introspection; session lookup remains bounded." },

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0042_add_member_live_stripe_checkout.sql",
+        "latest": "0043_add_news_pulse_items.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -469,6 +469,7 @@
   "authIndexRoutes": {
     "literalRoutes": [
       "GET /api/health",
+      "GET /api/public/news-pulse",
       "GET /api/me",
       "POST /api/register",
       "POST /api/login",

@@ -694,6 +694,7 @@ class MockD1 {
       billingEventActions: [],
       billingCheckoutSessions: [],
       billingMemberCheckoutSessions: [],
+      newsPulseItems: [],
       creditLedger: [],
       usageEvents: [],
       memberCreditLedger: [],
@@ -829,6 +830,9 @@ class MockD1 {
     }
     if (this.missingTables.has('billing_member_checkout_sessions') && query.includes('billing_member_checkout_sessions')) {
       throw new Error('no such table: billing_member_checkout_sessions');
+    }
+    if (this.missingTables.has('news_pulse_items') && query.includes('news_pulse_items')) {
+      throw new Error('no such table: news_pulse_items');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -6656,6 +6660,84 @@ class MockD1 {
       return { cnt: this.state.adminAuditLog.filter((row) => row.target_user_id === userId).length };
     }
 
+    if (query === "SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, updated_at FROM news_pulse_items WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY published_at DESC, updated_at DESC LIMIT ?") {
+      const [locale, now, limit] = bindings;
+      const rows = (this.state.newsPulseItems || [])
+        .filter((row) => row.locale === locale && row.status === 'active' && (!row.expires_at || row.expires_at > now))
+        .slice()
+        .sort((a, b) => {
+          const published = String(b.published_at || '').localeCompare(String(a.published_at || ''));
+          if (published !== 0) return published;
+          return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        })
+        .slice(0, Number(limit) || 8)
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          summary: row.summary,
+          source: row.source,
+          url: row.url,
+          category: row.category,
+          published_at: row.published_at,
+          visual_type: row.visual_type,
+          visual_url: row.visual_url ?? null,
+          updated_at: row.updated_at,
+        }));
+      return { results: rows };
+    }
+
+    if (query === 'DELETE FROM news_pulse_items WHERE expires_at IS NOT NULL AND expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.newsPulseItems.length;
+      this.state.newsPulseItems = this.state.newsPulseItems.filter((row) => !row.expires_at || row.expires_at >= now);
+      return { success: true, meta: { changes: before - this.state.newsPulseItems.length } };
+    }
+
+    if (query.startsWith('INSERT INTO news_pulse_items (')) {
+      const [
+        id,
+        locale,
+        title,
+        summary,
+        source,
+        url,
+        category,
+        publishedAt,
+        visualType,
+        visualUrl,
+        sourceKey,
+        contentHash,
+        expiresAt,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      const existing = this.state.newsPulseItems.find((row) => row.id === id);
+      const next = {
+        id,
+        locale,
+        title,
+        summary,
+        source,
+        url,
+        category,
+        published_at: publishedAt,
+        visual_type: visualType,
+        visual_url: visualUrl ?? null,
+        status: 'active',
+        source_key: sourceKey,
+        content_hash: contentHash,
+        expires_at: expiresAt,
+        created_at: existing?.created_at || createdAt,
+        updated_at: updatedAt,
+      };
+      if (existing) {
+        Object.assign(existing, next);
+      } else {
+        this.state.newsPulseItems.push(next);
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
     throw new Error(`Unsupported query in test harness: ${query}`);
   }
 }
@@ -6712,6 +6794,7 @@ function createAuthTestEnv(seed = {}) {
     STRIPE_LIVE_CHECKOUT_SUCCESS_URL: seed.STRIPE_LIVE_CHECKOUT_SUCCESS_URL,
     STRIPE_LIVE_CHECKOUT_CANCEL_URL: seed.STRIPE_LIVE_CHECKOUT_CANCEL_URL,
     ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
+    NEWS_PULSE_SOURCE_URLS: seed.NEWS_PULSE_SOURCE_URLS,
     PBKDF2_ITERATIONS: '100000',
     DB,
     PRIVATE_MEDIA,

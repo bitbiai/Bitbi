@@ -17,6 +17,7 @@ import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleAudioGallery } from "./routes/audio-gallery.js";
+import { handlePublicNewsPulse } from "./routes/public-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
@@ -49,6 +50,7 @@ import {
 import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
+import { refreshNewsPulse } from "./lib/news-pulse.js";
 import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
@@ -201,6 +203,7 @@ export default {
     }
 
     if (pathname === "/api/health" && method === "GET") return handleHealth();
+    if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
     if (pathname === "/api/me" && method === "GET") return handleMe(ctx);
     // route-policy: auth.register
     if (pathname === "/api/register" && method === "POST") return handleRegister(ctx);
@@ -441,6 +444,29 @@ export default {
         component: "scheduled-data-export-cleanup",
         event: "export_archive_cleanup_failed",
         level: "error",
+        ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const pulseRefresh = await refreshNewsPulse({ env, now });
+      if (pulseRefresh.storedCount > 0 || pulseRefresh.deletedCount > 0) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-news-pulse",
+          event: "news_pulse_refresh_completed",
+          level: "info",
+          stored_count: pulseRefresh.storedCount,
+          deleted_count: pulseRefresh.deletedCount,
+          source_count: pulseRefresh.sourceCount || 0,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-news-pulse",
+        event: "news_pulse_refresh_failed",
+        level: "warn",
         ...getErrorFields(error),
       });
     }

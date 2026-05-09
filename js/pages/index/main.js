@@ -14,6 +14,7 @@ import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
+import { initNewsPulse } from '../../shared/news-pulse.js?v=__ASSET_VERSION__';
 import { initAuth, getAuthState } from '../../shared/auth-state.js';
 import { initAuthModal, openAuthModal } from '../../shared/auth-modal.js';
 import { initGalleryStudio } from './studio.js?v=__ASSET_VERSION__';
@@ -310,6 +311,7 @@ let revealObserver = null;
 try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollReveal:', e); }
 
 /* Sections */
+try { initNewsPulse(); } catch (e) { console.warn('newsPulse:', e); }
 try { initGallery(); } catch (e) { console.warn('gallery:', e); }
 try { initVideoGallery(); } catch (e) { console.warn('videoGallery:', e); }
 try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }

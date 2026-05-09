@@ -7918,6 +7918,93 @@ test.describe('Worker routes', () => {
       expect(body.user).toBe(null);
     });
 
+    test('GET /api/public/news-pulse returns stable English, German, and fallback locale shapes', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({ missingTables: ['news_pulse_items'] });
+
+      for (const { locale, expectedTitle } of [
+        { locale: 'en', expectedTitle: 'OpenAI newsroom updates' },
+        { locale: 'de', expectedTitle: 'OpenAI-Newsroom-Updates' },
+        { locale: 'fr', expectedTitle: 'OpenAI newsroom updates' },
+      ]) {
+        const res = await authWorker.fetch(
+          new Request(`https://bitbi.ai/api/public/news-pulse?locale=${locale}`),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toContain('public, max-age=300');
+        const body = await res.json();
+        expectExactKeys(body, ['items', 'updated_at']);
+        expect(Array.isArray(body.items)).toBe(true);
+        expect(body.items.length).toBeGreaterThan(0);
+        expect(body.items[0].title).toBe(expectedTitle);
+        expectExactKeys(body.items[0], [
+          'id',
+          'title',
+          'summary',
+          'source',
+          'url',
+          'category',
+          'published_at',
+          'visual_type',
+          'visual_url',
+        ]);
+      }
+    });
+
+    test('GET /api/public/news-pulse serves cached items without exposing secrets', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        STRIPE_SECRET_KEY: 'sk_test_secret_should_not_leak',
+        NEWS_PULSE_SOURCE_URLS: 'https://feeds.example.com/ai.xml',
+        newsPulseItems: [{
+          id: 'cached-news-pulse-en',
+          locale: 'en',
+          title: 'Cached AI news',
+          summary: 'A short source-attributed cached summary.',
+          source: 'Source Example',
+          url: 'https://example.com/cached-ai-news',
+          category: 'AI',
+          published_at: '2026-05-09T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          status: 'active',
+          source_key: 'https://feeds.example.com/ai.xml',
+          content_hash: 'abc123',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-09T09:00:00.000Z',
+          updated_at: '2026-05-09T09:15:00.000Z',
+        }],
+      });
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        items: [{
+          id: 'cached-news-pulse-en',
+          title: 'Cached AI news',
+          summary: 'A short source-attributed cached summary.',
+          source: 'Source Example',
+          url: 'https://example.com/cached-ai-news',
+          category: 'AI',
+          published_at: '2026-05-09T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+        }],
+        updated_at: '2026-05-09T09:15:00.000Z',
+      });
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('sk_test_secret_should_not_leak');
+      expect(serialized).not.toContain('NEWS_PULSE_SOURCE_URLS');
+      expect(serialized).not.toContain('feeds.example.com');
+    });
+
     test('GET /api/me returns the authenticated contract shape when logged in', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const user = {

@@ -450,6 +450,7 @@ const baseManifest = {
   authIndexRoutes: {
     literalRoutes: [
       "GET /api/health",
+      "GET /api/public/news-pulse",
       "GET /api/me",
       "POST /api/register",
       "POST /api/login",
@@ -827,6 +828,7 @@ function createValidContext() {
     `,
     authIndexSource: `
       if (pathname === "/api/health" && method === "GET") return handleHealth();
+      if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse();
       if (pathname === "/api/me" && method === "GET") return handleMe();
       if (pathname === "/api/register" && method === "POST") return handleRegister();
       if (pathname === "/api/login" && method === "POST") return handleLogin();

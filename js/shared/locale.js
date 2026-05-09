@@ -40,6 +40,12 @@ const STRINGS = Object.freeze({
             openMenuCreateAccountAria: 'Open the menu to create a free BITBI account',
             openMenuSignIn: 'Open the menu to sign in or register',
         }),
+        newsPulse: Object.freeze({
+            label: 'Bitbi Live Pulse',
+            empty: 'Live Pulse is warming up.',
+            source: 'Source',
+            openSource: 'Open source article',
+        }),
         models: Object.freeze({
             dialogLabel: 'AI Models',
             close: 'Close models',
@@ -572,6 +578,12 @@ const STRINGS = Object.freeze({
             signInOrRegister: 'Melden Sie sich an oder registrieren Sie sich, um zu starten',
             openMenuCreateAccountAria: 'Menü öffnen, um ein kostenloses BITBI-Konto zu erstellen',
             openMenuSignIn: 'Menü öffnen, um sich anzumelden oder zu registrieren',
+        }),
+        newsPulse: Object.freeze({
+            label: 'KI-Puls',
+            empty: 'Der KI-Puls wird vorbereitet.',
+            source: 'Quelle',
+            openSource: 'Quellartikel öffnen',
         }),
         models: Object.freeze({
             dialogLabel: 'KI-Modelle',

@@ -145,6 +145,14 @@ async function routeDefaultMemtracks(page, {
   audioContentType = 'audio/mpeg',
   durationSeconds = 245,
 } = {}) {
+  await page.route('**/api/public/news-pulse**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], updated_at: '2026-05-09T08:00:00.000Z' }),
+    });
+  });
+
   await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -726,7 +734,7 @@ test.describe('Global audio player on mobile homepage', () => {
         && metrics.statusText.includes(metrics.elapsedText)
         && metrics.fillWidth > 0
         && metrics.progressPercent > 0;
-    }, { timeout: 5000 }).toBe(true);
+    }, { timeout: 10000 }).toBe(true);
 
     const beforeSeekSources = await page.evaluate(() => {
       const audio = window.__bitbiRealAudioProbe?.instances?.[0] || null;

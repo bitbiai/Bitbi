@@ -104,6 +104,22 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   });
 
+  test('English and German homepages include the localized Live Pulse mount and reduced-motion CSS', () => {
+    const enHome = repoFile('index.html');
+    const deHome = repoFile('de/index.html');
+    const css = repoFile('css/components/news-pulse.css');
+
+    expect(enHome).toContain('data-news-pulse-locale="en"');
+    expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
+    expect(enHome).toContain('css/components/news-pulse.css');
+    expect(deHome).toContain('data-news-pulse-locale="de"');
+    expect(deHome).toContain('aria-label="KI-Puls"');
+    expect(deHome).toContain('../css/components/news-pulse.css');
+    expect(css).toContain('@media (max-width: 767px)');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain('animation: none');
+  });
+
   test('pricing pages render English and German copy', async ({ page }) => {
     await page.goto('/pricing.html');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
