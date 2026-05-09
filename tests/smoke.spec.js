@@ -69,33 +69,33 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
     pathToFileURL(path.join(__dirname, '..', 'js/shared/ai-image-models.mjs')).href
   );
   const { models } = contractModule.listAdminAiCatalog();
-  const liveImageModels = Array.isArray(imageModelsModule.AI_IMAGE_MODELS)
-    ? imageModelsModule.AI_IMAGE_MODELS
-    : [];
+  const liveImageModels = imageModelsModule.getGenerateLabAiImageModelOptions();
   const adminImageModels = Array.isArray(models.image) ? models.image : [];
-  const adminImageById = new Map(adminImageModels.map((entry) => [entry.id, entry]));
-  const liveImageIds = new Set();
+  const liveImageById = new Map(liveImageModels.map((entry) => [entry.id, entry]));
+  const renderedLiveImageIds = new Set();
   const liveMusicIds = new Set([contractModule.ADMIN_AI_MUSIC_MODEL_ID]);
   const liveVideoById = new Map([[contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }]]);
   const liveVideoIds = new Set(liveVideoById.keys());
 
-  const imageEntries = liveImageModels.map((entry) => {
-    liveImageIds.add(entry.id);
-    const adminEntry = adminImageById.get(entry.id);
-    return {
-      name: entry.label,
-      vendor: adminEntry?.vendor || '',
-      status: homepage ? 'LIVE' : 'Included',
-    };
-  });
-
+  const imageEntries = [];
   for (const entry of adminImageModels) {
-    if (!entry?.id || liveImageIds.has(entry.id)) continue;
+    if (!entry?.id) continue;
     if (homepage && entry.id === contractModule.FLUX_2_DEV_MODEL_ID) continue;
+    const liveEntry = liveImageById.get(entry.id);
+    if (liveEntry) renderedLiveImageIds.add(entry.id);
+    imageEntries.push({
+      name: liveEntry?.label || entry.label,
+      vendor: entry.vendor,
+      status: liveEntry ? 'LIVE' : 'Coming soon',
+    });
+  }
+
+  for (const entry of liveImageModels) {
+    if (!entry?.id || renderedLiveImageIds.has(entry.id)) continue;
     imageEntries.push({
       name: entry.label,
-      vendor: entry.vendor,
-      status: 'Coming soon',
+      vendor: entry.vendor || '',
+      status: 'LIVE',
     });
   }
 
@@ -2440,7 +2440,7 @@ test.describe('Homepage', () => {
     await expect(videoCard.locator('.video-card__caption')).toHaveText('Published by Ada Member on 2026-04-14.');
   });
 
-  test('desktop published Mempics and Memvids start at five items and expand downward on demand without changing mobile behavior', async ({ page }) => {
+  test('desktop published Mempics start at five items and Memvids start at six without changing mobile behavior', async ({ page }) => {
     const mempicItems = Array.from({ length: 8 }, (_, index) => ({
       id: `mempic-${index + 1}`,
       slug: `mempic-${index + 1}`,
@@ -2570,9 +2570,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('#galleryPagination .browse-pagination__btn')).toBeHidden();
 
     await switchHomepageCategory(page, 'video');
-    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 5 Memvids');
+    await expect(page.locator('#videoPagination .browse-pagination__status')).toHaveText('Showing all 6 Memvids');
     await expect(page.locator('#videoPagination .browse-pagination__btn')).toBeHidden();
-    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(5);
+    await expect.poll(() => page.locator('#videoGrid .video-card:visible').count()).toBe(6);
 
     const videoToggle = page.locator('#videoPagination .browse-pagination__toggle');
     await expect(videoToggle).toHaveAttribute('aria-expanded', 'false');

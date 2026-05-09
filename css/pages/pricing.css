@@ -6,7 +6,7 @@
     .pricing-page {
         position: relative;
         min-block-size: 100vh;
-        padding-block: clamp(6.25rem, 10vw, 8rem) clamp(4rem, 8vw, 6rem);
+        padding-block: calc(4.85rem + env(safe-area-inset-top, 0px)) clamp(4rem, 8vw, 6rem);
         overflow-x: clip;
     }
 
@@ -42,7 +42,16 @@
         padding: clamp(1.15rem, 2.4vw, 2rem);
     }
 
-    .pricing-kicker,
+    .pricing-kicker {
+        margin: 0 0 0.42rem;
+        color: rgba(0, 240, 255, 0.76);
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+
     .pricing-card__eyebrow {
         margin: 0 0 0.55rem;
         color: rgba(0, 240, 255, 0.76);
@@ -56,11 +65,12 @@
     .pricing-hero {
         position: relative;
         overflow: hidden;
-        min-block-size: clamp(15rem, 27vw, 20rem);
+        min-block-size: clamp(12.5rem, 22vw, 16rem);
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(15rem, 24rem);
-        gap: clamp(1.25rem, 3vw, 2.5rem);
-        align-items: end;
+        gap: clamp(1rem, 2.4vw, 2rem);
+        align-items: start;
+        padding-block: clamp(1rem, 2vw, 1.45rem) clamp(1.1rem, 2.2vw, 1.6rem);
     }
 
     .pricing-hero::before,
@@ -128,6 +138,7 @@
     .pricing-hero__badges {
         display: flex;
         flex-wrap: wrap;
+        align-self: start;
         justify-content: flex-end;
         align-content: flex-end;
         gap: 0.55rem;
@@ -230,6 +241,8 @@
     }
 
     .pricing-card__price-value {
+        display: inline-block;
+        transform: translateY(-0.35rem);
         color: var(--color-ember);
         font-family: var(--font-display);
         font-size: clamp(2.55rem, 6vw, 4.6rem);
@@ -477,7 +490,7 @@
 
     @media (max-width: 560px) {
         .pricing-page {
-            padding-block: 5.5rem 4rem;
+            padding-block: calc(4.25rem + env(safe-area-inset-top, 0px)) 4rem;
         }
 
         .pricing-root,

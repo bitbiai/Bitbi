@@ -9,7 +9,7 @@ import {
     ADMIN_AI_VIDEO_MODEL_ID,
     listAdminAiCatalog,
 } from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
-import { AI_IMAGE_MODELS } from './ai-image-models.mjs?v=__ASSET_VERSION__';
+import { getGenerateLabAiImageModelOptions } from './ai-image-models.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
@@ -20,7 +20,7 @@ const MODEL_GROUPS = [
 ];
 
 const USER_LIVE_MODELS = {
-    image: AI_IMAGE_MODELS,
+    image: getGenerateLabAiImageModelOptions(),
     music: [
         { id: ADMIN_AI_MUSIC_MODEL_ID, label: 'Music 2.6' },
     ],
@@ -44,15 +44,14 @@ function statusLabelForAvailability(availability) {
     return localeText(STATUS_LABEL_KEYS[availability] || 'models.comingSoon');
 }
 
-function buildCatalogSignature({ excludeModelIds = [], includedStatusLabel = null } = {}) {
+function buildCatalogSignature({ excludeModelIds = [] } = {}) {
     return JSON.stringify({
         locale: getCurrentLocale(),
         excludeModelIds: [...excludeModelIds].sort(),
-        includedStatusLabel: includedStatusLabel || null,
     });
 }
 
-function buildModelCatalog({ excludeModelIds = [], includedStatusLabel = null } = {}) {
+function buildModelCatalog({ excludeModelIds = [] } = {}) {
     const catalog = listAdminAiCatalog();
     const modelsByTask = catalog?.models || {};
     const excludedIds = new Set(excludeModelIds);
@@ -62,29 +61,28 @@ function buildModelCatalog({ excludeModelIds = [], includedStatusLabel = null } 
         side,
         models: (() => {
             const adminModels = Array.isArray(modelsByTask[task]) ? modelsByTask[task] : [];
-            const adminById = new Map(adminModels.map((model) => [model?.id, model]));
             const liveModels = Array.isArray(USER_LIVE_MODELS[task]) ? USER_LIVE_MODELS[task] : [];
-            const liveIds = new Set();
+            const liveById = new Map(liveModels.filter((model) => model?.id).map((model) => [model.id, model]));
+            const renderedLiveIds = new Set();
             const entries = [];
 
-            for (const model of liveModels) {
-                if (!model?.id) continue;
-                liveIds.add(model.id);
-                const adminModel = adminById.get(model.id);
+            for (const model of adminModels) {
+                if (!model?.id || excludedIds.has(model.id)) continue;
+                const liveModel = liveById.get(model.id);
                 entries.push({
-                    name: model.label || adminModel?.label || model.id,
-                    vendor: adminModel?.vendor || '',
-                    availability: task === 'image' ? 'included' : 'live',
-                    statusLabel: task === 'image' ? includedStatusLabel : null,
+                    name: liveModel?.label || model.label || model.id,
+                    vendor: model.vendor || liveModel?.vendor || '',
+                    availability: liveModel ? 'live' : 'coming-soon',
                 });
+                if (liveModel) renderedLiveIds.add(model.id);
             }
 
-            for (const model of adminModels) {
-                if (!model?.id || liveIds.has(model.id) || excludedIds.has(model.id)) continue;
+            for (const model of liveModels) {
+                if (!model?.id || renderedLiveIds.has(model.id) || excludedIds.has(model.id)) continue;
                 entries.push({
                     name: model.label || model.id,
                     vendor: model.vendor || '',
-                    availability: 'coming-soon',
+                    availability: 'live',
                 });
             }
 
@@ -277,8 +275,8 @@ function syncModelsHash() {
     }
 }
 
-export function initModelsOverlay(root = document, { excludeModelIds = [], includedStatusLabel = null } = {}) {
-    configureCatalog({ excludeModelIds, includedStatusLabel });
+export function initModelsOverlay(root = document, { excludeModelIds = [] } = {}) {
+    configureCatalog({ excludeModelIds });
     root.querySelectorAll('[data-models-link]').forEach(bindTrigger);
 
     if (didBindGlobals) return;

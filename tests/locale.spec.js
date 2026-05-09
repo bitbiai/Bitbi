@@ -129,6 +129,9 @@ test.describe('Bilingual locale pages', () => {
     ]);
     await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'BILDGENERIERUNG' })).toHaveCount(0);
     await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
+    await expect(
+      overlay.locator('.models-overlay__card').filter({ hasText: 'GPT Image 2' }).locator('.models-overlay__status'),
+    ).toHaveText('LIVE');
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
     await expect(overlay).not.toHaveClass(/is-active/);
@@ -146,6 +149,12 @@ test.describe('Bilingual locale pages', () => {
     ]);
     await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'IMAGE GENERATION' })).toHaveCount(0);
     await expect(overlay.getByRole('button', { name: 'Modelle schließen' })).toBeVisible();
+    await expect(
+      overlay.locator('.models-overlay__card').filter({ hasText: 'FLUX.2 Klein 9B' }).locator('.models-overlay__status'),
+    ).toHaveText('LIVE');
+    await expect(
+      overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' }).locator('.models-overlay__status'),
+    ).toHaveText('Demnächst');
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
     await expect(overlay).not.toHaveClass(/is-active/);

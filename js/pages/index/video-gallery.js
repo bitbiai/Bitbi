@@ -15,7 +15,7 @@ import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
 const DESKTOP_PUBLIC_DRAWER_MEDIA = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
-const DESKTOP_VISIBLE_MEMVIDS = 5;
+const DESKTOP_VISIBLE_MEMVIDS = 6;
 
 let focusTrapCleanup = null;
 

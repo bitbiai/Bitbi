@@ -302,7 +302,6 @@ try { initGlobalAudioUI(); } catch (e) { console.warn('globalAudio FAILED:', e);
 try {
     initModelsOverlay(document, {
         excludeModelIds: HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
-        includedStatusLabel: 'LIVE',
     });
 } catch (e) { console.warn('modelsOverlay:', e); }
 

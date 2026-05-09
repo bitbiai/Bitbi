@@ -3701,6 +3701,29 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-info-grid')).toContainText('Digital credits');
     await expect(page.locator('.pricing-info-grid')).toContainText('AI output responsibility');
 
+    const pricingSpacing = await page.evaluate(() => {
+      const header = document.querySelector('.site-nav__bar')?.getBoundingClientRect();
+      const hero = document.querySelector('.pricing-hero')?.getBoundingClientRect();
+      const kicker = document.querySelector('.pricing-hero .pricing-kicker')?.getBoundingClientRect();
+      const title = document.querySelector('.pricing-hero__title')?.getBoundingClientRect();
+      const priceOffsets = Array.from(document.querySelectorAll('.pricing-card__price')).map((node) => {
+        const value = node.querySelector('.pricing-card__price-value')?.getBoundingClientRect();
+        const box = node.getBoundingClientRect();
+        return value ? value.top - box.top : 0;
+      });
+      return {
+        headerGap: hero && header ? hero.top - header.bottom : 999,
+        kickerInset: hero && kicker ? kicker.top - hero.top : 999,
+        titleGap: kicker && title ? title.top - kicker.bottom : 999,
+        priceOffsets,
+      };
+    });
+    expect(pricingSpacing.headerGap).toBeGreaterThanOrEqual(0);
+    expect(pricingSpacing.headerGap).toBeLessThanOrEqual(28);
+    expect(pricingSpacing.kickerInset).toBeLessThanOrEqual(32);
+    expect(pricingSpacing.titleGap).toBeLessThanOrEqual(16);
+    expect(pricingSpacing.priceOffsets.every((offset) => offset < -3)).toBe(true);
+
     const layoutMetrics = await page.locator('.pricing-card').evaluateAll((cards) => cards.map((card) => ({
       width: card.getBoundingClientRect().width,
       scrollWidth: document.documentElement.scrollWidth,
@@ -4456,11 +4479,18 @@ test.describe('Assets Manager (authenticated)', () => {
     const overlay = page.locator('.models-overlay');
     await expect(overlay).toHaveClass(/is-active/);
     await expect(overlay).toContainText('FLUX.1 Schnell');
-    await expect(overlay).toContainText('FLUX.2 Klein 9B');
+    const fluxKleinCard = overlay.locator('.models-overlay__card').filter({ hasText: 'FLUX.2 Klein 9B' });
+    await expect(fluxKleinCard.locator('.models-overlay__status')).toHaveText('LIVE');
+    const gptImageCard = overlay.locator('.models-overlay__card').filter({ hasText: 'GPT Image 2' });
+    await expect(gptImageCard.locator('.models-overlay__status')).toHaveText('LIVE');
     const musicCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Music 2.6' });
     await expect(musicCard.locator('.models-overlay__status')).toHaveText('LIVE');
     const videoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'PixVerse V6' });
     await expect(videoCard.locator('.models-overlay__status')).toHaveText('LIVE');
+    const viduCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' });
+    await expect(viduCard.locator('.models-overlay__status')).toHaveText('Coming soon');
+    const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
+    await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('Coming soon');
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');
     await expect.poll(() => overlay.locator('.models-overlay__status').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent?.trim() || ''),
