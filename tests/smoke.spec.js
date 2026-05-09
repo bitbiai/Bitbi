@@ -595,17 +595,17 @@ test.describe('Homepage', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [{
-            id: 'pulse-test-en',
-            title: 'Creative AI workflow update',
-            summary: 'Short source-attributed summary for the homepage pulse.',
-            source: 'Bitbi Test Source',
-            url: 'https://example.com/creative-ai-workflow',
+          items: Array.from({ length: 6 }, (_, index) => ({
+            id: `pulse-test-en-${index + 1}`,
+            title: index === 0 ? 'Creative AI workflow update' : `Creative AI workflow update ${index + 1}`,
+            summary: `Short source-attributed summary ${index + 1} for the homepage pulse.`,
+            source: `Bitbi Test Source ${index + 1}`,
+            url: `https://example.com/creative-ai-workflow-${index + 1}`,
             category: 'AI',
             published_at: '2026-05-09T08:00:00.000Z',
             visual_type: 'icon',
             visual_url: null,
-          }],
+          })),
           updated_at: '2026-05-09T08:00:00.000Z',
         }),
       });
@@ -617,11 +617,11 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(9);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(10);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
     await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
       'href',
-      'https://example.com/creative-ai-workflow',
+      'https://example.com/creative-ai-workflow-1',
     );
     const pulseLayout = await pulse.evaluate((node) => {
       const hero = document.querySelector('#hero');
@@ -655,7 +655,7 @@ test.describe('Homepage', () => {
     expect(pulseLayout.parentId).toBe('hero');
     expect(pulseLayout.trackDisplay).not.toBe('flex');
     expect(pulseLayout.itemAnimationName).toContain('news-pulse-wheel');
-    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeLessThan(66);
+    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(56.4, 1);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
     expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
@@ -664,6 +664,11 @@ test.describe('Homepage', () => {
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
     expect(requestedLocales).toContain('en');
+    const renderedIds = await pulse.locator('.news-pulse__item').evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-news-pulse-item-id'))
+    );
+    expect(new Set(renderedIds).size).toBe(6);
+    await expect(pulse.locator('.news-pulse__item[aria-hidden="true"]')).toHaveCount(4);
   });
 
   test('German homepage Live Pulse requests the German endpoint and localizes the layer label', async ({ page }) => {
@@ -696,7 +701,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(9);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(7);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('KI-Puls');
     await expect(pulse.getByRole('link', { name: /Kreativ-KI Workflow-Update/ }).first()).toHaveAttribute(
       'href',

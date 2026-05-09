@@ -76,7 +76,7 @@
     width: min(100%, 23rem);
     opacity: 0;
     transform-origin: left center;
-    animation: news-pulse-wheel var(--pulse-duration, 59s) linear infinite;
+    animation: news-pulse-wheel var(--pulse-duration, 56s) linear infinite;
     animation-delay: var(--pulse-delay, 0s);
     will-change: transform, opacity, filter;
   }

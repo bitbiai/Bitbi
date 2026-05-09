@@ -3,10 +3,11 @@ import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 const NEWS_PULSE_ENDPOINT = '/api/public/news-pulse';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const MAX_SOURCE_ITEMS = 6;
-const MIN_VISUAL_ITEMS = 9;
-const MAX_VISUAL_ITEMS = 12;
-const MIN_WHEEL_DURATION_SECONDS = 40;
-const MAX_WHEEL_DURATION_SECONDS = 60;
+const MIN_VISUAL_ITEMS = 7;
+const MAX_VISUAL_ITEMS = 10;
+const MIN_WHEEL_DURATION_SECONDS = 38;
+const MAX_WHEEL_DURATION_SECONDS = 57;
+const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 9.4;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -104,7 +105,10 @@ function buildVisualItems(items) {
 
 function renderTrack(items, locale) {
     const visualItems = buildVisualItems(items);
-    const duration = Math.min(MAX_WHEEL_DURATION_SECONDS, Math.max(MIN_WHEEL_DURATION_SECONDS, items.length * 9.9));
+    const duration = Math.min(
+        MAX_WHEEL_DURATION_SECONDS,
+        Math.max(MIN_WHEEL_DURATION_SECONDS, items.length * WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM),
+    );
     const track = createElement('div', 'news-pulse__track');
     track.setAttribute('role', 'list');
     track.style.setProperty('--pulse-duration', `${duration}s`);
