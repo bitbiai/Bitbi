@@ -7,9 +7,15 @@ Bitbi Live Pulse is a public homepage layer backed by the auth Worker endpoint:
 
 The browser only calls Bitbi's own Worker endpoint. It does not fetch third-party news sources directly.
 
+OpenClaw can push curated public display items through the auth Worker only:
+
+- `POST /api/openclaw/news-pulse/ingest`
+
+Wrangler is for deploys, D1 migrations, secrets, manual tests, and logs. It is not the runtime upload mechanism for the local OpenClaw bot.
+
 ## Data Model
 
-News Pulse cached items live in the auth D1 database table `news_pulse_items`.
+News Pulse cached items live in the auth D1 database table `news_pulse_items`. The OpenClaw ingest replay guard uses `openclaw_ingest_nonces`.
 
 Apply migration:
 
@@ -18,6 +24,88 @@ npx wrangler d1 migrations apply bitbi-auth-db --remote
 ```
 
 The public endpoint serves at most the newest active, unexpired items for the requested locale. If the table is missing or empty, it serves deterministic, source-attributed fallback entries that point to official source pages.
+
+## OpenClaw Ingest
+
+Set the auth Worker HMAC secret before enabling runtime ingest:
+
+```sh
+npx wrangler secret put OPENCLAW_INGEST_SECRET
+```
+
+Optional rotation secret:
+
+```sh
+npx wrangler secret put OPENCLAW_INGEST_SECRET_NEXT
+```
+
+Required request headers:
+
+```text
+Content-Type: application/json
+X-OpenClaw-Agent: openclaw-mac
+X-OpenClaw-Timestamp: 2026-05-09T12:00:00.000Z
+X-OpenClaw-Nonce: random-cryptographic-nonce
+X-OpenClaw-Signature: sha256=<hex>
+X-OpenClaw-Key-Id: current
+```
+
+`X-OpenClaw-Key-Id` is optional. Use `next` only during planned secret rotation after `OPENCLAW_INGEST_SECRET_NEXT` is set.
+
+Canonical signature input:
+
+```text
+POST
+/api/openclaw/news-pulse/ingest
+<timestamp header>
+<nonce header>
+<sha256 hex of the raw JSON request body>
+```
+
+Signature:
+
+```text
+HMAC_SHA256(OPENCLAW_INGEST_SECRET, canonical_string)
+```
+
+The timestamp must be within 5 minutes and each nonce can be used once. The route rate-limits by agent and by IP, rejects oversized bodies over 32 KB, and fails closed if the secret, D1 nonce table, or rate-limit binding is unavailable.
+
+Example payload:
+
+```json
+{
+  "locale": "de",
+  "items": [
+    {
+      "title": "Kuratierte KI-Statusmeldung",
+      "summary": "Kurze quellenbezogene Meldung fuer den Bitbi Live Pulse.",
+      "source": "OpenClaw",
+      "url": "https://example.com/ai/status",
+      "category": "KI",
+      "published_at": "2026-05-09T12:00:00.000Z",
+      "visual_type": "icon",
+      "visual_url": null,
+      "external_id": "openclaw-status-2026-05-09",
+      "tags": ["ki", "status"]
+    }
+  ],
+  "dry_run": false
+}
+```
+
+Example curl shape using placeholders:
+
+```sh
+curl -X POST "https://bitbi.ai/api/openclaw/news-pulse/ingest" \
+  -H "Content-Type: application/json" \
+  -H "X-OpenClaw-Agent: openclaw-mac" \
+  -H "X-OpenClaw-Timestamp: <timestamp>" \
+  -H "X-OpenClaw-Nonce: <nonce>" \
+  -H "X-OpenClaw-Signature: sha256=<hmac_hex>" \
+  --data-binary @payload.json
+```
+
+Use `scripts/openclaw-news-pulse-sign.mjs` locally to generate signed headers from a payload file. The script reads `OPENCLAW_INGEST_SECRET` from the local environment and does not store the secret.
 
 ## Refresh Configuration
 
@@ -60,13 +148,17 @@ The existing auth Worker cron (`0 3 * * *`) calls the refresh foundation. If `NE
 - Preserve the original source label and source URL.
 - Do not hotlink third-party images unless a later source is explicitly licensed and configured.
 - Prefer Bitbi-native icons/placeholders for homepage visuals.
+- Internal OpenClaw activity logs are not homepage content. Only curated payload items sent to the ingest route may enter `news_pulse_items`.
+- The public homepage continues reading only `GET /api/public/news-pulse?locale=en|de`.
 
 ## Deployment
 
 Deploy order:
 
 1. Apply auth D1 migrations.
-2. Deploy the auth Worker.
-3. Deploy static/GitHub Pages assets.
+2. Set `OPENCLAW_INGEST_SECRET` on the auth Worker.
+3. Deploy the auth Worker.
+4. Deploy static/GitHub Pages assets if docs or frontend assets changed.
+5. Use `npx wrangler tail` to verify the first OpenClaw ingest attempts.
 
 Static-only deploys are not enough for the endpoint because the Worker route and D1 migration are part of this feature.

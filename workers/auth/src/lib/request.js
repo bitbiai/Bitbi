@@ -31,6 +31,7 @@ export const BODY_LIMITS = Object.freeze({
   aiSaveAudioJson: 18 * 1024 * 1024,
   aiSaveVideoPosterJson: 4 * 1024 * 1024,
   billingWebhookRaw: 128 * 1024,
+  openClawIngestRaw: 32 * 1024,
   avatarJson: 32 * 1024,
   avatarMultipart: 3 * 1024 * 1024,
 });

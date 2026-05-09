@@ -18,6 +18,7 @@ import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleAudioGallery } from "./routes/audio-gallery.js";
 import { handlePublicNewsPulse } from "./routes/public-news-pulse.js";
+import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
@@ -88,6 +89,12 @@ function requiresTrustedRequestContext(pathname, method) {
     (pathname === "/api/billing/webhooks/test" ||
       pathname === "/api/billing/webhooks/stripe" ||
       pathname === "/api/billing/webhooks/stripe/live") &&
+    String(method || "").toUpperCase() === "POST"
+  ) {
+    return false;
+  }
+  if (
+    pathname === "/api/openclaw/news-pulse/ingest" &&
     String(method || "").toUpperCase() === "POST"
   ) {
     return false;
@@ -204,6 +211,8 @@ export default {
 
     if (pathname === "/api/health" && method === "GET") return handleHealth();
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
+    // route-policy: openclaw.news_pulse.ingest
+    if (pathname === "/api/openclaw/news-pulse/ingest" && method === "POST") return handleOpenClawNewsPulseIngest(ctx);
     if (pathname === "/api/me" && method === "GET") return handleMe(ctx);
     // route-policy: auth.register
     if (pathname === "/api/register" && method === "POST") return handleRegister(ctx);

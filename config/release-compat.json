@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0043_add_news_pulse_items.sql",
+        "latest": "0044_add_openclaw_ingest_nonces.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -258,6 +258,24 @@
         "summary": "Required for HMAC signing of auth-worker requests to the internal AI worker. Must match the AI worker AI_SERVICE_AUTH_SECRET before production deploy."
       },
       {
+        "id": "auth-openclaw-ingest-secret",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "OPENCLAW_INGEST_SECRET",
+        "requiredForRelease": false,
+        "documentation": "docs/ops/bitbi-live-pulse.md",
+        "summary": "Required to enable the OpenClaw machine-to-machine News Pulse ingest route. If absent, POST /api/openclaw/news-pulse/ingest fails closed."
+      },
+      {
+        "id": "auth-openclaw-ingest-secret-next",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "OPENCLAW_INGEST_SECRET_NEXT",
+        "requiredForRelease": false,
+        "documentation": "docs/ops/bitbi-live-pulse.md",
+        "summary": "Optional next OpenClaw ingest HMAC secret for planned rotation."
+      },
+      {
         "id": "auth-billing-webhook-test-secret",
         "kind": "secret",
         "worker": "auth",
@@ -470,6 +488,7 @@
     "literalRoutes": [
       "GET /api/health",
       "GET /api/public/news-pulse",
+      "POST /api/openclaw/news-pulse/ingest",
       "GET /api/me",
       "POST /api/register",
       "POST /api/login",

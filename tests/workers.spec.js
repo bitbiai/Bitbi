@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
-const { pbkdf2Sync } = require('crypto');
+const { createHash, createHmac, pbkdf2Sync, randomBytes } = require('crypto');
 const { pathToFileURL } = require('url');
 
 const {
@@ -180,6 +180,7 @@ async function loadMusic26PricingModule() {
 
 const ACTIVITY_INGEST_QUEUE_NAME = 'bitbi-auth-activity-ingest';
 const AI_VIDEO_JOBS_QUEUE_NAME = 'bitbi-ai-video-jobs';
+const OPENCLAW_TEST_SECRET = 'test-openclaw-ingest-secret-v1-32chars';
 
 async function loadWalletTestModules() {
   const accounts = await import('viem/accounts');
@@ -234,6 +235,70 @@ function authJsonRequest(pathname, method, body, headers = {}) {
     headers: requestHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+}
+
+function buildOpenClawSignedRequest(body, {
+  secret = OPENCLAW_TEST_SECRET,
+  agent = 'openclaw-mac',
+  timestamp = new Date().toISOString(),
+  nonce = randomBytes(16).toString('hex'),
+  pathOverride = '/api/openclaw/news-pulse/ingest',
+  methodOverride = 'POST',
+  signatureOverride = null,
+  rawBodyOverride = null,
+  headers = {},
+} = {}) {
+  const rawBody = rawBodyOverride ?? (typeof body === 'string' ? body : JSON.stringify(body));
+  const bodyHash = createHash('sha256').update(rawBody).digest('hex');
+  const canonical = [
+    methodOverride,
+    pathOverride,
+    timestamp,
+    nonce,
+    bodyHash,
+  ].join('\n');
+  const signature = signatureOverride || createHmac('sha256', secret).update(canonical).digest('hex');
+  const requestHeaders = new Headers({
+    'content-type': 'application/json',
+    'cf-connecting-ip': '203.0.113.44',
+    'x-openclaw-agent': agent,
+    'x-openclaw-timestamp': timestamp,
+    'x-openclaw-nonce': nonce,
+    'x-openclaw-signature': `sha256=${signature}`,
+    ...headers,
+  });
+  return {
+    request: new Request('https://bitbi.ai/api/openclaw/news-pulse/ingest', {
+      method: 'POST',
+      headers: requestHeaders,
+      body: rawBody,
+    }),
+    rawBody,
+    nonce,
+    signature,
+    bodyHash,
+  };
+}
+
+function validOpenClawNewsPulsePayload(overrides = {}, itemOverrides = {}) {
+  return {
+    locale: 'en',
+    dry_run: false,
+    items: [{
+      title: 'Curated model release update',
+      summary: 'A short source-attributed update for creative AI builders.',
+      source: 'OpenClaw Curated',
+      url: 'https://example.com/ai/model-release',
+      category: 'AI',
+      published_at: '2026-05-09T10:00:00.000Z',
+      visual_type: 'icon',
+      visual_url: null,
+      external_id: 'openclaw-release-1',
+      tags: ['ai', 'model'],
+      ...itemOverrides,
+    }],
+    ...overrides,
+  };
 }
 
 function expectExactKeys(value, expectedKeys) {
@@ -1193,6 +1258,15 @@ test.describe('Phase 1-E auth route policy registry', () => {
     } = await loadRoutePolicyModule();
 
     expect(validateRoutePolicies()).toEqual([]);
+    expect(getRoutePolicy('POST', '/api/openclaw/news-pulse/ingest')).toEqual(expect.objectContaining({
+      id: 'openclaw.news_pulse.ingest',
+      auth: 'anonymous',
+      csrf: 'not-browser-facing',
+      providerSignature: 'openclaw-hmac-sha256',
+      body: expect.objectContaining({ kind: 'raw', maxBytesName: 'openClawIngestRaw' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+      config: expect.arrayContaining(['OPENCLAW_INGEST_SECRET', 'PUBLIC_RATE_LIMITER']),
+    }));
     expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.create',
       auth: 'admin',
@@ -8269,6 +8343,263 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('sk_test_secret_should_not_leak');
       expect(serialized).not.toContain('NEWS_PULSE_SOURCE_URLS');
       expect(serialized).not.toContain('feeds.example.com');
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest rejects missing secret configuration', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv();
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.code).toBe('openclaw_ingest_not_configured');
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest rejects missing signature headers', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/openclaw/news-pulse/ingest', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-openclaw-agent': 'openclaw-mac',
+            'x-openclaw-timestamp': new Date().toISOString(),
+            'x-openclaw-nonce': randomBytes(16).toString('hex'),
+          },
+          body: JSON.stringify(validOpenClawNewsPulsePayload()),
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.code).toBe('openclaw_ingest_unauthorized');
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest fails closed when rate limiting is unavailable', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        disablePublicRateLimiterBinding: true,
+      });
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.code).toBe('openclaw_ingest_rate_limited');
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest rejects invalid signatures, stale timestamps, and replayed nonces', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload(), {
+          signatureOverride: '0'.repeat(64),
+        });
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(401);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_signature_invalid');
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const staleTimestamp = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload(), {
+          timestamp: staleTimestamp,
+        });
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(401);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_timestamp_invalid');
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const nonce = 'openclaw-replay-nonce-1';
+        const payload = validOpenClawNewsPulsePayload();
+        const first = buildOpenClawSignedRequest(payload, { nonce });
+        const second = buildOpenClawSignedRequest(payload, { nonce });
+
+        const firstRes = await authWorker.fetch(first.request, env, createExecutionContext().execCtx);
+        expect(firstRes.status).toBe(200);
+        const secondRes = await authWorker.fetch(second.request, env, createExecutionContext().execCtx);
+        expect(secondRes.status).toBe(409);
+        const body = await secondRes.json();
+        expect(body.code).toBe('openclaw_ingest_replay');
+      }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest signs the raw body hash and canonical path', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const payload = validOpenClawNewsPulsePayload();
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const signed = buildOpenClawSignedRequest(payload);
+        const tamperedBody = signed.rawBody.replace('Curated model release update', 'Tampered model release update');
+        const res = await authWorker.fetch(
+          new Request('https://bitbi.ai/api/openclaw/news-pulse/ingest', {
+            method: 'POST',
+            headers: new Headers(signed.request.headers),
+            body: tamperedBody,
+          }),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(res.status).toBe(401);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_signature_invalid');
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(payload, {
+          pathOverride: '/api/public/news-pulse',
+        });
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(401);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_signature_invalid');
+      }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest rejects unsafe payload URLs and oversized bodies', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({}, {
+          url: 'http://example.com/not-https',
+        }));
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_validation_error');
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({}, {
+          visual_url: 'https://cdn.example.com/preview.png',
+        }));
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_validation_error');
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const rawBody = JSON.stringify({ locale: 'en', items: [], padding: 'x'.repeat(33 * 1024) });
+        const { request } = buildOpenClawSignedRequest(rawBody);
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(413);
+        const body = await res.json();
+        expect(body.code).toBe('openclaw_ingest_invalid_payload');
+      }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest accepts signed EN and DE items and stores normalized cache rows', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expectExactKeys(body, ['ok', 'stored_count', 'skipped_count', 'dry_run', 'items']);
+        expect(body.ok).toBe(true);
+        expect(body.stored_count).toBe(1);
+        expect(env.DB.state.newsPulseItems).toHaveLength(1);
+        expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+          locale: 'en',
+          title: 'Curated model release update',
+          source_key: 'openclaw:openclaw-mac',
+          status: 'active',
+        }));
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({
+          locale: 'de',
+        }, {
+          title: 'Kuratierte KI-Statusmeldung',
+          summary: 'Eine kurze quellenbezogene Meldung für kreative KI-Workflows.',
+          url: 'https://example.com/de/ki-status',
+          category: undefined,
+          external_id: 'openclaw-de-1',
+        }));
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.items[0].locale).toBe('de');
+        expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+          locale: 'de',
+          category: 'KI',
+        }));
+      }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest dry_run validates without storing and upsert updates existing items', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({ dry_run: true }));
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.dry_run).toBe(true);
+        expect(body.stored_count).toBe(0);
+        expect(body.items).toHaveLength(1);
+        expect(env.DB.state.newsPulseItems).toHaveLength(0);
+      }
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const first = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({}, {
+          title: 'Original OpenClaw update',
+        }));
+        const second = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({}, {
+          title: 'Updated OpenClaw update',
+        }));
+        await authWorker.fetch(first.request, env, createExecutionContext().execCtx);
+        const res = await authWorker.fetch(second.request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(200);
+        expect(env.DB.state.newsPulseItems).toHaveLength(1);
+        expect(env.DB.state.newsPulseItems[0].title).toBe('Updated OpenClaw update');
+      }
+    });
+
+    test('GET /api/public/news-pulse returns OpenClaw-ingested items after a valid POST', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const postRes = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+      expect(postRes.status).toBe(200);
+
+      const getRes = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(getRes.status).toBe(200);
+      const body = await getRes.json();
+      expect(body.items[0]).toEqual(expect.objectContaining({
+        title: 'Curated model release update',
+        url: 'https://example.com/ai/model-release',
+      }));
+      expect(JSON.stringify(body)).not.toContain('openclaw_ingest');
+      expect(JSON.stringify(body)).not.toContain(OPENCLAW_TEST_SECRET);
     });
 
     test('GET /api/me returns the authenticated contract shape when logged in', async () => {

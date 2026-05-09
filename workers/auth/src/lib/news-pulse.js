@@ -7,6 +7,8 @@ const NEWS_PULSE_FETCH_TIMEOUT_MS = 5000;
 const NEWS_PULSE_MAX_SOURCE_BYTES = 250000;
 const NEWS_PULSE_RETENTION_DAYS = 30;
 const NEWS_PULSE_ALLOWED_VISUAL_TYPES = new Set(["generated", "icon", "none"]);
+const OPENCLAW_MAX_ITEMS_PER_REQUEST = 8;
+const OPENCLAW_EXTERNAL_ID_PATTERN = /^[A-Za-z0-9._:-]{1,96}$/;
 const NEWS_PULSE_RELEVANCE_TERMS = [
   "ai",
   "artificial intelligence",
@@ -100,6 +102,16 @@ const FALLBACK_ITEMS = Object.freeze({
   ]),
 });
 
+export class OpenClawNewsPulseValidationError extends Error {
+  constructor(message, { status = 400, code = "openclaw_ingest_validation_error", field = null } = {}) {
+    super(message);
+    this.name = "OpenClawNewsPulseValidationError";
+    this.status = status;
+    this.code = code;
+    this.field = field;
+  }
+}
+
 export function normalizeNewsPulseLocale(value) {
   const locale = String(value || "").trim().toLowerCase();
   return locale === "de" || locale.startsWith("de-") ? "de" : "en";
@@ -148,6 +160,204 @@ function normalizeIsoDate(value, fallback = SEED_UPDATED_AT) {
 function normalizeVisualType(value) {
   const normalized = String(value || "icon").trim().toLowerCase();
   return NEWS_PULSE_ALLOWED_VISUAL_TYPES.has(normalized) ? normalized : "icon";
+}
+
+function validationError(message, field = null) {
+  return new OpenClawNewsPulseValidationError(message, { field });
+}
+
+function cleanPlainText(value) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeRequiredOpenClawText(value, { field, maxLength }) {
+  const text = cleanPlainText(value);
+  if (!text) throw validationError(`${field} is required.`, field);
+  if (/[<>]/.test(text)) throw validationError(`${field} must not contain HTML.`, field);
+  if (text.length > maxLength) throw validationError(`${field} is too long.`, field);
+  return text;
+}
+
+function normalizeOptionalOpenClawText(value, { field, maxLength, fallback = "" }) {
+  const text = cleanPlainText(value || fallback);
+  if (!text) return "";
+  if (/[<>]/.test(text)) throw validationError(`${field} must not contain HTML.`, field);
+  if (text.length > maxLength) throw validationError(`${field} is too long.`, field);
+  return text;
+}
+
+function normalizeOpenClawUrl(value, field) {
+  const href = normalizeSourceUrl(value);
+  if (!href) throw validationError(`${field} must be a valid HTTPS URL without credentials.`, field);
+  return href;
+}
+
+function normalizeOpenClawVisualUrl(value) {
+  if (value == null || value === "") return null;
+  const href = normalizeVisualUrl(value);
+  if (!href) {
+    throw validationError("visual_url must be an HTTPS bitbi.ai or pub.bitbi.ai URL.", "visual_url");
+  }
+  return href;
+}
+
+function normalizeOpenClawPublishedAt(value, now) {
+  if (value == null || value === "") return normalizeIsoDate(now, now);
+  if (typeof value !== "string") {
+    throw validationError("published_at must be a valid ISO timestamp.", "published_at");
+  }
+  const date = new Date(value.trim());
+  if (Number.isNaN(date.getTime())) {
+    throw validationError("published_at must be a valid ISO timestamp.", "published_at");
+  }
+  return date.toISOString();
+}
+
+function normalizeOpenClawVisualType(value) {
+  const normalized = String(value || "icon").trim().toLowerCase();
+  if (!NEWS_PULSE_ALLOWED_VISUAL_TYPES.has(normalized)) {
+    throw validationError("visual_type is not supported.", "visual_type");
+  }
+  return normalized;
+}
+
+function normalizeOpenClawExternalId(value) {
+  if (value == null || value === "") return "";
+  const externalId = cleanPlainText(value);
+  if (!OPENCLAW_EXTERNAL_ID_PATTERN.test(externalId)) {
+    throw validationError("external_id contains unsupported characters.", "external_id");
+  }
+  return externalId;
+}
+
+function normalizeOpenClawTags(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw validationError("tags must be an array.", "tags");
+  if (value.length > 8) throw validationError("tags may contain at most 8 entries.", "tags");
+  return value.map((entry) => {
+    const tag = normalizeOptionalOpenClawText(entry, { field: "tags", maxLength: 32 });
+    if (!tag) throw validationError("tags must not contain empty entries.", "tags");
+    return tag;
+  });
+}
+
+function normalizeOpenClawAgent(value) {
+  const agent = cleanPlainText(value).toLowerCase();
+  if (!/^[a-z0-9._:-]{2,64}$/.test(agent)) {
+    throw validationError("agent is invalid.", "agent");
+  }
+  return agent;
+}
+
+export async function buildOpenClawNewsPulseId({ locale, external_id: externalId, url }) {
+  const key = externalId
+    ? `openclaw:${normalizeNewsPulseLocale(locale)}:external:${externalId}`
+    : `openclaw:${normalizeNewsPulseLocale(locale)}:url:${url}`;
+  const hash = await sha256Hex(key);
+  return `openclaw_${normalizeNewsPulseLocale(locale)}_${hash.slice(0, 32)}`;
+}
+
+export async function normalizeOpenClawNewsPulseItem(item, {
+  locale = "en",
+  agent = "openclaw",
+  now = new Date().toISOString(),
+} = {}) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    throw validationError("Each item must be an object.", "items");
+  }
+  const normalizedLocale = normalizeNewsPulseLocale(locale);
+  const normalizedAgent = normalizeOpenClawAgent(agent);
+  const title = normalizeRequiredOpenClawText(item.title, { field: "title", maxLength: 160 });
+  const summary = normalizeRequiredOpenClawText(item.summary, { field: "summary", maxLength: 240 });
+  const source = normalizeRequiredOpenClawText(item.source, { field: "source", maxLength: 80 });
+  const url = normalizeOpenClawUrl(item.url, "url");
+  const category = normalizeOptionalOpenClawText(item.category, {
+    field: "category",
+    maxLength: 48,
+    fallback: normalizedLocale === "de" ? "KI" : "AI",
+  });
+  const publishedAt = normalizeOpenClawPublishedAt(item.published_at, now);
+  const visualType = normalizeOpenClawVisualType(item.visual_type);
+  const visualUrl = normalizeOpenClawVisualUrl(item.visual_url);
+  const externalId = normalizeOpenClawExternalId(item.external_id);
+  normalizeOpenClawTags(item.tags);
+  const id = await buildOpenClawNewsPulseId({ locale: normalizedLocale, external_id: externalId, url });
+  const contentHash = await sha256Hex(JSON.stringify({
+    locale: normalizedLocale,
+    title,
+    summary,
+    source,
+    url,
+    category,
+    published_at: publishedAt,
+    visual_type: visualType,
+    visual_url: visualUrl,
+    external_id: externalId || null,
+  }));
+  const createdAt = normalizeIsoDate(now, new Date().toISOString());
+  return {
+    id,
+    locale: normalizedLocale,
+    title,
+    summary,
+    source,
+    url,
+    category,
+    published_at: publishedAt,
+    visual_type: visualType,
+    visual_url: visualUrl,
+    source_key: `openclaw:${normalizedAgent}`,
+    content_hash: contentHash,
+    expires_at: new Date(Date.parse(createdAt) + NEWS_PULSE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+}
+
+export async function ingestOpenClawNewsPulseItems(env, payload, {
+  agent = "openclaw",
+  now = new Date().toISOString(),
+  dryRun = false,
+} = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw validationError("Payload must be a JSON object.", "payload");
+  }
+  const locale = normalizeNewsPulseLocale(payload.locale);
+  if (!Array.isArray(payload.items)) {
+    throw validationError("items must be an array.", "items");
+  }
+  if (payload.items.length > OPENCLAW_MAX_ITEMS_PER_REQUEST) {
+    throw validationError(`items may contain at most ${OPENCLAW_MAX_ITEMS_PER_REQUEST} entries.`, "items");
+  }
+  const normalizedItems = [];
+  for (const item of payload.items) {
+    normalizedItems.push(await normalizeOpenClawNewsPulseItem(item, { locale, agent, now }));
+  }
+  if (!dryRun && !env?.DB) {
+    throw new OpenClawNewsPulseValidationError("News Pulse storage is not configured.", {
+      status: 503,
+      code: "openclaw_ingest_not_configured",
+    });
+  }
+  if (!dryRun) {
+    for (const item of normalizedItems) {
+      await storeNewsPulseItem(env, item);
+    }
+  }
+  return {
+    stored_count: dryRun ? 0 : normalizedItems.length,
+    skipped_count: 0,
+    dry_run: Boolean(dryRun),
+    items: normalizedItems.map((item) => ({
+      id: item.id,
+      locale: item.locale,
+      title: item.title,
+      url: item.url,
+    })),
+  };
 }
 
 function normalizeNewsPulseItem(row, locale) {

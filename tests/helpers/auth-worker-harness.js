@@ -695,6 +695,7 @@ class MockD1 {
       billingCheckoutSessions: [],
       billingMemberCheckoutSessions: [],
       newsPulseItems: [],
+      openClawIngestNonces: [],
       creditLedger: [],
       usageEvents: [],
       memberCreditLedger: [],
@@ -833,6 +834,9 @@ class MockD1 {
     }
     if (this.missingTables.has('news_pulse_items') && query.includes('news_pulse_items')) {
       throw new Error('no such table: news_pulse_items');
+    }
+    if (this.missingTables.has('openclaw_ingest_nonces') && query.includes('openclaw_ingest_nonces')) {
+      throw new Error('no such table: openclaw_ingest_nonces');
     }
 
     if (query.includes('FROM sessions INNER JOIN users ON users.id = sessions.user_id')) {
@@ -6738,6 +6742,31 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === 'DELETE FROM openclaw_ingest_nonces WHERE expires_at < ?') {
+      const [now] = bindings;
+      const before = this.state.openClawIngestNonces.length;
+      this.state.openClawIngestNonces = this.state.openClawIngestNonces
+        .filter((row) => String(row.expires_at || '') >= String(now || ''));
+      return { success: true, meta: { changes: before - this.state.openClawIngestNonces.length } };
+    }
+
+    if (query.startsWith('INSERT INTO openclaw_ingest_nonces (')) {
+      const [nonce, agent, bodyHash, createdAt, expiresAt] = bindings;
+      if (this.state.openClawIngestNonces.some((row) => row.nonce === nonce)) {
+        const error = new Error('UNIQUE constraint failed: openclaw_ingest_nonces.nonce');
+        error.code = 'SQLITE_CONSTRAINT';
+        throw error;
+      }
+      this.state.openClawIngestNonces.push({
+        nonce,
+        agent,
+        body_hash: bodyHash,
+        created_at: createdAt,
+        expires_at: expiresAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     throw new Error(`Unsupported query in test harness: ${query}`);
   }
 }
@@ -6795,6 +6824,8 @@ function createAuthTestEnv(seed = {}) {
     STRIPE_LIVE_CHECKOUT_CANCEL_URL: seed.STRIPE_LIVE_CHECKOUT_CANCEL_URL,
     ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
     NEWS_PULSE_SOURCE_URLS: seed.NEWS_PULSE_SOURCE_URLS,
+    OPENCLAW_INGEST_SECRET: seed.OPENCLAW_INGEST_SECRET,
+    OPENCLAW_INGEST_SECRET_NEXT: seed.OPENCLAW_INGEST_SECRET_NEXT,
     PBKDF2_ITERATIONS: '100000',
     DB,
     PRIVATE_MEDIA,
