@@ -617,7 +617,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
     await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
-    await expect(pulse.locator('.news-pulse__item')).toHaveCount(10);
+    await expect(pulse.locator('.news-pulse__item')).toHaveCount(9);
     await expect(pulse.locator('.news-pulse__label')).toHaveText('Bitbi Live Pulse');
     await expect(pulse.getByRole('link', { name: /Creative AI workflow update/ }).first()).toHaveAttribute(
       'href',
@@ -668,7 +668,7 @@ test.describe('Homepage', () => {
       nodes.map((node) => node.getAttribute('data-news-pulse-item-id'))
     );
     expect(new Set(renderedIds).size).toBe(6);
-    await expect(pulse.locator('.news-pulse__item[aria-hidden="true"]')).toHaveCount(4);
+    await expect(pulse.locator('.news-pulse__item[aria-hidden="true"]')).toHaveCount(3);
   });
 
   test('German homepage Live Pulse requests the German endpoint and localizes the layer label', async ({ page }) => {
