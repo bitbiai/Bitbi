@@ -58,6 +58,32 @@ const HOME_SCROLL_RESTORE_KEY = 'bitbi_home_scroll_restore_v2';
 
 const expectedModelCatalogs = new Map();
 
+function buildNewsPulseItems(prefix = 'mobile-pulse') {
+  return Array.from({ length: 3 }, (_, index) => ({
+    id: `${prefix}-${index + 1}`,
+    title: `${prefix} headline ${index + 1}`,
+    summary: `Short source-attributed mobile summary ${index + 1}.`,
+    source: `Pulse Source ${index + 1}`,
+    url: `https://example.com/${prefix}-${index + 1}`,
+    category: prefix.includes('de') ? 'KI' : 'AI',
+    published_at: '2026-05-10T08:00:00.000Z',
+    visual_type: 'icon',
+    visual_url: null,
+  }));
+}
+
+async function mockHomepageAuthState(page, { loggedIn }) {
+  await page.route('**/api/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(loggedIn
+        ? { loggedIn: true, user: { id: 'pulse-member', email: 'pulse@bitbi.ai', role: 'user' } }
+        : { loggedIn: false, user: null }),
+    });
+  });
+}
+
 async function getExpectedModelCatalog({ homepage = false } = {}) {
   const cacheKey = homepage ? 'homepage' : 'shared';
   if (expectedModelCatalogs.has(cacheKey)) return expectedModelCatalogs.get(cacheKey);
@@ -740,8 +766,9 @@ test.describe('Homepage', () => {
     expect(requestedLocales).toContain('de');
   });
 
-  test('mobile homepages do not render or fetch Live Pulse news', async ({ page }) => {
+  test('mobile logged-out homepages do not render or fetch Live Pulse news', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await mockHomepageAuthState(page, { loggedIn: false });
     const requestedUrls = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
       requestedUrls.push(route.request().url());
@@ -790,6 +817,198 @@ test.describe('Homepage', () => {
 
     await page.waitForTimeout(300);
     expect(requestedUrls).toEqual([]);
+  });
+
+  for (const { path, locale, label, prefix } of [
+    { path: '/', locale: 'en', label: 'Bitbi Live Pulse', prefix: 'mobile-pulse-en' },
+    { path: '/de/', locale: 'de', label: 'KI-Puls', prefix: 'mobile-pulse-de' },
+  ]) {
+    test(`mobile logged-in ${locale} homepage renders member Live Pulse with measured placement`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await mockHomepageAuthState(page, { loggedIn: true });
+      const requestedLocales = [];
+      await page.route('**/api/public/news-pulse**', async (route) => {
+        requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            items: buildNewsPulseItems(prefix),
+            updated_at: '2026-05-10T08:00:00.000Z',
+          }),
+        });
+      });
+
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      const pulse = page.locator('#newsPulse');
+      await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toHaveCount(1, { timeout: 10_000 });
+      await expect(pulse.locator('.news-pulse__label')).toHaveText(label);
+      await expect(pulse.locator('.news-pulse__track')).toHaveCount(0);
+      await expect(pulse.locator('.news-pulse__item')).toHaveCount(0);
+      await expect(pulse.locator('.news-pulse__mobile-item')).toHaveCount(1);
+      await expect(pulse.getByRole('link', { name: new RegExp(`${prefix} headline 1`) })).toHaveAttribute(
+        'href',
+        `https://example.com/${prefix}-1`,
+      );
+
+      await expect.poll(async () => pulse.evaluate((node) => node.dataset.newsPulseMobilePlacement || ''))
+        .toBe('ready');
+      const layout = await pulse.evaluate((node) => {
+        const header = document.querySelector('#navbar').getBoundingClientRect();
+        const logo = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
+        const hero = document.querySelector('#hero').getBoundingClientRect();
+        const rect = node.getBoundingClientRect();
+        const distance = logo.top - header.bottom;
+        return {
+          top: rect.top,
+          bottom: rect.bottom,
+          expectedTop: header.bottom + (distance * 0.05),
+          expectedBottom: header.bottom + (distance * 0.83),
+          headerBottom: header.bottom,
+          logoTop: logo.top,
+          heroTop: hero.top,
+          heroBottom: hero.bottom,
+          display: window.getComputedStyle(node).display,
+          visibility: window.getComputedStyle(node).visibility,
+          activeTabIndex: node.querySelector('.news-pulse__mobile-item.is-active a')?.tabIndex,
+        };
+      });
+      expect(layout.display).not.toBe('none');
+      expect(layout.visibility).toBe('visible');
+      expectWithinPx(layout.top, layout.expectedTop, `${locale} mobile pulse top`, 8);
+      expectWithinPx(layout.bottom, layout.expectedBottom, `${locale} mobile pulse bottom`, 8);
+      expect(layout.top).toBeGreaterThan(layout.headerBottom);
+      expect(layout.bottom).toBeLessThan(layout.logoTop);
+      expect(layout.top).toBeGreaterThanOrEqual(layout.heroTop - 1);
+      expect(layout.bottom).toBeLessThanOrEqual(layout.heroBottom + 1);
+      expect(layout.activeTabIndex).toBe(0);
+      expect(requestedLocales).toContain(locale);
+    });
+  }
+
+  test('mobile Live Pulse rotates one active item with cube animation and settles focusability', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await mockHomepageAuthState(page, { loggedIn: true });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: buildNewsPulseItems('mobile-cube-pulse'),
+          updated_at: '2026-05-10T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const pulse = page.locator('#newsPulse');
+    await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toContainText('mobile-cube-pulse headline 1');
+    await page.evaluate(() => {
+      window.__bitbiPulseTransitions = [];
+      const node = document.querySelector('#newsPulse');
+      const observer = new MutationObserver(() => {
+        const entering = node?.querySelector('.news-pulse__mobile-item.is-entering');
+        const exiting = node?.querySelector('.news-pulse__mobile-item.is-exiting');
+        if (!entering || !exiting) return;
+        window.__bitbiPulseTransitions.push({
+          enteringAnimation: window.getComputedStyle(entering).animationName,
+          exitingAnimation: window.getComputedStyle(exiting).animationName,
+          focusableLinks: [...node.querySelectorAll('.news-pulse__mobile-item a')]
+            .filter((link) => link.tabIndex >= 0 && !link.hasAttribute('aria-hidden')).length,
+        });
+      });
+      observer.observe(node, { childList: true, subtree: true });
+      window.__bitbiPulseTransitionObserver = observer;
+    });
+    await expect.poll(() => page.evaluate(() => window.__bitbiPulseTransitions?.length || 0), { timeout: 7000 })
+      .toBeGreaterThan(0);
+    const transition = await page.evaluate(() => window.__bitbiPulseTransitions[0]);
+    expect(transition.enteringAnimation).toContain('news-pulse-mobile-cube-in');
+    expect(transition.exitingAnimation).toContain('news-pulse-mobile-cube-out');
+    expect(transition.focusableLinks).toBe(0);
+
+    await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toContainText('mobile-cube-pulse headline 2', {
+      timeout: 3000,
+    });
+    await expect(pulse.locator('.news-pulse__mobile-item')).toHaveCount(1);
+    const settled = await pulse.evaluate((node) => ({
+      activeItems: node.querySelectorAll('.news-pulse__mobile-item.is-active').length,
+      activeLinks: [...node.querySelectorAll('.news-pulse__mobile-item.is-active a')]
+        .filter((link) => link.tabIndex >= 0 && !link.hasAttribute('aria-hidden')).length,
+    }));
+    expect(settled.activeItems).toBe(1);
+    expect(settled.activeLinks).toBe(1);
+  });
+
+  test('mobile Live Pulse initializes after login and clears after logout', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let loggedIn = false;
+    const requestedUrls = [];
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(loggedIn
+          ? { loggedIn: true, user: { id: 'pulse-transition', email: 'pulse-transition@bitbi.ai', role: 'user' } }
+          : { loggedIn: false, user: null }),
+      });
+    });
+    await page.route('**/api/login', async (route) => {
+      loggedIn = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+    await page.route('**/api/logout', async (route) => {
+      loggedIn = false;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      requestedUrls.push(route.request().url());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: buildNewsPulseItems('mobile-auth-pulse'),
+          updated_at: '2026-05-10T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+    await page.waitForTimeout(250);
+    expect(requestedUrls).toEqual([]);
+
+    await page.evaluate(async () => {
+      const { authLogin } = await import('/js/shared/auth-state.js');
+      await authLogin('pulse-transition@bitbi.ai', 'password');
+    });
+    await expect(page.locator('#newsPulse .news-pulse__mobile-item.is-active')).toContainText('mobile-auth-pulse headline 1');
+    expect(requestedUrls).toHaveLength(1);
+
+    await page.evaluate(async () => {
+      const { authLogout } = await import('/js/shared/auth-state.js');
+      await authLogout();
+    });
+    await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+    const cleared = await page.locator('#newsPulse').evaluate((node) => ({
+      childCount: node.children.length,
+      focusableLinks: node.querySelectorAll('a[href]:not([tabindex="-1"])').length,
+      text: node.textContent.trim(),
+      display: window.getComputedStyle(node).display,
+    }));
+    expect(cleared.childCount).toBe(0);
+    expect(cleared.focusableLinks).toBe(0);
+    expect(cleared.text).toBe('');
+    expect(cleared.display).toBe('none');
   });
 
   test('homepage Live Pulse handles failed endpoint responses without breaking the page', async ({ page }) => {

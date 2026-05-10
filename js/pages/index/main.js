@@ -355,7 +355,7 @@ let revealObserver = null;
 try { revealObserver = initScrollReveal(); } catch (e) { console.warn('scrollReveal:', e); }
 
 /* Sections */
-try { initNewsPulse(); } catch (e) { console.warn('newsPulse:', e); }
+try { initNewsPulse(document, { getAuthState }); } catch (e) { console.warn('newsPulse:', e); }
 try { initGallery(); } catch (e) { console.warn('gallery:', e); }
 try { initVideoGallery(); } catch (e) { console.warn('videoGallery:', e); }
 try { initSoundLab(revealObserver); } catch (e) { console.warn('soundLab:', e); }

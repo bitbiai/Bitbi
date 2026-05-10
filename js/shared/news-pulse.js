@@ -2,12 +2,17 @@ import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
 
 const NEWS_PULSE_ENDPOINT = '/api/public/news-pulse';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const MAX_SOURCE_ITEMS = 6;
 const MIN_VISUAL_ITEMS = 7;
 const MAX_VISUAL_ITEMS = 8;
 const MIN_WHEEL_DURATION_SECONDS = 38;
 const MAX_WHEEL_DURATION_SECONDS = 57;
 const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 9.4;
+const MOBILE_INTERVAL_MS = 5000;
+const MOBILE_ANIMATION_MS = 780;
+const MOBILE_TOP_RATIO = 0.05;
+const MOBILE_BOTTOM_RATIO = 0.83;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -60,17 +65,7 @@ function createElement(tagName, className, text = '') {
     return element;
 }
 
-function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WHEEL_DURATION_SECONDS, isDuplicate = false } = {}) {
-    const wrapper = createElement('span', 'news-pulse__item');
-    wrapper.setAttribute('role', 'listitem');
-    wrapper.dataset.newsPulseItemId = item.id;
-    wrapper.dataset.newsPulseRenderIndex = String(index);
-    wrapper.style.setProperty('--pulse-index', String(index));
-    wrapper.style.setProperty('--pulse-delay', `${-(duration / Math.max(total, 1)) * index}s`);
-    if (isDuplicate) {
-        wrapper.setAttribute('aria-hidden', 'true');
-    }
-
+function createPulseLink(item, locale, { isDuplicate = false } = {}) {
     const link = createElement('a', 'news-pulse__link');
     link.href = item.url;
     link.target = '_blank';
@@ -90,6 +85,35 @@ function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WH
 
     body.append(meta, title, summary, source);
     link.append(mark, body);
+    return link;
+}
+
+function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WHEEL_DURATION_SECONDS, isDuplicate = false } = {}) {
+    const wrapper = createElement('span', 'news-pulse__item');
+    wrapper.setAttribute('role', 'listitem');
+    wrapper.dataset.newsPulseItemId = item.id;
+    wrapper.dataset.newsPulseRenderIndex = String(index);
+    wrapper.style.setProperty('--pulse-index', String(index));
+    wrapper.style.setProperty('--pulse-delay', `${-(duration / Math.max(total, 1)) * index}s`);
+    if (isDuplicate) {
+        wrapper.setAttribute('aria-hidden', 'true');
+    }
+
+    const link = createPulseLink(item, locale, { isDuplicate });
+    wrapper.appendChild(link);
+    return wrapper;
+}
+
+function createMobilePulseItem(item, locale, state = 'active') {
+    const wrapper = createElement('span', `news-pulse__mobile-item is-${state}`);
+    wrapper.setAttribute('role', 'listitem');
+    wrapper.dataset.newsPulseItemId = item.id;
+
+    const link = createPulseLink(item, locale);
+    if (state !== 'active') {
+        link.tabIndex = -1;
+        link.setAttribute('aria-hidden', 'true');
+    }
     wrapper.appendChild(link);
     return wrapper;
 }
@@ -157,28 +181,171 @@ function renderNewsPulse(root, items, locale) {
 }
 
 function clearNewsPulse(root) {
-    root.classList.remove('is-loading', 'is-ready', 'is-empty');
+    root.classList.remove('is-loading', 'is-ready', 'is-empty', 'news-pulse--desktop', 'news-pulse--mobile');
     root.classList.add('is-disabled');
     root.setAttribute('aria-hidden', 'true');
     root.replaceChildren();
 }
 
-export async function initNewsPulse(container = document) {
+function updateMobilePlacement(root) {
+    const hero = root.closest('#hero');
+    const header = document.querySelector('#navbar');
+    const heroLogo = hero?.querySelector('.hero__title-img') || hero?.querySelector('.hero__title');
+    if (!hero || !header || !heroLogo) return false;
+
+    const heroRect = hero.getBoundingClientRect();
+    const headerRect = header.getBoundingClientRect();
+    const logoRect = heroLogo.getBoundingClientRect();
+    const distance = logoRect.top - headerRect.bottom;
+    if (!Number.isFinite(distance) || distance <= 0) return false;
+
+    const top = headerRect.bottom + (distance * MOBILE_TOP_RATIO);
+    const bottom = headerRect.bottom + (distance * MOBILE_BOTTOM_RATIO);
+    root.style.setProperty('--news-pulse-mobile-top', `${Math.max(0, top - heroRect.top)}px`);
+    root.style.setProperty('--news-pulse-mobile-height', `${Math.max(0, bottom - top)}px`);
+    root.dataset.newsPulseMobilePlacement = 'ready';
+    return true;
+}
+
+function readAuthState(getAuthState) {
+    if (typeof getAuthState !== 'function') return { ready: false, loggedIn: false };
+    try {
+        const state = getAuthState() || {};
+        return { ready: !!state.ready, loggedIn: !!state.loggedIn };
+    } catch {
+        return { ready: false, loggedIn: false };
+    }
+}
+
+export async function initNewsPulse(container = document, { getAuthState } = {}) {
     const roots = [...container.querySelectorAll('[data-news-pulse]')];
     const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const reducedMotionQuery = window.matchMedia(REDUCED_MOTION_QUERY);
 
     await Promise.all(roots.map(async (root) => {
-        let hasRendered = false;
+        let hasRenderedDesktop = false;
+        let mode = 'disabled';
+        let fetchToken = 0;
+        let mobileItems = [];
+        let mobileIndex = 0;
+        let mobileTimer = 0;
+        let mobileTransitionTimer = 0;
+        let mobilePlacementFrame = 0;
+        let disconnectObserver = null;
 
-        const renderForViewport = async () => {
-            if (!desktopQuery.matches) {
-                clearNewsPulse(root);
+        const clearMobileTimers = () => {
+            if (mobileTimer) {
+                window.clearInterval(mobileTimer);
+                mobileTimer = 0;
+            }
+            if (mobileTransitionTimer) {
+                window.clearTimeout(mobileTransitionTimer);
+                mobileTransitionTimer = 0;
+            }
+            if (mobilePlacementFrame) {
+                window.cancelAnimationFrame(mobilePlacementFrame);
+                mobilePlacementFrame = 0;
+            }
+        };
+
+        const scheduleMobilePlacement = () => {
+            if (mode !== 'mobile') return;
+            if (mobilePlacementFrame) window.cancelAnimationFrame(mobilePlacementFrame);
+            mobilePlacementFrame = window.requestAnimationFrame(() => {
+                mobilePlacementFrame = 0;
+                updateMobilePlacement(root);
+            });
+        };
+
+        const clearForDisabledState = () => {
+            mode = 'disabled';
+            fetchToken += 1;
+            clearMobileTimers();
+            clearNewsPulse(root);
+        };
+
+        const showMobileItem = (nextIndex, { transition = true } = {}) => {
+            const viewport = root.querySelector('.news-pulse__mobile-viewport');
+            if (!viewport || !mobileItems.length) return;
+            const normalizedIndex = ((nextIndex % mobileItems.length) + mobileItems.length) % mobileItems.length;
+            const currentItem = mobileItems[mobileIndex];
+            const nextItem = mobileItems[normalizedIndex];
+            const shouldAnimate = transition
+                && mobileItems.length > 1
+                && normalizedIndex !== mobileIndex
+                && !reducedMotionQuery.matches;
+
+            if (!shouldAnimate) {
+                mobileIndex = normalizedIndex;
+                viewport.replaceChildren(createMobilePulseItem(nextItem, root.dataset.newsPulseLocale || 'en', 'active'));
                 return;
             }
-            if (hasRendered) return;
-            hasRendered = true;
+
+            if (mobileTransitionTimer) window.clearTimeout(mobileTransitionTimer);
+            const locale = root.dataset.newsPulseLocale || 'en';
+            const outgoing = createMobilePulseItem(currentItem, locale, 'exiting');
+            const incoming = createMobilePulseItem(nextItem, locale, 'entering');
+            viewport.replaceChildren(outgoing, incoming);
+            mobileTransitionTimer = window.setTimeout(() => {
+                mobileIndex = normalizedIndex;
+                viewport.replaceChildren(createMobilePulseItem(nextItem, locale, 'active'));
+                mobileTransitionTimer = 0;
+            }, MOBILE_ANIMATION_MS);
+        };
+
+        const startMobileTimer = () => {
+            if (mobileTimer || mobileItems.length <= 1) return;
+            mobileTimer = window.setInterval(() => {
+                if (!root.isConnected || mode !== 'mobile') {
+                    clearMobileTimers();
+                    return;
+                }
+                showMobileItem(mobileIndex + 1);
+            }, MOBILE_INTERVAL_MS);
+        };
+
+        const renderMobileNewsPulse = (items, locale) => {
+            root.classList.remove('is-loading', 'is-empty', 'is-disabled', 'news-pulse--desktop');
+            root.classList.add('is-ready', 'news-pulse--mobile');
+            root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+            root.removeAttribute('aria-hidden');
+            root.replaceChildren();
+
+            mobileItems = items;
+            mobileIndex = 0;
+
+            const shell = createElement('div', 'news-pulse__shell news-pulse__shell--mobile');
+            const label = createElement('span', 'news-pulse__label', localeText('newsPulse.label', {}, locale));
+            const viewport = createElement('div', 'news-pulse__mobile-viewport');
+            viewport.setAttribute('role', 'list');
+            viewport.setAttribute('aria-live', 'polite');
+            shell.append(label, viewport);
+            root.appendChild(shell);
+            showMobileItem(0, { transition: false });
+            scheduleMobilePlacement();
+            startMobileTimer();
+        };
+
+        const renderMobileEmpty = (locale) => {
+            clearMobileTimers();
+            root.classList.remove('is-disabled', 'news-pulse--desktop');
+            root.classList.add('news-pulse--mobile');
+            root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+            root.removeAttribute('aria-hidden');
+            renderEmpty(root, locale);
+            scheduleMobilePlacement();
+        };
+
+        const renderDesktop = async () => {
+            clearMobileTimers();
+            mode = 'desktop';
+            root.classList.remove('news-pulse--mobile');
+            root.classList.add('news-pulse--desktop');
+            if (hasRenderedDesktop) return;
+            hasRenderedDesktop = true;
 
             const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
+            root.dataset.newsPulseLocale = locale;
             root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
             root.removeAttribute('aria-hidden');
             root.classList.remove('is-disabled');
@@ -190,19 +357,86 @@ export async function initNewsPulse(container = document) {
             }
         };
 
-        const handleViewportChange = () => {
-            if (!desktopQuery.matches) {
-                clearNewsPulse(root);
-            } else {
-                hasRendered = false;
-                renderForViewport();
+        const renderMobile = async () => {
+            const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
+            root.dataset.newsPulseLocale = locale;
+            const authState = readAuthState(getAuthState);
+            if (!authState.ready || !authState.loggedIn) {
+                clearForDisabledState();
+                return;
             }
+
+            if (mode === 'mobile' && root.classList.contains('is-ready')) {
+                scheduleMobilePlacement();
+                return;
+            }
+
+            mode = 'mobile';
+            clearMobileTimers();
+            root.classList.remove('is-ready', 'is-empty', 'is-disabled', 'news-pulse--desktop');
+            root.classList.add('is-loading', 'news-pulse--mobile');
+            root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+            root.removeAttribute('aria-hidden');
+            root.replaceChildren();
+            scheduleMobilePlacement();
+
+            const token = ++fetchToken;
+            try {
+                const items = await fetchNewsPulse(locale);
+                if (token !== fetchToken || mode !== 'mobile') return;
+                if (!readAuthState(getAuthState).loggedIn || desktopQuery.matches) {
+                    clearForDisabledState();
+                    return;
+                }
+                if (!items.length) {
+                    renderMobileEmpty(locale);
+                    return;
+                }
+                renderMobileNewsPulse(items, locale);
+            } catch {
+                if (token === fetchToken && mode === 'mobile') renderMobileEmpty(locale);
+            }
+        };
+
+        const renderForViewport = async () => {
+            if (desktopQuery.matches) {
+                await renderDesktop();
+                return;
+            }
+            await renderMobile();
+        };
+
+        const handleViewportChange = () => {
+            if (desktopQuery.matches) {
+                hasRenderedDesktop = false;
+            }
+            renderForViewport();
         };
 
         if (typeof desktopQuery.addEventListener === 'function') {
             desktopQuery.addEventListener('change', handleViewportChange);
         } else if (typeof desktopQuery.addListener === 'function') {
             desktopQuery.addListener(handleViewportChange);
+        }
+
+        window.addEventListener('resize', scheduleMobilePlacement, { passive: true });
+        window.addEventListener('orientationchange', scheduleMobilePlacement, { passive: true });
+        window.addEventListener('load', scheduleMobilePlacement, { once: true });
+        document.fonts?.ready?.then(scheduleMobilePlacement).catch(() => {});
+        const heroLogo = root.closest('#hero')?.querySelector('.hero__title-img');
+        if (heroLogo && !heroLogo.complete) {
+            heroLogo.addEventListener('load', scheduleMobilePlacement, { once: true });
+        }
+        document.addEventListener('bitbi:auth-change', renderForViewport);
+        if (window.MutationObserver) {
+            disconnectObserver = new MutationObserver(() => {
+                if (!root.isConnected) {
+                    clearMobileTimers();
+                    disconnectObserver?.disconnect();
+                    disconnectObserver = null;
+                }
+            });
+            disconnectObserver.observe(document.documentElement, { childList: true, subtree: true });
         }
         await renderForViewport();
     }));

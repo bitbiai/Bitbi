@@ -7,6 +7,20 @@ Bitbi Live Pulse is a public homepage layer backed by the auth Worker endpoint:
 
 The browser only calls Bitbi's own Worker endpoint. It does not fetch third-party news sources directly.
 
+Desktop homepage rendering remains public and uses the vertical Live Pulse wheel.
+Mobile homepage rendering is member-only: logged-out mobile visitors do not fetch or see
+Live Pulse content. Logged-in mobile members see one localized item at a time.
+
+Mobile placement is measured in the browser from the real viewport geometry:
+
+- start reference: bottom edge of the site header
+- end reference: top edge of the BITBI hero logo image
+- ticker top: `headerBottom + 5% * (heroLogoTop - headerBottom)`
+- ticker bottom: `headerBottom + 83% * (heroLogoTop - headerBottom)`
+
+The mobile ticker rotates every 5 seconds with a cube-style transition. Reduced-motion
+users get the same cadence without the 3D cube animation.
+
 OpenClaw can push curated public display items through the auth Worker only:
 
 - `POST /api/openclaw/news-pulse/ingest`
