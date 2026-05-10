@@ -12,7 +12,7 @@ const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 9.4;
 const MOBILE_INTERVAL_MS = 5000;
 const MOBILE_ANIMATION_MS = 780;
 const MOBILE_TOP_RATIO = 0.05;
-const MOBILE_BOTTOM_RATIO = 0.83;
+const MOBILE_BOTTOM_RATIO = 0.95;
 
 function normalizeLocale(value) {
     const locale = String(value || '').trim().toLowerCase();
@@ -118,6 +118,24 @@ function createMobilePulseItem(item, locale, state = 'active') {
     return wrapper;
 }
 
+function createMobileCubeFace(item, locale, face) {
+    const faceElement = createElement('span', `news-pulse__mobile-cube-face news-pulse__mobile-cube-face--${face}`);
+    faceElement.setAttribute('aria-hidden', 'true');
+    faceElement.appendChild(createMobilePulseItem(item, locale, face));
+    return faceElement;
+}
+
+function createMobileCubeTransition(currentItem, nextItem, locale) {
+    const scene = createElement('div', 'news-pulse__mobile-cube-scene');
+    const cube = createElement('div', 'news-pulse__mobile-cube is-turning');
+    cube.append(
+        createMobileCubeFace(currentItem, locale, 'front'),
+        createMobileCubeFace(nextItem, locale, 'right'),
+    );
+    scene.appendChild(cube);
+    return scene;
+}
+
 function buildVisualItems(items) {
     if (!items.length) return [];
     const visualItems = [];
@@ -203,6 +221,10 @@ function updateMobilePlacement(root) {
     const bottom = headerRect.bottom + (distance * MOBILE_BOTTOM_RATIO);
     root.style.setProperty('--news-pulse-mobile-top', `${Math.max(0, top - heroRect.top)}px`);
     root.style.setProperty('--news-pulse-mobile-height', `${Math.max(0, bottom - top)}px`);
+    const rootRect = root.getBoundingClientRect();
+    if (rootRect.width > 0) {
+        root.style.setProperty('--news-pulse-cube-depth', `${Math.max(1, (rootRect.width - 8) / 2)}px`);
+    }
     root.dataset.newsPulseMobilePlacement = 'ready';
     return true;
 }
@@ -283,9 +305,8 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
 
             if (mobileTransitionTimer) window.clearTimeout(mobileTransitionTimer);
             const locale = root.dataset.newsPulseLocale || 'en';
-            const outgoing = createMobilePulseItem(currentItem, locale, 'exiting');
-            const incoming = createMobilePulseItem(nextItem, locale, 'entering');
-            viewport.replaceChildren(outgoing, incoming);
+            viewport.replaceChildren(createMobileCubeTransition(currentItem, nextItem, locale));
+            scheduleMobilePlacement();
             mobileTransitionTimer = window.setTimeout(() => {
                 mobileIndex = normalizedIndex;
                 viewport.replaceChildren(createMobilePulseItem(nextItem, locale, 'active'));

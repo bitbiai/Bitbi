@@ -120,7 +120,7 @@ test.describe('Bilingual locale pages', () => {
     expect(css).toContain('position: absolute');
     expect(css).toContain('news-pulse-wheel');
     expect(css).toContain('news-pulse--mobile');
-    expect(css).toContain('news-pulse-mobile-cube-in');
+    expect(css).toContain('news-pulse-mobile-cube-turn');
     expect(css).toContain('@media (max-width: 1023px)');
     expect(css).toContain('visibility: hidden');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');

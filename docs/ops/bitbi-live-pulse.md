@@ -16,10 +16,12 @@ Mobile placement is measured in the browser from the real viewport geometry:
 - start reference: bottom edge of the site header
 - end reference: top edge of the BITBI hero logo image
 - ticker top: `headerBottom + 5% * (heroLogoTop - headerBottom)`
-- ticker bottom: `headerBottom + 83% * (heroLogoTop - headerBottom)`
+- ticker bottom: `headerBottom + 95% * (heroLogoTop - headerBottom)`
 
-The mobile ticker rotates every 5 seconds with a cube-style transition. Reduced-motion
-users get the same cadence without the 3D cube animation.
+The mobile ticker rotates every 5 seconds with a true cube-face transition:
+the outgoing item is the front face, the incoming item is the right face, and
+the cube turns left without crossfading or stacking text layers. Reduced-motion
+users get the same cadence without the 3D cube rotation.
 
 OpenClaw can push curated public display items through the auth Worker only:
 

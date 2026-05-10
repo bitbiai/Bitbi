@@ -863,7 +863,7 @@ test.describe('Homepage', () => {
           top: rect.top,
           bottom: rect.bottom,
           expectedTop: header.bottom + (distance * 0.05),
-          expectedBottom: header.bottom + (distance * 0.83),
+          expectedBottom: header.bottom + (distance * 0.95),
           headerBottom: header.bottom,
           logoTop: logo.top,
           heroTop: hero.top,
@@ -908,12 +908,21 @@ test.describe('Homepage', () => {
       window.__bitbiPulseTransitions = [];
       const node = document.querySelector('#newsPulse');
       const observer = new MutationObserver(() => {
-        const entering = node?.querySelector('.news-pulse__mobile-item.is-entering');
-        const exiting = node?.querySelector('.news-pulse__mobile-item.is-exiting');
-        if (!entering || !exiting) return;
+        const scene = node?.querySelector('.news-pulse__mobile-cube-scene');
+        const cube = node?.querySelector('.news-pulse__mobile-cube.is-turning');
+        const front = node?.querySelector('.news-pulse__mobile-cube-face--front');
+        const right = node?.querySelector('.news-pulse__mobile-cube-face--right');
+        if (!scene || !cube || !front || !right) return;
         window.__bitbiPulseTransitions.push({
-          enteringAnimation: window.getComputedStyle(entering).animationName,
-          exitingAnimation: window.getComputedStyle(exiting).animationName,
+          sceneOverflow: window.getComputedStyle(scene).overflow,
+          cubeAnimation: window.getComputedStyle(cube).animationName,
+          cubeTransformStyle: window.getComputedStyle(cube).transformStyle,
+          frontBackface: window.getComputedStyle(front).backfaceVisibility,
+          rightBackface: window.getComputedStyle(right).backfaceVisibility,
+          frontTransform: window.getComputedStyle(front).transform,
+          rightTransform: window.getComputedStyle(right).transform,
+          settledActiveItems: node.querySelectorAll('.news-pulse__mobile-item.is-active').length,
+          transitionFaces: node.querySelectorAll('.news-pulse__mobile-cube-face').length,
           focusableLinks: [...node.querySelectorAll('.news-pulse__mobile-item a')]
             .filter((link) => link.tabIndex >= 0 && !link.hasAttribute('aria-hidden')).length,
         });
@@ -924,8 +933,14 @@ test.describe('Homepage', () => {
     await expect.poll(() => page.evaluate(() => window.__bitbiPulseTransitions?.length || 0), { timeout: 7000 })
       .toBeGreaterThan(0);
     const transition = await page.evaluate(() => window.__bitbiPulseTransitions[0]);
-    expect(transition.enteringAnimation).toContain('news-pulse-mobile-cube-in');
-    expect(transition.exitingAnimation).toContain('news-pulse-mobile-cube-out');
+    expect(transition.sceneOverflow).toBe('hidden');
+    expect(transition.cubeAnimation).toContain('news-pulse-mobile-cube-turn');
+    expect(transition.cubeTransformStyle).toBe('preserve-3d');
+    expect(transition.frontBackface).toBe('hidden');
+    expect(transition.rightBackface).toBe('hidden');
+    expect(transition.frontTransform).not.toBe(transition.rightTransform);
+    expect(transition.transitionFaces).toBe(2);
+    expect(transition.settledActiveItems).toBe(0);
     expect(transition.focusableLinks).toBe(0);
 
     await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toContainText('mobile-cube-pulse headline 2', {
