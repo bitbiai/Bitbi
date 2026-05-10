@@ -4,6 +4,11 @@
    ============================================================ */
 
 @layer components {
+    :root {
+        --bitbi-public-header-inset: clamp(0.7rem, 2vw, 1.4rem);
+        --bitbi-public-header-nav-gap: clamp(4.6rem, 7.1vw, 6.4rem);
+        --bitbi-public-header-pricing-offset: clamp(11rem, 15vw, 15.75rem);
+    }
 
     /* ── Container ── */
     .container {
@@ -210,6 +215,67 @@
 
     .site-nav__mood-value {
         color: rgba(0, 240, 255, 0.8);
+    }
+
+    @media (min-width: 1024px) {
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav > .container {
+            max-inline-size: none;
+            padding-inline: var(--bitbi-public-header-inset);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__bar {
+            position: relative;
+            grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr);
+            column-gap: 0;
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__logo {
+            grid-column: 1;
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links {
+            position: fixed;
+            grid-column: 2;
+            inset-block-start: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+            inset-inline-start: 50vw;
+            display: block;
+            inline-size: 1px;
+            block-size: 1px;
+            transform: translateY(-50%);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > .site-nav__link {
+            position: absolute;
+            inset-block-start: 50%;
+            white-space: nowrap;
+            transform: translateY(-50%);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="gallery"] {
+            inset-inline-end: var(--bitbi-public-header-nav-gap);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="video"] {
+            inset-inline-start: 0;
+            transform: translate(-50%, -50%);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-category-link="sound"] {
+            inset-inline-start: var(--bitbi-public-header-nav-gap);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__links > [data-pricing-link] {
+            inset-inline-start: var(--bitbi-public-header-pricing-offset);
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__mood {
+            display: none;
+        }
+
+        body:not(.generate-lab-page):not(:has(#adminHeroTitle)) .site-nav__actions {
+            grid-column: 3;
+            max-inline-size: min(43vw, 38rem);
+        }
     }
 
     .locale-switcher {

@@ -3639,7 +3639,7 @@ test.describe('Global header auth identity', () => {
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('desktop shared header keeps the legacy mood/email/profile layout when no avatar exists', async ({
+  test('desktop shared header places no-avatar account controls in the right header package', async ({
     page,
   }) => {
     await mockAuthenticatedProfile(page, {
@@ -3653,8 +3653,9 @@ test.describe('Global header auth identity', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('.site-nav__mood')).toBeVisible();
-    await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toBeVisible();
+    await expect(page.locator('.site-nav__mood')).toBeHidden();
+    await expect(page.locator('.site-nav__links .auth-nav__profile-link')).toHaveCount(0);
+    await expect(page.locator('.site-nav__actions .auth-nav__profile-link')).toBeVisible();
     await expect(page.locator('.auth-nav__avatar-link')).toHaveCount(0);
     await expect(page.locator('.auth-nav__email')).toHaveText('fallback@example.com');
   });
@@ -3717,7 +3718,9 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(pricingLink).toHaveAttribute('href', '/pricing.html');
     await expect
       .poll(() => page.locator('.site-nav__links > a').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing', 'Profile', 'Admin']);
+      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+    await expect(page.locator('.site-nav__actions .auth-nav__profile-link')).toBeVisible();
+    await expect(page.locator('.site-nav__actions .auth-nav__admin-link')).toBeVisible();
 
     await page.unroute('**/api/me');
     await page.route('**/api/me', async (route) => {

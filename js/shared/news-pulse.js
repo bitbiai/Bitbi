@@ -10,7 +10,7 @@ const MIN_WHEEL_DURATION_SECONDS = 38;
 const MAX_WHEEL_DURATION_SECONDS = 57;
 const WHEEL_DURATION_SECONDS_PER_SOURCE_ITEM = 9.4;
 const MOBILE_INTERVAL_MS = 5000;
-const MOBILE_ANIMATION_MS = 780;
+const MOBILE_ANIMATION_MS = 1560;
 const MOBILE_TOP_RATIO = 0.05;
 const MOBILE_BOTTOM_RATIO = 0.95;
 
@@ -329,6 +329,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             root.classList.remove('is-loading', 'is-empty', 'is-disabled', 'news-pulse--desktop');
             root.classList.add('is-ready', 'news-pulse--mobile');
             root.setAttribute('aria-label', localeText('newsPulse.label', {}, locale));
+            root.style.setProperty('--news-pulse-mobile-rotation-duration', `${MOBILE_ANIMATION_MS}ms`);
             root.removeAttribute('aria-hidden');
             root.replaceChildren();
 

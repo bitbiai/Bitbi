@@ -132,6 +132,7 @@ If you cannot run something, state exactly what was not run and why.
 - All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
 - All future non-admin changes must be checked and implemented for both English and German routes, pages, and locale strings.
 - Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity between English and German unless there is an explicit product reason not to.
+- Generate Lab is a separate member workspace; do not change `/generate-lab/`, `/de/generate-lab/`, or Generate Lab-specific header/layout/JS unless the task explicitly asks for it.
 - The Admin area is the exception: Admin remains English-only and must not be recreated under `/de/admin` or localized unless explicitly requested later.
 - Any Codex/agent implementation should inspect locale routing and German equivalents before declaring a non-admin task complete.
 

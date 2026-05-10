@@ -3,7 +3,7 @@
     position: absolute;
     inset-block-start: clamp(5.5rem, 14vh, 8rem);
     inset-block-end: clamp(3.75rem, 8vh, 5.5rem);
-    inset-inline-start: var(--homepage-hero-side-inset, clamp(0.7rem, 2vw, 1.4rem));
+    inset-inline-start: var(--homepage-hero-side-inset, var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem)));
     z-index: 3;
     width: var(--homepage-news-pulse-width, clamp(20rem, 29vw, 32rem));
     overflow: hidden;
@@ -307,7 +307,7 @@
     }
 
     .news-pulse--mobile .news-pulse__mobile-cube.is-turning {
-      animation: news-pulse-mobile-cube-turn 780ms cubic-bezier(0.22, 0.72, 0.18, 1) both;
+      animation: news-pulse-mobile-cube-turn var(--news-pulse-mobile-rotation-duration, 1560ms) cubic-bezier(0.22, 0.72, 0.18, 1) both;
     }
 
     .news-pulse--mobile .news-pulse__mobile-cube::after {

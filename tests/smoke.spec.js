@@ -916,6 +916,7 @@ test.describe('Homepage', () => {
         window.__bitbiPulseTransitions.push({
           sceneOverflow: window.getComputedStyle(scene).overflow,
           cubeAnimation: window.getComputedStyle(cube).animationName,
+          cubeAnimationDuration: window.getComputedStyle(cube).animationDuration,
           cubeTransformStyle: window.getComputedStyle(cube).transformStyle,
           frontBackface: window.getComputedStyle(front).backfaceVisibility,
           rightBackface: window.getComputedStyle(right).backfaceVisibility,
@@ -935,6 +936,9 @@ test.describe('Homepage', () => {
     const transition = await page.evaluate(() => window.__bitbiPulseTransitions[0]);
     expect(transition.sceneOverflow).toBe('hidden');
     expect(transition.cubeAnimation).toContain('news-pulse-mobile-cube-turn');
+    const durationSeconds = Number.parseFloat(transition.cubeAnimationDuration);
+    expect(durationSeconds).toBeGreaterThanOrEqual(1.5);
+    expect(durationSeconds).toBeLessThanOrEqual(1.7);
     expect(transition.cubeTransformStyle).toBe('preserve-3d');
     expect(transition.frontBackface).toBe('hidden');
     expect(transition.rightBackface).toBe('hidden');
@@ -944,7 +948,7 @@ test.describe('Homepage', () => {
     expect(transition.focusableLinks).toBe(0);
 
     await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toContainText('mobile-cube-pulse headline 2', {
-      timeout: 3000,
+      timeout: 4500,
     });
     await expect(pulse.locator('.news-pulse__mobile-item')).toHaveCount(1);
     const settled = await pulse.evaluate((node) => ({
@@ -1096,33 +1100,72 @@ test.describe('Homepage', () => {
       .toBeGreaterThan(120);
   });
 
-  test('desktop header keeps the centered public navigation links', async ({ page }) => {
+  test('desktop homepage header aligns the public nav group and removes the mood pill', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
-    await page.goto('/');
-    const nav = page.locator('#navbar .site-nav__links');
+    for (const { path, labels, pricingHref } of [
+      { path: '/', labels: ['Gallery', 'Video', 'Sound Lab', 'Pricing'], pricingHref: '/pricing.html' },
+      { path: '/de/', labels: ['Galerie', 'Video', 'Sound Lab', 'Preise'], pricingHref: '/de/pricing.html' },
+    ]) {
+      await page.goto(path);
+      const nav = page.locator('#navbar .site-nav__links');
 
-    await expect(nav.getByRole('link', { name: 'Gallery' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Sound Lab' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Pricing' })).toHaveAttribute('href', '/pricing.html');
-    await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
+      await expect(nav.getByRole('link', { name: labels[0] })).toBeVisible();
+      await expect(nav.getByRole('link', { name: labels[1] })).toBeVisible();
+      await expect(nav.getByRole('link', { name: labels[2] })).toBeVisible();
+      await expect(nav.getByRole('link', { name: labels[3] })).toHaveAttribute('href', pricingHref);
+      await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
+      await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
+      await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
 
-    await expect
-      .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-      .toEqual(['Gallery', 'Video', 'Sound Lab', 'Pricing']);
+      await expect
+        .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
+        .toEqual(labels);
 
-    const centerDelta = await page.evaluate(() => {
-      const navEl = document.querySelector('#navbar .site-nav__links');
-      const barEl = document.querySelector('#navbar .site-nav__bar');
-      if (!navEl || !barEl) return null;
-      const navRect = navEl.getBoundingClientRect();
-      const barRect = barEl.getBoundingClientRect();
-      return Math.abs((navRect.left + (navRect.width / 2)) - (barRect.left + (barRect.width / 2)));
-    });
+      const metrics = await page.evaluate(() => {
+        const rect = (selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const box = element.getBoundingClientRect();
+          return {
+            left: box.left,
+            right: box.right,
+            width: box.width,
+          };
+        };
+        const mood = document.querySelector('#navbar .site-nav__mood');
+        return {
+          viewportWidth: window.innerWidth,
+          logo: rect('#navbar .site-nav__logo'),
+          pulse: rect('#hero > #newsPulse'),
+          gallery: rect('#navbar [data-category-link="gallery"]'),
+          video: rect('#navbar [data-category-link="video"]'),
+          sound: rect('#navbar [data-category-link="sound"]'),
+          actions: rect('#navbar .site-nav__actions'),
+          moodDisplay: mood ? window.getComputedStyle(mood).display : null,
+          moodWidth: mood ? mood.getBoundingClientRect().width : null,
+        };
+      });
 
-    expect(centerDelta).not.toBeNull();
-    expect(centerDelta).toBeLessThanOrEqual(2);
+      expect(metrics.logo).toBeTruthy();
+      expect(metrics.pulse).toBeTruthy();
+      expect(metrics.gallery.right).toBeLessThan(metrics.video.left);
+      expect(metrics.sound.left).toBeGreaterThan(metrics.video.right);
+      expectWithinPx(
+        metrics.video.left + (metrics.video.width / 2),
+        metrics.viewportWidth / 2,
+        `${path} video nav center`,
+        2,
+      );
+      expectWithinPx(metrics.logo.left, metrics.pulse.left, `${path} logo/news left inset`, 4);
+      expectWithinPx(
+        metrics.viewportWidth - metrics.actions.right,
+        metrics.logo.left,
+        `${path} right actions inset`,
+        4,
+      );
+      expect(metrics.moodDisplay).toBe('none');
+      expect(metrics.moodWidth).toBe(0);
+    }
   });
 
   test('cross-page header links land Gallery, Video, and Sound Lab with the same fixed-header-safe alignment', async ({ page }) => {
@@ -1757,6 +1800,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop Workspace');
+    await expect(page.locator('header .site-nav__mood')).toBeVisible();
     await expect(page.locator('header .locale-switcher__link[hreflang="de"]')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Sign Out');
@@ -1784,6 +1828,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('header .site-nav__context-label')).toHaveText('Desktop-Arbeitsbereich');
+    await expect(page.locator('header .site-nav__mood')).toBeVisible();
     await expect(page.locator('header .locale-switcher__link[hreflang="en"]')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Abmelden');
@@ -4165,7 +4210,7 @@ test.describe('Legal pages', () => {
 });
 
 test.describe('Shared MODELS overlay', () => {
-  test('shared subpage desktop header keeps the centered public navigation links', async ({ page }) => {
+  test('shared subpage desktop header keeps the centered public navigation links without the mood pill', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.goto('/legal/imprint.html');
 
@@ -4180,17 +4225,38 @@ test.describe('Shared MODELS overlay', () => {
     await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
 
-    const centerDelta = await page.evaluate(() => {
-      const navEl = document.querySelector('#navbar .site-nav__links');
-      const barEl = document.querySelector('#navbar .site-nav__bar');
-      if (!navEl || !barEl) return null;
-      const navRect = navEl.getBoundingClientRect();
-      const barRect = barEl.getBoundingClientRect();
-      return Math.abs((navRect.left + (navRect.width / 2)) - (barRect.left + (barRect.width / 2)));
+    const metrics = await page.evaluate(() => {
+      const rect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          width: box.width,
+        };
+      };
+      const mood = document.querySelector('#navbar .site-nav__mood');
+      return {
+        viewportWidth: window.innerWidth,
+        logo: rect('#navbar .site-nav__logo'),
+        video: rect('#navbar [data-category-link="video"]'),
+        actions: rect('#navbar .site-nav__actions'),
+        moodDisplay: mood ? window.getComputedStyle(mood).display : null,
+        moodWidth: mood ? mood.getBoundingClientRect().width : null,
+      };
     });
 
-    expect(centerDelta).not.toBeNull();
-    expect(centerDelta).toBeLessThanOrEqual(2);
+    expect(metrics.video).toBeTruthy();
+    expectWithinPx(
+      metrics.video.left + (metrics.video.width / 2),
+      metrics.viewportWidth / 2,
+      'shared subpage video nav center',
+      2,
+    );
+    expectWithinPx(metrics.viewportWidth - metrics.actions.right, metrics.logo.left, 'shared subpage right actions inset', 4);
+    expect(metrics.moodDisplay).toBe('none');
+    expect(metrics.moodWidth).toBe(0);
     await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
   });
 

@@ -59,6 +59,10 @@ function buildDesktopIdentity(user) {
     return identity;
 }
 
+function usesReorganizedPublicHeader() {
+    return !document.body.classList.contains('generate-lab-page') && !document.getElementById('adminHeroTitle');
+}
+
 function renderMobileHeaderIdentity(user) {
     const bar = document.querySelector('.site-nav__bar');
     const menuBtn = document.getElementById('mobileMenuBtn');
@@ -91,13 +95,13 @@ function renderDesktop() {
     let wrap = actions.querySelector('.auth-nav__wrap');
     if (wrap) wrap.remove();
     const mood = actions.querySelector('.site-nav__mood');
+    const useActionLinks = usesReorganizedPublicHeader();
 
     // Remove any previous injected links
     const navLinks = document.querySelector('.site-nav__links');
-    const oldAdminLink = navLinks?.querySelector('.auth-nav__admin-link');
-    if (oldAdminLink) oldAdminLink.remove();
-    const oldProfileLink = navLinks?.querySelector('.auth-nav__profile-link');
-    if (oldProfileLink) oldProfileLink.remove();
+    document
+        .querySelectorAll('.site-nav__links .auth-nav__admin-link, .site-nav__links .auth-nav__profile-link, .site-nav__actions .auth-nav__admin-link, .site-nav__actions .auth-nav__profile-link')
+        .forEach((link) => link.remove());
 
     wrap = document.createElement('span');
     wrap.className = 'auth-nav__wrap';
@@ -115,7 +119,7 @@ function renderDesktop() {
             email.className = 'auth-nav__email auth-nav__email-link';
             email.textContent = user?.email || localeText('auth.member');
             wrap.appendChild(email);
-            if (mood) mood.hidden = false;
+            if (mood) mood.hidden = useActionLinks;
         }
 
         const logout = document.createElement('button');
@@ -126,24 +130,26 @@ function renderDesktop() {
         wrap.appendChild(logout);
 
         // Profile link — only when the header stays in the legacy no-avatar state
-        if (navLinks && !hasAvatar(user)) {
+        const profileLinkTarget = useActionLinks ? actions : navLinks;
+        if (profileLinkTarget && !hasAvatar(user)) {
             const profileLink = document.createElement('a');
             profileLink.href = withGenerateLabReturnContext(localizedHref('/account/profile.html'));
             profileLink.className = 'site-nav__link nav-link auth-nav__profile-link';
             profileLink.textContent = localeText('auth.profile');
-            navLinks.appendChild(profileLink);
+            profileLinkTarget.appendChild(profileLink);
         }
 
         // Admin link — Pricing is a public shared-header link for every visitor.
-        if (user?.role === 'admin' && navLinks) {
+        const adminLinkTarget = useActionLinks ? actions : navLinks;
+        if (user?.role === 'admin' && adminLinkTarget) {
             const adminLink = document.createElement('a');
             adminLink.href = localizedHref('/admin/');
             adminLink.className = 'site-nav__link nav-link auth-nav__admin-link';
             adminLink.textContent = localeText('auth.admin');
-            navLinks.appendChild(adminLink);
+            adminLinkTarget.appendChild(adminLink);
         }
     } else {
-        if (mood) mood.hidden = false;
+        if (mood) mood.hidden = useActionLinks;
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'site-nav__cta pulse-glow';
