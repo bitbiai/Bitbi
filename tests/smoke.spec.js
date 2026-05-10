@@ -232,9 +232,24 @@ async function getGenerateLabHeaderMetrics(page) {
       };
     };
     const logo = document.querySelector('header .site-nav__logo');
+    const insetProbe = document.createElement('div');
+    insetProbe.style.cssText = [
+      'position: fixed',
+      'inset-block-start: 0',
+      'inset-inline-start: var(--bitbi-public-header-inset)',
+      'inline-size: 0',
+      'block-size: 0',
+      'pointer-events: none',
+    ].join(';');
+    document.body.appendChild(insetProbe);
+    const headerInset = insetProbe.getBoundingClientRect().left;
+    insetProbe.remove();
     return {
+      viewportWidth: window.innerWidth,
+      publicHeaderInset: headerInset,
       logo: rectFor('header .site-nav__logo'),
       headerBar: rectFor('header .site-nav__bar'),
+      headerStatus: rectFor('#generateLabHeaderStatus'),
       actions: rectFor('header .site-nav__actions'),
       workspace: rectFor('.generate-lab__desktop'),
       title: rectFor('#generateLabTitle'),
@@ -253,10 +268,21 @@ async function expectGenerateLabHeaderAligned(page, { locale }) {
   await expect(page.locator('header .auth-nav__logout')).toBeVisible();
   const metrics = await getGenerateLabHeaderMetrics(page);
 
-  expectWithinPx(metrics.headerBar.left, metrics.workspace.left, `${locale} header left edge`);
-  expectWithinPx(metrics.headerBar.right, metrics.workspace.right, `${locale} header right edge`);
-  expectWithinPx(metrics.logo.left, metrics.title.left, `${locale} Generate Lab brand/title alignment`);
-  expectWithinPx(metrics.actions.right, metrics.subtitle.right, `${locale} header actions/subtitle right alignment`);
+  expectWithinPx(metrics.logo.left, metrics.publicHeaderInset, `${locale} Generate Lab public left inset`);
+  expectWithinPx(
+    metrics.viewportWidth - metrics.actions.right,
+    metrics.publicHeaderInset,
+    `${locale} Generate Lab public right inset`,
+  );
+  expectWithinPx(
+    metrics.headerStatus.left + (metrics.headerStatus.width / 2),
+    metrics.viewportWidth / 2,
+    `${locale} Generate Lab center header status`,
+  );
+  expect(metrics.headerBar.left).toBeLessThan(metrics.workspace.left);
+  expect(metrics.headerBar.right).toBeGreaterThan(metrics.workspace.right);
+  expect(metrics.title.left).toBeGreaterThan(metrics.logo.left);
+  expect(metrics.subtitle.right).toBeLessThan(metrics.actions.right);
   expect(metrics.logoHref).toBeNull();
   expect(metrics.logoTarget).toBeNull();
   expect(metrics.logoRel).toBeNull();
@@ -1788,7 +1814,7 @@ test.describe('Homepage', () => {
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
   });
 
-  test('English Generate Lab header aligns to the workspace shell and disables the current-page brand link', async ({ page }) => {
+  test('English Generate Lab header uses public outer insets and disables the current-page brand link', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     const session = await mockGenerateLabMemberSession(page, {
       email: 'align@bitbi.ai',
@@ -1816,7 +1842,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('header .site-nav__cta')).toHaveText('Sign In');
   });
 
-  test('German Generate Lab header aligns to the workspace shell and disables the current-page brand link', async ({ page }) => {
+  test('German Generate Lab header uses public outer insets and disables the current-page brand link', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     const session = await mockGenerateLabMemberSession(page, {
       email: 'ausrichtung@bitbi.ai',

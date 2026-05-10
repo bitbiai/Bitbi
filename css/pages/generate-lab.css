@@ -50,6 +50,13 @@
         padding-inline: var(--generate-lab-shell-padding-x);
     }
 
+    @media (min-width: 1024px) {
+        body.generate-lab-page .site-nav > .container {
+            max-inline-size: none;
+            padding-inline: var(--bitbi-public-header-inset, var(--generate-lab-shell-padding-x));
+        }
+    }
+
     body.generate-lab-page .site-nav__logo--current {
         cursor: default;
     }
