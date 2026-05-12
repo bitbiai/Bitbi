@@ -343,6 +343,14 @@ function mapOpenClawValidationError(error) {
       reason: "news_pulse_table_missing",
     });
   }
+  if (String(error?.message || error).includes("no such column") &&
+      String(error?.message || error).includes("visual_")) {
+    return new OpenClawIngestError("OpenClaw ingest is not configured.", {
+      status: 503,
+      code: "openclaw_ingest_not_configured",
+      reason: "news_pulse_visual_schema_missing",
+    });
+  }
   return error;
 }
 

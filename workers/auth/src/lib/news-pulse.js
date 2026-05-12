@@ -1,4 +1,8 @@
 import { sha256Hex } from "./tokens.js";
+import {
+  buildSafeNewsPulseVisualPrompt,
+  getNewsPulseVisualThumbUrl,
+} from "./news-pulse-visuals.js";
 
 export const NEWS_PULSE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=1800";
 export const NEWS_PULSE_MAX_ITEMS = 8;
@@ -122,6 +126,11 @@ function isMissingNewsPulseTable(error) {
     String(error?.message || error).includes("news_pulse_items");
 }
 
+function isMissingNewsPulseVisualColumns(error) {
+  return String(error?.message || error).includes("no such column") &&
+    String(error?.message || error).includes("visual_");
+}
+
 function clampText(value, maxLength) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
@@ -149,6 +158,19 @@ function normalizeVisualUrl(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeServedVisualUrl(value) {
+  const raw = String(value || "").trim();
+  if (
+    raw.startsWith("/api/public/news-pulse/thumbs/") &&
+    !raw.includes("\\") &&
+    !raw.includes("//") &&
+    !/[\u0000-\u001f\u007f]/.test(raw)
+  ) {
+    return raw;
+  }
+  return normalizeVisualUrl(raw);
 }
 
 function normalizeIsoDate(value, fallback = SEED_UPDATED_AT) {
@@ -284,6 +306,14 @@ export async function normalizeOpenClawNewsPulseItem(item, {
   const visualUrl = normalizeOpenClawVisualUrl(item.visual_url);
   const externalId = normalizeOpenClawExternalId(item.external_id);
   normalizeOpenClawTags(item.tags);
+  const visualPrompt = buildSafeNewsPulseVisualPrompt({
+    title,
+    summary,
+    source,
+    url,
+    category,
+    visual_prompt: item.visual_prompt,
+  });
   const id = await buildOpenClawNewsPulseId({ locale: normalizedLocale, external_id: externalId, url });
   const contentHash = await sha256Hex(JSON.stringify({
     locale: normalizedLocale,
@@ -309,6 +339,7 @@ export async function normalizeOpenClawNewsPulseItem(item, {
     published_at: publishedAt,
     visual_type: visualType,
     visual_url: visualUrl,
+    visual_prompt: visualPrompt,
     source_key: `openclaw:${normalizedAgent}`,
     content_hash: contentHash,
     expires_at: new Date(Date.parse(createdAt) + NEWS_PULSE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
@@ -366,7 +397,7 @@ function normalizeNewsPulseItem(row, locale) {
   const summary = clampText(row?.summary, 240);
   const source = clampText(row?.source, 80);
   if (!url || !title || !summary || !source) return null;
-  return {
+  const base = {
     id: clampText(row?.id || `${locale}-${url}`, 96),
     title,
     summary,
@@ -374,6 +405,24 @@ function normalizeNewsPulseItem(row, locale) {
     url,
     category: clampText(row?.category || (locale === "de" ? "KI" : "AI"), 48),
     published_at: normalizeIsoDate(row?.published_at),
+  };
+  const readyThumbUrl = row?.visual_status === "ready"
+    ? normalizeServedVisualUrl(row?.visual_thumb_url || row?.visual_url || getNewsPulseVisualThumbUrl(base.id))
+    : null;
+  if (readyThumbUrl) {
+    const visualAlt = locale === "de"
+      ? `Generiertes abstraktes Thumbnail für ${title}`
+      : `Generated abstract thumbnail for ${title}`;
+    return {
+      ...base,
+      visual_type: "generated",
+      visual_url: readyThumbUrl,
+      visual_thumb_url: readyThumbUrl,
+      visual_alt: clampText(visualAlt, 180),
+    };
+  }
+  return {
+    ...base,
     visual_type: normalizeVisualType(row?.visual_type),
     visual_url: row?.visual_url ? normalizeVisualUrl(row.visual_url) : null,
   };
@@ -394,13 +443,26 @@ export async function getNewsPulseItems(env, locale, { now = new Date().toISOStr
   }
 
   try {
-    const result = await env.DB.prepare(
-      `SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, updated_at
+    let result;
+    try {
+      result = await env.DB.prepare(
+        `SELECT id, title, summary, source, url, category, published_at,
+                visual_type, visual_url, visual_status, visual_thumb_url, updated_at
+         FROM news_pulse_items
+         WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+         ORDER BY published_at DESC, updated_at DESC
+         LIMIT ?`
+      ).bind(normalizedLocale, now, NEWS_PULSE_MAX_ITEMS).all();
+    } catch (error) {
+      if (!isMissingNewsPulseVisualColumns(error)) throw error;
+      result = await env.DB.prepare(
+        `SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, updated_at
        FROM news_pulse_items
        WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
        ORDER BY published_at DESC, updated_at DESC
        LIMIT ?`
-    ).bind(normalizedLocale, now, NEWS_PULSE_MAX_ITEMS).all();
+      ).bind(normalizedLocale, now, NEWS_PULSE_MAX_ITEMS).all();
+    }
     const items = (result?.results || [])
       .map((row) => normalizeNewsPulseItem(row, normalizedLocale))
       .filter(Boolean);
@@ -544,6 +606,13 @@ async function normalizeFetchedItem(item, sourceUrl, now, locale = "en") {
     published_at: normalizeIsoDate(item?.published_at, now),
     visual_type: "icon",
     visual_url: null,
+    visual_prompt: buildSafeNewsPulseVisualPrompt({
+      title,
+      summary,
+      source,
+      url,
+      category: item?.category || "AI",
+    }),
     source_key: sourceUrl,
     content_hash: hash,
     expires_at: new Date(Date.parse(now) + NEWS_PULSE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
@@ -556,8 +625,9 @@ async function storeNewsPulseItem(env, item) {
   await env.DB.prepare(
     `INSERT INTO news_pulse_items (
        id, locale, title, summary, source, url, category, published_at, visual_type, visual_url,
-       status, source_key, content_hash, expires_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+       visual_prompt, visual_status, visual_object_key, visual_thumb_url, visual_generated_at, visual_error,
+       visual_attempts, visual_updated_at, status, source_key, content_hash, expires_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'missing', NULL, NULL, NULL, NULL, 0, ?, 'active', ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
        summary = excluded.summary,
@@ -565,8 +635,46 @@ async function storeNewsPulseItem(env, item) {
        url = excluded.url,
        category = excluded.category,
        published_at = excluded.published_at,
-       visual_type = excluded.visual_type,
-       visual_url = excluded.visual_url,
+       visual_type = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN excluded.visual_type
+         ELSE news_pulse_items.visual_type
+       END,
+       visual_url = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN excluded.visual_url
+         ELSE news_pulse_items.visual_url
+       END,
+       visual_prompt = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN excluded.visual_prompt
+         ELSE news_pulse_items.visual_prompt
+       END,
+       visual_status = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN 'missing'
+         ELSE news_pulse_items.visual_status
+       END,
+       visual_object_key = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_object_key
+       END,
+       visual_thumb_url = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_thumb_url
+       END,
+       visual_generated_at = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_generated_at
+       END,
+       visual_error = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN NULL
+         ELSE news_pulse_items.visual_error
+       END,
+       visual_attempts = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN 0
+         ELSE news_pulse_items.visual_attempts
+       END,
+       visual_updated_at = CASE
+         WHEN COALESCE(news_pulse_items.content_hash, '') <> COALESCE(excluded.content_hash, '') THEN excluded.updated_at
+         ELSE news_pulse_items.visual_updated_at
+       END,
        status = 'active',
        source_key = excluded.source_key,
        content_hash = excluded.content_hash,
@@ -583,6 +691,8 @@ async function storeNewsPulseItem(env, item) {
     item.published_at,
     item.visual_type,
     item.visual_url,
+    item.visual_prompt || buildSafeNewsPulseVisualPrompt(item),
+    item.updated_at,
     item.source_key,
     item.content_hash,
     item.expires_at,

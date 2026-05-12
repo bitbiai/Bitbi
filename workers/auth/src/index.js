@@ -17,7 +17,7 @@ import { handleBillingWebhooks } from "./routes/billing-webhooks.js";
 import { handleGallery } from "./routes/gallery.js";
 import { handleVideoGallery } from "./routes/video-gallery.js";
 import { handleAudioGallery } from "./routes/audio-gallery.js";
-import { handlePublicNewsPulse } from "./routes/public-news-pulse.js";
+import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/public-news-pulse.js";
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
@@ -52,6 +52,9 @@ import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
 import { refreshNewsPulse } from "./lib/news-pulse.js";
+import {
+  processNewsPulseVisualBackfill,
+} from "./lib/news-pulse-visuals.js";
 import {
   assertSharedRateLimitInfraReady,
   isProductionEnvironment,
@@ -210,6 +213,7 @@ export default {
     }
 
     if (pathname === "/api/health" && method === "GET") return handleHealth();
+    if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb(ctx);
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
     // route-policy: openclaw.news_pulse.ingest
     if (pathname === "/api/openclaw/news-pulse/ingest" && method === "POST") return handleOpenClawNewsPulseIngest(ctx);
@@ -477,6 +481,34 @@ export default {
         event: "news_pulse_refresh_failed",
         level: "warn",
         ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const pulseVisuals = await processNewsPulseVisualBackfill({ env, now });
+      if (
+        pulseVisuals.readyCount > 0 ||
+        pulseVisuals.failedCount > 0 ||
+        pulseVisuals.skippedCount > 0
+      ) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-news-pulse-visuals",
+          event: "news_pulse_visual_backfill_completed",
+          level: pulseVisuals.failedCount > 0 ? "warn" : "info",
+          scanned_count: pulseVisuals.scannedCount,
+          ready_count: pulseVisuals.readyCount,
+          failed_count: pulseVisuals.failedCount,
+          skipped_count: pulseVisuals.skippedCount,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-news-pulse-visuals",
+        event: "news_pulse_visual_backfill_failed",
+        level: "warn",
+        ...getErrorFields(error, { includeMessage: false }),
       });
     }
 

@@ -481,6 +481,7 @@ const baseManifest = {
       "/api/orgs",
     ],
     delegatedPrefixes: [
+      "/api/public/news-pulse/thumbs/",
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",
@@ -829,6 +830,7 @@ function createValidContext() {
     `,
     authIndexSource: `
       if (pathname === "/api/health" && method === "GET") return handleHealth();
+      if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb();
       if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse();
       if (pathname === "/api/me" && method === "GET") return handleMe();
       if (pathname === "/api/register" && method === "POST") return handleRegister();

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0044_add_openclaw_ingest_nonces.sql",
+        "latest": "0045_add_news_pulse_visuals.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -519,6 +519,7 @@
       "/api/orgs"
     ],
     "delegatedPrefixes": [
+      "/api/public/news-pulse/thumbs/",
       "/api/admin/",
       "/api/ai/",
       "/api/gallery/",

@@ -93,6 +93,12 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB"],
     rateLimit: { noneReason: "Read-only public homepage pulse; response is small, cached, and bounded." },
   }),
+  safeRead("public.news_pulse.thumb.read", "GET", "/api/public/news-pulse/thumbs/:id", "homepage", {
+    auth: "anonymous",
+    sensitivity: "low",
+    config: ["DB", "USER_IMAGES"],
+    rateLimit: { noneReason: "Read-only public thumbnail route; object keys are looked up from ready D1 rows and never accepted from the request." },
+  }),
   policy({
     id: "openclaw.news_pulse.ingest",
     method: "POST",

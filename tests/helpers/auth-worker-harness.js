@@ -6664,7 +6664,8 @@ class MockD1 {
       return { cnt: this.state.adminAuditLog.filter((row) => row.target_user_id === userId).length };
     }
 
-    if (query === "SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, updated_at FROM news_pulse_items WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY published_at DESC, updated_at DESC LIMIT ?") {
+    if (query === "SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, visual_status, visual_thumb_url, updated_at FROM news_pulse_items WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY published_at DESC, updated_at DESC LIMIT ?" ||
+        query === "SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, updated_at FROM news_pulse_items WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY published_at DESC, updated_at DESC LIMIT ?") {
       const [locale, now, limit] = bindings;
       const rows = (this.state.newsPulseItems || [])
         .filter((row) => row.locale === locale && row.status === 'active' && (!row.expires_at || row.expires_at > now))
@@ -6685,9 +6686,97 @@ class MockD1 {
           published_at: row.published_at,
           visual_type: row.visual_type,
           visual_url: row.visual_url ?? null,
+          visual_status: row.visual_status ?? 'missing',
+          visual_thumb_url: row.visual_thumb_url ?? null,
           updated_at: row.updated_at,
         }));
       return { results: rows };
+    }
+
+    if (query === "SELECT visual_object_key FROM news_pulse_items WHERE id = ? AND status = 'active' AND visual_status = 'ready' AND visual_object_key IS NOT NULL AND (expires_at IS NULL OR expires_at > ?) LIMIT 1") {
+      const [id, now] = bindings;
+      const row = (this.state.newsPulseItems || [])
+        .find((item) =>
+          item.id === id &&
+          item.status === 'active' &&
+          item.visual_status === 'ready' &&
+          item.visual_object_key &&
+          (!item.expires_at || item.expires_at > now)
+        );
+      return row ? { visual_object_key: row.visual_object_key } : null;
+    }
+
+    if (query === "SELECT id, locale, title, summary, source, url, category, published_at, visual_prompt, visual_status, visual_attempts, expires_at, updated_at FROM news_pulse_items WHERE status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (visual_status = 'missing' OR visual_status = 'failed') AND COALESCE(visual_attempts, 0) < ? ORDER BY published_at DESC, updated_at DESC LIMIT ?") {
+      const [now, maxAttempts, limit] = bindings;
+      const rows = (this.state.newsPulseItems || [])
+        .filter((row) =>
+          row.status === 'active' &&
+          (!row.expires_at || row.expires_at > now) &&
+          ['missing', 'failed'].includes(row.visual_status || 'missing') &&
+          Number(row.visual_attempts || 0) < Number(maxAttempts || 3)
+        )
+        .slice()
+        .sort((a, b) => {
+          const published = String(b.published_at || '').localeCompare(String(a.published_at || ''));
+          if (published !== 0) return published;
+          return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        })
+        .slice(0, Number(limit) || 2)
+        .map((row) => ({ ...row }));
+      return { results: rows };
+    }
+
+    if (query === "UPDATE news_pulse_items SET visual_status = 'pending', visual_error = NULL, visual_attempts = COALESCE(visual_attempts, 0) + 1, visual_updated_at = ? WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (visual_status = 'missing' OR visual_status = 'failed') AND COALESCE(visual_attempts, 0) < ?") {
+      const [updatedAt, id, now, maxAttempts] = bindings;
+      const row = this.state.newsPulseItems.find((item) =>
+        item.id === id &&
+        item.status === 'active' &&
+        (!item.expires_at || item.expires_at > now) &&
+        ['missing', 'failed'].includes(item.visual_status || 'missing') &&
+        Number(item.visual_attempts || 0) < Number(maxAttempts || 3)
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.visual_status = 'pending';
+      row.visual_error = null;
+      row.visual_attempts = Number(row.visual_attempts || 0) + 1;
+      row.visual_updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE news_pulse_items SET visual_type = 'generated', visual_url = ?, visual_prompt = ?, visual_status = 'ready', visual_object_key = ?, visual_thumb_url = ?, visual_generated_at = ?, visual_error = NULL, visual_updated_at = ? WHERE id = ? AND visual_status = 'pending'") {
+      const [visualUrl, visualPrompt, objectKey, thumbUrl, generatedAt, updatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id && item.visual_status === 'pending');
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.visual_type = 'generated';
+      row.visual_url = visualUrl;
+      row.visual_prompt = visualPrompt;
+      row.visual_status = 'ready';
+      row.visual_object_key = objectKey;
+      row.visual_thumb_url = thumbUrl;
+      row.visual_generated_at = generatedAt;
+      row.visual_error = null;
+      row.visual_updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE news_pulse_items SET visual_status = 'failed', visual_error = ?, visual_updated_at = ? WHERE id = ? AND visual_status = 'pending'") {
+      const [visualError, updatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id && item.visual_status === 'pending');
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.visual_status = 'failed';
+      row.visual_error = visualError;
+      row.visual_updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE news_pulse_items SET visual_status = 'skipped', visual_error = ?, visual_updated_at = ? WHERE id = ? AND (visual_status = 'missing' OR visual_status = 'failed' OR visual_status = 'pending')") {
+      const [visualError, updatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id && ['missing', 'failed', 'pending'].includes(item.visual_status || 'missing'));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.visual_status = 'skipped';
+      row.visual_error = visualError;
+      row.visual_updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query === 'DELETE FROM news_pulse_items WHERE expires_at IS NOT NULL AND expires_at < ?') {
@@ -6709,13 +6798,24 @@ class MockD1 {
         publishedAt,
         visualType,
         visualUrl,
-        sourceKey,
-        contentHash,
-        expiresAt,
-        createdAt,
-        updatedAt,
+        visualPromptOrSourceKey,
+        visualUpdatedAtOrContentHash,
+        sourceKeyOrExpiresAt,
+        contentHashOrCreatedAt,
+        expiresAtOrUpdatedAt,
+        createdAtMaybe,
+        updatedAtMaybe,
       ] = bindings;
       const existing = this.state.newsPulseItems.find((row) => row.id === id);
+      const hasVisualColumns = bindings.length >= 17;
+      const visualPrompt = hasVisualColumns ? visualPromptOrSourceKey : null;
+      const visualUpdatedAt = hasVisualColumns ? visualUpdatedAtOrContentHash : null;
+      const sourceKey = hasVisualColumns ? sourceKeyOrExpiresAt : visualPromptOrSourceKey;
+      const contentHash = hasVisualColumns ? contentHashOrCreatedAt : visualUpdatedAtOrContentHash;
+      const expiresAt = hasVisualColumns ? expiresAtOrUpdatedAt : sourceKeyOrExpiresAt;
+      const createdAt = hasVisualColumns ? createdAtMaybe : contentHashOrCreatedAt;
+      const updatedAt = hasVisualColumns ? updatedAtMaybe : expiresAtOrUpdatedAt;
+      const contentChanged = !existing || String(existing.content_hash || '') !== String(contentHash || '');
       const next = {
         id,
         locale,
@@ -6725,8 +6825,20 @@ class MockD1 {
         url,
         category,
         published_at: publishedAt,
-        visual_type: visualType,
-        visual_url: visualUrl ?? null,
+        visual_type: hasVisualColumns && !contentChanged ? existing?.visual_type ?? visualType : visualType,
+        visual_url: hasVisualColumns && !contentChanged ? existing?.visual_url ?? visualUrl ?? null : visualUrl ?? null,
+        visual_prompt: hasVisualColumns
+          ? (contentChanged ? visualPrompt : existing?.visual_prompt ?? visualPrompt)
+          : existing?.visual_prompt ?? null,
+        visual_status: hasVisualColumns
+          ? (contentChanged ? 'missing' : existing?.visual_status ?? 'missing')
+          : existing?.visual_status ?? 'missing',
+        visual_object_key: hasVisualColumns && contentChanged ? null : existing?.visual_object_key ?? null,
+        visual_thumb_url: hasVisualColumns && contentChanged ? null : existing?.visual_thumb_url ?? null,
+        visual_generated_at: hasVisualColumns && contentChanged ? null : existing?.visual_generated_at ?? null,
+        visual_error: hasVisualColumns && contentChanged ? null : existing?.visual_error ?? null,
+        visual_attempts: hasVisualColumns && contentChanged ? 0 : Number(existing?.visual_attempts || 0),
+        visual_updated_at: hasVisualColumns && contentChanged ? visualUpdatedAt : existing?.visual_updated_at ?? visualUpdatedAt ?? null,
         status: 'active',
         source_key: sourceKey,
         content_hash: contentHash,

@@ -29,13 +29,29 @@ function validNewsUrl(value) {
     }
 }
 
+function validVisualThumbUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || /[\u0000-\u001f\u007f\\]/.test(raw)) return '';
+    try {
+        const url = new URL(raw, window.location.origin);
+        if (url.origin !== window.location.origin) return '';
+        if (!url.pathname.startsWith('/api/public/news-pulse/thumbs/')) return '';
+        return `${url.pathname}${url.search}`;
+    } catch {
+        return '';
+    }
+}
+
 function normalizeItem(item) {
     const url = validNewsUrl(item?.url);
     const title = String(item?.title || '').replace(/\s+/g, ' ').trim();
     const summary = String(item?.summary || '').replace(/\s+/g, ' ').trim();
     const source = String(item?.source || '').replace(/\s+/g, ' ').trim();
     if (!url || !title || !summary || !source) return null;
-    return {
+    const visualThumbUrl = String(item?.visual_type || '').trim().toLowerCase() === 'generated'
+        ? validVisualThumbUrl(item?.visual_thumb_url || item?.visual_url)
+        : '';
+    const normalized = {
         id: String(item?.id || url).slice(0, 96),
         title: title.slice(0, 160),
         summary: summary.slice(0, 220),
@@ -43,6 +59,14 @@ function normalizeItem(item) {
         category: String(item?.category || 'AI').replace(/\s+/g, ' ').trim().slice(0, 48),
         url,
     };
+    if (visualThumbUrl) {
+        normalized.visual_thumb_url = visualThumbUrl;
+        normalized.visual_alt = String(item?.visual_alt || `Generated abstract thumbnail for ${title}`)
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 180);
+    }
+    return normalized;
 }
 
 async function fetchNewsPulse(locale) {
@@ -65,7 +89,7 @@ function createElement(tagName, className, text = '') {
     return element;
 }
 
-function createPulseLink(item, locale, { isDuplicate = false } = {}) {
+function createPulseLink(item, locale, { isDuplicate = false, allowThumbnail = false } = {}) {
     const link = createElement('a', 'news-pulse__link');
     link.href = item.url;
     link.target = '_blank';
@@ -75,8 +99,21 @@ function createPulseLink(item, locale, { isDuplicate = false } = {}) {
         link.tabIndex = -1;
     }
 
-    const mark = createElement('span', 'news-pulse__mark');
-    mark.setAttribute('aria-hidden', 'true');
+    const thumbUrl = allowThumbnail ? item.visual_thumb_url : '';
+    let visual;
+    if (thumbUrl) {
+        link.classList.add('news-pulse__link--thumb');
+        visual = createElement('img', 'news-pulse__thumb');
+        visual.src = thumbUrl;
+        visual.alt = item.visual_alt || '';
+        visual.loading = 'lazy';
+        visual.decoding = 'async';
+        visual.width = 48;
+        visual.height = 48;
+    } else {
+        visual = createElement('span', 'news-pulse__mark');
+        visual.setAttribute('aria-hidden', 'true');
+    }
     const body = createElement('span', 'news-pulse__body');
     const meta = createElement('span', 'news-pulse__meta', item.category || 'AI');
     const title = createElement('span', 'news-pulse__title', item.title);
@@ -84,7 +121,7 @@ function createPulseLink(item, locale, { isDuplicate = false } = {}) {
     const source = createElement('span', 'news-pulse__source', `${localeText('newsPulse.source', {}, locale)}: ${item.source}`);
 
     body.append(meta, title, summary, source);
-    link.append(mark, body);
+    link.append(visual, body);
     return link;
 }
 
@@ -99,7 +136,7 @@ function createPulseItem(item, locale, { index = 0, total = 1, duration = MIN_WH
         wrapper.setAttribute('aria-hidden', 'true');
     }
 
-    const link = createPulseLink(item, locale, { isDuplicate });
+    const link = createPulseLink(item, locale, { isDuplicate, allowThumbnail: true });
     wrapper.appendChild(link);
     return wrapper;
 }

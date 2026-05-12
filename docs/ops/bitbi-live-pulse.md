@@ -4,12 +4,15 @@ Bitbi Live Pulse is a public homepage layer backed by the auth Worker endpoint:
 
 - `GET /api/public/news-pulse?locale=en`
 - `GET /api/public/news-pulse?locale=de`
+- `GET /api/public/news-pulse/thumbs/:id`
 
-The browser only calls Bitbi's own Worker endpoint. It does not fetch third-party news sources directly.
+The browser only calls Bitbi's own Worker endpoints. It does not fetch third-party news sources or article images directly.
 
 Desktop homepage rendering remains public and uses the vertical Live Pulse wheel.
+Ready generated thumbnails render only as small desktop visuals. Missing, failed, pending, or skipped thumbnail states keep the existing dot/icon fallback.
 Mobile homepage rendering is member-only: logged-out mobile visitors do not fetch or see
 Live Pulse content. Logged-in mobile members see one localized item at a time.
+Mobile rendering does not use News Pulse thumbnails.
 
 Mobile placement is measured in the browser from the real viewport geometry:
 
@@ -33,6 +36,19 @@ Wrangler is for deploys, D1 migrations, secrets, manual tests, and logs. It is n
 
 News Pulse cached items live in the auth D1 database table `news_pulse_items`. The OpenClaw ingest replay guard uses `openclaw_ingest_nonces`.
 
+Migration `0045_add_news_pulse_visuals.sql` adds generated-thumbnail metadata:
+
+- `visual_prompt`
+- `visual_status` with logical states `missing`, `pending`, `ready`, `failed`, `skipped`
+- `visual_object_key`
+- `visual_thumb_url`
+- `visual_generated_at`
+- `visual_error`
+- `visual_attempts`
+- `visual_updated_at`
+
+The migration is additive only. Existing rows default to `visual_status = 'missing'` and continue serving the existing icon/dot fallback until a thumbnail is generated.
+
 Apply migration:
 
 ```sh
@@ -40,6 +56,19 @@ npx wrangler d1 migrations apply bitbi-auth-db --remote
 ```
 
 The public endpoint serves at most the newest active, unexpired items for the requested locale. If the table is missing or empty, it serves deterministic, source-attributed fallback entries that point to official source pages.
+
+The public JSON response remains backwards-compatible. When a thumbnail is ready, an item may include:
+
+```json
+{
+  "visual_type": "generated",
+  "visual_url": "/api/public/news-pulse/thumbs/<item-id>",
+  "visual_thumb_url": "/api/public/news-pulse/thumbs/<item-id>",
+  "visual_alt": "Generated abstract thumbnail for <title>"
+}
+```
+
+Internal object keys, prompts, errors, provider details, and secrets are never returned by the public endpoint.
 
 ## OpenClaw Ingest
 
@@ -101,6 +130,7 @@ Example payload:
       "published_at": "2026-05-09T12:00:00.000Z",
       "visual_type": "icon",
       "visual_url": null,
+      "visual_prompt": "abstract AI model launch signal, dark neon editorial thumbnail",
       "external_id": "openclaw-status-2026-05-09",
       "tags": ["ki", "status"]
     }
@@ -151,19 +181,53 @@ Only `https:` source URLs are accepted. The refresh keeps the flow defensive:
 
 The MVP does not use AI summarization or translation. TODO: wire localized AI summaries only through an approved Worker-side pattern with existing bindings and secret handling. Do not add paid API keys or AI summarization secrets directly to this flow.
 
+## Generated Thumbnails
+
+OpenClaw may send `visual_prompt` as a suggestion, but Bitbi never trusts it directly. The auth Worker stores a constrained internal prompt built from the item title, summary, category, source, and optional suggestion.
+
+Prompt safety rules:
+
+- abstract Bitbi-native AI/editorial style
+- no logos, readable text, trademarks, watermarks, people, portraits, real-person likenesses, copyrighted characters, or political campaign imagery
+- source names and known brand terms are stripped from prompt hints
+- no third-party article images are copied, fetched, uploaded, or hotlinked
+
+The auth Worker scheduled handler runs a small bounded thumbnail backfill after the News Pulse refresh. It selects active, unexpired rows with `visual_status` `missing` or retryable `failed`, `visual_attempts < 3`, and a valid title/source URL. It then:
+
+1. sets `visual_status = 'pending'` and increments `visual_attempts`
+2. calls the existing Cloudflare Workers AI binding with `@cf/black-forest-labs/flux-1-schnell`
+3. converts the result through the existing `IMAGES` binding to a small WebP thumbnail, currently 256x256 max
+4. stores the object in `USER_IMAGES`
+5. sets `visual_status = 'ready'`, `visual_type = 'generated'`, and stores the public thumb URL
+
+Failures set `visual_status = 'failed'` with a short sanitized internal error. Public News Pulse serving continues normally and falls back to the dot/icon. Rows with `ready`, `pending`, `skipped`, expired, invalid, or max-attempt states are not generated again.
+
+Object keys are deterministic and scoped:
+
+```text
+news-pulse/thumbs/{item_id}.webp
+```
+
+The public thumbnail route looks up the ready row in D1 and serves only the stored object from `USER_IMAGES`. Request paths cannot choose arbitrary R2 keys.
+
 ## Cron and Bindings
 
-No new binding is required beyond the existing auth Worker D1 binding `DB`.
+No new binding is required beyond existing auth Worker bindings:
 
-The existing auth Worker cron (`0 3 * * *`) calls the refresh foundation. If `NEWS_PULSE_SOURCE_URLS` is unset, the scheduled step skips cleanly and the public endpoint continues serving fallback data.
+- `DB` for `news_pulse_items`
+- `AI` for FLUX.1 Schnell generation
+- `IMAGES` for WebP thumbnail derivation
+- `USER_IMAGES` for `news-pulse/thumbs/{item_id}.webp`
+
+The existing auth Worker cron (`0 3 * * *`) calls the refresh foundation and then processes a conservative thumbnail batch. If `NEWS_PULSE_SOURCE_URLS` is unset, the refresh step skips cleanly. If AI, Images, or R2 bindings are unavailable, thumbnail processing skips cleanly and the public endpoint continues serving fallback data.
 
 ## Content Rules
 
 - Do not copy full article text.
 - Keep summaries short and source-attributed.
 - Preserve the original source label and source URL.
-- Do not hotlink third-party images unless a later source is explicitly licensed and configured.
-- Prefer Bitbi-native icons/placeholders for homepage visuals.
+- Do not hotlink third-party images.
+- Prefer Bitbi-generated abstract thumbnails or Bitbi-native icons/placeholders for homepage visuals.
 - Internal OpenClaw activity logs are not homepage content. Only curated payload items sent to the ingest route may enter `news_pulse_items`.
 - The public homepage continues reading only `GET /api/public/news-pulse?locale=en|de`.
 
@@ -173,8 +237,9 @@ Deploy order:
 
 1. Apply auth D1 migrations.
 2. Set `OPENCLAW_INGEST_SECRET` on the auth Worker.
-3. Deploy the auth Worker.
-4. Deploy static/GitHub Pages assets if docs or frontend assets changed.
-5. Use `npx wrangler tail` to verify the first OpenClaw ingest attempts.
+3. Verify existing auth Worker bindings `AI`, `IMAGES`, and `USER_IMAGES` are present.
+4. Deploy the auth Worker.
+5. Deploy static/GitHub Pages assets for the desktop thumbnail renderer.
+6. Use `npx wrangler tail` to verify OpenClaw ingest and scheduled thumbnail backfill attempts.
 
 Static-only deploys are not enough for the endpoint because the Worker route and D1 migration are part of this feature.

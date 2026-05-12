@@ -88,6 +88,8 @@ src/
 ## API Routes
 
 - `GET /api/health` — health check
+- `GET /api/public/news-pulse` — public localized homepage News Pulse JSON; ready generated thumbnails include only public thumb URLs and safe alt text
+- `GET /api/public/news-pulse/thumbs/:id` — public generated News Pulse thumbnail bytes looked up from ready D1 rows and served from `USER_IMAGES`; raw R2 keys are not accepted from the request
 - `GET /api/me` — current user (no auth required, returns `loggedIn: false` if anonymous)
 - `POST /api/register` — create account (sends verification email)
 - `POST /api/login` — login, sets session cookie
@@ -186,11 +188,11 @@ src/
 
 **D1 database** `bitbi-auth-db` with binding `DB` in `wrangler.jsonc`. The contact worker no longer depends on this database for public abuse-sensitive rate limiting; that protection now uses worker-local Durable Objects instead.
 
-**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `member_credit_ledger`, `member_usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`, `billing_member_checkout_sessions`
+**Tables**: `users`, `sessions`, `password_reset_tokens`, `email_verification_tokens`, `admin_audit_log`, `activity_search_index`, `profiles`, `favorites`, `ai_folders`, `ai_images`, `ai_video_jobs`, `ai_generation_log`, `r2_cleanup_queue`, `user_activity_log`, `ai_daily_quota_usage`, `rate_limit_counters`, `data_lifecycle_requests`, `data_lifecycle_request_items`, `data_export_archives`, `organizations`, `organization_memberships`, `plans`, `organization_subscriptions`, `entitlements`, `billing_customers`, `credit_ledger`, `usage_events`, `member_credit_ledger`, `member_usage_events`, `ai_usage_attempts`, `billing_provider_events`, `billing_event_actions`, `billing_checkout_sessions`, `billing_member_checkout_sessions`, `news_pulse_items`, `openclaw_ingest_nonces`
 
 **R2 bucket** `bitbi-private-media` bound as `PRIVATE_MEDIA` — stores avatars and other protected non-Sound-Lab media. Retired bundled Sound Lab Exclusive candidates are listed in `docs/soundlab-free-exclusive-cleanup.md` for later exact-key manual cleanup, not served by auth-worker routes.
 
-**R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved member media under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`, temporary generated-image replay/save-reference objects under `tmp/ai-generated/{userId}/{tempId}`, and async admin video job output under `users/{userId}/video-jobs/{jobId}/`. Cleanup may delete expired temporary replay objects only through the approved prefix and attempt-linkage checks; it must not broad-delete `users/` media prefixes.
+**R2 bucket** `bitbi-user-images` bound as `USER_IMAGES` — stores saved member media under `users/{userId}/folders/{folderSlug}/{timestamp}-{random}.png`, temporary generated-image replay/save-reference objects under `tmp/ai-generated/{userId}/{tempId}`, async admin video job output under `users/{userId}/video-jobs/{jobId}/`, and generated public News Pulse thumbnails under `news-pulse/thumbs/{itemId}.webp`. Cleanup may delete expired temporary replay objects only through the approved prefix and attempt-linkage checks; it must not broad-delete `users/` media prefixes.
 
 **R2 bucket** `bitbi-audit-archive` bound as `AUDIT_ARCHIVE` — stores cold admin audit and user activity log archives as private JSONL chunks under deterministic date-partitioned keys. It also stores data export archive JSON under `data-exports/{subjectUserId}/{requestId}/{archiveId}.json`. Phase 1-J cleanup deletes only expired lifecycle export objects under that approved prefix and never broad-deletes audit archives or user media objects. The scheduled auth cleanup keeps only the recent hot window in D1, archives older rows here before pruning them, runs the bounded export-archive cleanup step, and runs a bounded AI usage-attempt cleanup step that releases stale reservations and deletes only expired attempt-linked temporary replay objects after approved-prefix validation.
 
@@ -251,7 +253,7 @@ STRIPE_LIVE_CHECKOUT_CANCEL_URL=https://bitbi.ai/pricing.html?checkout=cancel
 
 Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during an explicitly approved, bounded operator canary.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0042_add_member_live_stripe_checkout`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0045_add_news_pulse_visuals`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -281,6 +283,9 @@ Key migration-dependent behavior:
 - `0040_add_live_stripe_credit_pack_scope` — required before auth deploy if Phase 2-L live credit-pack checkout, Credits dashboard purchase history, authorization-scope revalidation, payment-state tracking, and exactly-once live credit grants must work immediately
 - `0041_add_member_credit_ledger` — required before auth deploy if member image credit top-ups, member credit charging, and admin user credit grants must work immediately
 - `0042_add_member_live_stripe_checkout` — required before auth deploy if public Pricing/member Credits pages must create personal live Stripe credit-pack sessions and exactly-once webhook grants into `member_credit_ledger`
+- `0043_add_news_pulse_items` — required before News Pulse public cache or scheduled refresh can use D1-backed rows
+- `0044_add_openclaw_ingest_nonces` — required before OpenClaw News Pulse ingest can enforce nonce replay protection
+- `0045_add_news_pulse_visuals` — required before generated News Pulse thumbnail prompts/status/object metadata can be stored; apply before deploying auth Worker code that reads these columns
 
 ## Conventions
 

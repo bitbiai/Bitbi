@@ -95,6 +95,13 @@ async function loadPublicMediaContractModule() {
   return import(contractPath);
 }
 
+async function loadNewsPulseVisualsModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/news-pulse-visuals.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadRoutePolicyModule() {
   const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/auth/src/app/route-policy.js')).href;
   return import(modulePath);
@@ -1266,6 +1273,12 @@ test.describe('Phase 1-E auth route policy registry', () => {
       body: expect.objectContaining({ kind: 'raw', maxBytesName: 'openClawIngestRaw' }),
       rateLimit: expect.objectContaining({ failClosed: true }),
       config: expect.arrayContaining(['OPENCLAW_INGEST_SECRET', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/public/news-pulse/thumbs/openclaw_en_abc123')).toEqual(expect.objectContaining({
+      id: 'public.news_pulse.thumb.read',
+      auth: 'anonymous',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES']),
     }));
     expect(getRoutePolicy('POST', '/api/admin/ai/video-jobs')).toEqual(expect.objectContaining({
       id: 'admin.ai.video-jobs.create',
@@ -8345,6 +8358,139 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('feeds.example.com');
     });
 
+    test('GET /api/public/news-pulse exposes generated visual fields only for ready thumbnails', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        newsPulseItems: [
+          {
+            id: 'ready-news-pulse-visual',
+            locale: 'en',
+            title: 'Ready generated AI visual',
+            summary: 'A source-attributed update with a generated Bitbi thumbnail.',
+            source: 'Source Example',
+            url: 'https://example.com/ready-generated-visual',
+            category: 'AI',
+            published_at: '2026-05-10T09:00:00.000Z',
+            visual_type: 'generated',
+            visual_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+            visual_status: 'ready',
+            visual_object_key: 'news-pulse/thumbs/ready-news-pulse-visual.webp',
+            visual_thumb_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+            visual_prompt: 'secret internal prompt should not leak',
+            visual_error: 'provider secret should not leak',
+            visual_attempts: 1,
+            status: 'active',
+            source_key: 'https://feeds.example.com/ai.xml',
+            content_hash: 'ready-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T09:00:00.000Z',
+            updated_at: '2026-05-10T09:10:00.000Z',
+          },
+          {
+            id: 'failed-news-pulse-visual',
+            locale: 'en',
+            title: 'Failed generated AI visual',
+            summary: 'A source-attributed update with a failed generated thumbnail.',
+            source: 'Source Example',
+            url: 'https://example.com/failed-generated-visual',
+            category: 'AI',
+            published_at: '2026-05-10T08:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+            visual_status: 'failed',
+            visual_object_key: 'news-pulse/thumbs/failed-news-pulse-visual.webp',
+            visual_thumb_url: '/api/public/news-pulse/thumbs/failed-news-pulse-visual',
+            visual_prompt: 'failed prompt should not leak',
+            visual_error: 'failed internal error should not leak',
+            visual_attempts: 1,
+            status: 'active',
+            source_key: 'https://feeds.example.com/ai.xml',
+            content_hash: 'failed-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T08:00:00.000Z',
+            updated_at: '2026-05-10T08:10:00.000Z',
+          },
+        ],
+      });
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.items[0]).toEqual(expect.objectContaining({
+        id: 'ready-news-pulse-visual',
+        visual_type: 'generated',
+        visual_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+        visual_thumb_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+        visual_alt: 'Generated abstract thumbnail for Ready generated AI visual',
+      }));
+      expect(body.items[1]).toEqual(expect.objectContaining({
+        id: 'failed-news-pulse-visual',
+        visual_type: 'icon',
+        visual_url: null,
+      }));
+      expect(body.items[1]).not.toHaveProperty('visual_thumb_url');
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('news-pulse/thumbs/ready-news-pulse-visual.webp');
+      expect(serialized).not.toContain('visual_object_key');
+      expect(serialized).not.toContain('secret internal prompt');
+      expect(serialized).not.toContain('failed internal error');
+    });
+
+    test('GET /api/public/news-pulse/thumbs serves only ready generated thumbnail objects', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        userImages: {
+          'news-pulse/thumbs/ready-news-pulse-visual.webp': {
+            body: new TextEncoder().encode('ready-webp'),
+            httpMetadata: { contentType: 'image/webp' },
+          },
+        },
+        newsPulseItems: [{
+          id: 'ready-news-pulse-visual',
+          locale: 'en',
+          title: 'Ready generated AI visual',
+          summary: 'A source-attributed update with a generated Bitbi thumbnail.',
+          source: 'Source Example',
+          url: 'https://example.com/ready-generated-visual',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'generated',
+          visual_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+          visual_status: 'ready',
+          visual_object_key: 'news-pulse/thumbs/ready-news-pulse-visual.webp',
+          visual_thumb_url: '/api/public/news-pulse/thumbs/ready-news-pulse-visual',
+          visual_attempts: 1,
+          status: 'active',
+          source_key: 'https://feeds.example.com/ai.xml',
+          content_hash: 'ready-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const ready = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse/thumbs/ready-news-pulse-visual'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(ready.status).toBe(200);
+      expect(ready.headers.get('content-type')).toBe('image/webp');
+      expect(ready.headers.get('cache-control')).toContain('max-age=86400');
+      expect(await ready.text()).toBe('ready-webp');
+
+      const missing = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse/thumbs/missing-news-pulse-visual'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missing.status).toBe(404);
+    });
+
     test('POST /api/openclaw/news-pulse/ingest rejects missing secret configuration', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const env = createAuthTestEnv();
@@ -8523,7 +8669,11 @@ test.describe('Worker routes', () => {
           title: 'Curated model release update',
           source_key: 'openclaw:openclaw-mac',
           status: 'active',
+          visual_status: 'missing',
+          visual_attempts: 0,
         }));
+        expect(env.DB.state.newsPulseItems[0].visual_prompt).toContain('abstract futuristic AI editorial thumbnail');
+        expect(env.DB.state.newsPulseItems[0].visual_prompt).toContain('no logos');
       }
 
       {
@@ -8545,6 +8695,39 @@ test.describe('Worker routes', () => {
           locale: 'de',
           category: 'KI',
         }));
+      }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest accepts optional visual_prompt but stores a constrained internal prompt', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+
+      {
+        const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({}, {
+          visual_prompt: 'Use the OpenClaw logo with readable text and a celebrity portrait.',
+        }));
+        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        expect(res.status).toBe(200);
+        const prompt = env.DB.state.newsPulseItems[0].visual_prompt;
+        expect(prompt).toContain('abstract futuristic AI editorial thumbnail');
+        expect(prompt).toContain('no readable text');
+        expect(prompt.toLowerCase()).not.toContain('openclaw logo');
+        expect(prompt.toLowerCase()).not.toContain('celebrity');
+        expect(prompt.toLowerCase()).not.toContain('portrait');
+      }
+
+      {
+        const envA = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const envB = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        const first = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload(), {
+          nonce: 'openclaw-prompt-deterministic-a',
+        });
+        const second = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload(), {
+          nonce: 'openclaw-prompt-deterministic-b',
+        });
+        await authWorker.fetch(first.request, envA, createExecutionContext().execCtx);
+        await authWorker.fetch(second.request, envB, createExecutionContext().execCtx);
+        expect(envA.DB.state.newsPulseItems[0].visual_prompt).toBe(envB.DB.state.newsPulseItems[0].visual_prompt);
       }
     });
 
@@ -8600,6 +8783,197 @@ test.describe('Worker routes', () => {
       }));
       expect(JSON.stringify(body)).not.toContain('openclaw_ingest');
       expect(JSON.stringify(body)).not.toContain(OPENCLAW_TEST_SECRET);
+    });
+
+    test('News Pulse thumbnail backfill generates one ready WebP and skips pending ready or exhausted rows', async () => {
+      const { processNewsPulseVisualBackfill, NEWS_PULSE_VISUAL_MODEL_ID } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const aiPayloads = [];
+      const env = createAuthTestEnv({
+        aiRun: async (modelId, payload) => {
+          aiCalls += 1;
+          aiPayloads.push({ modelId, payload });
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        imagesBinding: { originalInfo: { width: 512, height: 512, format: 'image/png' } },
+        newsPulseItems: [
+          {
+            id: 'missing-visual-item',
+            locale: 'en',
+            title: 'Creative AI model update',
+            summary: 'A short update for creative AI builders.',
+            source: 'Source Example',
+            url: 'https://example.com/missing-visual-item',
+            category: 'AI',
+            published_at: '2026-05-10T09:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+            visual_status: 'missing',
+            visual_attempts: 0,
+            status: 'active',
+            content_hash: 'missing-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T09:00:00.000Z',
+            updated_at: '2026-05-10T09:10:00.000Z',
+          },
+          {
+            id: 'pending-visual-item',
+            locale: 'en',
+            title: 'Pending visual item',
+            summary: 'A pending item should not be duplicated.',
+            source: 'Source Example',
+            url: 'https://example.com/pending-visual-item',
+            category: 'AI',
+            published_at: '2026-05-10T08:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+            visual_status: 'pending',
+            visual_attempts: 1,
+            status: 'active',
+            content_hash: 'pending-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T08:00:00.000Z',
+            updated_at: '2026-05-10T08:10:00.000Z',
+          },
+          {
+            id: 'ready-visual-item',
+            locale: 'en',
+            title: 'Ready visual item',
+            summary: 'A ready item should not be duplicated.',
+            source: 'Source Example',
+            url: 'https://example.com/ready-visual-item',
+            category: 'AI',
+            published_at: '2026-05-10T07:00:00.000Z',
+            visual_type: 'generated',
+            visual_url: '/api/public/news-pulse/thumbs/ready-visual-item',
+            visual_status: 'ready',
+            visual_object_key: 'news-pulse/thumbs/ready-visual-item.webp',
+            visual_thumb_url: '/api/public/news-pulse/thumbs/ready-visual-item',
+            visual_attempts: 1,
+            status: 'active',
+            content_hash: 'ready-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T07:00:00.000Z',
+            updated_at: '2026-05-10T07:10:00.000Z',
+          },
+          {
+            id: 'exhausted-visual-item',
+            locale: 'en',
+            title: 'Exhausted visual item',
+            summary: 'An exhausted failed item should not be retried.',
+            source: 'Source Example',
+            url: 'https://example.com/exhausted-visual-item',
+            category: 'AI',
+            published_at: '2026-05-10T06:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+            visual_status: 'failed',
+            visual_attempts: 3,
+            status: 'active',
+            content_hash: 'exhausted-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T06:00:00.000Z',
+            updated_at: '2026-05-10T06:10:00.000Z',
+          },
+        ],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 4,
+      });
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 1,
+        readyCount: 1,
+        failedCount: 0,
+      }));
+      expect(aiCalls).toBe(1);
+      expect(aiPayloads[0]).toEqual({
+        modelId: NEWS_PULSE_VISUAL_MODEL_ID,
+        payload: expect.objectContaining({
+          prompt: expect.stringContaining('abstract futuristic AI editorial thumbnail'),
+          num_steps: 4,
+        }),
+      });
+      expect(aiPayloads[0].payload.prompt).toContain('no logos');
+      expect(aiPayloads[0].payload.prompt).toContain('no readable text');
+      expect(env.DB.state.newsPulseItems.find((row) => row.id === 'missing-visual-item')).toEqual(expect.objectContaining({
+        visual_type: 'generated',
+        visual_status: 'ready',
+        visual_attempts: 1,
+        visual_object_key: 'news-pulse/thumbs/missing-visual-item.webp',
+        visual_thumb_url: '/api/public/news-pulse/thumbs/missing-visual-item',
+        visual_error: null,
+      }));
+      expect(env.USER_IMAGES.objects.has('news-pulse/thumbs/missing-visual-item.webp')).toBe(true);
+      expect(env.IMAGES.transformCalls[0]).toEqual(expect.objectContaining({
+        width: 256,
+        height: 256,
+      }));
+      expect(env.DB.state.newsPulseItems.find((row) => row.id === 'pending-visual-item').visual_status).toBe('pending');
+      expect(env.DB.state.newsPulseItems.find((row) => row.id === 'ready-visual-item').visual_status).toBe('ready');
+      expect(env.DB.state.newsPulseItems.find((row) => row.id === 'exhausted-visual-item').visual_attempts).toBe(3);
+    });
+
+    test('News Pulse thumbnail generation failure records failed status without breaking public news serving', async () => {
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        aiRun: async () => {
+          throw new Error('provider prompt failed with sensitive backend details that should be shortened');
+        },
+        newsPulseItems: [{
+          id: 'failing-visual-item',
+          locale: 'en',
+          title: 'Failing AI visual update',
+          summary: 'A short source-attributed update that still serves without a thumbnail.',
+          source: 'Source Example',
+          url: 'https://example.com/failing-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'failing-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const backfill = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+      expect(backfill).toEqual(expect.objectContaining({
+        readyCount: 0,
+        failedCount: 1,
+      }));
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_attempts: 1,
+      }));
+      expect(env.DB.state.newsPulseItems[0].visual_error.length).toBeLessThanOrEqual(240);
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.items[0]).toEqual(expect.objectContaining({
+        id: 'failing-visual-item',
+        visual_type: 'icon',
+        visual_url: null,
+      }));
+      expect(body.items[0]).not.toHaveProperty('visual_thumb_url');
+      expect(JSON.stringify(body)).not.toContain('sensitive backend details');
     });
 
     test('GET /api/me returns the authenticated contract shape when logged in', async () => {

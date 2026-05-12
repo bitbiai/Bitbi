@@ -67,8 +67,10 @@ function buildNewsPulseItems(prefix = 'mobile-pulse') {
     url: `https://example.com/${prefix}-${index + 1}`,
     category: prefix.includes('de') ? 'KI' : 'AI',
     published_at: '2026-05-10T08:00:00.000Z',
-    visual_type: 'icon',
-    visual_url: null,
+    visual_type: index === 0 ? 'generated' : 'icon',
+    visual_url: index === 0 ? `/api/public/news-pulse/thumbs/${prefix}-${index + 1}` : null,
+    visual_thumb_url: index === 0 ? `/api/public/news-pulse/thumbs/${prefix}-${index + 1}` : null,
+    visual_alt: index === 0 ? `Generated abstract thumbnail for ${prefix} headline ${index + 1}` : undefined,
   }));
 }
 
@@ -644,8 +646,20 @@ test.describe('Homepage', () => {
 
   test('homepage Live Pulse requests the English endpoint and renders source links', async ({ page }) => {
     const requestedLocales = [];
+    await page.route('**/api/public/news-pulse/thumbs/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/webp',
+        body: 'mock-thumb',
+      });
+    });
     await page.route('**/api/public/news-pulse**', async (route) => {
-      requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.pathname !== '/api/public/news-pulse') {
+        await route.fallback();
+        return;
+      }
+      requestedLocales.push(requestUrl.searchParams.get('locale'));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -658,8 +672,10 @@ test.describe('Homepage', () => {
             url: `https://example.com/creative-ai-workflow-${index + 1}`,
             category: 'AI',
             published_at: '2026-05-09T08:00:00.000Z',
-            visual_type: 'icon',
-            visual_url: null,
+            visual_type: index === 0 ? 'generated' : 'icon',
+            visual_url: index === 0 ? '/api/public/news-pulse/thumbs/pulse-test-en-1' : null,
+            visual_thumb_url: index === 0 ? '/api/public/news-pulse/thumbs/pulse-test-en-1' : null,
+            visual_alt: index === 0 ? 'Generated abstract thumbnail for Creative AI workflow update' : undefined,
           })),
           updated_at: '2026-05-09T08:00:00.000Z',
         }),
@@ -678,6 +694,22 @@ test.describe('Homepage', () => {
       'href',
       'https://example.com/creative-ai-workflow-1',
     );
+    await expect(pulse.locator('.news-pulse__track')).toHaveCount(1);
+    await expect(pulse.locator('.news-pulse__track--reverse')).toHaveCount(0);
+    await expect(pulse.locator('.news-pulse__thumb')).toHaveCount(2);
+    await expect(pulse.locator('.news-pulse__link--thumb')).toHaveCount(2);
+    await expect(pulse.locator('.news-pulse__thumb').first()).toHaveAttribute(
+      'src',
+      /\/api\/public\/news-pulse\/thumbs\/pulse-test-en-1$/,
+    );
+    await expect(pulse.locator('.news-pulse__thumb').first()).toHaveAttribute('loading', 'lazy');
+    await expect(pulse.locator('.news-pulse__thumb').first()).toHaveAttribute('decoding', 'async');
+    await expect(pulse.locator('.news-pulse__thumb').first()).toHaveAttribute(
+      'alt',
+      'Generated abstract thumbnail for Creative AI workflow update',
+    );
+    await expect(pulse.locator('.news-pulse__item').first().locator('.news-pulse__mark')).toHaveCount(0);
+    await expect(pulse.locator('.news-pulse__item').nth(1).locator('.news-pulse__mark')).toHaveCount(1);
     const pulseLayout = await pulse.evaluate((node) => {
       const hero = document.querySelector('#hero');
       const nextSection = document.querySelector('#homeCategories');
@@ -685,6 +717,7 @@ test.describe('Homepage', () => {
       const trackStyle = window.getComputedStyle(node.querySelector('.news-pulse__track'));
       const itemStyle = window.getComputedStyle(node.querySelector('.news-pulse__item'));
       const markStyle = window.getComputedStyle(node.querySelector('.news-pulse__mark'));
+      const thumbStyle = window.getComputedStyle(node.querySelector('.news-pulse__thumb'));
       const rect = node.getBoundingClientRect();
       const heroRect = hero.getBoundingClientRect();
       const nextRect = nextSection.getBoundingClientRect();
@@ -696,6 +729,7 @@ test.describe('Homepage', () => {
         maskImage: flowStyle.maskImage || flowStyle.webkitMaskImage || '',
         flowPaddingInlineStart: parseFloat(flowStyle.paddingInlineStart || '0'),
         markWidth: parseFloat(markStyle.width || '0'),
+        thumbWidth: parseFloat(thumbStyle.width || '0'),
         width: rect.width,
         left: rect.left,
         right: rect.right,
@@ -714,6 +748,8 @@ test.describe('Homepage', () => {
     expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(56.4, 1);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
     expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
+    expect(pulseLayout.thumbWidth).toBeGreaterThan(35);
+    expect(pulseLayout.thumbWidth).toBeLessThan(60);
     expect(pulseLayout.width).toBeGreaterThan(350);
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
     expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
@@ -872,6 +908,7 @@ test.describe('Homepage', () => {
       await expect(pulse.locator('.news-pulse__track')).toHaveCount(0);
       await expect(pulse.locator('.news-pulse__item')).toHaveCount(0);
       await expect(pulse.locator('.news-pulse__mobile-item')).toHaveCount(1);
+      await expect(pulse.locator('.news-pulse__thumb')).toHaveCount(0);
       await expect(pulse.getByRole('link', { name: new RegExp(`${prefix} headline 1`) })).toHaveAttribute(
         'href',
         `https://example.com/${prefix}-1`,
