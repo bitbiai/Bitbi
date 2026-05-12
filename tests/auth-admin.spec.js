@@ -7951,6 +7951,88 @@ test.describe('Admin nav accordion behavior', () => {
     await mockAdminAiLab(page);
   });
 
+  test('desktop Admin header aligns with public header insets without changing header nav content', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          loggedIn: true,
+          user: {
+            id: 'admin-1',
+            email: 'admin@bitbi.ai',
+            role: 'admin',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#dashboard');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('header .auth-nav__logout')).toBeVisible();
+    await expect(page.locator('header .site-nav__mood')).toBeVisible();
+
+    const navItems = await page.locator('#navbar .site-nav__links > a').evaluateAll((links) => (
+      links.map((link) => ({
+        text: link.textContent.trim(),
+        href: link.getAttribute('href'),
+      }))
+    ));
+    expect(navItems).toEqual([
+      { text: 'Gallery', href: '/#gallery' },
+      { text: 'Video', href: '/#video-creations' },
+      { text: 'Sound Lab', href: '/#soundlab' },
+      { text: 'Pricing', href: '/pricing.html' },
+      { text: 'Profile', href: '/account/profile.html' },
+      { text: 'Admin', href: '/admin/' },
+    ]);
+
+    const metrics = await page.evaluate(() => {
+      const rect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing ${selector}`);
+        const box = element.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          width: box.width,
+        };
+      };
+      const insetProbe = document.createElement('div');
+      insetProbe.style.cssText = [
+        'position: fixed',
+        'inset-block-start: 0',
+        'inset-inline-start: var(--bitbi-public-header-inset)',
+        'inline-size: 0',
+        'block-size: 0',
+        'pointer-events: none',
+      ].join(';');
+      document.body.appendChild(insetProbe);
+      const publicHeaderInset = insetProbe.getBoundingClientRect().left;
+      insetProbe.remove();
+      const mood = document.querySelector('#navbar .site-nav__mood');
+      return {
+        viewportWidth: window.innerWidth,
+        publicHeaderInset,
+        logo: rect('#navbar .site-nav__logo'),
+        links: rect('#navbar .site-nav__links'),
+        actions: rect('#navbar .site-nav__actions'),
+        moodDisplay: mood ? window.getComputedStyle(mood).display : null,
+        documentScrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+
+    expect(Math.abs(metrics.logo.left - metrics.publicHeaderInset)).toBeLessThanOrEqual(2);
+    expect(Math.abs((metrics.viewportWidth - metrics.actions.right) - metrics.publicHeaderInset)).toBeLessThanOrEqual(2);
+    expect(Math.abs((metrics.links.left + metrics.links.width / 2) - metrics.viewportWidth / 2)).toBeLessThanOrEqual(3);
+    expect(metrics.links.left).toBeGreaterThan(metrics.logo.right);
+    expect(metrics.links.right).toBeLessThan(metrics.actions.left);
+    expect(metrics.moodDisplay).not.toBe('none');
+    expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+  });
+
   test('cold load with no hash keeps every nav group collapsed while Dashboard content is visible', async ({ page }) => {
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
