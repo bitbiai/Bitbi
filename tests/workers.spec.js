@@ -8656,8 +8656,11 @@ test.describe('Worker routes', () => {
 
       {
         const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        env.AI = undefined;
         const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
-        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        const exec = createExecutionContext();
+        const res = await authWorker.fetch(request, env, exec.execCtx);
+        await exec.flush();
         expect(res.status).toBe(200);
         const body = await res.json();
         expectExactKeys(body, ['ok', 'stored_count', 'skipped_count', 'dry_run', 'items']);
@@ -8678,6 +8681,7 @@ test.describe('Worker routes', () => {
 
       {
         const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+        env.AI = undefined;
         const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload({
           locale: 'de',
         }, {
@@ -8687,7 +8691,9 @@ test.describe('Worker routes', () => {
           category: undefined,
           external_id: 'openclaw-de-1',
         }));
-        const res = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+        const exec = createExecutionContext();
+        const res = await authWorker.fetch(request, env, exec.execCtx);
+        await exec.flush();
         expect(res.status).toBe(200);
         const body = await res.json();
         expect(body.items[0].locale).toBe('de');
@@ -8696,6 +8702,152 @@ test.describe('Worker routes', () => {
           category: 'KI',
         }));
       }
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest queues immediate visual backfill with waitUntil', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        imagesBinding: { originalInfo: { width: 512, height: 512, format: 'image/png' } },
+      });
+      const exec = createExecutionContext();
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env, exec.execCtx);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'stored_count', 'skipped_count', 'dry_run', 'items']);
+      expect(body.stored_count).toBe(1);
+
+      await exec.flush();
+
+      expect(aiCalls).toBe(1);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_type: 'generated',
+        visual_status: 'ready',
+        visual_attempts: 1,
+        visual_object_key: expect.stringMatching(/^news-pulse\/thumbs\/.+\.webp$/),
+        visual_thumb_url: `/api/public/news-pulse/thumbs/${env.DB.state.newsPulseItems[0].id}`,
+        visual_error: null,
+      }));
+      expect(env.USER_IMAGES.objects.has(env.DB.state.newsPulseItems[0].visual_object_key)).toBe(true);
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest keeps the response successful when immediate visual generation fails', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        aiRun: async () => {
+          throw new Error('provider prompt secret should be sanitized');
+        },
+      });
+      const exec = createExecutionContext();
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env, exec.execCtx);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+
+      await exec.flush();
+
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_attempts: 1,
+        visual_thumb_url: null,
+      }));
+      expect(env.DB.state.newsPulseItems[0].visual_error).toBe('News Pulse thumbnail generation failed.');
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest skips immediate visual backfill without required bindings', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({ OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET });
+      env.AI = undefined;
+      const exec = createExecutionContext();
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env, exec.execCtx);
+      expect(res.status).toBe(200);
+      await exec.flush();
+
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'missing',
+        visual_attempts: 0,
+        visual_thumb_url: null,
+        visual_error: null,
+      }));
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest relies on scheduled fallback when execCtx is unavailable', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+
+      const res = await authWorker.fetch(request, env);
+      expect(res.status).toBe(200);
+      expect(aiCalls).toBe(0);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'missing',
+        visual_attempts: 0,
+      }));
+    });
+
+    test('POST /api/openclaw/news-pulse/ingest caps immediate visual work and does not regenerate ready rows', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+      });
+      const payload = validOpenClawNewsPulsePayload({
+        items: Array.from({ length: 5 }, (_, index) => ({
+          title: `Curated model release update ${index + 1}`,
+          summary: 'A short source-attributed update for creative AI builders.',
+          source: 'OpenClaw Curated',
+          url: `https://example.com/ai/model-release-${index + 1}`,
+          category: 'AI',
+          published_at: `2026-05-09T10:0${index}:00.000Z`,
+          visual_type: 'icon',
+          visual_url: null,
+          external_id: `openclaw-release-${index + 1}`,
+          tags: ['ai', 'model'],
+        })),
+      });
+      const first = buildOpenClawSignedRequest(payload, { nonce: 'openclaw-immediate-cap-1' });
+      const firstExec = createExecutionContext();
+
+      const firstRes = await authWorker.fetch(first.request, env, firstExec.execCtx);
+      expect(firstRes.status).toBe(200);
+      await firstExec.flush();
+
+      expect(aiCalls).toBe(4);
+      expect(env.DB.state.newsPulseItems.filter((row) => row.visual_status === 'ready')).toHaveLength(4);
+      expect(env.DB.state.newsPulseItems.filter((row) => row.visual_status === 'missing')).toHaveLength(1);
+
+      const second = buildOpenClawSignedRequest(payload, { nonce: 'openclaw-immediate-cap-2' });
+      const secondExec = createExecutionContext();
+      const secondRes = await authWorker.fetch(second.request, env, secondExec.execCtx);
+      expect(secondRes.status).toBe(200);
+      await secondExec.flush();
+
+      expect(aiCalls).toBe(5);
+      expect(env.DB.state.newsPulseItems.filter((row) => row.visual_status === 'ready')).toHaveLength(5);
     });
 
     test('POST /api/openclaw/news-pulse/ingest accepts optional visual_prompt but stores a constrained internal prompt', async () => {
@@ -8783,6 +8935,76 @@ test.describe('Worker routes', () => {
       }));
       expect(JSON.stringify(body)).not.toContain('openclaw_ingest');
       expect(JSON.stringify(body)).not.toContain(OPENCLAW_TEST_SECRET);
+    });
+
+    test('News Pulse immediate thumbnail helper skips pending and ready item ids', async () => {
+      const { processNewsPulseVisualBackfillForItemIds } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [
+          {
+            id: 'pending-immediate-visual',
+            locale: 'en',
+            title: 'Pending immediate visual',
+            summary: 'A pending item should not be regenerated.',
+            source: 'Source Example',
+            url: 'https://example.com/pending-immediate-visual',
+            category: 'AI',
+            published_at: '2026-05-10T09:00:00.000Z',
+            visual_type: 'icon',
+            visual_url: null,
+            visual_status: 'pending',
+            visual_attempts: 1,
+            status: 'active',
+            content_hash: 'pending-immediate-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T09:00:00.000Z',
+            updated_at: '2026-05-10T09:10:00.000Z',
+          },
+          {
+            id: 'ready-immediate-visual',
+            locale: 'en',
+            title: 'Ready immediate visual',
+            summary: 'A ready item should not be regenerated.',
+            source: 'Source Example',
+            url: 'https://example.com/ready-immediate-visual',
+            category: 'AI',
+            published_at: '2026-05-10T08:00:00.000Z',
+            visual_type: 'generated',
+            visual_url: '/api/public/news-pulse/thumbs/ready-immediate-visual',
+            visual_status: 'ready',
+            visual_object_key: 'news-pulse/thumbs/ready-immediate-visual.webp',
+            visual_thumb_url: '/api/public/news-pulse/thumbs/ready-immediate-visual',
+            visual_attempts: 1,
+            status: 'active',
+            content_hash: 'ready-immediate-hash',
+            expires_at: '2099-01-01T00:00:00.000Z',
+            created_at: '2026-05-10T08:00:00.000Z',
+            updated_at: '2026-05-10T08:10:00.000Z',
+          },
+        ],
+      });
+
+      const result = await processNewsPulseVisualBackfillForItemIds({
+        env,
+        itemIds: ['pending-immediate-visual', 'ready-immediate-visual'],
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 4,
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 0,
+        readyCount: 0,
+        failedCount: 0,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.DB.state.newsPulseItems[0].visual_status).toBe('pending');
+      expect(env.DB.state.newsPulseItems[1].visual_status).toBe('ready');
     });
 
     test('News Pulse thumbnail backfill generates one ready WebP and skips pending ready or exhausted rows', async () => {
@@ -8974,6 +9196,42 @@ test.describe('Worker routes', () => {
       }));
       expect(body.items[0]).not.toHaveProperty('visual_thumb_url');
       expect(JSON.stringify(body)).not.toContain('sensitive backend details');
+    });
+
+    test('scheduled handler still runs News Pulse thumbnail backfill as a fallback', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        aiRun: async () => ({ image: ONE_PIXEL_PNG_DATA_URI }),
+        imagesBinding: { originalInfo: { width: 512, height: 512, format: 'image/png' } },
+        newsPulseItems: [{
+          id: 'scheduled-fallback-visual-item',
+          locale: 'en',
+          title: 'Scheduled fallback AI visual update',
+          summary: 'A short source-attributed update that can be recovered by cron.',
+          source: 'Source Example',
+          url: 'https://example.com/scheduled-fallback-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'scheduled-fallback-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'ready',
+        visual_attempts: 1,
+        visual_thumb_url: '/api/public/news-pulse/thumbs/scheduled-fallback-visual-item',
+      }));
+      expect(env.USER_IMAGES.objects.has('news-pulse/thumbs/scheduled-fallback-visual-item.webp')).toBe(true);
     });
 
     test('GET /api/me returns the authenticated contract shape when logged in', async () => {

@@ -6726,6 +6726,18 @@ class MockD1 {
       return { results: rows };
     }
 
+    if (query === "SELECT id, locale, title, summary, source, url, category, published_at, visual_prompt, visual_status, visual_attempts, expires_at, updated_at FROM news_pulse_items WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (visual_status = 'missing' OR visual_status = 'failed') AND COALESCE(visual_attempts, 0) < ? LIMIT 1") {
+      const [id, now, maxAttempts] = bindings;
+      const row = (this.state.newsPulseItems || []).find((item) =>
+        item.id === id &&
+        item.status === 'active' &&
+        (!item.expires_at || item.expires_at > now) &&
+        ['missing', 'failed'].includes(item.visual_status || 'missing') &&
+        Number(item.visual_attempts || 0) < Number(maxAttempts || 3)
+      );
+      return row ? { ...row } : null;
+    }
+
     if (query === "UPDATE news_pulse_items SET visual_status = 'pending', visual_error = NULL, visual_attempts = COALESCE(visual_attempts, 0) + 1, visual_updated_at = ? WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND (visual_status = 'missing' OR visual_status = 'failed') AND COALESCE(visual_attempts, 0) < ?") {
       const [updatedAt, id, now, maxAttempts] = bindings;
       const row = this.state.newsPulseItems.find((item) =>

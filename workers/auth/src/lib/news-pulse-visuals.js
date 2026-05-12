@@ -5,6 +5,7 @@ export const NEWS_PULSE_VISUAL_OBJECT_PREFIX = "news-pulse/thumbs/";
 export const NEWS_PULSE_VISUAL_ROUTE_PREFIX = "/api/public/news-pulse/thumbs/";
 export const NEWS_PULSE_VISUAL_MAX_ATTEMPTS = 3;
 export const NEWS_PULSE_VISUAL_BATCH_LIMIT = 2;
+export const NEWS_PULSE_VISUAL_INGEST_BATCH_LIMIT = 4;
 export const NEWS_PULSE_VISUAL_THUMB_SIZE = 256;
 export const NEWS_PULSE_VISUAL_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
 
@@ -249,6 +250,28 @@ function safeBatchLimit(limit) {
   return Math.min(Math.max(Number(limit) || NEWS_PULSE_VISUAL_BATCH_LIMIT, 1), 4);
 }
 
+function normalizeItemIds(itemIds) {
+  const ids = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(itemIds) ? itemIds : []) {
+    const id = String(raw || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function hasNewsPulseVisualBindings(env) {
+  return Boolean(
+    env?.DB &&
+    env?.AI &&
+    typeof env.AI.run === "function" &&
+    env?.USER_IMAGES &&
+    env?.IMAGES
+  );
+}
+
 async function listNewsPulseVisualCandidates(env, {
   now,
   limit = NEWS_PULSE_VISUAL_BATCH_LIMIT,
@@ -265,6 +288,22 @@ async function listNewsPulseVisualCandidates(env, {
      LIMIT ?`
   ).bind(now, maxAttempts, safeBatchLimit(limit)).all();
   return result?.results || [];
+}
+
+async function getNewsPulseVisualCandidateById(env, itemId, {
+  now,
+  maxAttempts = NEWS_PULSE_VISUAL_MAX_ATTEMPTS,
+} = {}) {
+  return env.DB.prepare(
+    `SELECT id, locale, title, summary, source, url, category, published_at, visual_prompt, visual_status, visual_attempts, expires_at, updated_at
+     FROM news_pulse_items
+     WHERE id = ?
+       AND status = 'active'
+       AND (expires_at IS NULL OR expires_at > ?)
+       AND (visual_status = 'missing' OR visual_status = 'failed')
+       AND COALESCE(visual_attempts, 0) < ?
+     LIMIT 1`
+  ).bind(itemId, now, maxAttempts).first();
 }
 
 async function acquireNewsPulseVisual(env, item, {
@@ -403,46 +442,12 @@ async function generateNewsPulseVisualForItem(env, item, { now, correlationId = 
     event: "news_pulse_visual_ready",
     correlationId,
     item_id: item.id,
-    object_key: objectKey,
     model: NEWS_PULSE_VISUAL_MODEL_ID,
   });
   return { status: "ready", objectKey };
 }
 
-export async function processNewsPulseVisualBackfill({
-  env,
-  now = new Date().toISOString(),
-  limit = NEWS_PULSE_VISUAL_BATCH_LIMIT,
-  correlationId = null,
-} = {}) {
-  if (!env?.DB || !env?.AI || typeof env.AI.run !== "function" || !env?.USER_IMAGES || !env?.IMAGES) {
-    return {
-      skipped: true,
-      reason: "bindings_missing",
-      scannedCount: 0,
-      readyCount: 0,
-      failedCount: 0,
-      skippedCount: 0,
-    };
-  }
-
-  let rows;
-  try {
-    rows = await listNewsPulseVisualCandidates(env, { now, limit });
-  } catch (error) {
-    if (isMissingNewsPulseVisualSchema(error)) {
-      return {
-        skipped: true,
-        reason: "schema_missing",
-        scannedCount: 0,
-        readyCount: 0,
-        failedCount: 0,
-        skippedCount: 0,
-      };
-    }
-    throw error;
-  }
-
+async function processNewsPulseVisualRows(env, rows, { now, correlationId = null } = {}) {
   let readyCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
@@ -478,12 +483,112 @@ export async function processNewsPulseVisualBackfill({
       });
     }
   }
+  return { readyCount, failedCount, skippedCount };
+}
+
+export async function processNewsPulseVisualBackfill({
+  env,
+  now = new Date().toISOString(),
+  limit = NEWS_PULSE_VISUAL_BATCH_LIMIT,
+  correlationId = null,
+} = {}) {
+  if (!hasNewsPulseVisualBindings(env)) {
+    return {
+      skipped: true,
+      reason: "bindings_missing",
+      scannedCount: 0,
+      readyCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+    };
+  }
+
+  let rows;
+  try {
+    rows = await listNewsPulseVisualCandidates(env, { now, limit });
+  } catch (error) {
+    if (isMissingNewsPulseVisualSchema(error)) {
+      return {
+        skipped: true,
+        reason: "schema_missing",
+        scannedCount: 0,
+        readyCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+      };
+    }
+    throw error;
+  }
+
+  const processed = await processNewsPulseVisualRows(env, rows, { now, correlationId });
 
   return {
     skipped: false,
     scannedCount: rows.length,
-    readyCount,
-    failedCount,
-    skippedCount,
+    readyCount: processed.readyCount,
+    failedCount: processed.failedCount,
+    skippedCount: processed.skippedCount,
+  };
+}
+
+export async function processNewsPulseVisualBackfillForItemIds({
+  env,
+  itemIds = [],
+  now = new Date().toISOString(),
+  limit = NEWS_PULSE_VISUAL_INGEST_BATCH_LIMIT,
+  correlationId = null,
+} = {}) {
+  if (!hasNewsPulseVisualBindings(env)) {
+    return {
+      skipped: true,
+      reason: "bindings_missing",
+      scannedCount: 0,
+      readyCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+    };
+  }
+
+  const ids = normalizeItemIds(itemIds);
+  const candidateLimit = safeBatchLimit(limit);
+  if (ids.length === 0) {
+    return {
+      skipped: true,
+      reason: "item_ids_missing",
+      scannedCount: 0,
+      readyCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+    };
+  }
+
+  let rows = [];
+  try {
+    for (const id of ids) {
+      const row = await getNewsPulseVisualCandidateById(env, id, { now });
+      if (row?.id) rows.push(row);
+      if (rows.length >= candidateLimit) break;
+    }
+  } catch (error) {
+    if (isMissingNewsPulseVisualSchema(error)) {
+      return {
+        skipped: true,
+        reason: "schema_missing",
+        scannedCount: 0,
+        readyCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+      };
+    }
+    throw error;
+  }
+
+  const processed = await processNewsPulseVisualRows(env, rows, { now, correlationId });
+  return {
+    skipped: false,
+    scannedCount: rows.length,
+    readyCount: processed.readyCount,
+    failedCount: processed.failedCount,
+    skippedCount: processed.skippedCount,
   };
 }

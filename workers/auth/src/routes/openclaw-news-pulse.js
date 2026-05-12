@@ -15,6 +15,10 @@ import {
   ingestOpenClawNewsPulseItems,
 } from "../lib/news-pulse.js";
 import {
+  NEWS_PULSE_VISUAL_INGEST_BATCH_LIMIT,
+  processNewsPulseVisualBackfillForItemIds,
+} from "../lib/news-pulse-visuals.js";
+import {
   getErrorFields,
   getRequestLogFields,
   logDiagnostic,
@@ -64,6 +68,12 @@ function logOpenClawEvent(ctx, {
   itemCount = null,
   storedCount = null,
   dryRun = null,
+  queuedCount = null,
+  scannedCount = null,
+  readyCount = null,
+  failedCount = null,
+  skippedCount = null,
+  reason = null,
   status = null,
   code = null,
   error = null,
@@ -79,6 +89,12 @@ function logOpenClawEvent(ctx, {
     item_count: itemCount,
     stored_count: storedCount,
     dry_run: dryRun,
+    queued_count: queuedCount,
+    scanned_count: scannedCount,
+    ready_count: readyCount,
+    failed_count: failedCount,
+    skipped_count: skippedCount,
+    reason,
     status,
     code,
     ...getRequestLogFields(ctx),
@@ -354,6 +370,88 @@ function mapOpenClawValidationError(error) {
   return error;
 }
 
+function scheduleOpenClawNewsPulseVisualBackfill(ctx, {
+  result,
+  agent = null,
+  locale = null,
+} = {}) {
+  const itemIds = (result?.items || [])
+    .map((item) => item?.id)
+    .filter(Boolean);
+  const limit = Math.min(
+    NEWS_PULSE_VISUAL_INGEST_BATCH_LIMIT,
+    Math.max(Number(result?.stored_count || 0), 0),
+    itemIds.length
+  );
+
+  if (result?.dry_run || limit <= 0) return;
+
+  if (!ctx?.execCtx || typeof ctx.execCtx.waitUntil !== "function") {
+    logOpenClawEvent(ctx, {
+      event: "openclaw_news_pulse_visual_backfill_skipped",
+      level: "info",
+      agent,
+      locale,
+      itemCount: itemIds.length,
+      storedCount: result?.stored_count || 0,
+      queuedCount: 0,
+      reason: "exec_ctx_missing",
+    });
+    return;
+  }
+
+  logOpenClawEvent(ctx, {
+    event: "openclaw_news_pulse_visual_backfill_queued",
+    level: "info",
+    agent,
+    locale,
+    itemCount: itemIds.length,
+    storedCount: result?.stored_count || 0,
+    queuedCount: limit,
+  });
+
+  const promise = Promise.resolve()
+    .then(() => processNewsPulseVisualBackfillForItemIds({
+      env: ctx.env,
+      itemIds,
+      now: new Date().toISOString(),
+      limit,
+      correlationId: ctx.correlationId,
+    }))
+    .then((backfill) => {
+      logOpenClawEvent(ctx, {
+        event: backfill.skipped
+          ? "openclaw_news_pulse_visual_backfill_skipped"
+          : "openclaw_news_pulse_visual_backfill_completed",
+        level: backfill.failedCount > 0 ? "warn" : "info",
+        agent,
+        locale,
+        itemCount: itemIds.length,
+        storedCount: result?.stored_count || 0,
+        queuedCount: limit,
+        scannedCount: backfill.scannedCount,
+        readyCount: backfill.readyCount,
+        failedCount: backfill.failedCount,
+        skippedCount: backfill.skippedCount,
+        reason: backfill.reason || null,
+      });
+    })
+    .catch((error) => {
+      logOpenClawEvent(ctx, {
+        event: "openclaw_news_pulse_visual_backfill_failed",
+        level: "warn",
+        agent,
+        locale,
+        itemCount: itemIds.length,
+        storedCount: result?.stored_count || 0,
+        queuedCount: limit,
+        error,
+      });
+    });
+
+  ctx.execCtx.waitUntil(promise);
+}
+
 export async function handleOpenClawNewsPulseIngest(ctx) {
   let agent = null;
   let payload = null;
@@ -437,6 +535,12 @@ export async function handleOpenClawNewsPulseIngest(ctx) {
       dryRun: payload.dry_run === true,
     }).catch((error) => {
       throw mapOpenClawValidationError(error);
+    });
+
+    scheduleOpenClawNewsPulseVisualBackfill(ctx, {
+      result,
+      agent,
+      locale: payload.locale,
     });
 
     logOpenClawEvent(ctx, {

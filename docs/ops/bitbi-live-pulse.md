@@ -192,7 +192,11 @@ Prompt safety rules:
 - source names and known brand terms are stripped from prompt hints
 - no third-party article images are copied, fetched, uploaded, or hotlinked
 
-The auth Worker scheduled handler runs a small bounded thumbnail backfill after the News Pulse refresh. It selects active, unexpired rows with `visual_status` `missing` or retryable `failed`, `visual_attempts < 3`, and a valid title/source URL. It then:
+After a successful OpenClaw ingest, the auth Worker immediately queues thumbnail work with `ctx.execCtx.waitUntil(...)`. The POST response keeps the same safe ingest contract and does not wait for image generation to finish. The immediate pass targets the item IDs from the accepted ingest payload and processes only a small capped number of eligible `missing` or retryable `failed` rows.
+
+The auth Worker scheduled handler still runs the same bounded thumbnail backfill after the News Pulse refresh as a recovery path. It covers rows missed because bindings were unavailable, `waitUntil` could not be used, generation failed temporarily, or an ingest batch exceeded the immediate cap.
+
+Both immediate and scheduled processing select active, unexpired rows with `visual_status` `missing` or retryable `failed`, `visual_attempts < 3`, and a valid title/source URL. They then:
 
 1. sets `visual_status = 'pending'` and increments `visual_attempts`
 2. calls the existing Cloudflare Workers AI binding with `@cf/black-forest-labs/flux-1-schnell`
@@ -201,6 +205,8 @@ The auth Worker scheduled handler runs a small bounded thumbnail backfill after 
 5. sets `visual_status = 'ready'`, `visual_type = 'generated'`, and stores the public thumb URL
 
 Failures set `visual_status = 'failed'` with a short sanitized internal error. Public News Pulse serving continues normally and falls back to the dot/icon. Rows with `ready`, `pending`, `skipped`, expired, invalid, or max-attempt states are not generated again.
+
+Immediate ingest-triggered processing is capped at 4 generated thumbnails per POST. The scheduled fallback remains conservative at 2 generated thumbnails per cron run.
 
 Object keys are deterministic and scoped:
 
@@ -219,7 +225,9 @@ No new binding is required beyond existing auth Worker bindings:
 - `IMAGES` for WebP thumbnail derivation
 - `USER_IMAGES` for `news-pulse/thumbs/{item_id}.webp`
 
-The existing auth Worker cron (`0 3 * * *`) calls the refresh foundation and then processes a conservative thumbnail batch. If `NEWS_PULSE_SOURCE_URLS` is unset, the refresh step skips cleanly. If AI, Images, or R2 bindings are unavailable, thumbnail processing skips cleanly and the public endpoint continues serving fallback data.
+The existing auth Worker cron (`0 3 * * *`) calls the refresh foundation and then processes a conservative thumbnail batch. New OpenClaw-ingested items do not wait for this cron under normal conditions because the ingest route queues immediate background thumbnail processing with `waitUntil`.
+
+If `NEWS_PULSE_SOURCE_URLS` is unset, the refresh step skips cleanly. If AI, Images, R2, or `waitUntil` are unavailable, thumbnail processing skips cleanly and the public endpoint continues serving fallback data until a later scheduled backfill succeeds.
 
 ## Content Rules
 
@@ -240,6 +248,6 @@ Deploy order:
 3. Verify existing auth Worker bindings `AI`, `IMAGES`, and `USER_IMAGES` are present.
 4. Deploy the auth Worker.
 5. Deploy static/GitHub Pages assets for the desktop thumbnail renderer.
-6. Use `npx wrangler tail` to verify OpenClaw ingest and scheduled thumbnail backfill attempts.
+6. Use `npx wrangler tail` to verify OpenClaw ingest, immediate thumbnail backfill, and scheduled fallback attempts.
 
 Static-only deploys are not enough for the endpoint because the Worker route and D1 migration are part of this feature.
