@@ -3552,7 +3552,7 @@
 
     .hero--homepage {
         --homepage-hero-side-inset: var(--bitbi-public-header-inset, clamp(0.7rem, 2vw, 1.4rem));
-        --homepage-news-pulse-width: clamp(20rem, 29vw, 32rem);
+        --homepage-news-pulse-width: clamp(24rem, 42vw, 44rem);
     }
 
     .hero--homepage .hero__media {

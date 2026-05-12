@@ -716,8 +716,12 @@ test.describe('Homepage', () => {
       const flowStyle = window.getComputedStyle(node.querySelector('.news-pulse__flow'));
       const trackStyle = window.getComputedStyle(node.querySelector('.news-pulse__track'));
       const itemStyle = window.getComputedStyle(node.querySelector('.news-pulse__item'));
+      const thumbLinkStyle = window.getComputedStyle(node.querySelector('.news-pulse__link--thumb'));
       const markStyle = window.getComputedStyle(node.querySelector('.news-pulse__mark'));
       const thumbStyle = window.getComputedStyle(node.querySelector('.news-pulse__thumb'));
+      const thumbGridColumn = parseFloat((thumbLinkStyle.gridTemplateColumns || '').split(' ')[0] || '0');
+      const thumbGap = parseFloat(thumbLinkStyle.columnGap || thumbLinkStyle.gap || '0');
+      const rootFontSize = parseFloat(window.getComputedStyle(document.documentElement).fontSize || '16');
       const rect = node.getBoundingClientRect();
       const heroRect = hero.getBoundingClientRect();
       const nextRect = nextSection.getBoundingClientRect();
@@ -730,6 +734,9 @@ test.describe('Homepage', () => {
         flowPaddingInlineStart: parseFloat(flowStyle.paddingInlineStart || '0'),
         markWidth: parseFloat(markStyle.width || '0'),
         thumbWidth: parseFloat(thumbStyle.width || '0'),
+        thumbGap,
+        thumbTextOffset: thumbGridColumn + thumbGap,
+        expectedThumbTextOffset: rootFontSize * 3.47,
         width: rect.width,
         left: rect.left,
         right: rect.right,
@@ -745,14 +752,17 @@ test.describe('Homepage', () => {
     expect(pulseLayout.parentId).toBe('hero');
     expect(pulseLayout.trackDisplay).not.toBe('flex');
     expect(pulseLayout.itemAnimationName).toContain('news-pulse-wheel');
-    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(56.4, 1);
+    expect(parseFloat(pulseLayout.itemAnimationDuration)).toBeCloseTo(53.58, 1);
     expect(pulseLayout.maskImage).toContain('linear-gradient');
     expect(pulseLayout.flowPaddingInlineStart).toBeGreaterThan(pulseLayout.markWidth);
-    expect(pulseLayout.thumbWidth).toBeGreaterThan(35);
-    expect(pulseLayout.thumbWidth).toBeLessThan(60);
-    expect(pulseLayout.width).toBeGreaterThan(350);
+    expect(pulseLayout.thumbWidth).toBeGreaterThan(50);
+    expect(pulseLayout.thumbWidth).toBeLessThan(58);
+    expect(pulseLayout.thumbGap).toBeGreaterThan(1);
+    expect(pulseLayout.thumbGap).toBeLessThan(5);
+    expect(pulseLayout.thumbTextOffset).toBeCloseTo(pulseLayout.expectedThumbTextOffset, 0);
+    expect(pulseLayout.width).toBeGreaterThan(500);
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
-    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
+    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.62);
     expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
@@ -821,7 +831,7 @@ test.describe('Homepage', () => {
     });
     expect(pulseLayout.parentId).toBe('hero');
     expect(pulseLayout.left).toBeGreaterThanOrEqual(pulseLayout.heroLeft - 1);
-    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.5);
+    expect(pulseLayout.right).toBeLessThan(pulseLayout.heroLeft + pulseLayout.heroWidth * 0.62);
     expect(pulseLayout.top).toBeGreaterThanOrEqual(pulseLayout.heroTop - 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.heroBottom + 1);
     expect(pulseLayout.bottom).toBeLessThanOrEqual(pulseLayout.nextTop);
