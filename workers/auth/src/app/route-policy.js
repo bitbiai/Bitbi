@@ -15,6 +15,7 @@ const REQUIRED_CONFIG = Object.freeze({
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
   stripeLiveCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_CREDIT_PACKS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_WEBHOOK_SECRET", "STRIPE_LIVE_CHECKOUT_SUCCESS_URL", "STRIPE_LIVE_CHECKOUT_CANCEL_URL"],
   stripeLiveSubscriptionCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_WEBHOOK_SECRET", "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID", "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL", "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL"],
+  stripeLiveSubscriptionManagement: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID"],
   stripeLiveWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_WEBHOOK_SECRET"],
 });
 
@@ -203,6 +204,18 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "stripe_live_member_subscription_checkout_created" },
     sensitivity: "high",
     notes: "Live Stripe subscription checkout for BITBI Pro. Requires active account session, ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=true, Stripe live key and webhook readiness, configured live subscription Price ID, Idempotency-Key, current terms and immediate-delivery consent, same-origin mutation protection, and no subscription credits at checkout creation.",
+  }),
+  userJsonWrite("account.billing.subscription.cancel", "POST", "/api/account/billing/subscription/cancel", "billing", "smallJson", "account-billing-live-subscription-manage-user", {
+    config: REQUIRED_CONFIG.stripeLiveSubscriptionManagement,
+    audit: { event: "stripe_live_member_subscription_cancel_requested" },
+    sensitivity: "high",
+    notes: "Authenticated member-only BITBI Pro cancellation management. Calls Stripe Update Subscription with cancel_at_period_end=true, requires Idempotency-Key and explicit confirmation, and preserves paid-period access until current_period_end.",
+  }),
+  userJsonWrite("account.billing.subscription.reactivate", "POST", "/api/account/billing/subscription/reactivate", "billing", "smallJson", "account-billing-live-subscription-manage-user", {
+    config: REQUIRED_CONFIG.stripeLiveSubscriptionManagement,
+    audit: { event: "stripe_live_member_subscription_reactivation_requested" },
+    sensitivity: "high",
+    notes: "Authenticated member-only BITBI Pro cancellation reversal. Calls Stripe Update Subscription with cancel_at_period_end=false only for the signed-in user's still-active subscription that is already scheduled to cancel.",
   }),
   safeRead("profile.avatar.read", "GET", "/api/profile/avatar", "profile", {
     config: ["DB", "PRIVATE_MEDIA"],

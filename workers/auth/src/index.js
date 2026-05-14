@@ -250,6 +250,16 @@ export default {
       const result = await handleAccountCredits(ctx);
       if (result) return result;
     }
+    // route-policy: account.billing.subscription.cancel
+    if (pathname === "/api/account/billing/subscription/cancel" && method === "POST") {
+      const result = await handleAccountCredits(ctx);
+      if (result) return result;
+    }
+    // route-policy: account.billing.subscription.reactivate
+    if (pathname === "/api/account/billing/subscription/reactivate" && method === "POST") {
+      const result = await handleAccountCredits(ctx);
+      if (result) return result;
+    }
 
     // Avatar
     if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);

@@ -2980,6 +2980,7 @@ async function mockCreditsAccount(page, {
   organizationDashboard = null,
   memberDashboard = null,
   checkoutRequests = [],
+  subscriptionManageRequests = [],
   checkoutUrl = 'https://checkout.stripe.com/c/pay/cs_live_credits_5000',
 } = {}) {
   const defaultDashboard = dashboard || {
@@ -3153,6 +3154,60 @@ async function mockCreditsAccount(page, {
   await page.route('**/api/account/credits-dashboard*', async (route) => {
     await fulfillJson(route, { ok: true, dashboard: defaultMemberDashboard });
   });
+  await page.route('**/api/account/billing/subscription/cancel', async (route) => {
+    subscriptionManageRequests.push({
+      action: 'cancel',
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+    });
+    defaultMemberDashboard.hasActiveSubscription = true;
+    defaultMemberDashboard.cancelAtPeriodEnd = true;
+    defaultMemberDashboard.canCancelSubscription = false;
+    defaultMemberDashboard.canReactivateSubscription = true;
+    if (defaultMemberDashboard.subscription) {
+      defaultMemberDashboard.subscription.cancelAtPeriodEnd = true;
+      defaultMemberDashboard.subscription.canCancelSubscription = false;
+      defaultMemberDashboard.subscription.canReactivateSubscription = true;
+    }
+    await fulfillJson(route, {
+      ok: true,
+      action: 'cancel',
+      reused: false,
+      subscription: {
+        providerSubscriptionId: 'sub_member_pro_mock',
+        status: 'active',
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: defaultMemberDashboard.subscriptionPeriodEnd || '2026-06-01T00:00:00.000Z',
+      },
+    });
+  });
+  await page.route('**/api/account/billing/subscription/reactivate', async (route) => {
+    subscriptionManageRequests.push({
+      action: 'reactivate',
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+    });
+    defaultMemberDashboard.hasActiveSubscription = true;
+    defaultMemberDashboard.cancelAtPeriodEnd = false;
+    defaultMemberDashboard.canCancelSubscription = true;
+    defaultMemberDashboard.canReactivateSubscription = false;
+    if (defaultMemberDashboard.subscription) {
+      defaultMemberDashboard.subscription.cancelAtPeriodEnd = false;
+      defaultMemberDashboard.subscription.canCancelSubscription = true;
+      defaultMemberDashboard.subscription.canReactivateSubscription = false;
+    }
+    await fulfillJson(route, {
+      ok: true,
+      action: 'reactivate',
+      reused: false,
+      subscription: {
+        providerSubscriptionId: 'sub_member_pro_mock',
+        status: 'active',
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: defaultMemberDashboard.subscriptionPeriodEnd || '2026-06-01T00:00:00.000Z',
+      },
+    });
+  });
   await page.route('**/api/orgs/*/organization-dashboard*', async (route) => {
     await fulfillJson(route, { ok: true, dashboard: defaultOrganizationDashboard });
   });
@@ -3178,7 +3233,7 @@ async function mockCreditsAccount(page, {
     }, 201);
   });
 
-  return { checkoutRequests };
+  return { checkoutRequests, subscriptionManageRequests };
 }
 
 // ---------------------------------------------------------------------------
@@ -4323,6 +4378,11 @@ test.describe('Credits dashboard live credit packs', () => {
         subscriptionPeriodStart: '2026-05-01T00:00:00.000Z',
         subscriptionPeriodEnd: '2026-06-01T00:00:00.000Z',
         nextTopUpAt: '2026-06-01T00:00:00.000Z',
+        nextRenewalDate: '2026-06-01T00:00:00.000Z',
+        activeUntil: '2026-06-01T00:00:00.000Z',
+        cancelAtPeriodEnd: false,
+        canCancelSubscription: true,
+        canReactivateSubscription: false,
         storageLimitBytes: 5 * 1024 * 1024 * 1024,
         hasActiveSubscription: true,
         packs: [
@@ -4345,22 +4405,21 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
     const summaryCards = page.locator('#creditsSummaryGrid .credits-card');
-    await expect(summaryCards).toHaveCount(9);
-    await expect(summaryCards.nth(0)).toContainText('Current balance');
+    await expect(summaryCards).toHaveCount(4);
+    await expect(summaryCards.nth(0)).toContainText('Total available');
     await expect(summaryCards.nth(0)).toContainText('10,300 credits');
     await expect(summaryCards.nth(1)).toContainText('Subscription credits');
     await expect(summaryCards.nth(1)).toContainText('6,000 credits');
-    await expect(summaryCards.nth(2)).toContainText('Legacy / bonus credits');
-    await expect(summaryCards.nth(2)).toContainText('300 credits');
-    await expect(summaryCards.nth(3)).toContainText('Purchased credits');
-    await expect(summaryCards.nth(3)).toContainText('4,000 credits');
-    await expect(summaryCards.nth(4)).toContainText('Consumed');
-    await expect(summaryCards.nth(4)).toContainText('1 credits');
-    await expect(summaryCards.nth(5)).toContainText('Subscription');
-    await expect(summaryCards.nth(5)).toContainText('Active');
-    await expect(summaryCards.nth(8)).toContainText('Storage limit');
-    await expect(summaryCards.nth(8)).toContainText('5 GB');
-    await expect(page.locator('.credits-member-subscription-note')).toContainText('Subscription credits are topped up to 6000 each month');
+    await expect(summaryCards.nth(2)).toContainText('Purchased credits');
+    await expect(summaryCards.nth(2)).toContainText('4,000 credits');
+    await expect(summaryCards.nth(3)).toContainText('Legacy / bonus credits');
+    await expect(summaryCards.nth(3)).toContainText('300 credits');
+    await expect(page.locator('#creditsSubscriptionSection')).toBeVisible();
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Active');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Next renewal');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('5 GB');
+    await expect(page.locator('[data-subscription-action="cancel"]')).toHaveText('Cancel subscription');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Daily top-up target');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Daily top-ups');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manual grants');
@@ -4374,10 +4433,10 @@ test.describe('Credits dashboard live credit packs', () => {
         width: Math.round(rect.width),
       };
     }));
-    expect(summaryLayout).toHaveLength(9);
+    expect(summaryLayout).toHaveLength(4);
     expect(Math.abs(summaryLayout[0].top - summaryLayout[1].top)).toBeLessThanOrEqual(2);
-    expect(summaryLayout[1].left).toBeGreaterThan(summaryLayout[0].right);
-    expect(summaryLayout.every((card) => card.width >= 360)).toBe(true);
+    expect(summaryLayout[1].left).toBeGreaterThan(summaryLayout[0].left);
+    expect(summaryLayout.every((card) => card.width >= 170)).toBe(true);
 
     const currentCard = page.locator('#creditsLedgerBody .credits-ledger-card--current');
     await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0));
@@ -4456,6 +4515,11 @@ test.describe('Credits dashboard live credit packs', () => {
         subscriptionPeriodStart: '2026-05-01T00:00:00.000Z',
         subscriptionPeriodEnd: '2026-06-01T00:00:00.000Z',
         nextTopUpAt: '2026-06-01T00:00:00.000Z',
+        nextRenewalDate: '2026-06-01T00:00:00.000Z',
+        activeUntil: '2026-06-01T00:00:00.000Z',
+        cancelAtPeriodEnd: false,
+        canCancelSubscription: true,
+        canReactivateSubscription: false,
         storageLimitBytes: 5 * 1024 * 1024 * 1024,
         hasActiveSubscription: true,
         packs: [
@@ -4472,17 +4536,17 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#creditsEyebrow')).toHaveText('Mitglieder-Credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Mitgliedskonto');
-    await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(9);
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Aktuelles Guthaben');
+    await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(4);
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Gesamt verfügbar');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Abo-Credits');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Gekaufte Credits');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Verbraucht');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Abo');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Aktiv');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('Speicherlimit');
-    await expect(page.locator('#creditsSummaryGrid')).toContainText('5 GB');
-    await expect(page.locator('.credits-member-subscription-note')).toContainText('Abo-Credits werden monatlich auf 6000 aufgefüllt');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('BITBI Pro');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Nächste Verlängerung');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Aktiv');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Speicherlimit');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('5 GB');
+    await expect(page.locator('[data-subscription-action="cancel"]')).toHaveText('Abo kündigen');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Tägliches Aufladeziel');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Tägliche Aufladungen');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manuelle Gutschriften');
@@ -4492,6 +4556,119 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(currentCard.locator('.credits-ledger-card__title')).toHaveText(creditLedgerMonthLabel(0, 'de-DE'));
     await expect(currentCard.locator('.credits-ledger-list--direct .credits-ledger-item')).toHaveCount(5);
     await expect(currentCard.locator('details summary')).toHaveText('1 weitere Aktion anzeigen');
+  });
+
+  test('member Credits page cancels and reactivates an active subscription with confirmation', async ({ page }) => {
+    const memberDashboard = {
+      account: { userId: 'member-sub-ui', email: 'member-sub-ui@example.com', role: 'user', status: 'active' },
+      balance: {
+        current: 10000,
+        available: 10000,
+        totalCredits: 10000,
+        subscriptionCredits: 6000,
+        legacyOrBonusCredits: 0,
+        purchasedCredits: 4000,
+        lifetimeConsumed: 0,
+      },
+      dailyTopUp: null,
+      liveCheckout: { enabled: true, configured: true, mode: 'live' },
+      subscriptionStatus: 'active',
+      subscriptionPeriodStart: '2026-05-01T00:00:00.000Z',
+      subscriptionPeriodEnd: '2026-06-01T00:00:00.000Z',
+      nextRenewalDate: '2026-06-01T00:00:00.000Z',
+      activeUntil: '2026-06-01T00:00:00.000Z',
+      cancelAtPeriodEnd: false,
+      canCancelSubscription: true,
+      canReactivateSubscription: false,
+      storageLimitBytes: 5 * 1024 * 1024 * 1024,
+      hasActiveSubscription: true,
+      packs: [],
+      purchaseHistory: [],
+      transactions: [],
+    };
+    const { subscriptionManageRequests } = await mockCreditsAccount(page, {
+      email: 'member-sub-ui@example.com',
+      organizations: [],
+      memberDashboard,
+    });
+
+    await page.goto('/account/credits.html?scope=member');
+    await expect(page.locator('[data-subscription-action="cancel"]')).toBeVisible({ timeout: 10_000 });
+    await page.locator('[data-subscription-action="cancel"]').click();
+    await expect(page.locator('#creditsSubscriptionDialog')).toBeVisible();
+    await expect(page.locator('#creditsSubscriptionDialogTitle')).toHaveText('Cancel subscription at period end?');
+    await expect(page.locator('#creditsSubscriptionDialogBody')).toContainText('remains active');
+    await page.locator('#creditsSubscriptionDialogConfirm').click();
+    await expect(page.locator('#creditsSubscriptionFeedback')).toContainText('Cancellation scheduled');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Cancels at period end');
+    await expect(page.locator('[data-subscription-action="reactivate"]')).toHaveText('Reactivate subscription');
+    expect(subscriptionManageRequests).toHaveLength(1);
+    expect(subscriptionManageRequests[0]).toEqual(expect.objectContaining({
+      action: 'cancel',
+      body: { confirmed: true },
+    }));
+    expect(subscriptionManageRequests[0].idempotencyKey).toMatch(/^member-subscription:cancel:/);
+
+    await page.locator('[data-subscription-action="reactivate"]').click();
+    await expect(page.locator('#creditsSubscriptionDialogTitle')).toHaveText('Reactivate subscription?');
+    await page.locator('#creditsSubscriptionDialogConfirm').click();
+    await expect(page.locator('#creditsSubscriptionFeedback')).toContainText('Subscription reactivated');
+    await expect(page.locator('[data-subscription-action="cancel"]')).toHaveText('Cancel subscription');
+    expect(subscriptionManageRequests).toHaveLength(2);
+    expect(subscriptionManageRequests[1].action).toBe('reactivate');
+    expect(subscriptionManageRequests[1].idempotencyKey).toMatch(/^member-subscription:reactivate:/);
+  });
+
+  test('member Credits page hides subscription management actions for no or ended subscriptions', async ({ page }) => {
+    await mockCreditsAccount(page, {
+      email: 'member-no-sub-ui@example.com',
+      organizations: [],
+      memberDashboard: {
+        account: { userId: 'member-no-sub-ui', email: 'member-no-sub-ui@example.com', role: 'user', status: 'active' },
+        balance: { totalCredits: 4000, subscriptionCredits: 0, purchasedCredits: 4000, legacyOrBonusCredits: 0, lifetimeConsumed: 0 },
+        dailyTopUp: null,
+        liveCheckout: { enabled: true, configured: true, mode: 'live' },
+        subscriptionStatus: 'none',
+        hasActiveSubscription: false,
+        cancelAtPeriodEnd: false,
+        canCancelSubscription: false,
+        canReactivateSubscription: false,
+        storageLimitBytes: 50 * 1024 * 1024,
+        packs: [],
+        purchaseHistory: [],
+        transactions: [],
+      },
+    });
+    await page.goto('/account/credits.html?scope=member');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('No active subscription');
+    await expect(page.locator('[data-subscription-action]')).toHaveCount(0);
+    await expect(page.locator('#creditsSubscriptionSection .btn')).toContainText('View plans');
+
+    await page.unroute('**/api/account/credits-dashboard*');
+    await page.route('**/api/account/credits-dashboard*', async (route) => {
+      await fulfillJson(route, {
+        ok: true,
+        dashboard: {
+          account: { userId: 'member-ended-sub-ui', email: 'member-ended-sub-ui@example.com', role: 'user', status: 'active' },
+          balance: { totalCredits: 2000, subscriptionCredits: 0, purchasedCredits: 2000, legacyOrBonusCredits: 0, lifetimeConsumed: 0 },
+          dailyTopUp: null,
+          liveCheckout: { enabled: true, configured: true, mode: 'live' },
+          subscriptionStatus: 'canceled',
+          subscriptionPeriodEnd: '2026-04-01T00:00:00.000Z',
+          hasActiveSubscription: false,
+          cancelAtPeriodEnd: false,
+          canCancelSubscription: false,
+          canReactivateSubscription: false,
+          storageLimitBytes: 50 * 1024 * 1024,
+          packs: [],
+          purchaseHistory: [],
+          transactions: [],
+        },
+      });
+    });
+    await page.goto('/account/credits.html?scope=member');
+    await expect(page.locator('#creditsSubscriptionSection')).toContainText('Ended');
+    await expect(page.locator('[data-subscription-action]')).toHaveCount(0);
   });
 
   test('organization Credits view keeps organization switching only when multiple eligible organizations exist', async ({ page }) => {

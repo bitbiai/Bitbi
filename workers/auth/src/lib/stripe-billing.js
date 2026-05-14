@@ -1,5 +1,6 @@
 import {
   BillingError,
+  getActiveMemberSubscription,
   getCreditBalance,
   grantMemberCredits,
   grantOrganizationCredits,
@@ -23,6 +24,7 @@ export const STRIPE_MODE_TEST = "test";
 export const STRIPE_MODE_LIVE = "live";
 export const STRIPE_WEBHOOK_TOLERANCE_MS = 5 * 60_000;
 export const STRIPE_CHECKOUT_API_URL = "https://api.stripe.com/v1/checkout/sessions";
+export const STRIPE_SUBSCRIPTIONS_API_URL = "https://api.stripe.com/v1/subscriptions";
 
 const STRIPE_SIGNATURE_HEADER = "stripe-signature";
 const TEST_CHECKOUT_SESSION_ID_PATTERN = /^cs_test_[A-Za-z0-9_:-]{8,200}$/;
@@ -379,6 +381,14 @@ function getStripeLiveSubscriptionCheckoutConfig(env) {
       "Stripe live subscription cancel URL",
       "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL"
     ),
+  };
+}
+
+function getStripeLiveSubscriptionManagementConfig(env) {
+  return {
+    mode: STRIPE_MODE_LIVE,
+    secretKey: normalizeStripeLiveSecretKey(env),
+    priceId: normalizeStripeLiveSubscriptionPriceId(env),
   };
 }
 
@@ -901,6 +911,113 @@ async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) 
     throw new StripeBillingError("Stripe Checkout Session could not be created.", {
       status: 502,
       code: "stripe_checkout_create_failed",
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function normalizeStripeSubscriptionResponse(value, { expectedSubscriptionId, expectedPriceId } = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new StripeBillingError("Stripe Subscription response is invalid.", {
+      status: 502,
+      code: "stripe_subscription_update_failed",
+    });
+  }
+  const subscriptionId = safeString(value.id, 128);
+  if (
+    !subscriptionId ||
+    !LIVE_SUBSCRIPTION_ID_PATTERN.test(subscriptionId) ||
+    (expectedSubscriptionId && subscriptionId !== expectedSubscriptionId) ||
+    value.livemode !== true
+  ) {
+    throw new StripeBillingError("Stripe Subscription response is invalid.", {
+      status: 502,
+      code: "stripe_subscription_update_failed",
+    });
+  }
+  const priceId = getSubscriptionPriceId(value);
+  if (expectedPriceId && priceId !== expectedPriceId) {
+    throw new StripeBillingError("Stripe Subscription response does not match BITBI Pro.", {
+      status: 409,
+      code: "stripe_subscription_price_mismatch",
+    });
+  }
+  return {
+    subscriptionId,
+    customer: safeString(value.customer, 128),
+    priceId,
+    status: safeString(value.status, 64) || "active",
+    currentPeriodStart: stripeTimestampToIso(getSubscriptionPeriodStart(value)),
+    currentPeriodEnd: stripeTimestampToIso(getSubscriptionPeriodEnd(value)),
+    cancelAtPeriodEnd: value.cancel_at_period_end === true,
+    canceledAt: stripeTimestampToIso(value.canceled_at),
+    metadata: metadataObject(value.metadata),
+  };
+}
+
+async function postStripeSubscriptionCancelAtPeriodEnd({
+  env,
+  config,
+  subscriptionId,
+  cancelAtPeriodEnd,
+  idempotencyKey,
+}) {
+  const fetchImpl = env.__TEST_FETCH || globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    throw new StripeBillingError("Stripe API fetch is unavailable.", {
+      status: 503,
+      code: "stripe_fetch_unavailable",
+    });
+  }
+
+  const normalizedSubscriptionId = safeString(subscriptionId, 128);
+  if (!normalizedSubscriptionId || !LIVE_SUBSCRIPTION_ID_PATTERN.test(normalizedSubscriptionId)) {
+    throw new StripeBillingError("Stripe live subscription id is invalid.", {
+      status: 400,
+      code: "stripe_subscription_invalid",
+    });
+  }
+
+  const body = new URLSearchParams();
+  body.set("cancel_at_period_end", cancelAtPeriodEnd ? "true" : "false");
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), STRIPE_CHECKOUT_TIMEOUT_MS)
+    : null;
+  try {
+    const response = await fetchImpl(`${STRIPE_SUBSCRIPTIONS_API_URL}/${encodeURIComponent(normalizedSubscriptionId)}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.secretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body,
+      signal: controller?.signal,
+    });
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    if (!response.ok) {
+      throw new StripeBillingError("Stripe Subscription could not be updated.", {
+        status: 502,
+        code: "stripe_subscription_update_failed",
+      });
+    }
+    return normalizeStripeSubscriptionResponse(parsed, {
+      expectedSubscriptionId: normalizedSubscriptionId,
+      expectedPriceId: config.priceId,
+    });
+  } catch (error) {
+    if (error instanceof StripeBillingError) throw error;
+    throw new StripeBillingError("Stripe Subscription could not be updated.", {
+      status: 502,
+      code: "stripe_subscription_update_failed",
     });
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -1687,6 +1804,111 @@ export async function createStripeLiveMemberSubscriptionCheckout({
     await markMemberSubscriptionCheckoutFailed(env, { id, errorCode: code, errorMessage: message });
     throw error;
   }
+}
+
+function assertLiveMemberSubscriptionManageable(subscription, { expectedPriceId, action }) {
+  if (!subscription) {
+    throw new StripeBillingError("No active BITBI Pro subscription was found.", {
+      status: 404,
+      code: "subscription_not_found",
+    });
+  }
+  if (
+    subscription.provider !== "stripe" ||
+    subscription.providerMode !== STRIPE_MODE_LIVE ||
+    !subscription.providerSubscriptionId ||
+    !LIVE_SUBSCRIPTION_ID_PATTERN.test(subscription.providerSubscriptionId)
+  ) {
+    throw new StripeBillingError("The current subscription cannot be managed automatically.", {
+      status: 409,
+      code: "subscription_not_manageable",
+    });
+  }
+  if (subscription.providerPriceId !== expectedPriceId) {
+    throw new StripeBillingError("The current subscription does not match BITBI Pro.", {
+      status: 409,
+      code: "stripe_subscription_price_mismatch",
+    });
+  }
+  if (action === "cancel" && subscription.cancelAtPeriodEnd) {
+    return { alreadyInRequestedState: true };
+  }
+  if (action === "reactivate" && !subscription.cancelAtPeriodEnd) {
+    throw new StripeBillingError("The current subscription is not scheduled for cancellation.", {
+      status: 409,
+      code: "subscription_not_scheduled_for_cancellation",
+    });
+  }
+  return { alreadyInRequestedState: false };
+}
+
+async function updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
+  env,
+  userId,
+  cancelAtPeriodEnd,
+  idempotencyKey,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const config = getStripeLiveSubscriptionManagementConfig(env);
+  const subscription = await getActiveMemberSubscription(env, normalizedUserId);
+  const requestedAction = cancelAtPeriodEnd ? "cancel" : "reactivate";
+  const manageability = assertLiveMemberSubscriptionManageable(subscription, {
+    expectedPriceId: config.priceId,
+    action: requestedAction,
+  });
+  if (manageability.alreadyInRequestedState) {
+    return {
+      subscription,
+      reused: true,
+    };
+  }
+
+  const stripeSubscription = await postStripeSubscriptionCancelAtPeriodEnd({
+    env,
+    config,
+    subscriptionId: subscription.providerSubscriptionId,
+    cancelAtPeriodEnd,
+    idempotencyKey: `bitbi-live-subscription-${requestedAction}-${normalizedKey.slice(0, 80)}`,
+  });
+  const updated = await upsertMemberSubscriptionFromProvider({
+    env,
+    userId: normalizedUserId,
+    providerSubscriptionId: stripeSubscription.subscriptionId,
+    providerCustomerId: stripeSubscription.customer || subscription.providerCustomerId || null,
+    providerPriceId: stripeSubscription.priceId || subscription.providerPriceId || config.priceId,
+    status: stripeSubscription.status || subscription.status,
+    currentPeriodStart: stripeSubscription.currentPeriodStart || subscription.currentPeriodStart || null,
+    currentPeriodEnd: stripeSubscription.currentPeriodEnd || subscription.currentPeriodEnd || null,
+    cancelAtPeriodEnd: stripeSubscription.cancelAtPeriodEnd,
+    canceledAt: stripeSubscription.canceledAt || subscription.canceledAt || null,
+    metadata: {
+      ...stripeSubscription.metadata,
+      source: `account_subscription_${requestedAction}`,
+    },
+  });
+  return {
+    subscription: updated,
+    reused: false,
+  };
+}
+
+export function cancelStripeLiveMemberSubscriptionAtPeriodEnd({ env, userId, idempotencyKey }) {
+  return updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
+    env,
+    userId,
+    cancelAtPeriodEnd: true,
+    idempotencyKey,
+  });
+}
+
+export function reactivateStripeLiveMemberSubscription({ env, userId, idempotencyKey }) {
+  return updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
+    env,
+    userId,
+    cancelAtPeriodEnd: false,
+    idempotencyKey,
+  });
 }
 
 function normalizeUserId(value) {

@@ -5352,6 +5352,172 @@ test.describe('BITBI Pro member subscriptions', () => {
     });
   });
 
+  test('member can schedule active subscription cancellation at period end and keep access', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = seedBucketedMember({
+      userId: 'member-subscription-manage-cancel',
+      subscriptionCredits: 6000,
+      purchasedCredits: 1200,
+    });
+    env.STRIPE_LIVE_SECRET_KEY = 'sk_live_subscription_manage_secret_123456';
+    env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID = 'price_member_pro_123456';
+    const calls = [];
+    env.__TEST_FETCH = async (url, init = {}) => {
+      calls.push({ url: String(url), form: Object.fromEntries(new URLSearchParams(String(init.body || ''))) });
+      return new Response(JSON.stringify({
+        id: 'sub_member_pro_123456',
+        object: 'subscription',
+        livemode: true,
+        customer: 'cus_member_pro_123456',
+        status: 'active',
+        cancel_at_period_end: true,
+        canceled_at: 1778000000,
+        current_period_start: 1777593600,
+        current_period_end: 1780272000,
+        items: { data: [{ price: { id: 'price_member_pro_123456' } }] },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const token = await seedSession(env, 'member-subscription-manage-cancel');
+    const response = await worker.fetch(
+      authJsonRequest('/api/account/billing/subscription/cancel', 'POST', { confirmed: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-subscription-cancel-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.subscription).toEqual(expect.objectContaining({
+      userId: 'member-subscription-manage-cancel',
+      providerSubscriptionId: 'sub_member_pro_123456',
+      status: 'active',
+      cancelAtPeriodEnd: true,
+    }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain('/v1/subscriptions/sub_member_pro_123456');
+    expect(calls[0].form.cancel_at_period_end).toBe('true');
+    expect(env.DB.state.billingMemberSubscriptions[0].cancel_at_period_end).toBe(1);
+
+    const dashboardResponse = await worker.fetch(
+      authJsonRequest('/api/account/credits-dashboard', 'GET', undefined, {
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const dashboardBody = await dashboardResponse.json();
+    expect(dashboardResponse.status).toBe(200);
+    expect(dashboardBody.dashboard).toEqual(expect.objectContaining({
+      hasActiveSubscription: true,
+      cancelAtPeriodEnd: true,
+      canCancelSubscription: false,
+      canReactivateSubscription: true,
+      activeUntil: '2026-06-01T00:00:00.000Z',
+    }));
+  });
+
+  test('member can reactivate a scheduled subscription without creating a duplicate subscription', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = seedBucketedMember({
+      userId: 'member-subscription-manage-reactivate',
+      subscriptionCredits: 6000,
+      cancelAtPeriodEnd: 1,
+    });
+    env.STRIPE_LIVE_SECRET_KEY = 'sk_live_subscription_manage_secret_123456';
+    env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID = 'price_member_pro_123456';
+    const calls = [];
+    env.__TEST_FETCH = async (url, init = {}) => {
+      calls.push({ url: String(url), form: Object.fromEntries(new URLSearchParams(String(init.body || ''))) });
+      return new Response(JSON.stringify({
+        id: 'sub_member_pro_123456',
+        object: 'subscription',
+        livemode: true,
+        customer: 'cus_member_pro_123456',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1777593600,
+        current_period_end: 1780272000,
+        items: { data: [{ price: { id: 'price_member_pro_123456' } }] },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const token = await seedSession(env, 'member-subscription-manage-reactivate');
+    const response = await worker.fetch(
+      authJsonRequest('/api/account/billing/subscription/reactivate', 'POST', { confirmed: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-subscription-reactivate-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.subscription).toEqual(expect.objectContaining({
+      userId: 'member-subscription-manage-reactivate',
+      cancelAtPeriodEnd: false,
+    }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].form.cancel_at_period_end).toBe('false');
+    expect(env.DB.state.billingMemberSubscriptions).toHaveLength(1);
+    expect(env.DB.state.billingMemberSubscriptions[0].cancel_at_period_end).toBe(0);
+  });
+
+  test('subscription management rejects missing, expired, or other-user subscriptions before Stripe calls', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = seedBucketedMember({
+      userId: 'member-subscription-other-user',
+      subscriptionCredits: 6000,
+    });
+    env.STRIPE_LIVE_SECRET_KEY = 'sk_live_subscription_manage_secret_123456';
+    env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID = 'price_member_pro_123456';
+    const calls = [];
+    env.__TEST_FETCH = async () => {
+      calls.push('called');
+      return new Response('{}', { status: 500 });
+    };
+
+    const noSubscriptionUser = createContractUser({ id: 'member-subscription-no-sub', role: 'user' });
+    env.DB.state.users.push(noSubscriptionUser);
+    const noSubscriptionToken = await seedSession(env, noSubscriptionUser.id);
+    const noSubscription = await worker.fetch(
+      authJsonRequest('/api/account/billing/subscription/cancel', 'POST', { confirmed: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${noSubscriptionToken}`,
+        'Idempotency-Key': 'member-subscription-no-sub-cancel',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(noSubscription.status).toBe(404);
+
+    const expiredUser = createContractUser({ id: 'member-subscription-expired-manage', role: 'user' });
+    env.DB.state.users.push(expiredUser);
+    env.DB.state.billingMemberSubscriptions.push({
+      ...env.DB.state.billingMemberSubscriptions[0],
+      id: 'msub_member_subscription_expired_manage',
+      user_id: expiredUser.id,
+      provider_subscription_id: 'sub_expired_manage_123456',
+      current_period_start: '2026-03-01T00:00:00.000Z',
+      current_period_end: '2026-04-01T00:00:00.000Z',
+      cancel_at_period_end: 1,
+      updated_at: '2026-04-01T00:00:00.000Z',
+    });
+    const expiredToken = await seedSession(env, expiredUser.id);
+    const expired = await worker.fetch(
+      authJsonRequest('/api/account/billing/subscription/reactivate', 'POST', { confirmed: true }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${expiredToken}`,
+        'Idempotency-Key': 'member-subscription-expired-reactivate',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(expired.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
   test('legacy reconciliation is idempotent and keeps admin grants outside subscription top-up', async () => {
     const {
       getMemberCreditBucketBalances,
@@ -5658,6 +5824,18 @@ test.describe('BITBI Pro member subscriptions', () => {
         id: 'account.billing.checkout.subscription',
         method: 'POST',
         path: '/api/account/billing/checkout/subscription',
+        auth: 'user',
+      }),
+      expect.objectContaining({
+        id: 'account.billing.subscription.cancel',
+        method: 'POST',
+        path: '/api/account/billing/subscription/cancel',
+        auth: 'user',
+      }),
+      expect.objectContaining({
+        id: 'account.billing.subscription.reactivate',
+        method: 'POST',
+        path: '/api/account/billing/subscription/reactivate',
         auth: 'user',
       }),
     ]));

@@ -199,10 +199,8 @@
   }
 
   .credits-summary-grid--member {
-    width: min(100%, 58rem);
-    margin-inline: auto;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    justify-content: center;
+    grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(13rem, 1fr));
+    align-items: stretch;
   }
 
   .credits-card,
@@ -215,8 +213,14 @@
   }
 
   .credits-summary-grid--member .credits-card {
-    padding: clamp(1.2rem, 2.4vw, 1.7rem);
-    text-align: center;
+    padding: clamp(1.15rem, 2vw, 1.55rem);
+  }
+
+  .credits-card--hero {
+    border-color: rgba(0, 240, 255, 0.24);
+    background:
+      linear-gradient(135deg, rgba(0, 240, 255, 0.16), rgba(255, 215, 0, 0.08)),
+      rgba(255, 255, 255, 0.045);
   }
 
   .credits-card__label {
@@ -270,6 +274,131 @@
   .credits-badge--blocked {
     color: rgba(255, 255, 255, 0.86);
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  .credits-badge--pending {
+    color: #160f02;
+    background: linear-gradient(135deg, #ffd166, #ffef9f);
+  }
+
+  .credits-note--success {
+    border-color: rgba(134, 247, 168, 0.28);
+    background: rgba(134, 247, 168, 0.08);
+  }
+
+  .credits-subscription-section {
+    border-color: rgba(0, 240, 255, 0.16);
+  }
+
+  .credits-subscription-panel {
+    display: grid;
+    gap: 1.15rem;
+  }
+
+  .credits-subscription-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .credits-subscription-panel__header h3 {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.94);
+    font-size: clamp(1.4rem, 2.4vw, 2rem);
+    line-height: 1.1;
+  }
+
+  .credits-subscription-facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.8rem;
+    margin: 0;
+  }
+
+  .credits-subscription-fact {
+    min-width: 0;
+    padding: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 1rem;
+    background: rgba(0, 0, 0, 0.16);
+  }
+
+  .credits-subscription-fact dt,
+  .credits-subscription-fact dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .credits-subscription-fact dt {
+    color: rgba(255, 255, 255, 0.54);
+    font-size: 0.74rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .credits-subscription-fact dd {
+    margin-block-start: 0.35rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.3;
+  }
+
+  .credits-subscription-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .credits-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.62);
+    backdrop-filter: blur(10px);
+  }
+
+  .credits-dialog[hidden] {
+    display: none;
+  }
+
+  .credits-dialog__panel {
+    width: min(100%, 34rem);
+    padding: clamp(1.25rem, 3vw, 2rem);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 1.25rem;
+    background:
+      linear-gradient(145deg, rgba(20, 26, 30, 0.96), rgba(9, 10, 12, 0.98));
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+  }
+
+  .credits-dialog__panel h2 {
+    margin: 0;
+    color: white;
+    font-size: clamp(1.35rem, 3vw, 2rem);
+    line-height: 1.15;
+  }
+
+  .credits-dialog__panel p {
+    margin: 0.9rem 0 0;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.6;
+  }
+
+  .credits-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-block-start: 1.35rem;
   }
 
   .credits-pack {
@@ -476,6 +605,23 @@
     .credits-summary-grid--member {
       width: 100%;
       grid-template-columns: 1fr;
+    }
+
+    .credits-subscription-panel__header,
+    .credits-subscription-actions,
+    .credits-dialog__actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .credits-subscription-facts {
+      grid-template-columns: 1fr;
+    }
+
+    .credits-subscription-actions .btn,
+    .credits-dialog__actions .btn {
+      width: 100%;
+      justify-content: center;
     }
 
     .credits-ledger-item__top {

@@ -108,6 +108,17 @@
 
             <div class="credits-summary-grid" id="creditsSummaryGrid"></div>
 
+            <section id="creditsSubscriptionSection" class="credits-section credits-subscription-section" aria-labelledby="creditsSubscriptionTitle" hidden>
+                <div class="credits-section__header">
+                    <div>
+                        <p class="credits-eyebrow">Mitgliedschaft</p>
+                        <h2 id="creditsSubscriptionTitle">Abo</h2>
+                    </div>
+                </div>
+                <div id="creditsSubscriptionBody"></div>
+                <div id="creditsSubscriptionFeedback" class="credits-note credits-note--success" role="status" hidden></div>
+            </section>
+
             <section id="creditsPacksSection" class="credits-section" aria-labelledby="creditsPacksTitle">
                 <div class="credits-section__header">
                     <div>
@@ -155,6 +166,17 @@
             </section>
         </div>
     </section>
+
+    <div id="creditsSubscriptionDialog" class="credits-dialog" role="dialog" aria-modal="true" aria-labelledby="creditsSubscriptionDialogTitle" aria-hidden="true" hidden>
+        <div class="credits-dialog__panel">
+            <h2 id="creditsSubscriptionDialogTitle"></h2>
+            <p id="creditsSubscriptionDialogBody"></p>
+            <div class="credits-dialog__actions">
+                <button id="creditsSubscriptionDialogCancel" type="button" class="btn btn-secondary">Abo behalten</button>
+                <button id="creditsSubscriptionDialogConfirm" type="button" class="btn btn-primary"></button>
+            </div>
+        </div>
+    </div>
 </main>
 
 <script type="module" src="../../js/pages/credits/main.js?v=__ASSET_VERSION__"></script>

@@ -3,11 +3,13 @@ import { initCookieConsent } from '../../shared/cookie-consent.js';
 import {
     apiAccountCreditsDashboard,
     apiAdminOrganizations,
+    apiCancelMemberSubscription,
     apiCreateMemberLiveCreditPackCheckout,
     apiCreateLiveCreditPackCheckout,
     apiGetMe,
     apiListOrganizations,
     apiOrganizationCreditsDashboard,
+    apiReactivateMemberSubscription,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     clearActiveOrganizationId,
@@ -29,6 +31,9 @@ const $accessScope = document.getElementById('creditsAccessScope');
 const $orgPickerWrap = document.getElementById('creditsOrgPickerWrap');
 const $orgPicker = document.getElementById('creditsOrgPicker');
 const $summaryGrid = document.getElementById('creditsSummaryGrid');
+const $subscriptionSection = document.getElementById('creditsSubscriptionSection');
+const $subscriptionBody = document.getElementById('creditsSubscriptionBody');
+const $subscriptionFeedback = document.getElementById('creditsSubscriptionFeedback');
 const $packsSection = document.getElementById('creditsPacksSection');
 const $checkoutStatus = document.getElementById('creditsCheckoutStatus');
 const $configNote = document.getElementById('creditsConfigNote');
@@ -37,6 +42,11 @@ const $packGrid = document.getElementById('creditsPackGrid');
 const $purchasesSection = document.getElementById('creditsPurchasesSection');
 const $purchasesBody = document.getElementById('creditsPurchasesBody');
 const $ledgerBody = document.getElementById('creditsLedgerBody');
+const $subscriptionDialog = document.getElementById('creditsSubscriptionDialog');
+const $subscriptionDialogTitle = document.getElementById('creditsSubscriptionDialogTitle');
+const $subscriptionDialogBody = document.getElementById('creditsSubscriptionDialogBody');
+const $subscriptionDialogCancel = document.getElementById('creditsSubscriptionDialogCancel');
+const $subscriptionDialogConfirm = document.getElementById('creditsSubscriptionDialogConfirm');
 
 const TERMS_VERSION = '2026-05-05';
 const LEDGER_VISIBLE_LIMIT = 5;
@@ -58,6 +68,9 @@ let activeMode = 'organization';
 let termsAccepted = false;
 let immediateDeliveryAccepted = false;
 let legalError = '';
+let pendingSubscriptionAction = null;
+let subscriptionActionPending = false;
+let subscriptionFeedbackMessage = '';
 
 function show(node) {
     if (node) node.hidden = false;
@@ -108,6 +121,7 @@ function setNeedsOrganizationSelection() {
     show($dashboard);
     if ($orgName) $orgName.textContent = localeText('credits.selectOrganization');
     if ($accessScope) $accessScope.textContent = localeText('credits.selectOrganizationHelp');
+    if ($subscriptionSection) $subscriptionSection.hidden = true;
     renderOrgPicker();
     renderSummary({});
     renderCheckoutStatus({ enabled: false, configured: false }, currentUser?.role === 'admin' ? 'platform_admin' : 'org_owner');
@@ -183,6 +197,11 @@ function idempotencyKey(packId, organizationId) {
         : `credits-live:${organizationId}:${packId}:${random}`;
 }
 
+function subscriptionIdempotencyKey(action) {
+    const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `member-subscription:${action}:${random}`;
+}
+
 function isSafeCheckoutRedirect(value) {
     if (typeof value !== 'string' || !value) return false;
     try {
@@ -247,9 +266,9 @@ function renderOrgPicker() {
     $orgPickerWrap.hidden = eligibleOrganizations.length <= 1 && Boolean(selectedOrganizationId);
 }
 
-function summaryCard(label, value) {
+function summaryCard(label, value, modifier = '') {
     const card = document.createElement('article');
-    card.className = 'credits-card';
+    card.className = modifier ? `credits-card ${modifier}` : 'credits-card';
     const title = document.createElement('div');
     title.className = 'credits-card__label';
     title.textContent = label;
@@ -267,11 +286,10 @@ function renderSummary(balance = {}) {
     $summaryGrid.classList.toggle('credits-summary-grid--member', activeMode === 'member');
     if (activeMode === 'member') {
         $summaryGrid.append(
-            summaryCard(localeText('credits.currentBalance'), formatCredits(balance.totalCredits ?? balance.current)),
+            summaryCard(localeText('credits.totalAvailable'), formatCredits(balance.totalCredits ?? balance.current), 'credits-card--hero'),
             summaryCard(localeText('credits.subscriptionCredits'), formatCredits(balance.subscriptionCredits)),
-            summaryCard(localeText('credits.legacyOrBonusCredits'), formatCredits(balance.legacyOrBonusCredits)),
             summaryCard(localeText('credits.purchasedCredits'), formatCredits(balance.purchasedCredits)),
-            summaryCard(localeText('credits.consumed'), formatCredits(balance.lifetimeConsumed)),
+            summaryCard(localeText('credits.legacyOrBonusCredits'), formatCredits(balance.legacyOrBonusCredits)),
         );
     } else {
         $summaryGrid.append(
@@ -585,6 +603,146 @@ function renderLedger(rows = []) {
     }
 }
 
+function getSubscriptionModel(dashboard = {}) {
+    const subscription = dashboard.subscription || {};
+    const status = dashboard.subscriptionStatus || subscription.subscriptionStatus || subscription.subscription?.status || 'none';
+    const cancelAtPeriodEnd = dashboard.cancelAtPeriodEnd === true || subscription.cancelAtPeriodEnd === true || subscription.subscription?.cancelAtPeriodEnd === true;
+    const active = dashboard.hasActiveSubscription === true || subscription.hasActiveSubscription === true;
+    return {
+        status,
+        active,
+        cancelAtPeriodEnd,
+        periodStart: dashboard.subscriptionPeriodStart || subscription.subscriptionPeriodStart || subscription.subscription?.currentPeriodStart || null,
+        periodEnd: dashboard.subscriptionPeriodEnd || subscription.subscriptionPeriodEnd || subscription.subscription?.currentPeriodEnd || null,
+        nextTopUpAt: dashboard.nextTopUpAt || subscription.nextTopUpAt || null,
+        nextRenewalDate: dashboard.nextRenewalDate || subscription.nextRenewalDate || null,
+        activeUntil: dashboard.activeUntil || subscription.activeUntil || dashboard.subscriptionPeriodEnd || subscription.subscriptionPeriodEnd || null,
+        canCancel: dashboard.canCancelSubscription === true || subscription.canCancelSubscription === true || (active && !cancelAtPeriodEnd),
+        canReactivate: dashboard.canReactivateSubscription === true || subscription.canReactivateSubscription === true || (active && cancelAtPeriodEnd),
+        planName: dashboard.planName || subscription.planName || 'BITBI Pro',
+        storageLimitBytes: dashboard.storageLimitBytes ?? subscription.storageLimitBytes,
+    };
+}
+
+function subscriptionBadge(model) {
+    const badge = document.createElement('span');
+    badge.className = 'credits-badge credits-subscription-badge';
+    if (model.active && model.cancelAtPeriodEnd) {
+        badge.classList.add('credits-badge--pending');
+        badge.textContent = localeText('credits.subscriptionCancelsBadge');
+    } else if (model.active) {
+        badge.classList.add('credits-badge--live');
+        badge.textContent = localeText('credits.subscriptionActive');
+    } else if (model.status === 'canceled' || model.status === 'incomplete_expired') {
+        badge.classList.add('credits-badge--blocked');
+        badge.textContent = localeText('credits.subscriptionEnded');
+    } else {
+        badge.classList.add('credits-badge--blocked');
+        badge.textContent = localeText('credits.subscriptionInactive');
+    }
+    return badge;
+}
+
+function subscriptionFact(label, value) {
+    const item = document.createElement('div');
+    item.className = 'credits-subscription-fact';
+    const title = document.createElement('dt');
+    title.textContent = label;
+    const detail = document.createElement('dd');
+    detail.textContent = value;
+    item.append(title, detail);
+    return item;
+}
+
+function renderSubscriptionFeedback() {
+    if (!$subscriptionFeedback) return;
+    if (!subscriptionFeedbackMessage) {
+        hide($subscriptionFeedback);
+        $subscriptionFeedback.textContent = '';
+        return;
+    }
+    $subscriptionFeedback.textContent = subscriptionFeedbackMessage;
+    show($subscriptionFeedback);
+}
+
+function renderSubscriptionSection(dashboard = {}) {
+    if (!$subscriptionSection || !$subscriptionBody) return;
+    const model = getSubscriptionModel(dashboard);
+    $subscriptionBody.textContent = '';
+    show($subscriptionSection);
+
+    const panel = document.createElement('div');
+    panel.className = 'credits-subscription-panel';
+
+    const header = document.createElement('div');
+    header.className = 'credits-subscription-panel__header';
+    const titleWrap = document.createElement('div');
+    const title = document.createElement('h3');
+    title.textContent = model.active ? model.planName : localeText('credits.noActiveSubscription');
+    const copy = document.createElement('p');
+    copy.className = 'credits-muted';
+    if (model.active && model.cancelAtPeriodEnd) {
+        copy.textContent = localeText('credits.subscriptionCancelsCopy', { date: formatDate(model.activeUntil) });
+    } else if (model.active) {
+        copy.textContent = localeText('credits.subscriptionActiveCopy', { date: formatDate(model.nextRenewalDate || model.periodEnd) });
+    } else if (model.status === 'canceled' || model.status === 'incomplete_expired') {
+        copy.textContent = localeText('credits.subscriptionEndedCopy');
+    } else {
+        copy.textContent = localeText('credits.noSubscriptionCopy');
+    }
+    titleWrap.append(title, copy);
+    header.append(titleWrap, subscriptionBadge(model));
+
+    const facts = document.createElement('dl');
+    facts.className = 'credits-subscription-facts';
+    facts.append(
+        subscriptionFact(localeText('credits.subscriptionCredits'), formatCredits(dashboard.balance?.subscriptionCredits ?? dashboard.subscriptionCredits)),
+        subscriptionFact(localeText('credits.purchasedCredits'), formatCredits(dashboard.balance?.purchasedCredits ?? dashboard.purchasedCredits)),
+        subscriptionFact(localeText('credits.storageLimit'), formatStorage(model.storageLimitBytes)),
+    );
+    if (model.active && model.cancelAtPeriodEnd) {
+        facts.append(subscriptionFact(localeText('credits.activeUntil'), formatDate(model.activeUntil)));
+    } else if (model.active) {
+        facts.append(subscriptionFact(localeText('credits.nextRenewal'), formatDate(model.nextRenewalDate || model.periodEnd)));
+    } else if (model.periodEnd) {
+        facts.append(subscriptionFact(localeText('credits.endedAt'), formatDate(model.periodEnd)));
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'credits-subscription-actions';
+    if (model.canReactivate) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-primary';
+        button.dataset.subscriptionAction = 'reactivate';
+        button.disabled = subscriptionActionPending;
+        button.textContent = subscriptionActionPending && pendingSubscriptionAction === 'reactivate'
+            ? localeText('credits.reactivatingSubscription')
+            : localeText('credits.reactivateSubscription');
+        actions.appendChild(button);
+    } else if (model.canCancel) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary';
+        button.dataset.subscriptionAction = 'cancel';
+        button.disabled = subscriptionActionPending;
+        button.textContent = subscriptionActionPending && pendingSubscriptionAction === 'cancel'
+            ? localeText('credits.cancellingSubscription')
+            : localeText('credits.cancelSubscription');
+        actions.appendChild(button);
+    } else if (!model.active) {
+        const link = document.createElement('a');
+        link.className = 'btn btn-primary';
+        link.href = localizedHref('/pricing.html');
+        link.textContent = localeText('credits.viewPlans');
+        actions.appendChild(link);
+    }
+
+    panel.append(header, facts, actions);
+    $subscriptionBody.appendChild(panel);
+    renderSubscriptionFeedback();
+}
+
 function renderMemberDashboard(dashboard) {
     currentDashboard = dashboard;
     setMode('member');
@@ -605,22 +763,7 @@ function renderMemberDashboard(dashboard) {
     const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, 'member');
     renderLegalBlock(checkoutEnabled && Array.isArray(dashboard.packs) && dashboard.packs.length > 0);
     renderSummary(dashboard.balance);
-    document.querySelectorAll('.credits-member-subscription-note').forEach((node) => node.remove());
-    if ($summaryGrid) {
-        $summaryGrid.append(
-            summaryCard(
-                localeText('credits.subscriptionStatus'),
-                dashboard.hasActiveSubscription ? localeText('credits.subscriptionActive') : localeText('credits.subscriptionInactive'),
-            ),
-            summaryCard(localeText('credits.subscriptionPeriod'), dashboard.subscriptionPeriodEnd ? formatDate(dashboard.subscriptionPeriodEnd) : localeText('credits.notReported')),
-            summaryCard(localeText('credits.nextTopUp'), dashboard.nextTopUpAt ? formatDate(dashboard.nextTopUpAt) : localeText('credits.notReported')),
-            summaryCard(localeText('credits.storageLimit'), formatStorage(dashboard.storageLimitBytes)),
-        );
-    }
-    const explanation = document.createElement('p');
-    explanation.className = 'credits-member-subscription-note';
-    explanation.textContent = localeText('credits.subscriptionCreditExplanation');
-    $summaryGrid?.after(explanation);
+    renderSubscriptionSection(dashboard);
     renderPacks(dashboard.packs || [], checkoutEnabled);
     renderPurchases(dashboard.purchaseHistory || []);
     renderLedger(dashboard.transactions);
@@ -635,6 +778,7 @@ function renderDashboard(dashboard) {
     show($dashboard);
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
+    if ($subscriptionSection) $subscriptionSection.hidden = true;
     if ($orgName) $orgName.textContent = dashboard.organization?.name || localeText('credits.organization');
     if ($accessScope) {
         $accessScope.textContent = dashboard.organization?.accessScope === 'platform_admin'
@@ -673,6 +817,63 @@ async function loadDashboard() {
         return setError(res.error || localeText('credits.unavailable'));
     }
     renderDashboard(res.data?.dashboard || {});
+}
+
+function closeSubscriptionDialog() {
+    pendingSubscriptionAction = null;
+    if (!$subscriptionDialog) return;
+    hide($subscriptionDialog);
+    $subscriptionDialog.setAttribute('aria-hidden', 'true');
+}
+
+function openSubscriptionDialog(action) {
+    if (!$subscriptionDialog || !$subscriptionDialogTitle || !$subscriptionDialogBody || !$subscriptionDialogConfirm) return;
+    pendingSubscriptionAction = action;
+    const isReactivate = action === 'reactivate';
+    $subscriptionDialogTitle.textContent = isReactivate
+        ? localeText('credits.reactivateDialogTitle')
+        : localeText('credits.cancelDialogTitle');
+    $subscriptionDialogBody.textContent = isReactivate
+        ? localeText('credits.reactivateDialogBody')
+        : localeText('credits.cancelDialogBody');
+    $subscriptionDialogConfirm.textContent = isReactivate
+        ? localeText('credits.reactivateSubscription')
+        : localeText('credits.cancelSubscription');
+    $subscriptionDialogConfirm.disabled = false;
+    $subscriptionDialogConfirm.classList.toggle('btn-primary', isReactivate);
+    $subscriptionDialogConfirm.classList.toggle('btn-secondary', !isReactivate);
+    show($subscriptionDialog);
+    $subscriptionDialog.setAttribute('aria-hidden', 'false');
+    $subscriptionDialogConfirm.focus();
+}
+
+async function confirmSubscriptionAction() {
+    if (!pendingSubscriptionAction || subscriptionActionPending) return;
+    const action = pendingSubscriptionAction;
+    subscriptionActionPending = true;
+    if ($subscriptionDialogConfirm) {
+        $subscriptionDialogConfirm.disabled = true;
+        $subscriptionDialogConfirm.textContent = action === 'reactivate'
+            ? localeText('credits.reactivatingSubscription')
+            : localeText('credits.cancellingSubscription');
+    }
+    const res = action === 'reactivate'
+        ? await apiReactivateMemberSubscription({ idempotencyKey: subscriptionIdempotencyKey(action) })
+        : await apiCancelMemberSubscription({ idempotencyKey: subscriptionIdempotencyKey(action) });
+    subscriptionActionPending = false;
+    closeSubscriptionDialog();
+    if (!res.ok) {
+        subscriptionFeedbackMessage = res.error || (action === 'reactivate'
+            ? localeText('credits.reactivateSubscriptionFailed')
+            : localeText('credits.cancelSubscriptionFailed'));
+        renderSubscriptionFeedback();
+        if (currentDashboard) renderMemberDashboard(currentDashboard);
+        return;
+    }
+    subscriptionFeedbackMessage = action === 'reactivate'
+        ? localeText('credits.reactivateSubscriptionSuccess')
+        : localeText('credits.cancelSubscriptionSuccess');
+    await loadMemberDashboard();
 }
 
 async function startCheckout(packId, button) {
@@ -752,6 +953,23 @@ $packGrid?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-checkout-pack]');
     if (!button) return;
     startCheckout(button.dataset.checkoutPack, button);
+});
+
+$subscriptionSection?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-subscription-action]');
+    if (!button) return;
+    openSubscriptionDialog(button.dataset.subscriptionAction);
+});
+
+$subscriptionDialogCancel?.addEventListener('click', closeSubscriptionDialog);
+$subscriptionDialogConfirm?.addEventListener('click', confirmSubscriptionAction);
+$subscriptionDialog?.addEventListener('click', (event) => {
+    if (event.target === $subscriptionDialog) closeSubscriptionDialog();
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && $subscriptionDialog && !$subscriptionDialog.hidden) {
+        closeSubscriptionDialog();
+    }
 });
 
 init().catch((error) => {

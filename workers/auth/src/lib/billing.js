@@ -1946,14 +1946,22 @@ export async function getMemberSubscriptionState(env, userId, { now = nowIso() }
   const active = latest
     && MEMBER_SUBSCRIPTION_ACTIVE_STORAGE_STATUSES.has(latest.status)
     && isFutureIso(latest.current_period_end, now);
+  const serialized = serializeMemberSubscriptionRow(latest);
+  const cancelAtPeriodEnd = serialized?.cancelAtPeriodEnd === true;
   return {
-    subscription: serializeMemberSubscriptionRow(latest),
+    subscription: serialized,
     hasActiveSubscription: Boolean(active),
     isSubscribed: Boolean(active),
     subscriptionStatus: latest?.status || "none",
     subscriptionPeriodStart: latest?.current_period_start || null,
     subscriptionPeriodEnd: latest?.current_period_end || null,
     nextTopUpAt: active ? latest.current_period_end : null,
+    nextRenewalDate: active && !cancelAtPeriodEnd ? latest.current_period_end : null,
+    activeUntil: active ? latest.current_period_end : null,
+    cancelAtPeriodEnd,
+    canCancelSubscription: Boolean(active && !cancelAtPeriodEnd && serialized?.providerSubscriptionId),
+    canReactivateSubscription: Boolean(active && cancelAtPeriodEnd && serialized?.providerSubscriptionId),
+    planName: active ? "BITBI Pro" : null,
   };
 }
 
@@ -2257,6 +2265,12 @@ export async function getMemberCreditsDashboard({
     subscriptionPeriodStart: subscriptionState.subscriptionPeriodStart,
     subscriptionPeriodEnd: subscriptionState.subscriptionPeriodEnd,
     nextTopUpAt: subscriptionState.nextTopUpAt,
+    nextRenewalDate: subscriptionState.nextRenewalDate,
+    activeUntil: subscriptionState.activeUntil,
+    cancelAtPeriodEnd: subscriptionState.cancelAtPeriodEnd,
+    canCancelSubscription: subscriptionState.canCancelSubscription,
+    canReactivateSubscription: subscriptionState.canReactivateSubscription,
+    planName: subscriptionState.planName,
     storageLimitBytes: user.role === "admin"
       ? null
       : (subscriptionState.hasActiveSubscription

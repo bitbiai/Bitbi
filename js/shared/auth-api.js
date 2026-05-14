@@ -476,6 +476,22 @@ export function apiAccountCreditsDashboard({ limit } = {}) {
     return request('GET', `/account/credits-dashboard${qs}`);
 }
 
+export function apiCancelMemberSubscription({ idempotencyKey } = {}) {
+    return request('POST', '/account/billing/subscription/cancel', {
+        confirmed: true,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiReactivateMemberSubscription({ idempotencyKey } = {}) {
+    return request('POST', '/account/billing/subscription/reactivate', {
+        confirmed: true,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 export function apiAiGenerateImage(promptOrPayload, steps, seed, model) {
     if (promptOrPayload && typeof promptOrPayload === 'object' && !Array.isArray(promptOrPayload)) {
         return request('POST', '/ai/generate-image', promptOrPayload);

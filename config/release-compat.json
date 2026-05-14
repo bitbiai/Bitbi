@@ -539,6 +539,8 @@
       "GET /api/account/credits-dashboard",
       "POST /api/account/billing/checkout/live-credit-pack",
       "POST /api/account/billing/checkout/subscription",
+      "POST /api/account/billing/subscription/cancel",
+      "POST /api/account/billing/subscription/reactivate",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",

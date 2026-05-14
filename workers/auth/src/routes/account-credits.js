@@ -9,9 +9,11 @@ import {
 } from "../lib/billing.js";
 import {
   StripeBillingError,
+  cancelStripeLiveMemberSubscriptionAtPeriodEnd,
   createStripeLiveMemberCreditPackCheckout,
   createStripeLiveMemberSubscriptionCheckout,
   getMemberLiveCreditsPurchaseContext,
+  reactivateStripeLiveMemberSubscription,
   stripeBillingErrorResponse,
 } from "../lib/stripe-billing.js";
 import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
@@ -157,12 +159,65 @@ async function handleMemberLiveSubscriptionCheckout(ctx, session) {
   }
 }
 
+async function handleMemberSubscriptionManagement(ctx, session, action) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "account-billing-live-subscription-manage-user",
+    userId: session.user.id,
+    maxRequests: 8,
+    windowMs: 15 * 60_000,
+    component: "account-billing-live-subscription-manage",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.smallJson,
+  });
+  if (parsed.response) return parsed.response;
+  if (parsed.body?.confirmed !== true && parsed.body?.confirm !== true) {
+    return json({
+      ok: false,
+      error: "Subscription management confirmation is required.",
+      code: "subscription_confirmation_required",
+    }, { status: 400 });
+  }
+
+  try {
+    const result = action === "reactivate"
+      ? await reactivateStripeLiveMemberSubscription({
+          env: ctx.env,
+          userId: session.user.id,
+          idempotencyKey: idempotency.key,
+        })
+      : await cancelStripeLiveMemberSubscriptionAtPeriodEnd({
+          env: ctx.env,
+          userId: session.user.id,
+          idempotencyKey: idempotency.key,
+        });
+    return json({
+      ok: true,
+      action,
+      reused: result.reused,
+      subscription: result.subscription,
+    });
+  } catch (error) {
+    return creditsErrorResponse(error, {
+      correlationId: ctx.correlationId,
+      userId: session.user.id,
+    });
+  }
+}
+
 export async function handleAccountCredits(ctx) {
   const { request, env, pathname, method, url, correlationId } = ctx;
   const isDashboard = pathname === "/api/account/credits-dashboard" && method === "GET";
   const isLiveCheckout = pathname === "/api/account/billing/checkout/live-credit-pack" && method === "POST";
   const isSubscriptionCheckout = pathname === "/api/account/billing/checkout/subscription" && method === "POST";
-  if (!isDashboard && !isLiveCheckout && !isSubscriptionCheckout) return null;
+  const isSubscriptionCancel = pathname === "/api/account/billing/subscription/cancel" && method === "POST";
+  const isSubscriptionReactivate = pathname === "/api/account/billing/subscription/reactivate" && method === "POST";
+  if (!isDashboard && !isLiveCheckout && !isSubscriptionCheckout && !isSubscriptionCancel && !isSubscriptionReactivate) return null;
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
@@ -172,6 +227,12 @@ export async function handleAccountCredits(ctx) {
   }
   if (isSubscriptionCheckout) {
     return handleMemberLiveSubscriptionCheckout(ctx, session);
+  }
+  if (isSubscriptionCancel) {
+    return handleMemberSubscriptionManagement(ctx, session, "cancel");
+  }
+  if (isSubscriptionReactivate) {
+    return handleMemberSubscriptionManagement(ctx, session, "reactivate");
   }
 
   try {
