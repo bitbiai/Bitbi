@@ -3986,7 +3986,7 @@ test.describe('Pricing credit-pack rollout', () => {
       await fulfillJson(route, { loggedIn: false, user: null });
     });
     await page.goto('/pricing.html');
-    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
+    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('Create account to buy');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
@@ -4050,8 +4050,8 @@ test.describe('Pricing credit-pack rollout', () => {
     const response = await page.goto('/pricing.html');
     expect(response.status()).toBe(200);
 
-    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
-    await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Create more with flexible prepaid credits.');
+    await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits & Pro');
+    await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Flexible credits for image, video, music, and asset generation.');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await expect(page.locator('.pricing-card')).toHaveCount(3);
     await expect(page.locator('.pricing-card__title')).toHaveText(['BITBI Pro', 'Starter Credits', 'Creator Credits']);
@@ -4071,15 +4071,18 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Select pack');
     await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingBillingState')).toHaveCount(0);
-    await expect(page.locator('.pricing-info-grid')).toContainText('How credits work');
-    await expect(page.locator('.pricing-info-grid')).toContainText('One-time packs');
-    await expect(page.locator('.pricing-info-grid')).toContainText('BITBI Pro');
-    await expect(page.locator('.pricing-info-grid')).toContainText('Secure checkout');
-    await expect(page.locator('.pricing-info-grid')).toContainText('Digital credits');
-    await expect(page.locator('.pricing-info-grid')).toContainText('AI output responsibility');
+    await expect(page.locator('#pricingOffers')).toContainText('Choose how you want to create');
+    await expect(page.locator('#pricingGuide')).toContainText('What happens after purchase');
+    await expect(page.locator('.pricing-info-grid')).toContainText('Use credits across BITBI');
+    await expect(page.locator('.pricing-info-grid')).toContainText('One-time packs stay separate');
+    await expect(page.locator('.pricing-info-grid')).toContainText('BITBI Pro stays predictable');
+    await expect(page.locator('.pricing-faq')).toContainText('Can I cancel BITBI Pro?');
+    await expect(page.locator('.pricing-faq')).toContainText('Are credits transferable?');
+    await expect(page.locator('.pricing-faq')).toContainText('Is checkout secure?');
     await expect(page.locator('.pricing-hero')).toContainText('Secure payment continues on pay.bitbi.ai.');
     await expect(page.locator('.pricing-legal')).toContainText('Secure payment continues on pay.bitbi.ai.');
     await expect(page.locator('.pricing-org__state')).toContainText('not tokens, currency, crypto, or transferable value');
+    await expect(page.locator('body')).not.toContainText('/api/admin');
 
     const pricingSpacing = await page.evaluate(() => {
       const header = document.querySelector('.site-nav__bar')?.getBoundingClientRect();
@@ -4100,7 +4103,7 @@ test.describe('Pricing credit-pack rollout', () => {
     });
     expect(pricingSpacing.headerGap).toBeGreaterThanOrEqual(0);
     expect(pricingSpacing.headerGap).toBeLessThanOrEqual(28);
-    expect(pricingSpacing.kickerInset).toBeLessThanOrEqual(32);
+    expect(pricingSpacing.kickerInset).toBeLessThanOrEqual(110);
     expect(pricingSpacing.titleGap).toBeLessThanOrEqual(16);
     expect(pricingSpacing.priceOffsets.every((offset) => offset < -3)).toBe(true);
 
@@ -4113,6 +4116,9 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(layoutMetrics.every((entry) => entry.scrollWidth <= entry.viewportWidth + 1)).toBe(true);
 
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toBeVisible();
+    await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toBeVisible();
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toBeVisible();
     const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });

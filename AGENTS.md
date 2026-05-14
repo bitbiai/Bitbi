@@ -131,6 +131,7 @@ If you cannot run something, state exactly what was not run and why.
 - Do not switch self-hosted assets to third-party CDNs when local assets/patterns already exist.
 - All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
 - All future non-admin changes must be checked and implemented for both English and German routes, pages, and locale strings.
+- Public/member-facing page work must update the English and German surfaces in the same change. For Pricing specifically, changes to `pricing.html`, `de/pricing.html`, `js/pages/pricing/main.js`, `css/pages/pricing.css`, or Pricing checkout copy/tests must keep both locales feature-equivalent and preserve the same checkout behavior.
 - Public pages, account/member pages, shared navigation, pricing, auth, legal links, overlays, labels, route policies, tests, and localized UI must stay in parity between English and German unless there is an explicit product reason not to.
 - Generate Lab is a separate member workspace; do not change `/generate-lab/`, `/de/generate-lab/`, or Generate Lab-specific header/layout/JS unless the task explicitly asks for it.
 - The Admin area is the exception: Admin remains English-only and must not be recreated under `/de/admin` or localized unless explicitly requested later.

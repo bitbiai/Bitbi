@@ -130,16 +130,18 @@ test.describe('Bilingual locale pages', () => {
   test('pricing pages render English and German copy', async ({ page }) => {
     await page.goto('/pricing.html');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    await expect(page.getByRole('heading', { name: 'BITBI Credits' })).toBeVisible();
-    await expect(page.locator('main')).toContainText('Create more with flexible prepaid credits.');
+    await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
+    await expect(page.locator('main')).toContainText('Flexible credits for image, video, music, and asset generation.');
     await expect(page.locator('main')).toContainText('Secure payment continues on pay.bitbi.ai.');
+    await expect(page.locator('main')).toContainText('Choose how you want to create');
     await expect(page.locator('.site-footer__links')).toContainText('Privacy');
 
     await page.goto('/de/pricing.html');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
-    await expect(page.getByRole('heading', { name: 'BITBI Credits' })).toBeVisible();
-    await expect(page.locator('main')).toContainText('Mehr erstellen mit flexiblen Prepaid-Credits.');
+    await expect(page.getByRole('heading', { name: 'BITBI Credits & Pro' })).toBeVisible();
+    await expect(page.locator('main')).toContainText('Flexible Credits für Bild-, Video-, Musik- und Asset-Generierung.');
     await expect(page.locator('main')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
+    await expect(page.locator('main')).toContainText('Wählen Sie, wie Sie erstellen möchten');
     await expect(page.locator('.site-footer__links')).toContainText('Datenschutz');
   });
 
@@ -148,6 +150,7 @@ test.describe('Bilingual locale pages', () => {
     const creditsScript = repoFile('js/pages/credits/main.js');
     expect(`${pricingScript}\n${creditsScript}`).not.toContain('redirectToCheckout');
     expect(pricingScript).toContain('https://pay.bitbi.ai');
+    expect(pricingScript).not.toContain('/api/admin');
     expect(creditsScript).toContain('https://pay.bitbi.ai');
   });
 
