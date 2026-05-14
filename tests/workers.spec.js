@@ -4959,16 +4959,29 @@ test.describe('BITBI Pro member subscriptions', () => {
           object: 'invoice',
           livemode: true,
           status: 'paid',
-          subscription: 'sub_member_pro_123456',
           customer: 'cus_member_pro_123456',
           lines: {
             data: [{
-              price: { id: 'price_member_pro_123456' },
+              pricing: {
+                price_details: {
+                  price: 'price_member_pro_123456',
+                  product: 'prod_member_pro_123456',
+                },
+              },
+              parent: {
+                subscription_item_details: {
+                  subscription: 'sub_member_pro_123456',
+                },
+              },
               period: { start: 1777593600, end: 1780272000 },
+              metadata: { user_id: 'member-subscription-webhook' },
             }],
           },
-          subscription_details: {
-            metadata: { user_id: 'member-subscription-webhook' },
+          parent: {
+            subscription_details: {
+              subscription: 'sub_member_pro_123456',
+              metadata: { user_id: 'member-subscription-webhook' },
+            },
           },
         },
       },
@@ -5068,16 +5081,29 @@ test.describe('BITBI Pro member subscriptions', () => {
           object: 'invoice',
           livemode: true,
           status: 'paid',
-          subscription: 'sub_member_pro_123456',
           customer: 'cus_member_pro_123456',
           lines: {
             data: [{
-              price: { id: 'price_unrelated_123456' },
+              pricing: {
+                price_details: {
+                  price: 'price_unrelated_123456',
+                  product: 'prod_unrelated_123456',
+                },
+              },
+              parent: {
+                subscription_item_details: {
+                  subscription: 'sub_member_pro_123456',
+                },
+              },
               period: { start: 1777593600, end: 1780272000 },
+              metadata: { user_id: 'member-subscription-ignored-invoices' },
             }],
           },
-          subscription_details: {
-            metadata: { user_id: 'member-subscription-ignored-invoices' },
+          parent: {
+            subscription_details: {
+              subscription: 'sub_member_pro_123456',
+              metadata: { user_id: 'member-subscription-ignored-invoices' },
+            },
           },
         },
       },
@@ -5102,15 +5128,23 @@ test.describe('BITBI Pro member subscriptions', () => {
           object: 'invoice',
           livemode: true,
           status: 'paid',
-          subscription: 'sub_member_pro_123456',
           customer: 'cus_member_pro_123456',
           lines: {
             data: [{
+              parent: {
+                subscription_item_details: {
+                  subscription: 'sub_member_pro_123456',
+                },
+              },
               period: { start: 1777593600, end: 1780272000 },
+              metadata: { user_id: 'member-subscription-ignored-invoices' },
             }],
           },
-          subscription_details: {
-            metadata: { user_id: 'member-subscription-ignored-invoices' },
+          parent: {
+            subscription_details: {
+              subscription: 'sub_member_pro_123456',
+              metadata: { user_id: 'member-subscription-ignored-invoices' },
+            },
           },
         },
       },
@@ -5153,16 +5187,29 @@ test.describe('BITBI Pro member subscriptions', () => {
           object: 'invoice',
           livemode: true,
           status: 'paid',
-          subscription: 'sub_out_of_order_123456',
           customer: 'cus_out_of_order_123456',
           lines: {
             data: [{
-              price: { id: 'price_member_pro_123456' },
-              period: { start: 1777593600, end: 1780272000 },
+              pricing: {
+                price_details: {
+                  price: 'price_member_pro_123456',
+                  product: 'prod_member_pro_123456',
+                },
+              },
+              parent: {
+                subscription_item_details: {
+                  subscription: 'sub_out_of_order_123456',
+                },
+              },
+              period: { start: 1778780393, end: 1781458793 },
+              metadata: { user_id: user.id },
             }],
           },
-          subscription_details: {
-            metadata: { user_id: user.id },
+          parent: {
+            subscription_details: {
+              subscription: 'sub_out_of_order_123456',
+              metadata: { user_id: user.id },
+            },
           },
         },
       },
@@ -5185,6 +5232,8 @@ test.describe('BITBI Pro member subscriptions', () => {
       provider_subscription_id: 'sub_out_of_order_123456',
       provider_price_id: 'price_member_pro_123456',
       status: 'active',
+      current_period_start: '2026-05-14T17:39:53.000Z',
+      current_period_end: '2026-06-14T17:39:53.000Z',
     }));
     await expect(getMemberCreditBucketBalances(env, user.id)).resolves.toMatchObject({
       subscriptionCredits: 6000,

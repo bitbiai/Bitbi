@@ -2050,11 +2050,24 @@ function getSubscriptionItem(object) {
   return Array.isArray(items) && items.length ? items[0] : null;
 }
 
+function getStripePriceId(value) {
+  if (typeof value === "string") {
+    return safeString(value, 128);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return safeString(value.id || value.price || value.price_id, 128);
+}
+
 function getSubscriptionPriceId(object) {
+  const item = getSubscriptionItem(object);
   return safeString(
-    object?.plan?.id ||
-    getSubscriptionItem(object)?.price?.id ||
-    getSubscriptionItem(object)?.plan?.id,
+    getStripePriceId(object?.price) ||
+    getStripePriceId(object?.plan) ||
+    getStripePriceId(item?.price) ||
+    getStripePriceId(item?.plan) ||
+    item?.pricing?.price_details?.price,
     128
   );
 }
@@ -2115,8 +2128,44 @@ function getInvoiceLineForSubscription(invoice, subscriptionId) {
   ) || lines[0] || null;
 }
 
-function getInvoiceSubscriptionMetadata(invoice) {
+function getInvoiceLinePriceId(line) {
+  return safeString(
+    getStripePriceId(line?.price) ||
+    getStripePriceId(line?.plan) ||
+    line?.pricing?.price_details?.price ||
+    line?.price_id ||
+    line?.plan_id,
+    128
+  );
+}
+
+function getInvoiceLinePriceIds(invoice) {
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  const priceIds = new Set();
+  for (const line of lines) {
+    const priceId = getInvoiceLinePriceId(line);
+    if (priceId) priceIds.add(priceId);
+  }
+  return Array.from(priceIds);
+}
+
+function getInvoiceSubscriptionId(invoice) {
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  const lineSubscriptionId = lines
+    .map((line) => safeString(line?.parent?.subscription_item_details?.subscription || line?.subscription, 128))
+    .find(Boolean);
+  return safeString(
+    invoice?.subscription ||
+    invoice?.parent?.subscription_details?.subscription ||
+    invoice?.subscription_details?.subscription ||
+    lineSubscriptionId,
+    128
+  );
+}
+
+function getInvoiceSubscriptionMetadata(invoice, line = null) {
   return {
+    ...metadataObject(line?.metadata),
     ...metadataObject(invoice?.subscription_details?.metadata),
     ...metadataObject(invoice?.parent?.subscription_details?.metadata),
     ...metadataObject(invoice?.metadata),
@@ -2151,12 +2200,7 @@ function normalizeLiveInvoicePaidEvent(payload) {
       code: "stripe_invoice_not_paid",
     });
   }
-  const subscriptionId = safeString(
-    invoice.subscription ||
-    invoice.parent?.subscription_details?.subscription ||
-    invoice.subscription_details?.subscription,
-    128
-  );
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
   if (!subscriptionId) {
     return {
       ignored: true,
@@ -2173,7 +2217,8 @@ function normalizeLiveInvoicePaidEvent(payload) {
     });
   }
   const line = getInvoiceLineForSubscription(invoice, subscriptionId);
-  const metadata = getInvoiceSubscriptionMetadata(invoice);
+  const priceIds = getInvoiceLinePriceIds(invoice);
+  const metadata = getInvoiceSubscriptionMetadata(invoice, line);
   const periodStart = stripeTimestampToIso(line?.period?.start || invoice.period_start);
   const periodEnd = stripeTimestampToIso(line?.period?.end || invoice.period_end);
   if (!periodStart || !periodEnd) {
@@ -2182,13 +2227,14 @@ function normalizeLiveInvoicePaidEvent(payload) {
       code: "stripe_subscription_period_missing",
     });
   }
-  const priceId = safeString(line?.price?.id || line?.plan?.id, 128);
+  const priceId = getInvoiceLinePriceId(line) || priceIds[0] || null;
   return {
     invoiceId,
     subscriptionId,
     customer: safeString(invoice.customer, 128),
     userId: metadata.user_id || metadata.userId ? normalizeUserId(metadata.user_id || metadata.userId) : null,
     priceId,
+    priceIds,
     status: "active",
     currentPeriodStart: periodStart,
     currentPeriodEnd: periodEnd,
@@ -2995,13 +3041,14 @@ async function handleLiveSubscriptionInvoicePaid({ env, stored, payload }) {
     });
   }
   const expectedPriceId = normalizeStripeLiveSubscriptionPriceId(env);
-  const effectivePriceId = invoice.priceId || null;
-  if (effectivePriceId !== expectedPriceId) {
+  const invoicePriceIds = Array.isArray(invoice.priceIds) ? invoice.priceIds : [];
+  const hasExpectedPriceId = invoicePriceIds.includes(expectedPriceId);
+  if (!hasExpectedPriceId) {
     return markLiveStripeEventIgnored(env, {
       stored,
       payload,
       reason: "Stripe invoice price id does not match BITBI Pro.",
-      summary: { providerSubscriptionId: invoice.subscriptionId, invoiceId: invoice.invoiceId, priceIdPresent: Boolean(effectivePriceId) },
+      summary: { providerSubscriptionId: invoice.subscriptionId, invoiceId: invoice.invoiceId, priceIdPresent: invoicePriceIds.length > 0 },
     });
   }
   const existing = await fetchMemberSubscriptionByProviderSubscriptionId(env, invoice.subscriptionId);
@@ -3019,7 +3066,7 @@ async function handleLiveSubscriptionInvoicePaid({ env, stored, payload }) {
     userId,
     providerSubscriptionId: invoice.subscriptionId,
     providerCustomerId: invoice.customer || existing?.provider_customer_id || null,
-    providerPriceId: invoice.priceId || existing?.provider_price_id || expectedPriceId,
+    providerPriceId: expectedPriceId,
     status: "active",
     currentPeriodStart: invoice.currentPeriodStart,
     currentPeriodEnd: invoice.currentPeriodEnd,
