@@ -1,11 +1,18 @@
 import { json } from "./response.js";
 import { nowIso } from "./tokens.js";
+import {
+  getMemberSubscriptionState,
+  MEMBER_SUBSCRIPTION_STORAGE_LIMIT_BYTES,
+} from "./billing.js";
 
 export const USER_ASSET_STORAGE_LIMIT_BYTES = 50 * 1024 * 1024;
+export const SUBSCRIBED_USER_ASSET_STORAGE_LIMIT_BYTES = MEMBER_SUBSCRIPTION_STORAGE_LIMIT_BYTES;
 export const ASSET_STORAGE_LIMIT_EXCEEDED_CODE = "asset_storage_limit_exceeded";
 
-const STORAGE_LIMIT_REACHED_MESSAGE =
-  "Speicherlimit erreicht. Jeder Benutzer kann maximal 50 MB im Assets Manager speichern. Bitte lösche bestehende Assets, um Speicherplatz freizugeben.";
+function storageLimitReachedMessage(limitBytes = USER_ASSET_STORAGE_LIMIT_BYTES) {
+  const limitLabel = limitBytes === SUBSCRIBED_USER_ASSET_STORAGE_LIMIT_BYTES ? "5 GB" : "50 MB";
+  return `Speicherlimit erreicht. Jeder Benutzer kann maximal ${limitLabel} im Assets Manager speichern. Bitte lösche bestehende Assets, um Speicherplatz freizugeben.`;
+}
 
 function isMissingQuotaTableError(error) {
   return String(error || "").includes("no such table")
@@ -24,12 +31,16 @@ function normalizeByteCount(value) {
   return Math.floor(number);
 }
 
-function buildStorageUsageSnapshot(usedBytes, isUnlimited = false) {
+function buildStorageUsageSnapshot(usedBytes, limitState = {}) {
+  const isUnlimited = limitState.isUnlimited === true;
+  const limitBytes = normalizeByteCount(limitState.limitBytes) ?? USER_ASSET_STORAGE_LIMIT_BYTES;
   return {
     usedBytes,
-    limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
-    remainingBytes: isUnlimited ? null : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes),
+    limitBytes: isUnlimited ? null : limitBytes,
+    remainingBytes: isUnlimited ? null : Math.max(0, limitBytes - usedBytes),
     isUnlimited: isUnlimited === true,
+    hasActiveSubscription: limitState.hasActiveSubscription === true,
+    plan: limitState.plan || (isUnlimited ? "admin" : (limitState.hasActiveSubscription ? "bitbi_pro" : "free")),
   };
 }
 
@@ -39,6 +50,42 @@ async function isUserAssetStorageUnlimited(env, userId) {
     "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
   ).bind(userId).first();
   return row?.role === "admin";
+}
+
+function isMissingSubscriptionTableError(error) {
+  return String(error || "").includes("no such table")
+    && String(error || "").includes("billing_member_subscriptions");
+}
+
+export async function getUserAssetStorageLimitState(env, userId) {
+  const isUnlimited = await isUserAssetStorageUnlimited(env, userId);
+  if (isUnlimited) {
+    return {
+      isUnlimited: true,
+      limitBytes: null,
+      remainingBytes: null,
+      hasActiveSubscription: false,
+      plan: "admin",
+    };
+  }
+  let subscriptionState = null;
+  try {
+    subscriptionState = await getMemberSubscriptionState(env, userId);
+  } catch (error) {
+    if (!isMissingSubscriptionTableError(error)) throw error;
+    subscriptionState = { hasActiveSubscription: false };
+  }
+  const hasActiveSubscription = subscriptionState?.hasActiveSubscription === true;
+  return {
+    isUnlimited: false,
+    limitBytes: hasActiveSubscription
+      ? SUBSCRIBED_USER_ASSET_STORAGE_LIMIT_BYTES
+      : USER_ASSET_STORAGE_LIMIT_BYTES,
+    hasActiveSubscription,
+    plan: hasActiveSubscription ? "bitbi_pro" : "free",
+    subscriptionStatus: subscriptionState?.subscriptionStatus || "none",
+    subscriptionPeriodEnd: subscriptionState?.subscriptionPeriodEnd || null,
+  };
 }
 
 function quotaServiceError(message = "Asset storage quota is temporarily unavailable.") {
@@ -61,7 +108,7 @@ export class AssetStorageQuotaError extends Error {
     usedBytes = 0,
     attemptedUploadBytes = 0,
   } = {}) {
-    super(STORAGE_LIMIT_REACHED_MESSAGE);
+    super(storageLimitReachedMessage(limitBytes));
     this.name = "AssetStorageQuotaError";
     this.status = 413;
     this.code = ASSET_STORAGE_LIMIT_EXCEEDED_CODE;
@@ -81,7 +128,7 @@ export function isAssetStorageQuotaError(error) {
 export function assetStorageQuotaErrorBody(error) {
   return {
     ok: false,
-    error: error?.message || STORAGE_LIMIT_REACHED_MESSAGE,
+    error: error?.message || storageLimitReachedMessage(error?.limitBytes),
     code: error?.code || ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
     limitBytes: error?.limitBytes ?? USER_ASSET_STORAGE_LIMIT_BYTES,
     usedBytes: error?.usedBytes ?? 0,
@@ -190,10 +237,7 @@ export async function calculateUserAssetStorageUsage(env, userId) {
 
 export async function getUserAssetStorageUsageSnapshot(env, userId) {
   const usedBytes = await ensureUserAssetStorageUsage(env, userId);
-  return buildStorageUsageSnapshot(
-    usedBytes,
-    await isUserAssetStorageUnlimited(env, userId)
-  );
+  return buildStorageUsageSnapshot(usedBytes, await getUserAssetStorageLimitState(env, userId));
 }
 
 async function getStoredUsageBytes(env, userId) {
@@ -231,15 +275,19 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
   const attemptedUploadBytes = normalizeByteCount(uploadBytes);
   if (attemptedUploadBytes === null) throw invalidUploadSizeError();
 
-  const isUnlimited = await isUserAssetStorageUnlimited(env, userId);
+  const limitState = await getUserAssetStorageLimitState(env, userId);
+  const isUnlimited = limitState.isUnlimited === true;
+  const limitBytes = normalizeByteCount(limitState.limitBytes) ?? USER_ASSET_STORAGE_LIMIT_BYTES;
   const usedBefore = await ensureUserAssetStorageUsage(env, userId);
   if (attemptedUploadBytes === 0) {
     return {
-      limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
+      limitBytes: isUnlimited ? null : limitBytes,
       usedBytes: usedBefore,
       attemptedUploadBytes,
-      remainingBytes: isUnlimited ? null : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBefore),
+      remainingBytes: isUnlimited ? null : Math.max(0, limitBytes - usedBefore),
       isUnlimited,
+      hasActiveSubscription: limitState.hasActiveSubscription === true,
+      plan: limitState.plan || (isUnlimited ? "admin" : "free"),
     };
   }
 
@@ -265,7 +313,7 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
         nowIso(),
         userId,
         attemptedUploadBytes,
-        USER_ASSET_STORAGE_LIMIT_BYTES
+        limitBytes
       ).run();
     }
   } catch (error) {
@@ -276,18 +324,21 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
   if (result?.meta?.changes === 1) {
     const usedBytes = await getStoredUsageBytes(env, userId);
     return {
-      limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
+      limitBytes: isUnlimited ? null : limitBytes,
       usedBytes: usedBytes ?? (usedBefore + attemptedUploadBytes),
       attemptedUploadBytes,
       remainingBytes: isUnlimited
         ? null
-        : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - (usedBytes ?? (usedBefore + attemptedUploadBytes))),
+        : Math.max(0, limitBytes - (usedBytes ?? (usedBefore + attemptedUploadBytes))),
       isUnlimited,
+      hasActiveSubscription: limitState.hasActiveSubscription === true,
+      plan: limitState.plan || (isUnlimited ? "admin" : "free"),
     };
   }
 
   const currentUsed = await ensureUserAssetStorageUsage(env, userId);
   throw new AssetStorageQuotaError({
+    limitBytes,
     usedBytes: currentUsed,
     attemptedUploadBytes,
   });

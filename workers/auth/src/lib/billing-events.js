@@ -24,7 +24,11 @@ const SUPPORTED_ACTION_EVENT_TYPES = new Set([
   "subscription.created",
   "subscription.updated",
   "subscription.cancelled",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
   "invoice.paid",
+  "invoice.payment_succeeded",
   "invoice.payment_failed",
   "credit_pack.purchased",
 ]);

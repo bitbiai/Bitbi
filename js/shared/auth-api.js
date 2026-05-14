@@ -733,6 +733,23 @@ export function apiCreateMemberLiveCreditPackCheckout({
     });
 }
 
+export function apiCreateMemberSubscriptionCheckout({
+    idempotencyKey,
+    termsAccepted,
+    termsVersion,
+    immediateDeliveryAccepted,
+    acceptedAt,
+} = {}) {
+    return request('POST', '/account/billing/checkout/subscription', {
+        terms_accepted: termsAccepted === true,
+        terms_version: termsVersion,
+        immediate_delivery_accepted: immediateDeliveryAccepted === true,
+        accepted_at: acceptedAt || null,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
 /* ── Favorites ── */
 
 export function apiGetFavorites() {

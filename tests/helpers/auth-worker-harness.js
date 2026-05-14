@@ -696,12 +696,16 @@ class MockD1 {
       billingEventActions: [],
       billingCheckoutSessions: [],
       billingMemberCheckoutSessions: [],
+      billingMemberSubscriptions: [],
+      billingMemberSubscriptionCheckoutSessions: [],
       newsPulseItems: [],
       openClawIngestNonces: [],
       creditLedger: [],
       usageEvents: [],
       memberCreditLedger: [],
       memberUsageEvents: [],
+      memberCreditBuckets: [],
+      memberCreditBucketEvents: [],
       aiUsageAttempts: [],
       ...deepClone(seed),
     };
@@ -824,6 +828,18 @@ class MockD1 {
     }
     if (this.missingTables.has('member_usage_events') && query.includes('member_usage_events')) {
       throw new Error('no such table: member_usage_events');
+    }
+    if (this.missingTables.has('member_credit_buckets') && query.includes('member_credit_buckets')) {
+      throw new Error('no such table: member_credit_buckets');
+    }
+    if (this.missingTables.has('member_credit_bucket_events') && query.includes('member_credit_bucket_events')) {
+      throw new Error('no such table: member_credit_bucket_events');
+    }
+    if (this.missingTables.has('billing_member_subscriptions') && query.includes('billing_member_subscriptions')) {
+      throw new Error('no such table: billing_member_subscriptions');
+    }
+    if (this.missingTables.has('billing_member_subscription_checkout_sessions') && query.includes('billing_member_subscription_checkout_sessions')) {
+      throw new Error('no such table: billing_member_subscription_checkout_sessions');
     }
 
     validateCreditInsertArity(query);
@@ -2350,6 +2366,243 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith('SELECT id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json FROM member_credit_ledger WHERE user_id = ? ORDER BY created_at ASC')) {
+      const [userId] = bindings;
+      const rows = this.state.memberCreditLedger
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.user_id === userId)
+        .sort((a, b) => String(a.row.created_at || '').localeCompare(String(b.row.created_at || '')) || a.index - b.index)
+        .map(({ row }) => deepClone(row));
+      return { results: rows };
+    }
+
+    if (query.startsWith('SELECT id, user_id, bucket_type, balance, local_subscription_id, provider_subscription_id, period_start, period_end, source, metadata_json, created_at, updated_at FROM member_credit_buckets WHERE user_id = ?')) {
+      if (query.includes("AND bucket_type = 'subscription'")) {
+        const [userId, providerSubscriptionId, periodStart] = bindings;
+        return deepClone(this.state.memberCreditBuckets.find((row) =>
+          row.user_id === userId &&
+          row.bucket_type === 'subscription' &&
+          row.provider_subscription_id === providerSubscriptionId &&
+          row.period_start === periodStart
+        ) || null);
+      }
+      if (query.includes('AND bucket_type = ?')) {
+        const [userId, bucketType] = bindings;
+        return deepClone(this.state.memberCreditBuckets.find((row) =>
+          row.user_id === userId && row.bucket_type === bucketType
+        ) || null);
+      }
+      const [userId] = bindings;
+      const rows = this.state.memberCreditBuckets
+        .filter((row) => row.user_id === userId)
+        .sort((a, b) => {
+          const order = { subscription: 0, legacy_or_bonus: 1, purchased: 2 };
+          return (order[a.bucket_type] ?? 3) - (order[b.bucket_type] ?? 3)
+            || String(b.period_start || '').localeCompare(String(a.period_start || ''))
+            || String(a.created_at || '').localeCompare(String(b.created_at || ''))
+            || String(a.id || '').localeCompare(String(b.id || ''));
+        });
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO member_credit_buckets')) {
+      const [
+        id,
+        userId,
+        bucketType,
+        balance,
+        localSubscriptionId,
+        providerSubscriptionId,
+        periodStart,
+        periodEnd,
+        source,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      const exists = this.state.memberCreditBuckets.some((row) => {
+        if (row.id === id) return true;
+        if (bucketType === 'purchased' || bucketType === 'legacy_or_bonus') {
+          return row.user_id === userId && row.bucket_type === bucketType;
+        }
+        return row.user_id === userId &&
+          row.bucket_type === 'subscription' &&
+          row.provider_subscription_id === providerSubscriptionId &&
+          row.period_start === periodStart;
+      });
+      if (exists) return { success: true, meta: { changes: 0 } };
+      this.state.memberCreditBuckets.push({
+        id,
+        user_id: userId,
+        bucket_type: bucketType,
+        balance: Number(balance || 0),
+        local_subscription_id: localSubscriptionId,
+        provider_subscription_id: providerSubscriptionId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        source,
+        metadata_json: metadataJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE member_credit_buckets SET balance = balance + ?')) {
+      if (query.includes('updated_at = ? WHERE id = ? AND user_id = ?') && !query.includes('local_subscription_id')) {
+        const [amount, updatedAt, id, userId] = bindings;
+        const row = this.state.memberCreditBuckets.find((entry) => entry.id === id && entry.user_id === userId);
+        if (!row) return { success: true, meta: { changes: 0 } };
+        row.balance = Number(row.balance || 0) + Number(amount || 0);
+        row.updated_at = updatedAt;
+        return { success: true, meta: { changes: 1 } };
+      }
+      const [amount, localSubscriptionId, providerSubscriptionId, periodStart, periodEnd, source, updatedAt, id, userId] = bindings;
+      const row = this.state.memberCreditBuckets.find((entry) => entry.id === id && entry.user_id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.balance = Number(row.balance || 0) + Number(amount || 0);
+      row.local_subscription_id = localSubscriptionId || row.local_subscription_id;
+      row.provider_subscription_id = providerSubscriptionId || row.provider_subscription_id;
+      row.period_start = periodStart || row.period_start;
+      row.period_end = periodEnd || row.period_end;
+      row.source = source || row.source;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE member_credit_buckets SET balance = balance - ?')) {
+      const [amount, updatedAt, id, userId, minBalance] = bindings;
+      const row = this.state.memberCreditBuckets.find((entry) => entry.id === id && entry.user_id === userId);
+      if (!row || Number(row.balance || 0) < Number(minBalance || amount || 0)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.balance = Number(row.balance || 0) - Number(amount || 0);
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT OR IGNORE INTO member_credit_bucket_events') || query.startsWith('INSERT INTO member_credit_bucket_events')) {
+      const [
+        id,
+        userId,
+        bucketIdValue,
+        bucketType,
+        amount,
+        balanceAfter,
+        memberCreditLedgerId,
+        source,
+        idempotencyKey,
+        metadataJson,
+        createdAt,
+      ] = bindings;
+      const exists = this.state.memberCreditBucketEvents.some((row) =>
+        row.id === id || (idempotencyKey && row.bucket_id === bucketIdValue && row.idempotency_key === idempotencyKey)
+      );
+      if (exists) {
+        if (query.startsWith('INSERT OR IGNORE')) return { success: true, meta: { changes: 0 } };
+        throw new Error('UNIQUE constraint failed: member_credit_bucket_events');
+      }
+      this.state.memberCreditBucketEvents.push({
+        id,
+        user_id: userId,
+        bucket_id: bucketIdValue,
+        bucket_type: bucketType,
+        amount: Number(amount || 0),
+        balance_after: Number(balanceAfter || 0),
+        member_credit_ledger_id: memberCreditLedgerId,
+        source,
+        idempotency_key: idempotencyKey,
+        metadata_json: metadataJson,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, user_id, provider, provider_mode, provider_customer_id, provider_subscription_id, provider_price_id, status, current_period_start, current_period_end, cancel_at_period_end, canceled_at, metadata_json, created_at, updated_at FROM billing_member_subscriptions')) {
+      if (query.includes("provider_subscription_id = ?") && !query.includes('WHERE user_id = ?')) {
+        const [subscriptionId] = bindings;
+        return deepClone(this.state.billingMemberSubscriptions.find((row) =>
+          row.provider === 'stripe' &&
+          row.provider_mode === 'live' &&
+          row.provider_subscription_id === subscriptionId
+        ) || null);
+      }
+      if (query.includes("status IN ('active', 'trialing')")) {
+        const [userId, now] = bindings;
+        const rows = this.state.billingMemberSubscriptions
+          .filter((row) =>
+            row.user_id === userId &&
+            ['active', 'trialing'].includes(row.status) &&
+            row.current_period_end &&
+            row.current_period_end > now
+          )
+          .sort((a, b) => String(b.current_period_end || '').localeCompare(String(a.current_period_end || '')) || String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+        return deepClone(rows[0] || null);
+      }
+      if (query.includes('WHERE user_id = ?')) {
+        const [userId] = bindings;
+        const rows = this.state.billingMemberSubscriptions
+          .filter((row) => row.user_id === userId)
+          .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+        return deepClone(rows[0] || null);
+      }
+    }
+
+    if (query.startsWith('INSERT INTO billing_member_subscriptions')) {
+      const [
+        id,
+        userId,
+        customerId,
+        subscriptionId,
+        priceId,
+        status,
+        periodStart,
+        periodEnd,
+        cancelAtPeriodEnd,
+        canceledAt,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      let row = this.state.billingMemberSubscriptions.find((entry) =>
+        entry.provider === 'stripe' &&
+        entry.provider_mode === 'live' &&
+        entry.provider_subscription_id === subscriptionId
+      );
+      if (!row) {
+        row = {
+          id,
+          user_id: userId,
+          provider: 'stripe',
+          provider_mode: 'live',
+          provider_customer_id: customerId,
+          provider_subscription_id: subscriptionId,
+          provider_price_id: priceId,
+          status,
+          current_period_start: periodStart,
+          current_period_end: periodEnd,
+          cancel_at_period_end: cancelAtPeriodEnd,
+          canceled_at: canceledAt,
+          metadata_json: metadataJson,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        };
+        this.state.billingMemberSubscriptions.push(row);
+      } else {
+        row.user_id = userId;
+        row.provider_customer_id = customerId || row.provider_customer_id;
+        row.provider_price_id = priceId || row.provider_price_id;
+        row.status = status;
+        row.current_period_start = periodStart || row.current_period_start;
+        row.current_period_end = periodEnd || row.current_period_end;
+        row.cancel_at_period_end = cancelAtPeriodEnd;
+        row.canceled_at = canceledAt || row.canceled_at;
+        row.metadata_json = metadataJson;
+        row.updated_at = updatedAt;
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('SELECT COALESCE(SUM(credit_cost), 0) AS reserved_credits')) {
       const [organizationId, now] = bindings;
       const reservedCredits = this.state.aiUsageAttempts
@@ -2423,6 +2676,130 @@ class MockD1 {
         status: membership.status,
         organization_status: organization.status,
       } : null;
+    }
+
+    if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_subscription_id, user_id, plan_id, provider_price_id, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, authorization_scope')) {
+      if (query.includes('WHERE user_id = ? AND idempotency_key_hash = ?')) {
+        const [userId, idempotencyKeyHash] = bindings;
+        return deepClone(this.state.billingMemberSubscriptionCheckoutSessions.find((row) =>
+          row.user_id === userId &&
+          row.idempotency_key_hash === idempotencyKeyHash
+        ) || null);
+      }
+      if (query.includes("WHERE provider = 'stripe' AND provider_checkout_session_id = ?")) {
+        const [sessionId] = bindings;
+        return deepClone(this.state.billingMemberSubscriptionCheckoutSessions.find((row) =>
+          row.provider === 'stripe' && row.provider_checkout_session_id === sessionId
+        ) || null);
+      }
+    }
+
+    if (query.startsWith('INSERT INTO billing_member_subscription_checkout_sessions')) {
+      const [
+        id,
+        provider,
+        providerMode,
+        checkoutSessionId,
+        subscriptionId,
+        userId,
+        planId,
+        priceId,
+        amountCents,
+        currency,
+        status,
+        idempotencyKeyHash,
+        requestFingerprintHash,
+        checkoutUrl,
+        customerId,
+        authorizationScope,
+        paymentStatus,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (this.state.billingMemberSubscriptionCheckoutSessions.some((row) =>
+        row.id === id ||
+        (checkoutSessionId != null && row.provider === provider && row.provider_checkout_session_id === checkoutSessionId) ||
+        (row.user_id === userId && row.idempotency_key_hash === idempotencyKeyHash)
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_member_subscription_checkout_sessions');
+      }
+      this.state.billingMemberSubscriptionCheckoutSessions.push({
+        id,
+        provider,
+        provider_mode: providerMode,
+        provider_checkout_session_id: checkoutSessionId,
+        provider_subscription_id: subscriptionId,
+        user_id: userId,
+        plan_id: planId,
+        provider_price_id: priceId,
+        amount_cents: amountCents,
+        currency,
+        status,
+        idempotency_key_hash: idempotencyKeyHash,
+        request_fingerprint_hash: requestFingerprintHash,
+        checkout_url: checkoutUrl,
+        provider_customer_id: customerId,
+        billing_event_id: null,
+        authorization_scope: authorizationScope,
+        payment_status: paymentStatus,
+        error_code: null,
+        error_message: null,
+        metadata_json: metadataJson,
+        failed_at: null,
+        expired_at: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        completed_at: null,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE billing_member_subscription_checkout_sessions SET provider_checkout_session_id = ?')) {
+      const [sessionId, subscriptionId, customerId, checkoutUrl, paymentStatus, updatedAt, id] = bindings;
+      const row = this.state.billingMemberSubscriptionCheckoutSessions.find((entry) =>
+        entry.id === id && entry.provider === 'stripe' && entry.provider_mode === 'live'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.provider_checkout_session_id = sessionId;
+      row.provider_subscription_id = subscriptionId || row.provider_subscription_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.checkout_url = checkoutUrl;
+      row.payment_status = paymentStatus || row.payment_status;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE billing_member_subscription_checkout_sessions SET status = 'failed'")) {
+      const [errorCode, errorMessage, updatedAt, failedAt, id] = bindings;
+      const row = this.state.billingMemberSubscriptionCheckoutSessions.find((entry) => entry.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'failed';
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.updated_at = updatedAt;
+      row.failed_at = row.failed_at || failedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE billing_member_subscription_checkout_sessions SET status = 'completed'")) {
+      const [subscriptionId, customerId, billingEventId, paymentStatus, updatedAt, completedAt, sessionId] = bindings;
+      const row = this.state.billingMemberSubscriptionCheckoutSessions.find((entry) =>
+        entry.provider === 'stripe' && entry.provider_checkout_session_id === sessionId
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.status = 'completed';
+      row.provider_subscription_id = subscriptionId || row.provider_subscription_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.billing_event_id = billingEventId || row.billing_event_id;
+      row.payment_status = paymentStatus || row.payment_status;
+      row.error_code = null;
+      row.error_message = null;
+      row.updated_at = updatedAt;
+      row.completed_at = row.completed_at || completedAt;
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, member_credit_ledger_entry_id, authorization_scope')) {
@@ -7286,6 +7663,10 @@ function createAuthTestEnv(seed = {}) {
     STRIPE_LIVE_WEBHOOK_SECRET: seed.STRIPE_LIVE_WEBHOOK_SECRET,
     STRIPE_LIVE_CHECKOUT_SUCCESS_URL: seed.STRIPE_LIVE_CHECKOUT_SUCCESS_URL,
     STRIPE_LIVE_CHECKOUT_CANCEL_URL: seed.STRIPE_LIVE_CHECKOUT_CANCEL_URL,
+    ENABLE_LIVE_STRIPE_SUBSCRIPTIONS: seed.ENABLE_LIVE_STRIPE_SUBSCRIPTIONS,
+    STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: seed.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,
+    STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL: seed.STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL,
+    STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL: seed.STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL,
     ALLOW_SYNC_VIDEO_DEBUG: seed.ALLOW_SYNC_VIDEO_DEBUG,
     NEWS_PULSE_SOURCE_URLS: seed.NEWS_PULSE_SOURCE_URLS,
     OPENCLAW_INGEST_SECRET: seed.OPENCLAW_INGEST_SECRET,

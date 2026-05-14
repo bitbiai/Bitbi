@@ -160,6 +160,22 @@ function formatMoney(amountCents, currency = 'eur') {
     return `${Number(amountCents || 0)} ${String(currency || '').toUpperCase()}`;
 }
 
+function formatStorage(bytes) {
+    if (bytes == null) return '∞';
+    const number = Number(bytes);
+    if (!Number.isFinite(number) || number < 0) return localeText('credits.notReported');
+    const mb = number / (1024 * 1024);
+    if (mb >= 1024) {
+        const gb = mb / 1024;
+        return `${gb.toLocaleString(DATE_LOCALE, {
+            maximumFractionDigits: gb >= 10 ? 0 : 1,
+        })} GB`;
+    }
+    return `${mb.toLocaleString(DATE_LOCALE, {
+        maximumFractionDigits: mb >= 10 ? 0 : 1,
+    })} MB`;
+}
+
 function idempotencyKey(packId, organizationId) {
     const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return activeMode === 'member'
@@ -246,11 +262,15 @@ function summaryCard(label, value) {
 
 function renderSummary(balance = {}) {
     if (!$summaryGrid) return;
+    document.querySelectorAll('.credits-member-subscription-note').forEach((node) => node.remove());
     $summaryGrid.textContent = '';
     $summaryGrid.classList.toggle('credits-summary-grid--member', activeMode === 'member');
     if (activeMode === 'member') {
         $summaryGrid.append(
-            summaryCard(localeText('credits.currentBalance'), formatCredits(balance.current)),
+            summaryCard(localeText('credits.currentBalance'), formatCredits(balance.totalCredits ?? balance.current)),
+            summaryCard(localeText('credits.subscriptionCredits'), formatCredits(balance.subscriptionCredits)),
+            summaryCard(localeText('credits.legacyOrBonusCredits'), formatCredits(balance.legacyOrBonusCredits)),
+            summaryCard(localeText('credits.purchasedCredits'), formatCredits(balance.purchasedCredits)),
             summaryCard(localeText('credits.consumed'), formatCredits(balance.lifetimeConsumed)),
         );
     } else {
@@ -585,6 +605,22 @@ function renderMemberDashboard(dashboard) {
     const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, 'member');
     renderLegalBlock(checkoutEnabled && Array.isArray(dashboard.packs) && dashboard.packs.length > 0);
     renderSummary(dashboard.balance);
+    document.querySelectorAll('.credits-member-subscription-note').forEach((node) => node.remove());
+    if ($summaryGrid) {
+        $summaryGrid.append(
+            summaryCard(
+                localeText('credits.subscriptionStatus'),
+                dashboard.hasActiveSubscription ? localeText('credits.subscriptionActive') : localeText('credits.subscriptionInactive'),
+            ),
+            summaryCard(localeText('credits.subscriptionPeriod'), dashboard.subscriptionPeriodEnd ? formatDate(dashboard.subscriptionPeriodEnd) : localeText('credits.notReported')),
+            summaryCard(localeText('credits.nextTopUp'), dashboard.nextTopUpAt ? formatDate(dashboard.nextTopUpAt) : localeText('credits.notReported')),
+            summaryCard(localeText('credits.storageLimit'), formatStorage(dashboard.storageLimitBytes)),
+        );
+    }
+    const explanation = document.createElement('p');
+    explanation.className = 'credits-member-subscription-note';
+    explanation.textContent = localeText('credits.subscriptionCreditExplanation');
+    $summaryGrid?.after(explanation);
     renderPacks(dashboard.packs || [], checkoutEnabled);
     renderPurchases(dashboard.purchaseHistory || []);
     renderLedger(dashboard.transactions);

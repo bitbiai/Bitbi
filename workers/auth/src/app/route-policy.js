@@ -14,6 +14,7 @@ const REQUIRED_CONFIG = Object.freeze({
   stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
   stripeLiveCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_CREDIT_PACKS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_WEBHOOK_SECRET", "STRIPE_LIVE_CHECKOUT_SUCCESS_URL", "STRIPE_LIVE_CHECKOUT_CANCEL_URL"],
+  stripeLiveSubscriptionCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_WEBHOOK_SECRET", "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID", "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL", "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL"],
   stripeLiveWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_WEBHOOK_SECRET"],
 });
 
@@ -196,6 +197,12 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "stripe_live_member_credit_pack_checkout_created" },
     sensitivity: "high",
     notes: "Live Stripe one-time credit-pack checkout for the authenticated member's personal credit balance. Requires active account session, ENABLE_LIVE_STRIPE_CREDIT_PACKS=true, Stripe live key and webhook readiness, Idempotency-Key, current terms and immediate-delivery consent, known live credit pack, same-origin mutation protection, and no credit grant at checkout creation.",
+  }),
+  userJsonWrite("account.billing.checkout.subscription", "POST", "/api/account/billing/checkout/subscription", "billing", "smallJson", "account-billing-live-subscription-checkout-user", {
+    config: REQUIRED_CONFIG.stripeLiveSubscriptionCheckout,
+    audit: { event: "stripe_live_member_subscription_checkout_created" },
+    sensitivity: "high",
+    notes: "Live Stripe subscription checkout for BITBI Pro. Requires active account session, ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=true, Stripe live key and webhook readiness, configured live subscription Price ID, Idempotency-Key, current terms and immediate-delivery consent, same-origin mutation protection, and no subscription credits at checkout creation.",
   }),
   safeRead("profile.avatar.read", "GET", "/api/profile/avatar", "profile", {
     config: ["DB", "PRIVATE_MEDIA"],
@@ -625,7 +632,7 @@ export const ROUTE_POLICIES = Object.freeze([
     owner: "billing",
     sensitivity: "high",
     providerSignature: "stripe-live-only",
-    notes: "Live Stripe webhook for one-time credit packs only. Raw body is verified with STRIPE_LIVE_WEBHOOK_SECRET before JSON parse; Testmode events are rejected. Credit grants require an existing live checkout session created by a current platform admin or active organization owner.",
+    notes: "Live Stripe webhook for one-time credit packs and BITBI Pro subscriptions. Raw body is verified with STRIPE_LIVE_WEBHOOK_SECRET before JSON parse; Testmode events are rejected. Credit-pack grants require an existing live checkout session. Subscription credits are topped up only after a verified paid subscription invoice event and remain bucket-separated from purchased credits.",
   }),
   safeRead("ai.folders.list", "GET", "/api/ai/folders", "ai-studio"),
   userJsonWrite("ai.folders.create", "POST", "/api/ai/folders", "ai-studio", "smallJson", "ai-folder-write-user"),

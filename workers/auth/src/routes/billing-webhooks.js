@@ -109,6 +109,7 @@ export async function handleBillingWebhooks(ctx) {
           event: result.event,
           checkout: result.checkout,
           creditGrant: result.creditGrant,
+          subscription: result.subscription || null,
           liveBillingEnabled: true,
         },
         { status: result.duplicate ? 200 : 202 }

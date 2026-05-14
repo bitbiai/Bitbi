@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0046_add_asset_storage_quota.sql",
+        "latest": "0047_add_member_subscriptions_and_credit_buckets.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -384,6 +384,42 @@
         "summary": "Optional Phase 2-L HTTPS cancel URL used only by live Stripe credit-pack Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=cancel."
       },
       {
+        "id": "auth-enable-live-stripe-subscriptions-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS",
+        "requiredForRelease": false,
+        "documentation": "PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md",
+        "summary": "Optional operator-controlled BITBI Pro subscription kill switch. Subscription checkout creation is disabled unless this value is exactly true."
+      },
+      {
+        "id": "auth-stripe-live-subscription-price-id-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID",
+        "requiredForRelease": false,
+        "documentation": "PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md",
+        "summary": "Stripe live recurring Price ID for the BITBI Pro 9,99 € monthly subscription. Required only when ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=true."
+      },
+      {
+        "id": "auth-stripe-live-subscription-success-url-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
+        "requiredForRelease": false,
+        "documentation": "PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md",
+        "summary": "HTTPS success URL used only by live Stripe BITBI Pro subscription Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=success."
+      },
+      {
+        "id": "auth-stripe-live-subscription-cancel-url-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+        "requiredForRelease": false,
+        "documentation": "PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md",
+        "summary": "HTTPS cancel URL used only by live Stripe BITBI Pro subscription Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=cancel."
+      },
+      {
         "id": "ai-service-auth-secret",
         "kind": "secret",
         "worker": "ai",
@@ -502,6 +538,7 @@
       "GET /api/profile/avatar",
       "GET /api/account/credits-dashboard",
       "POST /api/account/billing/checkout/live-credit-pack",
+      "POST /api/account/billing/checkout/subscription",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",

@@ -211,6 +211,10 @@
         align-items: stretch;
     }
 
+    .pricing-grid--subscription {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .pricing-card {
         position: relative;
         display: flex;

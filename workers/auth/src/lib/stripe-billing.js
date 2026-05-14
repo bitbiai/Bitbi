@@ -1,5 +1,14 @@
-import { BillingError, getCreditBalance, grantMemberCredits, grantOrganizationCredits, normalizeBillingIdempotencyKey } from "./billing.js";
+import {
+  BillingError,
+  getCreditBalance,
+  grantMemberCredits,
+  grantOrganizationCredits,
+  normalizeBillingIdempotencyKey,
+  topUpMemberSubscriptionCredits,
+  upsertMemberSubscriptionFromProvider,
+} from "./billing.js";
 import { BITBI_LIVE_CREDIT_PACKS } from "../../../../js/shared/live-credit-packs.mjs";
+import { BITBI_MEMBER_SUBSCRIPTION } from "../../../../js/shared/member-subscription.mjs";
 import {
   BillingEventError,
   BILLING_WEBHOOK_STRIPE_PROVIDER,
@@ -20,6 +29,8 @@ const TEST_CHECKOUT_SESSION_ID_PATTERN = /^cs_test_[A-Za-z0-9_:-]{8,200}$/;
 const LIVE_CHECKOUT_SESSION_ID_PATTERN = /^cs_live_[A-Za-z0-9_:-]{8,200}$/;
 const TEST_PAYMENT_INTENT_ID_PATTERN = /^pi_test_[A-Za-z0-9_:-]{8,200}$/;
 const LIVE_PAYMENT_INTENT_ID_PATTERN = /^pi_live_[A-Za-z0-9_:-]{8,200}$/;
+const LIVE_SUBSCRIPTION_ID_PATTERN = /^sub_[A-Za-z0-9_:-]{8,200}$/;
+const LIVE_INVOICE_ID_PATTERN = /^in_[A-Za-z0-9_:-]{8,200}$/;
 const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CHECKOUT_SESSION_URL_ORIGINS = new Set([
   "https://checkout.stripe.com",
@@ -30,6 +41,7 @@ const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
 const LIVE_MEMBER_AUTH_SCOPE = "member";
 const LIVE_ORGANIZATION_CHECKOUT_SCOPE = "organization";
 const LIVE_MEMBER_CHECKOUT_SCOPE = "member";
+const LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE = "member_subscription";
 export const BITBI_TERMS_VERSION = "2026-05-05";
 
 export const STRIPE_CREDIT_PACKS = Object.freeze([
@@ -210,6 +222,19 @@ function normalizeLiveStripeCreditPacksEnabled(env) {
   return true;
 }
 
+function normalizeLiveStripeSubscriptionsEnabled(env) {
+  const value = safeString(env?.ENABLE_LIVE_STRIPE_SUBSCRIPTIONS, 16);
+  if (value !== "true") {
+    throw new StripeBillingError("Live Stripe subscription checkout is disabled.", {
+      status: 503,
+      code: "stripe_live_subscriptions_disabled",
+      configNames: ["ENABLE_LIVE_STRIPE_SUBSCRIPTIONS"],
+      missingConfigNames: value ? [] : ["ENABLE_LIVE_STRIPE_SUBSCRIPTIONS"],
+    });
+  }
+  return true;
+}
+
 function normalizeStripeLiveSecretKey(env) {
   const key = safeString(env?.STRIPE_LIVE_SECRET_KEY, 256);
   if (!key) {
@@ -317,6 +342,46 @@ function getStripeLiveCheckoutConfig(env) {
   };
 }
 
+function normalizeStripeLiveSubscriptionPriceId(env) {
+  const priceId = safeString(env?.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID, 128);
+  if (!priceId) {
+    throw new StripeBillingError("Stripe live subscription Price ID is not configured.", {
+      status: 503,
+      code: "stripe_live_subscription_price_unavailable",
+      configNames: ["STRIPE_LIVE_SUBSCRIPTION_PRICE_ID"],
+      missingConfigNames: ["STRIPE_LIVE_SUBSCRIPTION_PRICE_ID"],
+    });
+  }
+  if (!/^price_[A-Za-z0-9_:-]{8,120}$/.test(priceId)) {
+    throw new StripeBillingError("Stripe live subscription Price ID is invalid.", {
+      status: 503,
+      code: "stripe_live_subscription_price_invalid",
+      configNames: ["STRIPE_LIVE_SUBSCRIPTION_PRICE_ID"],
+    });
+  }
+  return priceId;
+}
+
+function getStripeLiveSubscriptionCheckoutConfig(env) {
+  normalizeLiveStripeSubscriptionsEnabled(env);
+  normalizeStripeLiveWebhookSecret(env);
+  return {
+    mode: STRIPE_MODE_LIVE,
+    secretKey: normalizeStripeLiveSecretKey(env),
+    priceId: normalizeStripeLiveSubscriptionPriceId(env),
+    successUrl: normalizeHttpsUrl(
+      env?.STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL,
+      "Stripe live subscription success URL",
+      "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL"
+    ),
+    cancelUrl: normalizeHttpsUrl(
+      env?.STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL,
+      "Stripe live subscription cancel URL",
+      "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL"
+    ),
+  };
+}
+
 export function getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames = false } = {}) {
   const requiredNames = [
     "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
@@ -341,6 +406,48 @@ export function getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames 
     configured,
     mode: STRIPE_MODE_LIVE,
     code,
+  };
+  if (includeConfigNames) {
+    result.configNames = requiredNames;
+    result.missingConfigNames = missing;
+  }
+  return result;
+}
+
+export function getStripeLiveSubscriptionCheckoutStatus(env, { includeConfigNames = false } = {}) {
+  const requiredNames = [
+    "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS",
+    "STRIPE_LIVE_SECRET_KEY",
+    "STRIPE_LIVE_WEBHOOK_SECRET",
+    "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID",
+    "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
+    "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+  ];
+  const missing = requiredNames.filter((name) => !safeString(env?.[name], 2048));
+  let enabled = false;
+  let configured = false;
+  let code = null;
+  try {
+    getStripeLiveSubscriptionCheckoutConfig(env);
+    enabled = true;
+    configured = true;
+  } catch (error) {
+    if (error instanceof StripeBillingError) code = error.code;
+  }
+  const result = {
+    enabled,
+    configured,
+    mode: STRIPE_MODE_LIVE,
+    code,
+    plan: {
+      id: BITBI_MEMBER_SUBSCRIPTION.id,
+      name: BITBI_MEMBER_SUBSCRIPTION.name,
+      amountCents: BITBI_MEMBER_SUBSCRIPTION.amountCents,
+      currency: BITBI_MEMBER_SUBSCRIPTION.currency,
+      interval: BITBI_MEMBER_SUBSCRIPTION.interval,
+      allowanceCredits: BITBI_MEMBER_SUBSCRIPTION.allowanceCredits,
+      storageLimitBytes: BITBI_MEMBER_SUBSCRIPTION.storageLimitBytes,
+    },
   };
   if (includeConfigNames) {
     result.configNames = requiredNames;
@@ -462,6 +569,38 @@ function serializeMemberCheckoutRow(row, { includeUrl = false } = {}) {
   };
 }
 
+function serializeMemberSubscriptionCheckoutRow(row, { includeUrl = false } = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerMode: row.provider_mode,
+    sessionId: row.provider_checkout_session_id || null,
+    subscriptionId: row.provider_subscription_id || null,
+    organizationId: null,
+    userId: row.user_id,
+    plan: {
+      id: row.plan_id,
+      name: BITBI_MEMBER_SUBSCRIPTION.name,
+      amountCents: Number(row.amount_cents || 0),
+      currency: row.currency,
+      interval: BITBI_MEMBER_SUBSCRIPTION.interval,
+      allowanceCredits: BITBI_MEMBER_SUBSCRIPTION.allowanceCredits,
+      storageLimitBytes: BITBI_MEMBER_SUBSCRIPTION.storageLimitBytes,
+    },
+    status: row.status,
+    checkoutScope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+    authorizationScope: row.authorization_scope || LIVE_MEMBER_AUTH_SCOPE,
+    paymentStatus: row.payment_status || null,
+    completedAt: row.completed_at || null,
+    failedAt: row.failed_at || null,
+    expiredAt: row.expired_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    checkoutUrl: includeUrl ? (row.checkout_url || null) : undefined,
+  };
+}
+
 function parseJsonObject(value) {
   try {
     const parsed = JSON.parse(String(value || "{}"));
@@ -537,6 +676,27 @@ async function liveMemberCheckoutRequestFingerprint({ userId, pack, legalAccepta
   });
 }
 
+async function liveMemberSubscriptionCheckoutRequestFingerprint({ userId, plan, priceId, legalAcceptance }) {
+  return hashJson({
+    provider: "stripe",
+    providerMode: STRIPE_MODE_LIVE,
+    source: "pricing_page",
+    checkoutScope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+    authorizationScope: LIVE_MEMBER_AUTH_SCOPE,
+    userId,
+    planId: plan.id,
+    priceId,
+    amountCents: plan.amountCents,
+    currency: plan.currency,
+    interval: plan.interval,
+    allowanceCredits: plan.allowanceCredits,
+    storageLimitBytes: plan.storageLimitBytes,
+    termsAccepted: legalAcceptance.termsAccepted,
+    termsVersion: legalAcceptance.termsVersion,
+    immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+  });
+}
+
 async function fetchCheckoutByIdempotency(env, { organizationId, userId, idempotencyKeyHash }) {
   return env.DB.prepare(
     `SELECT id, provider, provider_mode, provider_checkout_session_id,
@@ -597,6 +757,50 @@ async function fetchMemberCheckoutByProviderSession(env, sessionId) {
   ).bind(sessionId).first();
 }
 
+async function fetchMemberSubscriptionCheckoutByIdempotency(env, { userId, idempotencyKeyHash }) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_subscription_id, user_id, plan_id, provider_price_id,
+            amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, authorization_scope, payment_status,
+            failed_at, expired_at, metadata_json, created_at, updated_at,
+            completed_at
+     FROM billing_member_subscription_checkout_sessions
+     WHERE user_id = ? AND idempotency_key_hash = ?
+     LIMIT 1`
+  ).bind(userId, idempotencyKeyHash).first();
+}
+
+async function fetchMemberSubscriptionCheckoutByProviderSession(env, sessionId) {
+  return env.DB.prepare(
+    `SELECT id, provider, provider_mode, provider_checkout_session_id,
+            provider_subscription_id, user_id, plan_id, provider_price_id,
+            amount_cents, currency, status, idempotency_key_hash,
+            request_fingerprint_hash, checkout_url, provider_customer_id,
+            billing_event_id, authorization_scope, payment_status,
+            failed_at, expired_at, metadata_json, created_at, updated_at,
+            completed_at
+     FROM billing_member_subscription_checkout_sessions
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?
+     LIMIT 1`
+  ).bind(sessionId).first();
+}
+
+async function fetchMemberSubscriptionByProviderSubscriptionId(env, subscriptionId) {
+  return env.DB.prepare(
+    `SELECT id, user_id, provider, provider_mode, provider_customer_id,
+            provider_subscription_id, provider_price_id, status,
+            current_period_start, current_period_end, cancel_at_period_end,
+            canceled_at, metadata_json, created_at, updated_at
+     FROM billing_member_subscriptions
+     WHERE provider = 'stripe'
+       AND provider_mode = 'live'
+       AND provider_subscription_id = ?
+     LIMIT 1`
+  ).bind(subscriptionId).first();
+}
+
 function checkoutSessionPatternForMode(mode) {
   return mode === STRIPE_MODE_LIVE
     ? LIVE_CHECKOUT_SESSION_ID_PATTERN
@@ -649,7 +853,9 @@ function normalizeStripeCheckoutSession(value, { mode = STRIPE_MODE_TEST } = {})
     url,
     customer: safeString(value.customer, 128),
     paymentIntent: safeString(value.payment_intent, 128),
+    subscription: safeString(value.subscription, 128),
     paymentStatus: safeString(value.payment_status, 64),
+    mode: safeString(value.mode, 32),
   };
 }
 
@@ -747,6 +953,47 @@ function buildCheckoutForm({
       body.set("metadata[accepted_at]", legalAcceptance.acceptedAt);
     }
   }
+  return body;
+}
+
+function buildSubscriptionCheckoutForm({
+  config,
+  plan,
+  userId,
+  checkoutId,
+  legalAcceptance,
+}) {
+  const body = new URLSearchParams();
+  body.set("mode", "subscription");
+  body.set("payment_method_types[0]", "card");
+  body.set("success_url", config.successUrl);
+  body.set("cancel_url", config.cancelUrl);
+  body.set("client_reference_id", checkoutId);
+  body.set("line_items[0][quantity]", "1");
+  body.set("line_items[0][price]", config.priceId);
+  body.set("metadata[user_id]", userId);
+  body.set("metadata[plan_id]", plan.id);
+  body.set("metadata[subscription_plan_id]", plan.id);
+  body.set("metadata[internal_checkout_session_id]", checkoutId);
+  body.set("metadata[stripe_mode]", config.mode);
+  body.set("metadata[mode]", config.mode);
+  body.set("metadata[checkout_scope]", LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE);
+  body.set("metadata[authorization_scope]", LIVE_MEMBER_AUTH_SCOPE);
+  body.set("metadata[source]", "pricing_page");
+  body.set("metadata[terms_accepted]", legalAcceptance.termsAccepted ? "true" : "false");
+  body.set("metadata[terms_version]", legalAcceptance.termsVersion);
+  body.set("metadata[immediate_delivery_accepted]", legalAcceptance.immediateDeliveryAccepted ? "true" : "false");
+  if (legalAcceptance.acceptedAt) {
+    body.set("metadata[accepted_at]", legalAcceptance.acceptedAt);
+  }
+  body.set("subscription_data[metadata][user_id]", userId);
+  body.set("subscription_data[metadata][plan_id]", plan.id);
+  body.set("subscription_data[metadata][subscription_plan_id]", plan.id);
+  body.set("subscription_data[metadata][internal_checkout_session_id]", checkoutId);
+  body.set("subscription_data[metadata][checkout_scope]", LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE);
+  body.set("subscription_data[metadata][authorization_scope]", LIVE_MEMBER_AUTH_SCOPE);
+  body.set("subscription_data[metadata][source]", "pricing_page");
+  body.set("subscription_data[metadata][terms_version]", legalAcceptance.termsVersion);
   return body;
 }
 
@@ -1146,6 +1393,59 @@ async function markMemberCheckoutSessionFailed(env, {
   ).run();
 }
 
+async function updateMemberSubscriptionCheckoutAfterStripeCreate(env, {
+  id,
+  stripeSession,
+  now = nowIso(),
+}) {
+  await env.DB.prepare(
+    `UPDATE billing_member_subscription_checkout_sessions
+     SET provider_checkout_session_id = ?,
+         provider_subscription_id = COALESCE(?, provider_subscription_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         checkout_url = ?,
+         payment_status = COALESCE(?, payment_status),
+         error_code = NULL,
+         error_message = NULL,
+         updated_at = ?
+     WHERE id = ? AND provider = 'stripe' AND provider_mode = 'live'`
+  ).bind(
+    stripeSession.id,
+    stripeSession.subscription && LIVE_SUBSCRIPTION_ID_PATTERN.test(stripeSession.subscription)
+      ? stripeSession.subscription
+      : null,
+    stripeSession.customer,
+    stripeSession.url,
+    stripeSession.paymentStatus,
+    now,
+    id
+  ).run();
+  return fetchMemberSubscriptionCheckoutByProviderSession(env, stripeSession.id);
+}
+
+async function markMemberSubscriptionCheckoutFailed(env, {
+  id,
+  errorCode,
+  errorMessage,
+  now = nowIso(),
+}) {
+  await env.DB.prepare(
+    `UPDATE billing_member_subscription_checkout_sessions
+     SET status = 'failed',
+         error_code = ?,
+         error_message = ?,
+         updated_at = ?,
+         failed_at = COALESCE(failed_at, ?)
+     WHERE id = ?`
+  ).bind(
+    safeString(errorCode, 64),
+    safeString(errorMessage, 256),
+    now,
+    now,
+    id
+  ).run();
+}
+
 export async function createStripeLiveMemberCreditPackCheckout({
   env,
   userId,
@@ -1263,6 +1563,128 @@ export async function createStripeLiveMemberCreditPackCheckout({
       ? error.message
       : "Stripe Checkout Session could not be created.";
     await markMemberCheckoutSessionFailed(env, { id, errorCode: code, errorMessage: message });
+    throw error;
+  }
+}
+
+export async function createStripeLiveMemberSubscriptionCheckout({
+  env,
+  userId,
+  idempotencyKey,
+  legalAcceptance,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const acceptance = normalizeLiveLegalAcceptance(legalAcceptance);
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const config = getStripeLiveSubscriptionCheckoutConfig(env);
+  const plan = BITBI_MEMBER_SUBSCRIPTION;
+  const keyHash = await sha256Hex(`live-member-subscription:${normalizedKey}`);
+  const requestHash = await liveMemberSubscriptionCheckoutRequestFingerprint({
+    userId: normalizedUserId,
+    plan,
+    priceId: config.priceId,
+    legalAcceptance: acceptance,
+  });
+  const existing = await fetchMemberSubscriptionCheckoutByIdempotency(env, {
+    userId: normalizedUserId,
+    idempotencyKeyHash: keyHash,
+  });
+  if (existing) {
+    if (existing.request_fingerprint_hash !== requestHash) {
+      throw new StripeBillingError("Idempotency-Key conflicts with a different subscription checkout request.", {
+        status: 409,
+        code: "idempotency_conflict",
+      });
+    }
+    if (!existing.checkout_url) {
+      throw new StripeBillingError("Stripe Checkout Session could not be created.", {
+        status: 502,
+        code: "stripe_checkout_create_failed",
+      });
+    }
+    return {
+      checkout: serializeMemberSubscriptionCheckoutRow(existing, { includeUrl: true }),
+      plan,
+      reused: true,
+    };
+  }
+
+  const id = checkoutSessionId();
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO billing_member_subscription_checkout_sessions (
+       id, provider, provider_mode, provider_checkout_session_id,
+       provider_subscription_id, user_id, plan_id, provider_price_id,
+       amount_cents, currency, status, idempotency_key_hash,
+       request_fingerprint_hash, checkout_url, provider_customer_id,
+       authorization_scope, payment_status, metadata_json, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    "stripe",
+    STRIPE_MODE_LIVE,
+    null,
+    null,
+    normalizedUserId,
+    plan.id,
+    config.priceId,
+    plan.amountCents,
+    plan.currency,
+    "created",
+    keyHash,
+    requestHash,
+    null,
+    null,
+    LIVE_MEMBER_AUTH_SCOPE,
+    null,
+    JSON.stringify({
+      phase: "member-subscriptions-pro",
+      source: "pricing_page",
+      checkoutScope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+      authorizationScope: LIVE_MEMBER_AUTH_SCOPE,
+      termsAccepted: true,
+      termsVersion: acceptance.termsVersion,
+      immediateDeliveryAccepted: true,
+      acceptedAt: acceptance.acceptedAt,
+    }),
+    now,
+    now
+  ).run();
+
+  try {
+    const stripeSession = await postStripeCheckoutSession({
+      env,
+      config,
+      body: buildSubscriptionCheckoutForm({
+        config,
+        plan,
+        userId: normalizedUserId,
+        checkoutId: id,
+        legalAcceptance: acceptance,
+      }),
+      idempotencyKey: `bitbi-live-sub-${keyHash.slice(0, 41)}`,
+    });
+    if (stripeSession.mode && stripeSession.mode !== "subscription") {
+      throw new StripeBillingError("Stripe Checkout Session response is not a subscription checkout.", {
+        status: 502,
+        code: "stripe_checkout_invalid_response",
+      });
+    }
+    const checkout = await updateMemberSubscriptionCheckoutAfterStripeCreate(env, {
+      id,
+      stripeSession,
+    });
+    return {
+      checkout: serializeMemberSubscriptionCheckoutRow(checkout, { includeUrl: true }),
+      plan,
+      reused: false,
+    };
+  } catch (error) {
+    const code = error instanceof StripeBillingError ? error.code : "stripe_checkout_create_failed";
+    const message = error instanceof StripeBillingError
+      ? error.message
+      : "Stripe Checkout Session could not be created.";
+    await markMemberSubscriptionCheckoutFailed(env, { id, errorCode: code, errorMessage: message });
     throw error;
   }
 }
@@ -1554,6 +1976,227 @@ function normalizeLiveCheckoutCompletion(payload) {
   };
 }
 
+function metadataObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeLiveSubscriptionCheckoutCompletion(payload) {
+  if (payload?.type !== "checkout.session.completed") return null;
+  if (payload.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe events are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const session = getStripeSessionObject(payload);
+  if (session.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe Checkout Sessions are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const sessionId = safeString(session.id, 220);
+  if (!sessionId || !LIVE_CHECKOUT_SESSION_ID_PATTERN.test(sessionId)) {
+    throw new StripeBillingError("Stripe live Checkout Session is invalid.", {
+      status: 400,
+      code: "stripe_checkout_session_invalid",
+    });
+  }
+  if (session.mode !== "subscription") {
+    throw new StripeBillingError("Stripe live Checkout Session is not a subscription checkout.", {
+      status: 400,
+      code: "stripe_checkout_scope_invalid",
+    });
+  }
+  const metadata = metadataObject(session.metadata);
+  const checkoutScope = safeString(metadata.checkout_scope || metadata.checkoutScope, 32);
+  if (checkoutScope !== LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE) {
+    throw new StripeBillingError("Stripe live subscription checkout scope is invalid.", {
+      status: 400,
+      code: "stripe_checkout_scope_invalid",
+    });
+  }
+  const subscriptionId = safeString(session.subscription, 128);
+  if (!subscriptionId || !LIVE_SUBSCRIPTION_ID_PATTERN.test(subscriptionId)) {
+    throw new StripeBillingError("Stripe live subscription id is invalid.", {
+      status: 400,
+      code: "stripe_subscription_invalid",
+    });
+  }
+  return {
+    sessionId,
+    subscriptionId,
+    customer: safeString(session.customer, 128),
+    paymentStatus: safeString(session.payment_status, 64),
+    userId: normalizeUserId(metadata.user_id || metadata.userId),
+    planId: safeString(metadata.plan_id || metadata.subscription_plan_id || metadata.planId, 64),
+    internalCheckoutSessionId: safeString(metadata.internal_checkout_session_id, 64),
+  };
+}
+
+function stripeTimestampToIso(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  if (Number.isFinite(number)) {
+    const date = new Date(number > 10_000_000_000 ? number : number * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function getSubscriptionItem(object) {
+  const items = object?.items?.data;
+  return Array.isArray(items) && items.length ? items[0] : null;
+}
+
+function getSubscriptionPriceId(object) {
+  return safeString(
+    object?.plan?.id ||
+    getSubscriptionItem(object)?.price?.id ||
+    getSubscriptionItem(object)?.plan?.id,
+    128
+  );
+}
+
+function getSubscriptionPeriodStart(object) {
+  return object?.current_period_start ?? getSubscriptionItem(object)?.current_period_start ?? null;
+}
+
+function getSubscriptionPeriodEnd(object) {
+  return object?.current_period_end ?? getSubscriptionItem(object)?.current_period_end ?? null;
+}
+
+function normalizeLiveSubscriptionEvent(payload) {
+  if (!["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(payload?.type)) {
+    return null;
+  }
+  if (payload.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe events are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const subscription = getStripeSessionObject(payload);
+  if (subscription.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe subscriptions are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const subscriptionId = safeString(subscription.id, 128);
+  if (!subscriptionId || !LIVE_SUBSCRIPTION_ID_PATTERN.test(subscriptionId)) {
+    throw new StripeBillingError("Stripe live subscription id is invalid.", {
+      status: 400,
+      code: "stripe_subscription_invalid",
+    });
+  }
+  const metadata = metadataObject(subscription.metadata);
+  return {
+    subscriptionId,
+    customer: safeString(subscription.customer, 128),
+    userId: metadata.user_id || metadata.userId ? normalizeUserId(metadata.user_id || metadata.userId) : null,
+    priceId: getSubscriptionPriceId(subscription),
+    status: safeString(subscription.status, 64) || (payload.type === "customer.subscription.deleted" ? "canceled" : "incomplete"),
+    currentPeriodStart: stripeTimestampToIso(getSubscriptionPeriodStart(subscription)),
+    currentPeriodEnd: stripeTimestampToIso(getSubscriptionPeriodEnd(subscription)),
+    cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
+    canceledAt: stripeTimestampToIso(subscription.canceled_at),
+    metadata,
+  };
+}
+
+function getInvoiceLineForSubscription(invoice, subscriptionId) {
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  return lines.find((line) =>
+    safeString(line.subscription, 128) === subscriptionId ||
+    safeString(line.parent?.subscription_item_details?.subscription, 128) === subscriptionId ||
+    safeString(line.subscription_item, 128)
+  ) || lines[0] || null;
+}
+
+function getInvoiceSubscriptionMetadata(invoice) {
+  return {
+    ...metadataObject(invoice?.subscription_details?.metadata),
+    ...metadataObject(invoice?.parent?.subscription_details?.metadata),
+    ...metadataObject(invoice?.metadata),
+  };
+}
+
+function normalizeLiveInvoicePaidEvent(payload) {
+  if (payload?.type !== "invoice.paid" && payload?.type !== "invoice.payment_succeeded") return null;
+  if (payload.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe events are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const invoice = getStripeSessionObject(payload);
+  if (invoice.livemode !== true) {
+    throw new StripeBillingError("Testmode Stripe invoices are not accepted on the live webhook.", {
+      status: 403,
+      code: "stripe_live_webhook_mode_mismatch",
+    });
+  }
+  const invoiceId = safeString(invoice.id, 128);
+  if (!invoiceId || !LIVE_INVOICE_ID_PATTERN.test(invoiceId)) {
+    throw new StripeBillingError("Stripe live invoice id is invalid.", {
+      status: 400,
+      code: "stripe_invoice_invalid",
+    });
+  }
+  if (invoice.status && invoice.status !== "paid") {
+    throw new StripeBillingError("Stripe live invoice is not paid.", {
+      status: 400,
+      code: "stripe_invoice_not_paid",
+    });
+  }
+  const subscriptionId = safeString(
+    invoice.subscription ||
+    invoice.parent?.subscription_details?.subscription ||
+    invoice.subscription_details?.subscription,
+    128
+  );
+  if (!subscriptionId) {
+    return {
+      ignored: true,
+      reason: "Stripe invoice is not subscription-backed.",
+      invoiceId,
+      subscriptionId: null,
+      customer: safeString(invoice.customer, 128),
+    };
+  }
+  if (!LIVE_SUBSCRIPTION_ID_PATTERN.test(subscriptionId)) {
+    throw new StripeBillingError("Stripe live invoice subscription is invalid.", {
+      status: 400,
+      code: "stripe_subscription_invalid",
+    });
+  }
+  const line = getInvoiceLineForSubscription(invoice, subscriptionId);
+  const metadata = getInvoiceSubscriptionMetadata(invoice);
+  const periodStart = stripeTimestampToIso(line?.period?.start || invoice.period_start);
+  const periodEnd = stripeTimestampToIso(line?.period?.end || invoice.period_end);
+  if (!periodStart || !periodEnd) {
+    throw new StripeBillingError("Stripe live invoice subscription period is missing.", {
+      status: 400,
+      code: "stripe_subscription_period_missing",
+    });
+  }
+  const priceId = safeString(line?.price?.id || line?.plan?.id, 128);
+  return {
+    invoiceId,
+    subscriptionId,
+    customer: safeString(invoice.customer, 128),
+    userId: metadata.user_id || metadata.userId ? normalizeUserId(metadata.user_id || metadata.userId) : null,
+    priceId,
+    status: "active",
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: false,
+    metadata,
+  };
+}
+
 async function markStripeEventFailed(env, {
   eventId,
   actionType,
@@ -1722,6 +2365,44 @@ async function upsertCompletedMemberCheckoutSession({
   return fetchMemberCheckoutByProviderSession(env, completion.sessionId);
 }
 
+async function upsertCompletedMemberSubscriptionCheckoutSession({
+  env,
+  completion,
+  billingEventId,
+}) {
+  const existing = await fetchMemberSubscriptionCheckoutByProviderSession(env, completion.sessionId);
+  const now = nowIso();
+  if (!existing) {
+    throw new StripeBillingError("Stripe live member subscription Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
+  }
+  assertMemberSubscriptionCheckoutMatchesCompletion(existing, completion);
+  await env.DB.prepare(
+    `UPDATE billing_member_subscription_checkout_sessions
+     SET status = 'completed',
+         provider_subscription_id = COALESCE(?, provider_subscription_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         billing_event_id = COALESCE(?, billing_event_id),
+         payment_status = COALESCE(?, payment_status),
+         error_code = NULL,
+         error_message = NULL,
+         updated_at = ?,
+         completed_at = COALESCE(completed_at, ?)
+     WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
+  ).bind(
+    completion.subscriptionId,
+    completion.customer,
+    billingEventId,
+    completion.paymentStatus || "paid",
+    now,
+    now,
+    completion.sessionId
+  ).run();
+  return fetchMemberSubscriptionCheckoutByProviderSession(env, completion.sessionId);
+}
+
 async function requireLiveAuthorizedCheckoutSession(env, completion) {
   const checkout = await fetchCheckoutByProviderSession(env, completion.sessionId);
   if (!checkout || checkout.provider_mode !== STRIPE_MODE_LIVE) {
@@ -1802,6 +2483,48 @@ async function requireLiveMemberCheckoutSession(env, completion) {
   return { checkout, scope: LIVE_MEMBER_AUTH_SCOPE };
 }
 
+function assertMemberSubscriptionCheckoutMatchesCompletion(checkout, completion) {
+  if (
+    checkout.user_id !== completion.userId ||
+    checkout.plan_id !== BITBI_MEMBER_SUBSCRIPTION.id ||
+    Number(checkout.amount_cents) !== BITBI_MEMBER_SUBSCRIPTION.amountCents ||
+    String(checkout.currency).toLowerCase() !== BITBI_MEMBER_SUBSCRIPTION.currency
+  ) {
+    throw new StripeBillingError("Stripe live member subscription Checkout Session does not match the stored checkout request.", {
+      status: 409,
+      code: "stripe_checkout_session_mismatch",
+    });
+  }
+}
+
+async function requireLiveMemberSubscriptionCheckoutSession(env, completion) {
+  const checkout = await fetchMemberSubscriptionCheckoutByProviderSession(env, completion.sessionId);
+  if (!checkout || checkout.provider_mode !== STRIPE_MODE_LIVE) {
+    throw new StripeBillingError("Stripe live member subscription Checkout Session was not created by this installation.", {
+      status: 403,
+      code: "stripe_checkout_session_unrecognized",
+    });
+  }
+  assertMemberSubscriptionCheckoutMatchesCompletion(checkout, completion);
+  const scope = checkout.authorization_scope || parseJsonObject(checkout.metadata_json).authorizationScope;
+  if (scope !== LIVE_MEMBER_AUTH_SCOPE) {
+    throw new StripeBillingError("Stripe live member subscription Checkout Session scope is invalid.", {
+      status: 403,
+      code: "stripe_checkout_scope_invalid",
+    });
+  }
+  const creator = await env.DB.prepare(
+    "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+  ).bind(checkout.user_id).first();
+  if (!creator || creator.status !== "active") {
+    throw new StripeBillingError("Stripe live subscription Checkout Session creator is no longer active.", {
+      status: 403,
+      code: "stripe_checkout_creator_inactive",
+    });
+  }
+  return { checkout, scope: LIVE_MEMBER_AUTH_SCOPE };
+}
+
 function serializeDashboardCheckout(row) {
   const checkout = serializeCheckoutRow(row);
   return {
@@ -1870,6 +2593,7 @@ export async function getMemberLiveCreditsPurchaseContext({
   ).bind(normalizedUserId, appliedLimit).all();
   return {
     liveCheckout: getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames }),
+    subscriptionCheckout: getStripeLiveSubscriptionCheckoutStatus(env, { includeConfigNames }),
     packs: listStripeLiveCreditPacks(),
     purchaseHistory: (purchaseRows.results || []).map(serializeDashboardMemberCheckout),
   };
@@ -1998,6 +2722,7 @@ export async function handleVerifiedStripeWebhookEvent({
       ...stored,
       creditGrant: null,
       checkout: null,
+      subscription: null,
     };
   }
 
@@ -2006,7 +2731,34 @@ export async function handleVerifiedStripeWebhookEvent({
       ...stored,
       creditGrant: null,
       checkout: null,
+      subscription: null,
     };
+  }
+
+  const rawSession = getStripeSessionObject(payload);
+  if (rawSession.mode === "subscription") {
+    try {
+      return await handleLiveSubscriptionCheckoutCompleted({ env, stored, payload });
+    } catch (error) {
+      const code = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.code
+        : "stripe_live_subscription_checkout_failed";
+      const message = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.message
+        : "Stripe live subscription checkout handling failed.";
+      await markStripeEventFailed(env, {
+        eventId: stored.event.id,
+        actionType: payload.type,
+        errorCode: code,
+        errorMessage: message,
+      });
+      throw error instanceof StripeBillingError
+        ? error
+        : new StripeBillingError("Stripe live subscription checkout handling failed.", {
+            status: 503,
+            code: "stripe_live_subscription_checkout_failed",
+          });
+    }
   }
 
   let completion;
@@ -2096,6 +2848,239 @@ export async function handleVerifiedStripeWebhookEvent({
   }
 }
 
+async function markLiveStripeEventIgnored(env, { stored, payload, reason, summary = {} }) {
+  const event = await updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: "ignored",
+    actionType: payload.type,
+    actionStatus: "ignored",
+    actionDryRun: false,
+    actionSummary: {
+      sideEffectsEnabled: false,
+      reason,
+      ...summary,
+    },
+  });
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: false,
+    creditGrant: null,
+    checkout: null,
+    subscription: null,
+  };
+}
+
+async function handleLiveSubscriptionCheckoutCompleted({ env, stored, payload }) {
+  const completion = normalizeLiveSubscriptionCheckoutCompletion(payload);
+  const { checkout } = await requireLiveMemberSubscriptionCheckoutSession(env, completion);
+  const updatedCheckout = await upsertCompletedMemberSubscriptionCheckoutSession({
+    env,
+    completion,
+    billingEventId: stored.event.id,
+  });
+  const subscription = await upsertMemberSubscriptionFromProvider({
+    env,
+    userId: completion.userId,
+    providerSubscriptionId: completion.subscriptionId,
+    providerCustomerId: completion.customer,
+    providerPriceId: checkout.provider_price_id,
+    status: "incomplete",
+    metadata: {
+      checkout_session_id: completion.sessionId,
+      checkout_scope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+      source: "checkout.session.completed",
+    },
+  });
+  const event = await updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: "planned",
+    userId: completion.userId,
+    billingCustomerId: completion.customer,
+    actionType: payload.type,
+    actionStatus: "planned",
+    actionDryRun: false,
+    actionSummary: {
+      sideEffectsEnabled: true,
+      liveBillingEnabled: true,
+      checkoutScope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+      subscriptionStatus: "recorded_without_credit_grant",
+      providerSubscriptionId: completion.subscriptionId,
+      creditsGranted: 0,
+    },
+  });
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: true,
+    creditGrant: null,
+    checkout: serializeMemberSubscriptionCheckoutRow(updatedCheckout),
+    subscription,
+  };
+}
+
+async function handleLiveSubscriptionLifecycle({ env, stored, payload }) {
+  const subscriptionEvent = normalizeLiveSubscriptionEvent(payload);
+  const expectedPriceId = normalizeStripeLiveSubscriptionPriceId(env);
+  const effectivePriceId = subscriptionEvent.priceId || null;
+  if (effectivePriceId !== expectedPriceId) {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Stripe subscription price id does not match BITBI Pro.",
+      summary: { providerSubscriptionId: subscriptionEvent.subscriptionId, priceIdPresent: Boolean(effectivePriceId) },
+    });
+  }
+  const existing = await fetchMemberSubscriptionByProviderSubscriptionId(env, subscriptionEvent.subscriptionId);
+  const userId = subscriptionEvent.userId || existing?.user_id;
+  if (!userId) {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Stripe subscription event has no known BITBI user.",
+      summary: { providerSubscriptionId: subscriptionEvent.subscriptionId },
+    });
+  }
+  const subscription = await upsertMemberSubscriptionFromProvider({
+    env,
+    userId,
+    providerSubscriptionId: subscriptionEvent.subscriptionId,
+    providerCustomerId: subscriptionEvent.customer || existing?.provider_customer_id || null,
+    providerPriceId: subscriptionEvent.priceId || existing?.provider_price_id || null,
+    status: payload.type === "customer.subscription.deleted" ? "canceled" : subscriptionEvent.status,
+    currentPeriodStart: subscriptionEvent.currentPeriodStart || existing?.current_period_start || null,
+    currentPeriodEnd: subscriptionEvent.currentPeriodEnd || existing?.current_period_end || null,
+    cancelAtPeriodEnd: subscriptionEvent.cancelAtPeriodEnd,
+    canceledAt: subscriptionEvent.canceledAt || existing?.canceled_at || null,
+    metadata: {
+      ...subscriptionEvent.metadata,
+      source_event_type: payload.type,
+      provider_event_id: stored.event.providerEventId,
+    },
+  });
+  const event = await updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: "planned",
+    userId,
+    billingCustomerId: subscriptionEvent.customer || existing?.provider_customer_id || null,
+    actionType: payload.type,
+    actionStatus: "planned",
+    actionDryRun: false,
+    actionSummary: {
+      sideEffectsEnabled: true,
+      liveBillingEnabled: true,
+      providerSubscriptionId: subscriptionEvent.subscriptionId,
+      subscriptionStatus: subscription.status,
+      creditsGranted: 0,
+    },
+  });
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: true,
+    creditGrant: null,
+    checkout: null,
+    subscription,
+  };
+}
+
+async function handleLiveSubscriptionInvoicePaid({ env, stored, payload }) {
+  const invoice = normalizeLiveInvoicePaidEvent(payload);
+  if (invoice?.ignored) {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: invoice.reason,
+      summary: { providerSubscriptionId: invoice.subscriptionId, invoiceId: invoice.invoiceId },
+    });
+  }
+  const expectedPriceId = normalizeStripeLiveSubscriptionPriceId(env);
+  const effectivePriceId = invoice.priceId || null;
+  if (effectivePriceId !== expectedPriceId) {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Stripe invoice price id does not match BITBI Pro.",
+      summary: { providerSubscriptionId: invoice.subscriptionId, invoiceId: invoice.invoiceId, priceIdPresent: Boolean(effectivePriceId) },
+    });
+  }
+  const existing = await fetchMemberSubscriptionByProviderSubscriptionId(env, invoice.subscriptionId);
+  const userId = invoice.userId || existing?.user_id;
+  if (!userId) {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Stripe invoice has no known BITBI user.",
+      summary: { providerSubscriptionId: invoice.subscriptionId, invoiceId: invoice.invoiceId },
+    });
+  }
+  const subscription = await upsertMemberSubscriptionFromProvider({
+    env,
+    userId,
+    providerSubscriptionId: invoice.subscriptionId,
+    providerCustomerId: invoice.customer || existing?.provider_customer_id || null,
+    providerPriceId: invoice.priceId || existing?.provider_price_id || expectedPriceId,
+    status: "active",
+    currentPeriodStart: invoice.currentPeriodStart,
+    currentPeriodEnd: invoice.currentPeriodEnd,
+    cancelAtPeriodEnd: existing?.cancel_at_period_end === 1,
+    canceledAt: existing?.canceled_at || null,
+    metadata: {
+      ...invoice.metadata,
+      source_event_type: payload.type,
+      provider_event_id: stored.event.providerEventId,
+      stripe_invoice_id: invoice.invoiceId,
+    },
+  });
+  const topUp = await topUpMemberSubscriptionCredits({
+    env,
+    userId,
+    subscriptionId: invoice.subscriptionId,
+    providerSubscriptionId: invoice.subscriptionId,
+    periodStart: invoice.currentPeriodStart,
+    periodEnd: invoice.currentPeriodEnd,
+    providerEventId: stored.event.providerEventId,
+    stripeInvoiceId: invoice.invoiceId,
+  });
+  const event = await updateBillingProviderEventProcessing(env, {
+    eventId: stored.event.id,
+    processingStatus: "planned",
+    userId,
+    billingCustomerId: invoice.customer || existing?.provider_customer_id || null,
+    actionType: payload.type,
+    actionStatus: "planned",
+    actionDryRun: false,
+    actionSummary: {
+      sideEffectsEnabled: true,
+      liveBillingEnabled: true,
+      providerSubscriptionId: invoice.subscriptionId,
+      stripeInvoiceId: invoice.invoiceId,
+      subscriptionStatus: subscription.status,
+      creditGrantStatus: topUp.reused
+        ? "already_granted"
+        : (topUp.grantedCredits > 0 ? "granted" : "already_full"),
+      creditsGranted: topUp.grantedCredits,
+      allowance: topUp.allowance,
+      subscriptionCredits: topUp.subscriptionCredits,
+    },
+  });
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: true,
+    creditGrant: {
+      checkoutScope: LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,
+      userId,
+      creditsGranted: topUp.grantedCredits,
+      balanceAfter: topUp.creditBalance,
+      subscriptionCredits: topUp.subscriptionCredits,
+      reused: topUp.reused,
+    },
+    checkout: null,
+    subscription,
+  };
+}
+
 export async function handleVerifiedStripeLiveWebhookEvent({
   env,
   rawBody,
@@ -2121,7 +3106,58 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       ...stored,
       creditGrant: null,
       checkout: null,
+      subscription: null,
     };
+  }
+
+  if (payload?.type === "customer.subscription.created" || payload?.type === "customer.subscription.updated" || payload?.type === "customer.subscription.deleted") {
+    try {
+      return await handleLiveSubscriptionLifecycle({ env, stored, payload });
+    } catch (error) {
+      const code = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.code
+        : "stripe_live_subscription_update_failed";
+      const message = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.message
+        : "Stripe live subscription update failed.";
+      await markStripeEventFailed(env, {
+        eventId: stored.event.id,
+        actionType: payload.type,
+        errorCode: code,
+        errorMessage: message,
+      });
+      throw error instanceof StripeBillingError
+        ? error
+        : new StripeBillingError("Stripe live subscription update failed.", {
+            status: 503,
+            code: "stripe_live_subscription_update_failed",
+          });
+    }
+  }
+
+  if (payload?.type === "invoice.paid" || payload?.type === "invoice.payment_succeeded") {
+    try {
+      return await handleLiveSubscriptionInvoicePaid({ env, stored, payload });
+    } catch (error) {
+      const code = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.code
+        : "stripe_live_subscription_topup_failed";
+      const message = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.message
+        : "Stripe live subscription credit top-up failed.";
+      await markStripeEventFailed(env, {
+        eventId: stored.event.id,
+        actionType: payload.type,
+        errorCode: code,
+        errorMessage: message,
+      });
+      throw error instanceof StripeBillingError
+        ? error
+        : new StripeBillingError("Stripe live subscription credit top-up failed.", {
+            status: 503,
+            code: "stripe_live_subscription_topup_failed",
+          });
+    }
   }
 
   if (payload?.type !== "checkout.session.completed") {
@@ -2129,7 +3165,34 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       ...stored,
       creditGrant: null,
       checkout: null,
+      subscription: null,
     };
+  }
+
+  const rawSession = getStripeSessionObject(payload);
+  if (rawSession.mode === "subscription") {
+    try {
+      return await handleLiveSubscriptionCheckoutCompleted({ env, stored, payload });
+    } catch (error) {
+      const code = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.code
+        : "stripe_live_subscription_checkout_failed";
+      const message = error instanceof BillingError || error instanceof StripeBillingError
+        ? error.message
+        : "Stripe live subscription checkout handling failed.";
+      await markStripeEventFailed(env, {
+        eventId: stored.event.id,
+        actionType: payload.type,
+        errorCode: code,
+        errorMessage: message,
+      });
+      throw error instanceof StripeBillingError
+        ? error
+        : new StripeBillingError("Stripe live subscription checkout handling failed.", {
+            status: 503,
+            code: "stripe_live_subscription_checkout_failed",
+          });
+    }
   }
 
   let completion;

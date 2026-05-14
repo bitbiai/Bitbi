@@ -7,12 +7,15 @@ import { getAuthState } from '../../shared/auth-state.js';
 import { openAuthModal } from '../../shared/auth-modal.js';
 import {
     apiCreateMemberLiveCreditPackCheckout,
+    apiCreateMemberSubscriptionCheckout,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { BITBI_LIVE_CREDIT_PACKS } from '../../shared/live-credit-packs.mjs?v=__ASSET_VERSION__';
+import { BITBI_MEMBER_SUBSCRIPTION } from '../../shared/member-subscription.mjs?v=__ASSET_VERSION__';
 
 const TERMS_VERSION = '2026-05-05';
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
+const PENDING_OFFER_KEY = 'bitbi_pending_pricing_offer';
 const LOCALE = getCurrentLocale();
 const NUMBER_FORMATTER = new Intl.NumberFormat(LOCALE === 'de' ? 'de-DE' : 'en-US');
 const STRIPE_CHECKOUT_ORIGINS = new Set([
@@ -26,8 +29,8 @@ const COPY = Object.freeze({
         loading: 'Loading credit packs.',
         pricing: 'Pricing',
         subtitle: 'Create more with flexible prepaid credits.',
-        heroCopy: 'Generate images, videos, music, and AI assets without a subscription. Buy credits once and use them across BITBI’s creative tools.',
-        trust: ['Secure Stripe checkout', 'Account-bound BITBI credits', 'No subscription required'],
+        heroCopy: 'Generate images, videos, music, and AI assets with a monthly BITBI Pro membership or flexible one-time credit packs.',
+        trust: ['Secure Stripe checkout', 'Account-bound BITBI credits', 'Subscription or one-time packs'],
         securePayment: 'Secure payment continues on pay.bitbi.ai.',
         checkoutHostDetail: 'Start on BITBI, review your pack here, then complete the Stripe-hosted payment form on pay.bitbi.ai.',
         successful: 'Payment successful',
@@ -36,6 +39,13 @@ const COPY = Object.freeze({
         cancelled: 'Checkout was cancelled',
         cancelCopy: 'You have not been charged. Your selected BITBI credit pack is still available if you want to continue later.',
         oneTime: 'One-time payment',
+        monthly: 'Monthly subscription',
+        subscriptionSection: 'Monthly subscription',
+        oneTimeSection: 'One-time credit packs',
+        subscribe: 'Subscribe',
+        selectedSubscription: 'BITBI Pro selected',
+        subscriptionSelected: 'BITBI Pro selected. Review the legal confirmations below before checkout.',
+        subscriptionSummary: 'Selected subscription: BITBI Pro · 6000 credits per month · 9,99 € / month. Prices include statutory VAT where applicable.',
         loggedOutCta: 'Create account to buy',
         selectedPack: 'Selected pack',
         selectPack: 'Select pack',
@@ -56,6 +66,14 @@ const COPY = Object.freeze({
         unsafeCheckout: 'Checkout response was not a recognized Stripe-hosted payment URL. No payment was started.',
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
         creditPacks: 'Credit packs',
+        subscriptionBenefits: Object.freeze([
+            '6000 credits included each month',
+            '5 GB Asset Manager storage',
+            'Subscription credits are topped up to 6000 each month',
+            'No accumulation beyond the monthly allowance',
+            'One-time purchased credits remain separate and additional',
+            'Secure Stripe checkout',
+        ]),
         creditsLabel: 'credits',
         creditBenefit: '{credits} prepaid credits',
         trustNotes: 'Pricing trust notes',
@@ -74,7 +92,8 @@ const COPY = Object.freeze({
         }),
         info: Object.freeze([
             ['How credits work', 'Credits are prepaid digital usage units. Each AI generation uses credits depending on model, quality, duration, reference images, and compute cost. Buy a pack, generate, save, and publish your creative assets.', ['Buy a credit pack once.', 'Credits are added after successful Stripe payment.', 'Use credits across supported BITBI AI tools.', 'Higher quality or reference-heavy generations may use more credits.']],
-            ['No subscription', 'Credit packs are not a subscription. There is no monthly lock-in and no automatic renewal. You buy credits when you need them.'],
+            ['One-time packs', 'Credit packs remain one-time purchases. There is no monthly lock-in or automatic renewal for one-time packs; buy them when you need additional purchased credits.'],
+            ['BITBI Pro', 'BITBI Pro is a monthly membership. Subscription credits are topped up to 6000 each period and do not accumulate beyond that allowance. Purchased credits remain separate and additional.'],
             ['Secure checkout', 'Payments continue on pay.bitbi.ai, a Stripe-hosted Checkout domain. BITBI does not store full card details. Stripe may perform payment validation, fraud prevention, and authentication checks.'],
             ['Digital credits', 'Credits are account-bound digital prepaid usage units for BITBI tools. They are not cash, not tokens, not crypto, not transferable, not reloadable, not interest-bearing, and not redeemable for money except where required by law.'],
             ['AI output responsibility', 'AI results can vary. You are responsible for prompts, uploaded reference material, rights clearance, and how you use or publish generated content.'],
@@ -85,8 +104,8 @@ const COPY = Object.freeze({
         loading: 'Credit-Pakete werden geladen.',
         pricing: 'Preise',
         subtitle: 'Mehr erstellen mit flexiblen Prepaid-Credits.',
-        heroCopy: 'Generieren Sie Bilder, Videos, Musik und KI-Assets ohne Abonnement. Kaufen Sie Credits einmalig und nutzen Sie sie in den kreativen BITBI-Werkzeugen.',
-        trust: ['Sicherer Stripe-Checkout', 'Kontogebundene BITBI Credits', 'Kein Abonnement erforderlich'],
+        heroCopy: 'Generieren Sie Bilder, Videos, Musik und KI-Assets mit BITBI Pro als Monatsabo oder flexiblen einmaligen Credit-Paketen.',
+        trust: ['Sicherer Stripe-Checkout', 'Kontogebundene BITBI Credits', 'Abo oder Einmalpakete'],
         securePayment: 'Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.',
         checkoutHostDetail: 'Starten Sie auf BITBI, prüfen Sie Ihr Paket hier und schließen Sie das von Stripe gehostete Zahlungsformular auf pay.bitbi.ai ab.',
         successful: 'Zahlung erfolgreich',
@@ -95,6 +114,13 @@ const COPY = Object.freeze({
         cancelled: 'Checkout wurde abgebrochen',
         cancelCopy: 'Ihnen wurde nichts berechnet. Ihr ausgewähltes BITBI Credit-Paket bleibt verfügbar, falls Sie später fortfahren möchten.',
         oneTime: 'Einmalzahlung',
+        monthly: 'Monatsabo',
+        subscriptionSection: 'Monatsabo',
+        oneTimeSection: 'Einmalige Credit-Pakete',
+        subscribe: 'Abonnieren',
+        selectedSubscription: 'BITBI Pro ausgewählt',
+        subscriptionSelected: 'BITBI Pro ausgewählt. Bitte prüfen Sie unten die rechtlichen Bestätigungen vor dem Checkout.',
+        subscriptionSummary: 'Ausgewähltes Abo: BITBI Pro · 6000 Credits pro Monat · 9,99 € / Monat. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.',
         loggedOutCta: 'Konto erstellen und kaufen',
         selectedPack: 'Paket ausgewählt',
         selectPack: 'Paket auswählen',
@@ -115,6 +141,14 @@ const COPY = Object.freeze({
         unsafeCheckout: 'Die Checkout-Antwort war keine erkannte von Stripe gehostete Zahlungs-URL. Es wurde keine Zahlung gestartet.',
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
         creditPacks: 'Credit-Pakete',
+        subscriptionBenefits: Object.freeze([
+            '6000 Credits monatlich inklusive',
+            '5 GB Assets-Manager-Speicher',
+            'Abo-Credits werden jeden Monat auf 6000 aufgefüllt',
+            'Keine Ansammlung über das monatliche Kontingent hinaus',
+            'Einmalig gekaufte Credits bleiben getrennt und zusätzlich erhalten',
+            'Sicherer Stripe-Checkout',
+        ]),
         creditsLabel: 'Credits',
         creditBenefit: '{credits} Prepaid-Credits',
         trustNotes: 'Vertrauenshinweise zu Preisen',
@@ -133,7 +167,8 @@ const COPY = Object.freeze({
         }),
         info: Object.freeze([
             ['So funktionieren Credits', 'Credits sind vorausbezahlte digitale Nutzungseinheiten. Jede KI-Generierung verbraucht Credits abhängig von Modell, Qualität, Dauer, Referenzbildern und Rechenaufwand. Kaufen Sie ein Paket, generieren, speichern und veröffentlichen Sie Ihre kreativen Assets.', ['Credit-Paket einmalig kaufen.', 'Credits werden nach erfolgreicher Stripe-Zahlung gutgeschrieben.', 'Credits in unterstützten BITBI-KI-Werkzeugen nutzen.', 'Höhere Qualität oder referenzintensive Generierungen können mehr Credits verbrauchen.']],
-            ['Kein Abonnement', 'Credit-Pakete sind kein Abonnement. Es gibt keine monatliche Bindung und keine automatische Verlängerung. Sie kaufen Credits, wenn Sie sie benötigen.'],
+            ['Einmalige Pakete', 'Credit-Pakete bleiben Einmalkäufe. Für Einmalpakete gibt es keine monatliche Bindung und keine automatische Verlängerung; Sie kaufen zusätzliche gekaufte Credits bei Bedarf.'],
+            ['BITBI Pro', 'BITBI Pro ist ein monatliches Abo. Abo-Credits werden je Periode auf 6000 aufgefüllt und sammeln sich nicht darüber hinaus an. Gekaufte Credits bleiben getrennt und zusätzlich erhalten.'],
             ['Sicherer Checkout', 'Zahlungen werden auf pay.bitbi.ai fortgesetzt, einer von Stripe gehosteten Checkout-Domain. BITBI speichert keine vollständigen Kartendaten. Stripe kann Zahlungsvalidierung, Betrugsprävention und Authentifizierungsprüfungen durchführen.'],
             ['Digitale Credits', 'Credits sind kontogebundene digitale vorausbezahlte Nutzungseinheiten für BITBI-Werkzeuge. Sie sind kein Bargeld, keine Token, kein Krypto, nicht übertragbar, nicht wiederaufladbar, nicht verzinslich und nicht gegen Geld einlösbar, außer soweit gesetzlich vorgeschrieben.'],
             ['Verantwortung für KI-Ergebnisse', 'KI-Ergebnisse können variieren. Sie sind verantwortlich für Prompts, hochgeladenes Referenzmaterial, Rechteklärung und die Nutzung oder Veröffentlichung generierter Inhalte.'],
@@ -163,6 +198,7 @@ const CREDIT_PACKS = Object.freeze(BITBI_LIVE_CREDIT_PACKS.map((pack) => Object.
 })));
 
 let selectedPackId = sessionStorage.getItem(PENDING_PACK_KEY) || 'live_credits_12000';
+let selectedOfferType = sessionStorage.getItem(PENDING_OFFER_KEY) || 'subscription';
 let termsAccepted = false;
 let immediateDeliveryAccepted = false;
 let checkoutBusy = false;
@@ -195,9 +231,9 @@ function getSelectedPack() {
     return CREDIT_PACKS.find((pack) => pack.id === selectedPackId) || CREDIT_PACKS[1];
 }
 
-function idempotencyKey(packId) {
+function idempotencyKey(kind, value) {
     const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `pricing-member-live:${packId}:${random}`;
+    return `pricing-member-live:${kind}:${value}:${random}`;
 }
 
 function isSafeCheckoutRedirect(value) {
@@ -248,7 +284,7 @@ function createBadge(text, tone = '') {
 }
 
 function createPackCard(pack, auth) {
-    const selected = pack.id === getSelectedPack().id;
+    const selected = selectedOfferType !== 'subscription' && pack.id === getSelectedPack().id;
     const localizedPack = COPY[LOCALE]?.packs?.[pack.id] || COPY.en.packs[pack.id];
     const card = document.createElement('article');
     card.className = `pricing-card glass glass-card reveal visible${pack.featured ? ' pricing-card--featured' : ''}${selected ? ' pricing-card--selected' : ''}`;
@@ -295,9 +331,11 @@ function createPackCard(pack, auth) {
         : t('loggedOutCta');
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     button.addEventListener('click', () => {
+        selectedOfferType = 'credit-pack';
         selectedPackId = pack.id;
         if (!auth.loggedIn) {
             sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
+            sessionStorage.setItem(PENDING_OFFER_KEY, 'credit-pack');
             setInlineMessage(t('loggedOutMessage'), 'info');
             openAuthModal('register', {
                 message: t('loggedOutMessage'),
@@ -307,7 +345,70 @@ function createPackCard(pack, auth) {
             return;
         }
         sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
+        sessionStorage.setItem(PENDING_OFFER_KEY, 'credit-pack');
         setInlineMessage(t('packSelected', { title: localizedPack.title }), 'success');
+    });
+
+    card.append(head, price, description, list, button);
+    return card;
+}
+
+function createSubscriptionCard(auth) {
+    const selected = selectedOfferType === 'subscription';
+    const card = document.createElement('article');
+    card.className = `pricing-card glass glass-card reveal visible pricing-card--featured${selected ? ' pricing-card--selected' : ''}`;
+    card.dataset.subscriptionPlan = BITBI_MEMBER_SUBSCRIPTION.id;
+
+    const head = document.createElement('div');
+    head.className = 'pricing-card__head';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'pricing-card__title-wrap';
+    titleWrap.append(
+        createTextElement('p', 'pricing-card__eyebrow', t('monthly')),
+        createTextElement('h2', 'pricing-card__title', 'BITBI Pro'),
+    );
+    head.append(titleWrap, createBadge('Pro', 'featured'));
+
+    const price = document.createElement('div');
+    price.className = 'pricing-card__price';
+    price.append(
+        createTextElement('span', 'pricing-card__price-value', BITBI_MEMBER_SUBSCRIPTION.displayPrice),
+        createTextElement('span', 'pricing-card__cadence', `/ ${LOCALE === 'de' ? 'Monat' : 'month'}`),
+    );
+
+    const description = createTextElement('p', 'pricing-card__copy', LOCALE === 'de'
+        ? 'Monatliche BITBI Mitgliedschaft mit getrennten Abo-Credits und mehr Assets-Manager-Speicher.'
+        : 'Monthly BITBI membership with separate subscription credits and expanded Asset Manager storage.');
+
+    const list = document.createElement('ul');
+    list.className = 'pricing-card__list';
+    for (const item of (COPY[LOCALE] || COPY.en).subscriptionBenefits) {
+        const li = document.createElement('li');
+        li.textContent = item;
+        list.appendChild(li);
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pricing-card__cta';
+    button.dataset.subscriptionCheckout = BITBI_MEMBER_SUBSCRIPTION.id;
+    button.textContent = auth.loggedIn
+        ? (selected ? t('selectedSubscription') : t('subscribe'))
+        : t('loggedOutCta');
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    button.addEventListener('click', () => {
+        selectedOfferType = 'subscription';
+        sessionStorage.setItem(PENDING_OFFER_KEY, 'subscription');
+        if (!auth.loggedIn) {
+            setInlineMessage(t('loggedOutMessage'), 'info');
+            openAuthModal('register', {
+                message: t('loggedOutMessage'),
+                messageType: 'info',
+                target: 'register',
+            });
+            return;
+        }
+        setInlineMessage(t('subscriptionSelected'), 'success');
     });
 
     card.append(head, price, description, list, button);
@@ -382,15 +483,14 @@ function createLegalCheckout(auth) {
     section.appendChild(heading);
 
     const selectedPack = getSelectedPack();
-    const summary = createTextElement(
-        'p',
-        'pricing-section-copy',
-        t('selectedSummary', {
+    const summaryText = selectedOfferType === 'subscription'
+        ? t('subscriptionSummary')
+        : t('selectedSummary', {
             title: (COPY[LOCALE]?.packs?.[selectedPack.id] || COPY.en.packs[selectedPack.id]).title,
             credits: NUMBER_FORMATTER.format(selectedPack.credits),
             price: selectedPack.price,
-        }),
-    );
+        });
+    const summary = createTextElement('p', 'pricing-section-copy', summaryText);
     section.appendChild(summary);
     section.appendChild(createTextElement('p', 'pricing-legal__host-note', t('securePayment')));
 
@@ -459,7 +559,8 @@ function createLegalCheckout(auth) {
 async function handleCheckout(auth) {
     if (checkoutBusy) return;
     if (!auth.loggedIn) {
-        sessionStorage.setItem(PENDING_PACK_KEY, getSelectedPack().id);
+        sessionStorage.setItem(PENDING_OFFER_KEY, selectedOfferType);
+        if (selectedOfferType !== 'subscription') sessionStorage.setItem(PENDING_PACK_KEY, getSelectedPack().id);
         setInlineMessage(t('loginFirst'), 'info');
         openAuthModal('register', {
             message: t('loginFirst'),
@@ -476,14 +577,22 @@ async function handleCheckout(auth) {
     renderPricingExperience();
     const acceptedAt = new Date().toISOString();
     const pack = getSelectedPack();
-    const response = await apiCreateMemberLiveCreditPackCheckout({
-        packId: pack.id,
-        idempotencyKey: idempotencyKey(pack.id),
-        termsAccepted: true,
-        termsVersion: TERMS_VERSION,
-        immediateDeliveryAccepted: true,
-        acceptedAt,
-    });
+    const response = selectedOfferType === 'subscription'
+        ? await apiCreateMemberSubscriptionCheckout({
+            idempotencyKey: idempotencyKey('subscription', BITBI_MEMBER_SUBSCRIPTION.id),
+            termsAccepted: true,
+            termsVersion: TERMS_VERSION,
+            immediateDeliveryAccepted: true,
+            acceptedAt,
+        })
+        : await apiCreateMemberLiveCreditPackCheckout({
+            packId: pack.id,
+            idempotencyKey: idempotencyKey('credit-pack', pack.id),
+            termsAccepted: true,
+            termsVersion: TERMS_VERSION,
+            immediateDeliveryAccepted: true,
+            acceptedAt,
+        });
     checkoutBusy = false;
 
     if (!response.ok) {
@@ -496,6 +605,7 @@ async function handleCheckout(auth) {
         return;
     }
     sessionStorage.removeItem(PENDING_PACK_KEY);
+    sessionStorage.removeItem(PENDING_OFFER_KEY);
     window.location.assign(checkoutUrl);
 }
 
@@ -510,9 +620,15 @@ function renderPricingExperience() {
     renderReturnState(shell);
     shell.appendChild(createHero());
 
+    const subscriptionSection = document.createElement('section');
+    subscriptionSection.className = 'pricing-grid pricing-grid--subscription';
+    subscriptionSection.setAttribute('aria-label', t('subscriptionSection'));
+    subscriptionSection.appendChild(createSubscriptionCard(auth));
+    shell.appendChild(subscriptionSection);
+
     const grid = document.createElement('section');
     grid.className = 'pricing-grid';
-    grid.setAttribute('aria-label', t('creditPacks'));
+    grid.setAttribute('aria-label', t('oneTimeSection'));
     for (const pack of CREDIT_PACKS) {
         grid.appendChild(createPackCard(pack, auth));
     }
@@ -533,8 +649,15 @@ function handleAuthState() {
     const becameLoggedIn = auth.loggedIn && !lastAuthLoggedIn;
     lastAuthLoggedIn = auth.loggedIn;
     if (becameLoggedIn) {
+        const pendingOffer = sessionStorage.getItem(PENDING_OFFER_KEY);
+        if (pendingOffer === 'subscription') {
+            selectedOfferType = 'subscription';
+            inlineMessage = t('subscriptionSelected');
+            inlineMessageTone = 'success';
+        }
         const pendingPack = sessionStorage.getItem(PENDING_PACK_KEY);
         if (pendingPack && CREDIT_PACKS.some((pack) => pack.id === pendingPack)) {
+            selectedOfferType = 'credit-pack';
             selectedPackId = pendingPack;
             inlineMessage = t('accountCreated');
             inlineMessageTone = 'success';

@@ -2904,6 +2904,28 @@ async function mockPricingAccount(page, {
       },
     }, 201);
   });
+  await page.route('**/api/account/billing/checkout/subscription', async (route) => {
+    checkoutRequests.push({
+      body: route.request().postDataJSON(),
+      idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      url: route.request().url(),
+    });
+    await fulfillJson(route, {
+      ok: true,
+      reused: false,
+      checkout_url: checkoutUrl,
+      session_id: 'cs_live_subscription_pricing',
+      mode: 'live',
+      checkout_scope: 'member_subscription',
+      authorization_scope: 'member',
+      subscription_plan: {
+        id: 'bitbi_pro_monthly',
+        name: 'BITBI Pro',
+        amountCents: 999,
+        currency: 'eur',
+      },
+    }, 201);
+  });
 
   return { checkoutRequests };
 }
@@ -3910,14 +3932,16 @@ test.describe('Pricing credit-pack rollout', () => {
     });
     await page.goto('/pricing.html');
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
-    await expect(page.locator('.pricing-card')).toHaveCount(2);
+    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('Create account to buy');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Create account to buy');
 
     await page.unroute('**/api/me');
     await mockPricingAccount(page, { role: 'user', email: 'member-pricing@bitbi.ai' });
     await page.goto('/pricing.html');
-    await expect(page.locator('.pricing-card')).toHaveCount(2);
-    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Selected pack');
+    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('BITBI Pro selected');
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingOrgSelect')).toHaveCount(0);
     await expect(page.locator('.pricing-org__state')).toContainText('member account');
     await expect(page.locator('.pricing-org__state')).toContainText('No organization setup');
@@ -3974,11 +3998,13 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-hero__title')).toHaveText('BITBI Credits');
     await expect(page.locator('.pricing-hero__subtitle')).toHaveText('Create more with flexible prepaid credits.');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
-    await expect(page.locator('.pricing-card')).toHaveCount(2);
-    await expect(page.locator('.pricing-card__title')).toHaveText(['Starter Credits', 'Creator Credits']);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('9.99 €');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('19.99 €');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('Best value');
+    await expect(page.locator('.pricing-card')).toHaveCount(3);
+    await expect(page.locator('.pricing-card__title')).toHaveText(['BITBI Pro', 'Starter Credits', 'Creator Credits']);
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('9,99 €');
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('/ month');
+    await expect(page.locator('.pricing-card').nth(1)).toContainText('9.99 €');
+    await expect(page.locator('.pricing-card').nth(2)).toContainText('19.99 €');
+    await expect(page.locator('.pricing-card').nth(2)).toContainText('Best value');
     await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms.');
     await expect(page.locator('.pricing-legal')).toContainText('immediate provision of the credits');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
@@ -3986,11 +4012,13 @@ test.describe('Pricing credit-pack rollout', () => {
       nodes.map((node) => node.textContent.trim()),
     );
     expect(pricingTitles.some((title) => /10,?000 Credits/i.test(title))).toBe(false);
+    await expect(page.locator('[data-subscription-checkout="bitbi_pro_monthly"]')).toHaveText('BITBI Pro selected');
     await expect(page.locator('[data-pricing-pack="live_credits_5000"]')).toHaveText('Select pack');
-    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Selected pack');
+    await expect(page.locator('[data-pricing-pack="live_credits_12000"]')).toHaveText('Select pack');
     await expect(page.locator('#pricingBillingState')).toHaveCount(0);
     await expect(page.locator('.pricing-info-grid')).toContainText('How credits work');
-    await expect(page.locator('.pricing-info-grid')).toContainText('No subscription');
+    await expect(page.locator('.pricing-info-grid')).toContainText('One-time packs');
+    await expect(page.locator('.pricing-info-grid')).toContainText('BITBI Pro');
     await expect(page.locator('.pricing-info-grid')).toContainText('Secure checkout');
     await expect(page.locator('.pricing-info-grid')).toContainText('Digital credits');
     await expect(page.locator('.pricing-info-grid')).toContainText('AI output responsibility');
@@ -4048,6 +4076,7 @@ test.describe('Pricing credit-pack rollout', () => {
       checkoutUrl: 'https://pay.bitbi.ai/c/pay/cs_live_pricing_5000',
     });
     await page.goto('/pricing.html');
+    await page.locator('[data-pricing-pack="live_credits_12000"]').click();
 
     await page.locator('.pricing-legal__checkout').click();
     await expect(page.locator('.pricing-result--error')).toContainText('Please accept the Terms');
@@ -4269,6 +4298,10 @@ test.describe('Credits dashboard live credit packs', () => {
         balance: {
           current: 10,
           available: 10,
+          totalCredits: 10300,
+          subscriptionCredits: 6000,
+          legacyOrBonusCredits: 300,
+          purchasedCredits: 4000,
           dailyAllowance: 10,
           lifetimeIncoming: 17,
           lifetimeDailyTopUps: 7,
@@ -4286,6 +4319,12 @@ test.describe('Credits dashboard live credit packs', () => {
           configured: true,
           mode: 'live',
         },
+        subscriptionStatus: 'active',
+        subscriptionPeriodStart: '2026-05-01T00:00:00.000Z',
+        subscriptionPeriodEnd: '2026-06-01T00:00:00.000Z',
+        nextTopUpAt: '2026-06-01T00:00:00.000Z',
+        storageLimitBytes: 5 * 1024 * 1024 * 1024,
+        hasActiveSubscription: true,
         packs: [
           { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €' },
           { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €' },
@@ -4306,11 +4345,22 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsOrgName')).toHaveText('Personal credits');
     await expect(page.locator('#creditsAccessScope')).toContainText('Daily top-up: 7 credits granted today.');
     const summaryCards = page.locator('#creditsSummaryGrid .credits-card');
-    await expect(summaryCards).toHaveCount(2);
+    await expect(summaryCards).toHaveCount(9);
     await expect(summaryCards.nth(0)).toContainText('Current balance');
-    await expect(summaryCards.nth(0)).toContainText('10 credits');
-    await expect(summaryCards.nth(1)).toContainText('Consumed');
-    await expect(summaryCards.nth(1)).toContainText('1 credits');
+    await expect(summaryCards.nth(0)).toContainText('10,300 credits');
+    await expect(summaryCards.nth(1)).toContainText('Subscription credits');
+    await expect(summaryCards.nth(1)).toContainText('6,000 credits');
+    await expect(summaryCards.nth(2)).toContainText('Legacy / bonus credits');
+    await expect(summaryCards.nth(2)).toContainText('300 credits');
+    await expect(summaryCards.nth(3)).toContainText('Purchased credits');
+    await expect(summaryCards.nth(3)).toContainText('4,000 credits');
+    await expect(summaryCards.nth(4)).toContainText('Consumed');
+    await expect(summaryCards.nth(4)).toContainText('1 credits');
+    await expect(summaryCards.nth(5)).toContainText('Subscription');
+    await expect(summaryCards.nth(5)).toContainText('Active');
+    await expect(summaryCards.nth(8)).toContainText('Storage limit');
+    await expect(summaryCards.nth(8)).toContainText('5 GB');
+    await expect(page.locator('.credits-member-subscription-note')).toContainText('Subscription credits are topped up to 6000 each month');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Daily top-up target');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Daily top-ups');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manual grants');
@@ -4324,7 +4374,7 @@ test.describe('Credits dashboard live credit packs', () => {
         width: Math.round(rect.width),
       };
     }));
-    expect(summaryLayout).toHaveLength(2);
+    expect(summaryLayout).toHaveLength(9);
     expect(Math.abs(summaryLayout[0].top - summaryLayout[1].top)).toBeLessThanOrEqual(2);
     expect(summaryLayout[1].left).toBeGreaterThan(summaryLayout[0].right);
     expect(summaryLayout.every((card) => card.width >= 360)).toBe(true);
@@ -4390,6 +4440,10 @@ test.describe('Credits dashboard live credit packs', () => {
         balance: {
           current: 10,
           available: 10,
+          totalCredits: 10300,
+          subscriptionCredits: 6000,
+          legacyOrBonusCredits: 300,
+          purchasedCredits: 4000,
           dailyAllowance: 10,
           lifetimeIncoming: 17,
           lifetimeDailyTopUps: 7,
@@ -4398,6 +4452,12 @@ test.describe('Credits dashboard live credit packs', () => {
         },
         dailyTopUp: null,
         liveCheckout: { enabled: true, configured: true, mode: 'live' },
+        subscriptionStatus: 'active',
+        subscriptionPeriodStart: '2026-05-01T00:00:00.000Z',
+        subscriptionPeriodEnd: '2026-06-01T00:00:00.000Z',
+        nextTopUpAt: '2026-06-01T00:00:00.000Z',
+        storageLimitBytes: 5 * 1024 * 1024 * 1024,
+        hasActiveSubscription: true,
         packs: [
           { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur', displayPrice: '9,99 €' },
           { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur', displayPrice: '19,99 €' },
@@ -4412,9 +4472,17 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('#creditsDashboard')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#creditsEyebrow')).toHaveText('Mitglieder-Credits');
     await expect(page.locator('#creditsScopeLabel')).toHaveText('Mitgliedskonto');
-    await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(2);
+    await expect(page.locator('#creditsSummaryGrid .credits-card')).toHaveCount(9);
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Aktuelles Guthaben');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Abo-Credits');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Legacy-/Bonus-Credits');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Gekaufte Credits');
     await expect(page.locator('#creditsSummaryGrid')).toContainText('Verbraucht');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Abo');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Aktiv');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('Speicherlimit');
+    await expect(page.locator('#creditsSummaryGrid')).toContainText('5 GB');
+    await expect(page.locator('.credits-member-subscription-note')).toContainText('Abo-Credits werden monatlich auf 6000 aufgefüllt');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Tägliches Aufladeziel');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Tägliche Aufladungen');
     await expect(page.locator('#creditsSummaryGrid')).not.toContainText('Manuelle Gutschriften');

@@ -10,6 +10,7 @@ import {
 import {
   StripeBillingError,
   createStripeLiveMemberCreditPackCheckout,
+  createStripeLiveMemberSubscriptionCheckout,
   getMemberLiveCreditsPurchaseContext,
   stripeBillingErrorResponse,
 } from "../lib/stripe-billing.js";
@@ -107,17 +108,70 @@ async function handleMemberLiveCreditPackCheckout(ctx, session) {
   }
 }
 
+async function handleMemberLiveSubscriptionCheckout(ctx, session) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "account-billing-live-subscription-checkout-user",
+    userId: session.user.id,
+    maxRequests: 10,
+    windowMs: 15 * 60_000,
+    component: "account-billing-live-subscription-checkout",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  const parsed = await readJsonBodyOrResponse(ctx.request, {
+    maxBytes: BODY_LIMITS.smallJson,
+  });
+  if (parsed.response) return parsed.response;
+
+  try {
+    const result = await createStripeLiveMemberSubscriptionCheckout({
+      env: ctx.env,
+      userId: session.user.id,
+      idempotencyKey: idempotency.key,
+      legalAcceptance: {
+        termsAccepted: parsed.body?.terms_accepted === true || parsed.body?.termsAccepted === true,
+        termsVersion: parsed.body?.terms_version || parsed.body?.termsVersion,
+        immediateDeliveryAccepted: parsed.body?.immediate_delivery_accepted === true || parsed.body?.immediateDeliveryAccepted === true,
+        acceptedAt: parsed.body?.accepted_at || parsed.body?.acceptedAt || null,
+      },
+    });
+    return json({
+      ok: true,
+      reused: result.reused,
+      checkout_url: result.checkout.checkoutUrl,
+      session_id: result.checkout.sessionId,
+      mode: result.checkout.providerMode,
+      checkout_scope: "member_subscription",
+      authorization_scope: result.checkout.authorizationScope,
+      subscription_plan: result.checkout.plan,
+      livePaymentProviderEnabled: true,
+    }, { status: result.reused ? 200 : 201 });
+  } catch (error) {
+    return creditsErrorResponse(error, {
+      correlationId: ctx.correlationId,
+      userId: session.user.id,
+    });
+  }
+}
+
 export async function handleAccountCredits(ctx) {
   const { request, env, pathname, method, url, correlationId } = ctx;
   const isDashboard = pathname === "/api/account/credits-dashboard" && method === "GET";
   const isLiveCheckout = pathname === "/api/account/billing/checkout/live-credit-pack" && method === "POST";
-  if (!isDashboard && !isLiveCheckout) return null;
+  const isSubscriptionCheckout = pathname === "/api/account/billing/checkout/subscription" && method === "POST";
+  if (!isDashboard && !isLiveCheckout && !isSubscriptionCheckout) return null;
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
   if (isLiveCheckout) {
     return handleMemberLiveCreditPackCheckout(ctx, session);
+  }
+  if (isSubscriptionCheckout) {
+    return handleMemberLiveSubscriptionCheckout(ctx, session);
   }
 
   try {
