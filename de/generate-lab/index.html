@@ -365,7 +365,10 @@
                 <h2 id="labAssetsOverlayTitle" class="generate-lab-assets-overlay__title">Assets Manager</h2>
                 <p class="generate-lab-assets-overlay__copy">Verwalten Sie Ordner, prüfen Sie gespeicherte Medien und veröffentlichen Sie Ihre besten Ergebnisse, ohne Generate Lab zu verlassen.</p>
             </div>
-            <button type="button" id="labAssetsOverlayClose" class="generate-lab-assets-overlay__close" aria-label="Assets Manager schließen">Schließen</button>
+            <div class="generate-lab-assets-overlay__actions">
+                <span id="labAssetsStorageUsage" class="assets-manager__storage-usage" aria-label="Verwendeter Speicher im Assets Manager" title="Verwendeter Speicher im Assets Manager" hidden></span>
+                <button type="button" id="labAssetsOverlayClose" class="generate-lab-assets-overlay__close" aria-label="Assets Manager schließen">Schließen</button>
+            </div>
         </div>
         <div class="generate-lab-assets-overlay__body">
             <div id="labAssetsBrowserRoot" class="assets-manager">

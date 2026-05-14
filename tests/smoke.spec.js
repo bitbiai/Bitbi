@@ -2186,6 +2186,95 @@ test.describe('Homepage', () => {
     await expect(overlay).toBeHidden();
   });
 
+  test('German Generate Lab Assets Manager shows storage usage directly left of Schließen', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const usedBytes = Math.round(14.5 * 1024 * 1024);
+    const limitBytes = 50 * 1024 * 1024;
+    let folderRequests = 0;
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-assets-de-member', email: 'assets-de@bitbi.ai', role: 'user' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { creditBalance: 400 } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      folderRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            folders: [{ id: 'folder-one', name: 'Lab saves' }],
+            counts: { 'folder-one': 1 },
+            unfolderedCount: 0,
+            storageUsage: {
+              usedBytes,
+              limitBytes,
+              remainingBytes: limitBytes - usedBytes,
+            },
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            assets: [],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 6,
+            storageUsage: {
+              usedBytes,
+              limitBytes,
+              remainingBytes: limitBytes - usedBytes,
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('/de/generate-lab/');
+    await page.locator('#labAssetsOpen').click();
+
+    const overlay = page.getByRole('dialog', { name: 'Assets Manager' });
+    const usage = overlay.locator('#labAssetsStorageUsage');
+    const close = overlay.locator('#labAssetsOverlayClose');
+    await expect(overlay).toBeVisible();
+    await expect(usage).toHaveText('14,5 MB / 50 MB');
+    await expect(usage).toHaveAttribute('aria-label', /Verwendeter Speicher im Assets Manager: 14,5 MB \/ 50 MB/);
+    await expect(close).toHaveText('Schließen');
+    await expect.poll(() => folderRequests).toBeGreaterThan(0);
+
+    const usageBox = await usage.boundingBox();
+    const closeBox = await close.boundingBox();
+    expect(usageBox).not.toBeNull();
+    expect(closeBox).not.toBeNull();
+    expect(usageBox.x + usageBox.width).toBeLessThanOrEqual(closeBox.x);
+    expectWithinPx(
+      usageBox.y + usageBox.height / 2,
+      closeBox.y + closeBox.height / 2,
+      'Generate Lab storage usage vertical alignment',
+      3,
+    );
+
+    await close.click();
+    await expect(overlay).toBeHidden();
+  });
+
   test('Generate Lab opens recent image, video, and audio assets in the preview stage', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.addInitScript(() => {

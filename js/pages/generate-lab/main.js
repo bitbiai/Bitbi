@@ -91,6 +91,7 @@ const assetsBrowserRefIds = {
     deleteFolderConfirm: 'labAssetsDeleteFolderConfirm',
     deleteFolderCancel: 'labAssetsDeleteFolderCancel',
     selectBtn: 'labAssetsSelectBtn',
+    storageUsage: 'labAssetsStorageUsage',
     mobileActionsToggle: 'labAssetsMobileActionsToggle',
     mobileActionsMenu: 'labAssetsMobileActionsMenu',
     bulkBar: 'labAssetsBulkBar',
