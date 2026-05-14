@@ -136,6 +136,13 @@ async function loadAiImageCreditPricingModule() {
   return import(modulePath);
 }
 
+async function loadAssetStorageQuotaModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/asset-storage-quota.js')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiImageModelsModule() {
   const modulePath = pathToFileURL(
     path.join(process.cwd(), 'js/shared/ai-image-models.mjs')
@@ -5707,6 +5714,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       poster_r2_key: `users/${user.id}/derivatives/v1/${assetId}/poster.webp`,
       poster_width: 320,
       poster_height: 160,
+      poster_size_bytes: new TextEncoder().encode('mock-image:320x160:image/webp').byteLength,
     }));
     expect(env.USER_IMAGES.objects.has(row.poster_r2_key)).toBe(true);
 
@@ -5719,6 +5727,68 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     );
     expect(readPoster.status).toBe(200);
     expect(readPoster.headers.get('content-type')).toBe('image/webp');
+  });
+
+  test('member video poster attachment is rejected when it would exceed Assets Manager storage quota', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const {
+      ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
+      USER_ASSET_STORAGE_LIMIT_BYTES,
+    } = await loadAssetStorageQuotaModule();
+    const userId = 'poster-quota-user';
+    const assetId = 'aabbcc07';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      userAssetStorageUsage: [{
+        user_id: userId,
+        used_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        updated_at: nowIso(),
+      }],
+      aiTextAssets: [{
+        id: assetId,
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/video/full.mp4`,
+        title: 'Full Storage Video',
+        file_name: 'full-storage-video.mp4',
+        source_module: 'video',
+        mime_type: 'video/mp4',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        preview_text: 'Full storage video',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const posterBase64 = `data:image/png;base64,${Buffer.from('mock-image:1024x512:image/png').toString('base64')}`;
+    const posterRes = await authWorker.fetch(
+      authJsonRequest(`/api/ai/text-assets/${assetId}/poster`, 'POST', {
+        posterBase64,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    const attemptedPosterBytes = new TextEncoder().encode('mock-image:320x160:image/webp').byteLength;
+    expect(posterRes.status).toBe(413);
+    await expect(posterRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
+      limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+      usedBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+      attemptedUploadBytes: attemptedPosterBytes,
+      remainingBytes: 0,
+    });
+    const row = env.DB.state.aiTextAssets.find((item) => item.id === assetId);
+    expect(row.poster_r2_key).toBeNull();
+    expect(row.poster_size_bytes).toBeNull();
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.DB.state.userAssetStorageUsage.find((item) => item.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES);
   });
 
   test('member PixVerse V6 insufficient credits block before provider invocation', async () => {
@@ -20403,6 +20473,347 @@ test.describe('Worker routes', () => {
     expect(env.USER_IMAGES.putCalls).toHaveLength(0);
     expect(env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(0);
     expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('Assets Manager quota allows direct image uploads while total usage stays below 50 MB', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const uploadBytes = ONE_PIXEL_PNG_BYTES.byteLength;
+    const userId = 'quota-below-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      aiTextAssets: [{
+        id: 'aabbcc01',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/audio/existing.mp3`,
+        title: 'Existing',
+        file_name: 'existing.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes - 1,
+        preview_text: 'Existing audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'below quota image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    expect(env.DB.state.aiImages).toHaveLength(1);
+    expect(env.DB.state.aiImages[0].size_bytes).toBe(uploadBytes);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES - 1);
+  });
+
+  test('Assets Manager quota allows direct image uploads that reach exactly 50 MB and backfills old image sizes from R2', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const uploadBytes = ONE_PIXEL_PNG_BYTES.byteLength;
+    const userId = 'quota-exact-user';
+    const existingKey = `users/${userId}/folders/unsorted/existing.png`;
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      aiImages: [{
+        id: 'abc100aa',
+        user_id: userId,
+        folder_id: null,
+        r2_key: existingKey,
+        prompt: 'Existing image without stored size',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 1,
+        size_bytes: null,
+        created_at: nowIso(),
+      }],
+      userImages: {
+        [existingKey]: {
+          body: ONE_PIXEL_PNG_BYTES.buffer.slice(0),
+          httpMetadata: { contentType: 'image/png' },
+          size: USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes,
+        },
+      },
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'exact quota image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    expect(env.USER_IMAGES.headCalls).toContain(existingKey);
+    expect(env.DB.state.aiImages.find((row) => row.id === 'abc100aa').size_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES);
+  });
+
+  test('Assets Manager quota rejects direct API image uploads that would exceed 50 MB before R2 storage', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES, ASSET_STORAGE_LIMIT_EXCEEDED_CODE } = await loadAssetStorageQuotaModule();
+    const uploadBytes = ONE_PIXEL_PNG_BYTES.byteLength;
+    const userId = 'quota-over-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      aiTextAssets: [{
+        id: 'aabbcc02',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/audio/existing.mp3`,
+        title: 'Existing',
+        file_name: 'existing.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes + 1,
+        preview_text: 'Existing audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'over quota image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
+      limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+      usedBytes: USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes + 1,
+      attemptedUploadBytes: uploadBytes,
+      remainingBytes: uploadBytes - 1,
+    });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('Assets Manager quota does not count assets owned by another user', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const userId = 'quota-owner-user';
+    const env = createAuthTestEnv({
+      users: [
+        createContractUser({ id: userId, role: 'user' }),
+        createContractUser({ id: 'quota-other-user', role: 'user' }),
+      ],
+      aiTextAssets: [{
+        id: 'aabbcc03',
+        user_id: 'quota-other-user',
+        folder_id: null,
+        r2_key: 'users/quota-other-user/folders/unsorted/audio/full.mp3',
+        title: 'Other User Full Storage',
+        file_name: 'full.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        preview_text: 'Other user audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'own quota image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(ONE_PIXEL_PNG_BYTES.byteLength);
+  });
+
+  test('Assets Manager deletion remains available at the quota limit and frees storage for the next upload', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const userId = 'quota-delete-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      userAssetStorageUsage: [{
+        user_id: userId,
+        used_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        updated_at: nowIso(),
+      }],
+      aiTextAssets: [{
+        id: 'aabbcc04',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/audio/full.mp3`,
+        title: 'Full Storage Asset',
+        file_name: 'full.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        preview_text: 'Full storage audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+      userImages: {
+        [`users/${userId}/folders/unsorted/audio/full.mp3`]: {
+          body: new Uint8Array([1, 2, 3]).buffer,
+          httpMetadata: { contentType: 'audio/mpeg' },
+          size: USER_ASSET_STORAGE_LIMIT_BYTES,
+        },
+      },
+    });
+
+    const token = await seedSession(env, userId);
+    const deleteRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/text-assets/aabbcc04', 'DELETE', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(deleteRes.status).toBe(200);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes).toBe(0);
+
+    const saveRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'after delete image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(saveRes.status).toBe(201);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(ONE_PIXEL_PNG_BYTES.byteLength);
+  });
+
+  test('Assets Manager quota helper rejects a combined batch size that would exceed 50 MB', async () => {
+    const {
+      ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
+      USER_ASSET_STORAGE_LIMIT_BYTES,
+      reserveUserAssetStorage,
+    } = await loadAssetStorageQuotaModule();
+    const userId = 'quota-batch-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      aiTextAssets: [{
+        id: 'aabbcc05',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/text/existing.txt`,
+        title: 'Existing Text',
+        file_name: 'existing.txt',
+        source_module: 'text',
+        mime_type: 'text/plain; charset=utf-8',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES - 10,
+        preview_text: 'Existing text',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    await expect(reserveUserAssetStorage(env, {
+      userId,
+      uploadBytes: 5 + 6,
+    })).rejects.toMatchObject({
+      code: ASSET_STORAGE_LIMIT_EXCEEDED_CODE,
+      attemptedUploadBytes: 11,
+      usedBytes: USER_ASSET_STORAGE_LIMIT_BYTES - 10,
+    });
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES - 10);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+  });
+
+  test('Assets Manager quota reservation allows only one concurrent upload for the final available bytes', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const uploadBytes = ONE_PIXEL_PNG_BYTES.byteLength;
+    const userId = 'quota-race-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'user' })],
+      aiTextAssets: [{
+        id: 'aabbcc06',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/audio/existing.mp3`,
+        title: 'Existing',
+        file_name: 'existing.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES - uploadBytes,
+        preview_text: 'Existing audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+    };
+    const [first, second] = await Promise.all([
+      authWorker.fetch(authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'race image 1',
+        model: '@cf/test-model',
+      }, headers), env, createExecutionContext().execCtx),
+      authWorker.fetch(authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'race image 2',
+        model: '@cf/test-model',
+      }, headers), env, createExecutionContext().execCtx),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual([201, 413]);
+    expect(env.DB.state.aiImages).toHaveLength(1);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(1);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES);
   });
 
   test('AI image derivative consumer is idempotent for duplicate jobs', async () => {

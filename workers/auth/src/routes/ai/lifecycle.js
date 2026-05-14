@@ -1,6 +1,10 @@
 import { nowIso } from "../../lib/tokens.js";
 import { listAiImageObjectKeys } from "../../lib/ai-image-derivatives.js";
 import {
+  releaseUserAssetStorage,
+  sumAssetStorageBytes,
+} from "../../lib/asset-storage-quota.js";
+import {
   buildBulkDeleteFinalStateGuardSql,
   buildBulkMoveFinalStateGuardSql,
   buildCleanupQueueBindings,
@@ -48,6 +52,16 @@ function collectCleanupKeys(imageRows = [], textRows = []) {
     ...imageRows.flatMap((row) => listAiImageObjectKeys(row)),
     ...textRows.flatMap((row) => listAiTextAssetObjectKeys(row)),
   ]);
+}
+
+async function releaseDeletedAssetStorage(env, userId, imageRows = [], textRows = []) {
+  const deletedBytes = sumAssetStorageBytes(imageRows) + sumAssetStorageBytes(textRows);
+  if (!deletedBytes) return;
+  try {
+    await releaseUserAssetStorage(env, { userId, bytes: deletedBytes });
+  } catch {
+    // Deletion must remain available even if quota bookkeeping needs later reconciliation.
+  }
 }
 
 function buildCleanupQueueStatements(env, cleanupKeys, createdAt) {
@@ -195,7 +209,7 @@ async function loadOwnedAiImageRowsByIds(env, userId, imageIds) {
   const placeholders = imageIds.map(() => "?").join(",");
   try {
     const result = await env.DB.prepare(
-      `SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
+      `SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id IN (${placeholders}) AND user_id = ?`
     ).bind(...imageIds, userId).all();
     return result.results || [];
   } catch (error) {
@@ -213,7 +227,7 @@ async function loadOwnedAiTextAssetRowsByIds(env, userId, assetIds, { allowMissi
   const placeholders = assetIds.map(() => "?").join(",");
   try {
     const result = await env.DB.prepare(
-      `SELECT id, r2_key, poster_r2_key FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
+      `SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (${placeholders}) AND user_id = ?`
     ).bind(...assetIds, userId).all();
     return result.results || [];
   } catch (error) {
@@ -233,7 +247,7 @@ async function loadOwnedAiTextAssetRowsByIds(env, userId, assetIds, { allowMissi
 async function loadUserAiImages(env, userId) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE user_id = ?"
+      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?"
     ).bind(userId).all();
     return result.results || [];
   } catch (error) {
@@ -250,7 +264,7 @@ async function loadUserAiImages(env, userId) {
 async function loadFolderAiImages(env, userId, folderId) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE folder_id = ? AND user_id = ?"
+      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?"
     ).bind(folderId, userId).all();
     return result.results || [];
   } catch (error) {
@@ -267,7 +281,7 @@ async function loadFolderAiImages(env, userId, folderId) {
 async function loadUserAiTextAssets(env, userId, { allowMissingTable = false } = {}) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE user_id = ?"
+      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?"
     ).bind(userId).all();
     return result.results || [];
   } catch (error) {
@@ -287,7 +301,7 @@ async function loadUserAiTextAssets(env, userId, { allowMissingTable = false } =
 async function loadFolderAiTextAssets(env, userId, folderId, { allowMissingTable = false } = {}) {
   try {
     const result = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
+      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?"
     ).bind(folderId, userId).all();
     return result.results || [];
   } catch (error) {
@@ -393,7 +407,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   let row;
   try {
     row = await env.DB.prepare(
-      "SELECT r2_key, thumb_key, medium_key FROM ai_images WHERE id = ? AND user_id = ?"
+      "SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?"
     ).bind(imageId, userId).first();
   } catch (error) {
     if (isMissingAiImageTableError(error)) {
@@ -427,13 +441,14 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   }
 
   await attemptInlineCleanup(env, cleanupKeys);
+  await releaseDeletedAssetStorage(env, userId, [row], []);
 }
 
 export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   let row;
   try {
     row = await env.DB.prepare(
-      "SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?"
+      "SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?"
     ).bind(assetId, userId).first();
   } catch (error) {
     if (isMissingTextAssetTableError(error)) {
@@ -467,6 +482,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   }
 
   await attemptInlineCleanup(env, cleanupKeys);
+  await releaseDeletedAssetStorage(env, userId, [], [row]);
 }
 
 export async function moveUserAiAssets({ env, userId, assetIds, folderId = null }) {
@@ -650,6 +666,7 @@ export async function deleteUserAiAssets({ env, userId, assetIds, createdAt = no
     : 0;
 
   await attemptInlineCleanup(env, cleanupKeys);
+  await releaseDeletedAssetStorage(env, userId, imageRows, textRows);
 
   return {
     deleted: assetIds.length,
@@ -692,6 +709,7 @@ export async function deleteUserAiImages({ env, userId, imageIds, createdAt = no
   }
 
   await attemptInlineCleanup(env, cleanupKeys);
+  await releaseDeletedAssetStorage(env, userId, imageRows, []);
 
   return {
     deleted: details.deleted_ai_images_count,
@@ -736,6 +754,7 @@ export async function deleteUserAiFolder({ env, userId, folderId, createdAt = no
       failureMessage: "Failed to delete folder. Please try again.",
     });
     await attemptInlineCleanup(env, cleanupKeys);
+    await releaseDeletedAssetStorage(env, userId, imageRows, textRows);
   } catch (error) {
     try {
       await env.DB.prepare(
@@ -778,4 +797,5 @@ export async function deleteAllUserAiAssets({
     failureMessage: "Failed to delete user. Please try again.",
   });
   await attemptInlineCleanup(env, cleanupKeys);
+  await releaseDeletedAssetStorage(env, userId, imageRows, textRows);
 }

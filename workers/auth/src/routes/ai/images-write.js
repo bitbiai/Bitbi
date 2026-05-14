@@ -4,6 +4,12 @@ import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
 } from "../../lib/request.js";
+import {
+  assetStorageQuotaErrorBody,
+  isAssetStorageQuotaError,
+  releaseUserAssetStorage,
+  reserveUserAssetStorage,
+} from "../../lib/asset-storage-quota.js";
 import { nowIso, randomTokenHex } from "../../lib/tokens.js";
 import {
   evaluateSharedRateLimit,
@@ -1068,15 +1074,47 @@ export async function handleSaveImage(ctx) {
     return respond({ ok: false, error: "Image dimensions could not be inspected." }, { status: 400 });
   }
 
+  let storageReservation = null;
+  try {
+    storageReservation = await reserveUserAssetStorage(env, {
+      userId: session.user.id,
+      uploadBytes: imageBytes.byteLength,
+    });
+  } catch (error) {
+    if (isAssetStorageQuotaError(error)) {
+      return respond(assetStorageQuotaErrorBody(error), { status: error.status || 413 });
+    }
+    throw error;
+  }
+
   const imageId = randomTokenHex(16);
   const timestamp = Date.now();
   const random = randomTokenHex(4);
   const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.png`;
   const now = nowIso();
 
-  await env.USER_IMAGES.put(r2Key, imageBytes.buffer, {
-    httpMetadata: { contentType: savedMimeType },
-  });
+  try {
+    await env.USER_IMAGES.put(r2Key, imageBytes.buffer, {
+      httpMetadata: { contentType: savedMimeType },
+    });
+  } catch (error) {
+    await releaseUserAssetStorage(env, {
+      userId: session.user.id,
+      bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+    });
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-save-image",
+      event: "ai_image_storage_put_failed",
+      level: "error",
+      correlationId,
+      user_id: session.user.id,
+      image_id: imageId,
+      r2_key: r2Key,
+      ...getErrorFields(error),
+    });
+    return respond({ ok: false, error: "Failed to store image." }, { status: 500 });
+  }
   logDiagnostic({
     service: "bitbi-auth",
     component: "ai-save-image",
@@ -1101,19 +1139,23 @@ export async function handleSaveImage(ctx) {
   try {
     if (folderId) {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
-      ).bind(imageId, session.user.id, folderId, r2Key, prompt, model, steps, seed, now,
+      ).bind(imageId, session.user.id, folderId, r2Key, prompt, model, steps, seed, imageBytes.byteLength, now,
         folderId, session.user.id).run();
     } else {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(imageId, session.user.id, null, r2Key, prompt, model, steps, seed, now).run();
+        `INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(imageId, session.user.id, null, r2Key, prompt, model, steps, seed, imageBytes.byteLength, now).run();
     }
   } catch (e) {
     try { await env.USER_IMAGES.delete(r2Key); } catch {}
+    await releaseUserAssetStorage(env, {
+      userId: session.user.id,
+      bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-save-image",
@@ -1131,6 +1173,10 @@ export async function handleSaveImage(ctx) {
 
   if (!insertResult.meta.changes) {
     try { await env.USER_IMAGES.delete(r2Key); } catch {}
+    await releaseUserAssetStorage(env, {
+      userId: session.user.id,
+      bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-save-image",
@@ -1208,6 +1254,7 @@ export async function handleSaveImage(ctx) {
       model,
       steps,
       seed,
+      size_bytes: imageBytes.byteLength,
       created_at: now,
       derivatives_status: "pending",
       derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,

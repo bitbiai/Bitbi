@@ -166,6 +166,7 @@ function normalizeAiImageRow(row = {}) {
     derivatives_attempted_at: null,
     derivatives_processing_token: null,
     derivatives_lease_expires_at: null,
+    size_bytes: null,
     ...row,
   };
 }
@@ -657,6 +658,7 @@ class MockD1 {
       aiFolders: [],
       aiImages: [],
       aiTextAssets: [],
+      userAssetStorageUsage: [],
       aiVideoJobs: [],
       aiVideoJobPoisonMessages: [],
       aiGenerationLog: [],
@@ -715,7 +717,13 @@ class MockD1 {
       poster_r2_key: null,
       poster_width: null,
       poster_height: null,
+      poster_size_bytes: null,
       metadata_json: '{}',
+      ...row,
+    }));
+    this.state.userAssetStorageUsage = (this.state.userAssetStorageUsage || []).map((row) => ({
+      used_bytes: 0,
+      updated_at: nowIso(),
       ...row,
     }));
     this._cleanupSeq = (this.state.r2CleanupQueue || []).length + 1;
@@ -822,6 +830,9 @@ class MockD1 {
 
     if (this.missingTables.has('ai_usage_attempts') && query.includes('ai_usage_attempts')) {
       throw new Error('no such table: ai_usage_attempts');
+    }
+    if (this.missingTables.has('user_asset_storage_usage') && query.includes('user_asset_storage_usage')) {
+      throw new Error('no such table: user_asset_storage_usage');
     }
     if (this.missingTables.has('billing_provider_events') && query.includes('billing_provider_events')) {
       throw new Error('no such table: billing_provider_events');
@@ -4453,6 +4464,29 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at) SELECT')) {
+      const [id, userId, folderId, r2Key, prompt, model, steps, seed, sizeBytes, createdAt, existsFolderId, existsUserId] = bindings;
+      const folder = this.state.aiFolders.find(
+        (row) => row.id === existsFolderId && row.user_id === existsUserId && row.status === 'active'
+      );
+      if (!folder) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      this.state.aiImages.push(normalizeAiImageRow({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        size_bytes: sizeBytes,
+        created_at: createdAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, created_at) VALUES')) {
       const [id, userId, folderId, r2Key, prompt, model, steps, seed, createdAt] = bindings;
       this.state.aiImages.push(normalizeAiImageRow({
@@ -4466,6 +4500,116 @@ class MockD1 {
         seed,
         created_at: createdAt,
       }));
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO ai_images (id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at) VALUES')) {
+      const [id, userId, folderId, r2Key, prompt, model, steps, seed, sizeBytes, createdAt] = bindings;
+      this.state.aiImages.push(normalizeAiImageRow({
+        id,
+        user_id: userId,
+        folder_id: folderId,
+        r2_key: r2Key,
+        prompt,
+        model,
+        steps,
+        seed,
+        size_bytes: sizeBytes,
+        created_at: createdAt,
+      }));
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, r2_key, size_bytes FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+            size_bytes: row.size_bytes ?? null,
+          })),
+      };
+    }
+
+    if (query === 'SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
+          })),
+      };
+    }
+
+    if (query === 'UPDATE ai_images SET size_bytes = ? WHERE id = ? AND user_id = ? AND size_bytes IS NULL') {
+      const [sizeBytes, imageId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiImages) {
+        if (row.id === imageId && row.user_id === userId && row.size_bytes == null) {
+          row.size_bytes = sizeBytes;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'UPDATE ai_text_assets SET poster_size_bytes = ? WHERE id = ? AND user_id = ? AND poster_size_bytes IS NULL') {
+      const [sizeBytes, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId && row.poster_size_bytes == null) {
+          row.poster_size_bytes = sizeBytes;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
+    if (query === 'SELECT used_bytes FROM user_asset_storage_usage WHERE user_id = ?') {
+      const [userId] = bindings;
+      const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);
+      return row ? { used_bytes: row.used_bytes } : null;
+    }
+
+    if (query === 'INSERT OR IGNORE INTO user_asset_storage_usage (user_id, used_bytes, updated_at) VALUES (?, ?, ?)') {
+      const [userId, usedBytes, updatedAt] = bindings;
+      const existing = this.state.userAssetStorageUsage.find((row) => row.user_id === userId);
+      if (existing) return { success: true, meta: { changes: 0 } };
+      this.state.userAssetStorageUsage.push({
+        user_id: userId,
+        used_bytes: usedBytes,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE user_asset_storage_usage SET used_bytes = used_bytes + ?, updated_at = ? WHERE user_id = ? AND used_bytes + ? <= ?') {
+      const [uploadBytes, updatedAt, userId, checkedUploadBytes, limitBytes] = bindings;
+      const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      if (Number(row.used_bytes || 0) + Number(checkedUploadBytes || 0) > Number(limitBytes || 0)) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      row.used_bytes = Number(row.used_bytes || 0) + Number(uploadBytes || 0);
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'UPDATE user_asset_storage_usage SET used_bytes = CASE WHEN used_bytes >= ? THEN used_bytes - ? ELSE 0 END, updated_at = ? WHERE user_id = ?') {
+      const [minBytes, releaseBytes, updatedAt, userId] = bindings;
+      const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.used_bytes = Number(row.used_bytes || 0) >= Number(minBytes || 0)
+        ? Number(row.used_bytes || 0) - Number(releaseBytes || 0)
+        : 0;
+      row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -4606,6 +4750,19 @@ class MockD1 {
         : null;
     }
 
+    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ?') {
+      const [imageId, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
+      return row
+        ? {
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            size_bytes: row.size_bytes ?? null,
+          }
+        : null;
+    }
+
     if (query === 'SELECT r2_key FROM ai_images WHERE user_id = ?') {
       const [userId] = bindings;
       return {
@@ -4628,6 +4785,20 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            size_bytes: row.size_bytes ?? null,
+          })),
+      };
+    }
+
     if (query === 'SELECT r2_key FROM ai_text_assets WHERE user_id = ?') {
       const [userId] = bindings;
       return {
@@ -4645,6 +4816,20 @@ class MockD1 {
           .map((row) => ({
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
+          })),
+      };
+    }
+
+    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE user_id = ?') {
+      const [userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
           })),
       };
     }
@@ -4671,6 +4856,20 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      return {
+        results: this.state.aiImages
+          .filter((row) => row.folder_id === folderId && row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            size_bytes: row.size_bytes ?? null,
+          })),
+      };
+    }
+
     if (query.startsWith('SELECT id, r2_key, thumb_key, medium_key FROM ai_images WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
       const requestedIds = bindings.slice(0, -1);
       const userId = bindings[bindings.length - 1];
@@ -4682,6 +4881,22 @@ class MockD1 {
             r2_key: row.r2_key,
             thumb_key: row.thumb_key,
             medium_key: row.medium_key,
+          })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, r2_key, thumb_key, medium_key, size_bytes FROM ai_images WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiImages
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+            thumb_key: row.thumb_key,
+            medium_key: row.medium_key,
+            size_bytes: row.size_bytes ?? null,
           })),
       };
     }
@@ -4705,6 +4920,20 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE folder_id = ? AND user_id = ?') {
+      const [folderId, userId] = bindings;
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => row.folder_id === folderId && row.user_id === userId)
+          .map((row) => ({
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
+          })),
+      };
+    }
+
     if (query.startsWith('SELECT id FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
       const requestedIds = bindings.slice(0, -1);
       const userId = bindings[bindings.length - 1];
@@ -4725,6 +4954,22 @@ class MockD1 {
             id: row.id,
             r2_key: row.r2_key,
             poster_r2_key: row.poster_r2_key ?? null,
+          })),
+      };
+    }
+
+    if (query.startsWith('SELECT id, r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id IN (') && query.endsWith(') AND user_id = ?')) {
+      const requestedIds = bindings.slice(0, -1);
+      const userId = bindings[bindings.length - 1];
+      return {
+        results: this.state.aiTextAssets
+          .filter((row) => requestedIds.includes(row.id) && row.user_id === userId)
+          .map((row) => ({
+            id: row.id,
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
           })),
       };
     }
@@ -4794,11 +5039,12 @@ class MockD1 {
           file_name: null,
           source_module: null,
           mime_type: null,
-          size_bytes: null,
+          size_bytes: row.size_bytes ?? null,
           preview_text: null,
           poster_r2_key: null,
           poster_width: null,
           poster_height: null,
+          poster_size_bytes: null,
           asset_kind_rank: 2,
         }));
 
@@ -4841,6 +5087,7 @@ class MockD1 {
             poster_r2_key: row.poster_r2_key ?? null,
             poster_width: row.poster_width ?? null,
             poster_height: row.poster_height ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
             asset_kind_rank: 1,
           }))
       );
@@ -4944,6 +5191,11 @@ class MockD1 {
           steps: row.steps,
           seed: row.seed,
           created_at: row.created_at,
+          ...(query.includes('size_bytes')
+            ? {
+                size_bytes: row.size_bytes ?? null,
+              }
+            : {}),
           ...(query.includes('visibility')
             ? {
                 visibility: row.visibility,
@@ -5607,10 +5859,49 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
+    if (query === 'UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?') {
+      const [posterR2Key, posterWidth, posterHeight, posterSizeBytes, assetId, userId] = bindings;
+      let changes = 0;
+      for (const row of this.state.aiTextAssets) {
+        if (row.id === assetId && row.user_id === userId) {
+          row.poster_r2_key = posterR2Key;
+          row.poster_width = posterWidth;
+          row.poster_height = posterHeight;
+          row.poster_size_bytes = posterSizeBytes;
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+
     if (query === 'SELECT r2_key, poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ?') {
       const [assetId, userId] = bindings;
       const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
       return row ? { r2_key: row.r2_key, poster_r2_key: row.poster_r2_key ?? null } : null;
+    }
+
+    if (query === 'SELECT r2_key, poster_r2_key, size_bytes, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row
+        ? {
+            r2_key: row.r2_key,
+            poster_r2_key: row.poster_r2_key ?? null,
+            size_bytes: row.size_bytes ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
+          }
+        : null;
+    }
+
+    if (query === 'SELECT poster_r2_key, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?') {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === assetId && item.user_id === userId);
+      return row
+        ? {
+            poster_r2_key: row.poster_r2_key ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
+          }
+        : null;
     }
 
     if (query === 'SELECT poster_r2_key FROM ai_text_assets WHERE id = ? AND user_id = ? AND poster_r2_key IS NOT NULL') {

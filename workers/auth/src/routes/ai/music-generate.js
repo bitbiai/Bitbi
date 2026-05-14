@@ -18,6 +18,10 @@ import {
   aiUsagePolicyErrorResponse,
   prepareAiUsagePolicy,
 } from "../../lib/ai-usage-policy.js";
+import {
+  assetStorageQuotaErrorBody,
+  isAssetStorageQuotaError,
+} from "../../lib/asset-storage-quota.js";
 import { saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
 import {
   assertAuthAiServiceConfig,
@@ -584,6 +588,9 @@ export async function handleGenerateMusic(ctx) {
       correlationId,
     });
   } catch (error) {
+    if (isAssetStorageQuotaError(error)) {
+      return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
+    }
     const status = error?.status || 500;
     logDiagnostic({
       service: "bitbi-auth",

@@ -2,6 +2,10 @@ import { json } from "./response.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
 import { saveAdminAiTextAsset } from "./ai-text-assets.js";
 import {
+  assetStorageQuotaErrorBody,
+  isAssetStorageQuotaError,
+} from "./asset-storage-quota.js";
+import {
   ADMIN_AI_LIMITS as LIMITS,
   ADMIN_AI_LIVE_AGENT_LIMITS as LIVE_AGENT_LIMITS,
   AdminAiValidationError as InputError,
@@ -50,6 +54,9 @@ function inputErrorResponse(error, correlationId = null) {
 }
 
 function storageErrorResponse(error) {
+  if (isAssetStorageQuotaError(error)) {
+    return json(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
+  }
   const status = error?.status || 500;
   return json(
     {

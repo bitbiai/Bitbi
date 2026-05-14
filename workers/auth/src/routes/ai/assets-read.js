@@ -15,7 +15,7 @@ import {
 } from "./helpers.js";
 
 const AI_IMAGE_LIST_COLUMNS =
-  "id, folder_id, prompt, model, steps, seed, created_at, visibility, published_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
+  "id, folder_id, prompt, model, steps, seed, created_at, size_bytes, visibility, published_at, thumb_key, medium_key, thumb_width, thumb_height, medium_width, medium_height, derivatives_status, derivatives_version";
 const MEMBER_ASSET_CURSOR_TYPE = "member_assets";
 const DEFAULT_MEMBER_ASSET_LIMIT = 60;
 const MAX_MEMBER_ASSET_LIMIT = 100;
@@ -138,11 +138,11 @@ export async function handleGetAssets(ctx) {
              NULL AS file_name,
              NULL AS source_module,
              NULL AS mime_type,
-             NULL AS size_bytes,
              NULL AS preview_text,
              NULL AS poster_r2_key,
              NULL AS poster_width,
              NULL AS poster_height,
+             NULL AS poster_size_bytes,
              ${MEMBER_ASSET_IMAGE_KIND_RANK} AS asset_kind_rank
       FROM ai_images
       WHERE ${imageConditions.join(" AND ")}
@@ -154,6 +154,7 @@ export async function handleGetAssets(ctx) {
              NULL AS steps,
              NULL AS seed,
              created_at,
+             size_bytes,
              visibility,
              published_at,
              NULL AS thumb_key,
@@ -168,11 +169,11 @@ export async function handleGetAssets(ctx) {
              file_name,
              source_module,
              mime_type,
-             size_bytes,
              preview_text,
              poster_r2_key,
              poster_width,
              poster_height,
+             poster_size_bytes,
              ${MEMBER_ASSET_FILE_KIND_RANK} AS asset_kind_rank
       FROM ai_text_assets
       WHERE ${textConditions.join(" AND ")}

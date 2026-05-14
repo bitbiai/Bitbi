@@ -253,7 +253,7 @@ STRIPE_LIVE_CHECKOUT_CANCEL_URL=https://bitbi.ai/pricing.html?checkout=cancel
 
 Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during an explicitly approved, bounded operator canary.
 
-Migrations in `migrations/` are numbered sequentially from `0001_init` through `0045_add_news_pulse_visuals`.
+Migrations in `migrations/` are numbered sequentially from `0001_init` through `0046_add_asset_storage_quota`.
 
 Key migration-dependent behavior:
 - `0010_add_r2_cleanup_queue` — required before auth deploy if AI image/folder deletes and scheduled cleanup retries must work immediately
@@ -286,6 +286,7 @@ Key migration-dependent behavior:
 - `0043_add_news_pulse_items` — required before News Pulse public cache or scheduled refresh can use D1-backed rows
 - `0044_add_openclaw_ingest_nonces` — required before OpenClaw News Pulse ingest can enforce nonce replay protection
 - `0045_add_news_pulse_visuals` — required before generated News Pulse thumbnail prompts/status/object metadata can be stored; apply before deploying auth Worker code that reads these columns
+- `0046_add_asset_storage_quota` — required before Assets Manager upload/save routes can enforce the per-user storage quota and persist image byte sizes; apply before deploying auth Worker code that writes quota usage
 
 ## Conventions
 

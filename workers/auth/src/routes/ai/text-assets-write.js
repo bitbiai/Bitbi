@@ -4,6 +4,10 @@ import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
 } from "../../lib/request.js";
+import {
+  assetStorageQuotaErrorBody,
+  isAssetStorageQuotaError,
+} from "../../lib/asset-storage-quota.js";
 import { attachVideoPosterToAiTextAsset, saveAdminAiTextAsset } from "../../lib/ai-text-assets.js";
 import { enforceSensitiveUserRateLimit } from "../../lib/sensitive-write-limit.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../../js/shared/worker-observability.mjs";
@@ -56,10 +60,14 @@ export async function handleAttachTextAssetPoster(ctx, assetId) {
       asset_id: assetId,
       poster_width: saved.poster_width,
       poster_height: saved.poster_height,
+      poster_size_bytes: saved.poster_size_bytes,
     });
 
     return respond({ ok: true, data: saved });
   } catch (error) {
+    if (isAssetStorageQuotaError(error)) {
+      return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
+    }
     const status = error?.status || 500;
     logDiagnostic({
       service: "bitbi-auth",
@@ -310,6 +318,9 @@ export async function handleSaveAudio(ctx) {
 
     return respond({ ok: true, data: saved }, { status: 201 });
   } catch (error) {
+    if (isAssetStorageQuotaError(error)) {
+      return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
+    }
     const status = error?.status || 500;
     logDiagnostic({
       service: "bitbi-auth",

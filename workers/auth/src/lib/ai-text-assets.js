@@ -1,5 +1,12 @@
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
+import {
+  getAssetStorageObjectSizeBytes,
+  isAssetStorageQuotaError,
+  normalizeAssetStorageByteCount,
+  releaseUserAssetStorage,
+  reserveUserAssetStorage,
+} from "./asset-storage-quota.js";
 import { logDiagnostic, getErrorFields } from "../../../../js/shared/worker-observability.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
@@ -351,6 +358,19 @@ async function r2ObjectToUint8Array(object) {
   return null;
 }
 
+async function loadAiTextAssetPosterStorage(env, { userId, assetId }) {
+  return env.DB.prepare(
+    "SELECT poster_r2_key, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ?"
+  ).bind(assetId, userId).first();
+}
+
+async function getExistingPosterSizeBytes(env, existing) {
+  if (!existing?.poster_r2_key) return 0;
+  const stored = normalizeAssetStorageByteCount(existing.poster_size_bytes);
+  if (stored !== null) return stored;
+  return getAssetStorageObjectSizeBytes(env, existing.poster_r2_key);
+}
+
 function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
   const metadata = {
     source_module: "video",
@@ -660,6 +680,11 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
       stringifyNested: true,
     })
   );
+  let storageReservation = null;
+  storageReservation = await reserveUserAssetStorage(env, {
+    userId,
+    uploadBytes: bytes.byteLength,
+  });
 
   try {
     await env.USER_IMAGES.put(r2Key, bytes, {
@@ -669,6 +694,10 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
       },
     });
   } catch {
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const error = new Error(
       sourceModule === "video" ? "Failed to store video asset." : "Failed to store saved asset."
     );
@@ -725,6 +754,10 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     } catch {
       // Best effort only — the caller already receives the DB error state.
     }
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const next = new Error("Failed to save text asset. The folder may have been deleted.");
     next.status = 409;
     next.code = "validation_error";
@@ -737,6 +770,10 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     } catch {
       // Best effort only.
     }
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const error = new Error("Folder was deleted. Text asset not saved.");
     error.status = 404;
     error.code = "not_found";
@@ -772,6 +809,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     poster_r2_key: posterResult?.r2Key || null,
     poster_width: posterResult?.width || null,
     poster_height: posterResult?.height || null,
+    poster_size_bytes: posterResult?.sizeBytes ?? null,
   };
 }
 
@@ -844,6 +882,11 @@ export async function saveGeneratedVideoAsset(env, {
       stringifyNested: true,
     })
   );
+  let storageReservation = null;
+  storageReservation = await reserveUserAssetStorage(env, {
+    userId,
+    uploadBytes: bytes.byteLength,
+  });
 
   try {
     await env.USER_IMAGES.put(r2Key, bytes, {
@@ -853,6 +896,10 @@ export async function saveGeneratedVideoAsset(env, {
       },
     });
   } catch {
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const error = new Error("Failed to store video asset.");
     error.status = 500;
     error.code = "storage_error";
@@ -905,6 +952,10 @@ export async function saveGeneratedVideoAsset(env, {
     try {
       await env.USER_IMAGES.delete(r2Key);
     } catch {}
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const next = new Error("Failed to save video asset. The folder may have been deleted.");
     next.status = 409;
     next.code = "validation_error";
@@ -915,6 +966,10 @@ export async function saveGeneratedVideoAsset(env, {
     try {
       await env.USER_IMAGES.delete(r2Key);
     } catch {}
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+    });
     const error = new Error("Folder was deleted. Video asset not saved.");
     error.status = 404;
     error.code = "not_found";
@@ -944,6 +999,7 @@ export async function saveGeneratedVideoAsset(env, {
     poster_r2_key: posterResult?.r2Key || null,
     poster_width: posterResult?.width || null,
     poster_height: posterResult?.height || null,
+    poster_size_bytes: posterResult?.sizeBytes ?? null,
     file_url: `/api/ai/text-assets/${assetId}/file`,
     poster_url: posterResult?.r2Key ? `/api/ai/text-assets/${assetId}/poster` : null,
   };
@@ -979,6 +1035,7 @@ export async function attachVideoPosterToAiTextAsset(env, { userId, assetId, pos
     userId,
     assetId,
     posterBase64: rawPoster,
+    propagateQuotaErrors: true,
   });
 
   if (!posterResult?.r2Key) {
@@ -993,6 +1050,7 @@ export async function attachVideoPosterToAiTextAsset(env, { userId, assetId, pos
     poster_r2_key: posterResult.r2Key,
     poster_width: posterResult.width || null,
     poster_height: posterResult.height || null,
+    poster_size_bytes: posterResult.sizeBytes ?? null,
     poster_url: `/api/ai/text-assets/${assetId}/poster`,
   };
 }
@@ -1011,28 +1069,134 @@ async function copyVideoPosterFromR2(env, { userId, assetId, sourceKey, contentT
     if (!mimeType) return null;
 
     const r2Key = `users/${userId}/derivatives/v1/${assetId}/poster.${extensionForPosterMimeType(mimeType)}`;
-    await env.USER_IMAGES.put(r2Key, posterBytes, {
-      httpMetadata: { contentType: mimeType },
+    return storeAiTextAssetPosterObject(env, {
+      userId,
+      assetId,
+      r2Key,
+      posterBytes,
+      mimeType,
+      width: null,
+      height: null,
+      successEvent: "video_poster_copied",
+      failureEvent: "video_poster_copy_failed",
     });
-
-    await env.DB.prepare(
-      "UPDATE ai_text_assets SET poster_r2_key = ? WHERE id = ? AND user_id = ?"
-    ).bind(r2Key, assetId, userId).run();
-
-    logDiagnostic({
-      service: "bitbi-auth",
-      component: "ai-text-assets",
-      event: "video_poster_copied",
-      asset_id: assetId,
-      user_id: userId,
-    });
-
-    return { r2Key, width: null, height: null };
   } catch (error) {
+    if (isAssetStorageQuotaError(error)) return null;
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",
       event: "video_poster_copy_failed",
+      level: "warn",
+      asset_id: assetId,
+      user_id: userId,
+      ...getErrorFields(error),
+    });
+    return null;
+  }
+}
+
+async function storeAiTextAssetPosterObject(env, {
+  userId,
+  assetId,
+  r2Key,
+  posterBytes,
+  mimeType,
+  width,
+  height,
+  successEvent,
+  failureEvent,
+  propagateQuotaErrors = false,
+}) {
+  const existing = await loadAiTextAssetPosterStorage(env, { userId, assetId });
+  if (!existing) return null;
+
+  const previousSizeBytes = await getExistingPosterSizeBytes(env, existing);
+  const outputSizeBytes = posterBytes.byteLength;
+  const additionalBytes = Math.max(0, outputSizeBytes - previousSizeBytes);
+  let storageReservation = null;
+
+  try {
+    storageReservation = await reserveUserAssetStorage(env, {
+      userId,
+      uploadBytes: additionalBytes,
+    });
+  } catch (error) {
+    if (isAssetStorageQuotaError(error)) {
+      if (propagateQuotaErrors) throw error;
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: failureEvent,
+        level: "warn",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: "asset_storage_quota_exceeded",
+        ...getErrorFields(error),
+      });
+      return null;
+    }
+    throw error;
+  }
+
+  try {
+    await env.USER_IMAGES.put(r2Key, posterBytes, {
+      httpMetadata: { contentType: mimeType },
+    });
+
+    const updateResult = await env.DB.prepare(
+      "UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?"
+    ).bind(r2Key, width, height, outputSizeBytes, assetId, userId).run();
+
+    if (!updateResult?.meta?.changes) {
+      if (!existing.poster_r2_key || existing.poster_r2_key !== r2Key) {
+        try {
+          await env.USER_IMAGES.delete(r2Key);
+        } catch {}
+      }
+      await releaseUserAssetStorage(env, {
+        userId,
+        bytes: storageReservation?.attemptedUploadBytes || additionalBytes,
+      });
+      return null;
+    }
+
+    if (existing.poster_r2_key && existing.poster_r2_key !== r2Key) {
+      try {
+        await env.USER_IMAGES.delete(existing.poster_r2_key);
+      } catch {}
+    }
+
+    if (previousSizeBytes > outputSizeBytes) {
+      try {
+        await releaseUserAssetStorage(env, {
+          userId,
+          bytes: previousSizeBytes - outputSizeBytes,
+        });
+      } catch {}
+    }
+
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: successEvent,
+      asset_id: assetId,
+      user_id: userId,
+      poster_width: width,
+      poster_height: height,
+      poster_size_bytes: outputSizeBytes,
+    });
+
+    return { r2Key, width, height, sizeBytes: outputSizeBytes };
+  } catch (error) {
+    await releaseUserAssetStorage(env, {
+      userId,
+      bytes: storageReservation?.attemptedUploadBytes || additionalBytes,
+    });
+    if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "ai-text-assets",
+      event: failureEvent,
       level: "warn",
       asset_id: assetId,
       user_id: userId,
@@ -1048,6 +1212,7 @@ async function processAiTextAssetPosterBytes(env, {
   posterBytes,
   successEvent,
   failureEvent,
+  propagateQuotaErrors = false,
 }) {
   try {
     if (posterBytes.byteLength === 0 || posterBytes.byteLength > POSTER_MAX_BYTES) {
@@ -1123,26 +1288,20 @@ async function processAiTextAssetPosterBytes(env, {
     const height = outputInfo?.height || Math.max(1, Math.round(originalInfo.height * ratio));
 
     const r2Key = `users/${userId}/derivatives/v1/${assetId}/poster.webp`;
-    await env.USER_IMAGES.put(r2Key, outputBytes, {
-      httpMetadata: { contentType: POSTER_FORMAT },
+    return storeAiTextAssetPosterObject(env, {
+      userId,
+      assetId,
+      r2Key,
+      posterBytes: outputBytes,
+      mimeType: POSTER_FORMAT,
+      width,
+      height,
+      successEvent,
+      failureEvent,
+      propagateQuotaErrors,
     });
-
-    await env.DB.prepare(
-      "UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ? WHERE id = ? AND user_id = ?"
-    ).bind(r2Key, width, height, assetId, userId).run();
-
-    logDiagnostic({
-      service: "bitbi-auth",
-      component: "ai-text-assets",
-      event: successEvent,
-      asset_id: assetId,
-      user_id: userId,
-      poster_width: width,
-      poster_height: height,
-    });
-
-    return { r2Key, width, height };
   } catch (error) {
+    if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",
@@ -1156,7 +1315,7 @@ async function processAiTextAssetPosterBytes(env, {
   }
 }
 
-async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
+async function processVideoPoster(env, { userId, assetId, posterBase64, propagateQuotaErrors = false }) {
   try {
     const raw = posterBase64.includes(",")
       ? posterBase64.split(",")[1]
@@ -1168,8 +1327,10 @@ async function processVideoPoster(env, { userId, assetId, posterBase64 }) {
       posterBytes,
       successEvent: "video_poster_saved",
       failureEvent: "video_poster_save_failed",
+      propagateQuotaErrors,
     });
   } catch (error) {
+    if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",

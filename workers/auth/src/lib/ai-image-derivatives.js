@@ -259,6 +259,7 @@ export function toAiImageAssetRecord(row, options = {}) {
     thumb_height: row.thumb_height ?? null,
     medium_width: row.medium_width ?? null,
     medium_height: row.medium_height ?? null,
+    size_bytes: row.size_bytes ?? null,
   };
   if (options.assetType) {
     record.asset_type = options.assetType;

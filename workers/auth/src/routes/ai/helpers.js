@@ -126,6 +126,7 @@ export function toAiFileAssetRecord(row) {
     record.poster_url = `/api/ai/text-assets/${row.id}/poster`;
     record.poster_width = row.poster_width ?? null;
     record.poster_height = row.poster_height ?? null;
+    record.poster_size_bytes = row.poster_size_bytes ?? null;
   }
   return record;
 }
