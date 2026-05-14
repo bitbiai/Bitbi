@@ -9771,6 +9771,67 @@ test.describe('Worker routes', () => {
         usedBytes,
         limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
         remainingBytes: USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes,
+        isUnlimited: false,
+      });
+    });
+
+    test('GET /api/ai/folders returns unlimited admin storage usage scoped to the admin user', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createContractUser({ id: 'folder-storage-admin', role: 'admin' });
+      const otherUser = createContractUser({ id: 'folder-storage-admin-other', role: 'user' });
+      const usedBytes = Math.round(124.8 * 1024 * 1024);
+      const env = createAuthTestEnv({
+        users: [admin, otherUser],
+        aiTextAssets: [
+          {
+            id: 'f0a10011',
+            user_id: admin.id,
+            folder_id: null,
+            r2_key: `users/${admin.id}/folders/root/admin-usage.txt`,
+            title: 'Admin Usage',
+            file_name: 'admin-usage.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: usedBytes,
+            preview_text: 'admin usage',
+            metadata_json: '{}',
+            created_at: nowIso(),
+          },
+          {
+            id: 'f0a10012',
+            user_id: otherUser.id,
+            folder_id: null,
+            r2_key: `users/${otherUser.id}/folders/root/other.txt`,
+            title: 'Other',
+            file_name: 'other.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: 99 * 1024 * 1024,
+            preview_text: 'other',
+            metadata_json: '{}',
+            created_at: nowIso(),
+          },
+        ],
+      });
+      const sessionToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/folders', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.89',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.storageUsage).toEqual({
+        usedBytes,
+        limitBytes: null,
+        remainingBytes: null,
+        isUnlimited: true,
       });
     });
 
@@ -9841,6 +9902,7 @@ test.describe('Worker routes', () => {
         usedBytes: 128,
         limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
         remainingBytes: USER_ASSET_STORAGE_LIMIT_BYTES - 128,
+        isUnlimited: false,
       });
 
       const imageAsset = body.data.assets.find((asset) => asset.id === imageId);
@@ -20684,6 +20746,113 @@ test.describe('Worker routes', () => {
     });
     expect(env.USER_IMAGES.putCalls).toHaveLength(0);
     expect(env.DB.state.aiImages).toHaveLength(0);
+  });
+
+  test('Assets Manager quota allows admin direct API image uploads above 50 MB and keeps usage updated', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const uploadBytes = ONE_PIXEL_PNG_BYTES.byteLength;
+    const userId = 'quota-admin-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'admin' })],
+      userAssetStorageUsage: [{
+        user_id: userId,
+        used_bytes: USER_ASSET_STORAGE_LIMIT_BYTES + 1234,
+        updated_at: nowIso(),
+      }],
+      aiTextAssets: [{
+        id: 'aabbcc12',
+        user_id: userId,
+        folder_id: null,
+        r2_key: `users/${userId}/folders/unsorted/audio/admin-existing.mp3`,
+        title: 'Admin Existing',
+        file_name: 'admin-existing.mp3',
+        source_module: 'music',
+        mime_type: 'audio/mpeg',
+        size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES + 1234,
+        preview_text: 'Admin existing audio',
+        metadata_json: '{}',
+        created_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: ONE_PIXEL_PNG_DATA_URI,
+        prompt: 'admin over quota image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    expect(env.USER_IMAGES.putCalls).toHaveLength(1);
+    expect(env.DB.state.aiImages).toHaveLength(1);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES + 1234 + uploadBytes);
+
+    const foldersRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/folders', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(foldersRes.status).toBe(200);
+    await expect(foldersRes.json()).resolves.toMatchObject({
+      data: {
+        storageUsage: {
+          usedBytes: USER_ASSET_STORAGE_LIMIT_BYTES + 1234 + uploadBytes,
+          limitBytes: null,
+          remainingBytes: null,
+          isUnlimited: true,
+        },
+      },
+    });
+  });
+
+  test('Assets Manager admin storage exemption preserves image validation checks', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+    const userId = 'quota-admin-invalid-user';
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: userId, role: 'admin' })],
+      userAssetStorageUsage: [{
+        user_id: userId,
+        used_bytes: USER_ASSET_STORAGE_LIMIT_BYTES + 1,
+        updated_at: nowIso(),
+      }],
+    });
+
+    const token = await seedSession(env, userId);
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/images/save', 'POST', {
+        imageData: `data:text/plain;base64,${Buffer.from('not an image').toString('base64')}`,
+        prompt: 'invalid admin image',
+        model: '@cf/test-model',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'Invalid image data format.',
+    });
+    expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+    expect(env.DB.state.aiImages).toHaveLength(0);
+    expect(env.DB.state.userAssetStorageUsage.find((row) => row.user_id === userId).used_bytes)
+      .toBe(USER_ASSET_STORAGE_LIMIT_BYTES + 1);
   });
 
   test('Assets Manager quota does not count assets owned by another user', async () => {

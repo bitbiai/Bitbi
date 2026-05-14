@@ -2222,6 +2222,7 @@ test.describe('Homepage', () => {
               usedBytes,
               limitBytes,
               remainingBytes: limitBytes - usedBytes,
+              isUnlimited: false,
             },
           },
         }),
@@ -2241,6 +2242,7 @@ test.describe('Homepage', () => {
               usedBytes,
               limitBytes,
               remainingBytes: limitBytes - usedBytes,
+              isUnlimited: false,
             },
           },
         }),
@@ -2268,6 +2270,93 @@ test.describe('Homepage', () => {
       usageBox.y + usageBox.height / 2,
       closeBox.y + closeBox.height / 2,
       'Generate Lab storage usage vertical alignment',
+      3,
+    );
+
+    await close.click();
+    await expect(overlay).toBeHidden();
+  });
+
+  test('Generate Lab Assets Manager shows unlimited storage usage for admins', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 980 });
+    const usedBytes = Math.round(124.8 * 1024 * 1024);
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          loggedIn: true,
+          user: { id: 'generate-lab-admin-assets-member', email: 'admin-assets@bitbi.ai', role: 'admin' },
+        }),
+      });
+    });
+    await page.route('**/api/ai/quota', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { isAdmin: true } }),
+      });
+    });
+    await page.route('**/api/ai/folders', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            folders: [],
+            counts: {},
+            unfolderedCount: 0,
+            storageUsage: {
+              usedBytes,
+              limitBytes: null,
+              remainingBytes: null,
+              isUnlimited: true,
+            },
+          },
+        }),
+      });
+    });
+    await page.route('**/api/ai/assets?limit=6', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            assets: [],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 6,
+            storageUsage: {
+              usedBytes,
+              limitBytes: null,
+              remainingBytes: null,
+              isUnlimited: true,
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('/generate-lab/');
+    await page.locator('#labAssetsOpen').click();
+
+    const overlay = page.getByRole('dialog', { name: 'Assets Manager' });
+    const usage = overlay.locator('#labAssetsStorageUsage');
+    const close = overlay.locator('#labAssetsOverlayClose');
+    await expect(overlay).toBeVisible();
+    await expect(usage).toHaveText('124,8 MB / ∞');
+    await expect(usage).toHaveAttribute('aria-label', /Used storage in Assets Manager: 124,8 MB \/ ∞/);
+    await expect(close).toHaveText('Close');
+
+    const usageBox = await usage.boundingBox();
+    const closeBox = await close.boundingBox();
+    expect(usageBox).not.toBeNull();
+    expect(closeBox).not.toBeNull();
+    expect(usageBox.x + usageBox.width).toBeLessThanOrEqual(closeBox.x);
+    expectWithinPx(
+      usageBox.y + usageBox.height / 2,
+      closeBox.y + closeBox.height / 2,
+      'Generate Lab admin storage usage vertical alignment',
       3,
     );
 

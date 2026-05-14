@@ -4602,6 +4602,15 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query === 'UPDATE user_asset_storage_usage SET used_bytes = used_bytes + ?, updated_at = ? WHERE user_id = ?') {
+      const [uploadBytes, updatedAt, userId] = bindings;
+      const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.used_bytes = Number(row.used_bytes || 0) + Number(uploadBytes || 0);
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === 'UPDATE user_asset_storage_usage SET used_bytes = CASE WHEN used_bytes >= ? THEN used_bytes - ? ELSE 0 END, updated_at = ? WHERE user_id = ?') {
       const [minBytes, releaseBytes, updatedAt, userId] = bindings;
       const row = this.state.userAssetStorageUsage.find((item) => item.user_id === userId);

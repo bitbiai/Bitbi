@@ -73,6 +73,10 @@ function formatStorageMegabytes(sizeBytes) {
 
 function formatStorageUsage(storageUsage) {
     const usedBytes = Number(storageUsage?.usedBytes);
+    if (storageUsage?.isUnlimited === true) {
+        if (!Number.isFinite(usedBytes)) return '';
+        return `${formatStorageMegabytes(usedBytes)} / ∞`;
+    }
     const limitBytes = Number(storageUsage?.limitBytes);
     if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
         return '';

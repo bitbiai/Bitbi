@@ -24,6 +24,23 @@ function normalizeByteCount(value) {
   return Math.floor(number);
 }
 
+function buildStorageUsageSnapshot(usedBytes, isUnlimited = false) {
+  return {
+    usedBytes,
+    limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
+    remainingBytes: isUnlimited ? null : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes),
+    isUnlimited: isUnlimited === true,
+  };
+}
+
+async function isUserAssetStorageUnlimited(env, userId) {
+  if (!userId) return false;
+  const row = await env.DB.prepare(
+    "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+  ).bind(userId).first();
+  return row?.role === "admin";
+}
+
 function quotaServiceError(message = "Asset storage quota is temporarily unavailable.") {
   const error = new Error(message);
   error.status = 503;
@@ -173,11 +190,10 @@ export async function calculateUserAssetStorageUsage(env, userId) {
 
 export async function getUserAssetStorageUsageSnapshot(env, userId) {
   const usedBytes = await ensureUserAssetStorageUsage(env, userId);
-  return {
+  return buildStorageUsageSnapshot(
     usedBytes,
-    limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
-    remainingBytes: Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes),
-  };
+    await isUserAssetStorageUnlimited(env, userId)
+  );
 }
 
 async function getStoredUsageBytes(env, userId) {
@@ -215,29 +231,43 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
   const attemptedUploadBytes = normalizeByteCount(uploadBytes);
   if (attemptedUploadBytes === null) throw invalidUploadSizeError();
 
+  const isUnlimited = await isUserAssetStorageUnlimited(env, userId);
   const usedBefore = await ensureUserAssetStorageUsage(env, userId);
   if (attemptedUploadBytes === 0) {
     return {
-      limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+      limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
       usedBytes: usedBefore,
       attemptedUploadBytes,
-      remainingBytes: Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBefore),
+      remainingBytes: isUnlimited ? null : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBefore),
+      isUnlimited,
     };
   }
 
   let result;
   try {
-    result = await env.DB.prepare(
-      `UPDATE user_asset_storage_usage
-       SET used_bytes = used_bytes + ?, updated_at = ?
-       WHERE user_id = ? AND used_bytes + ? <= ?`
-    ).bind(
-      attemptedUploadBytes,
-      nowIso(),
-      userId,
-      attemptedUploadBytes,
-      USER_ASSET_STORAGE_LIMIT_BYTES
-    ).run();
+    if (isUnlimited) {
+      result = await env.DB.prepare(
+        `UPDATE user_asset_storage_usage
+         SET used_bytes = used_bytes + ?, updated_at = ?
+         WHERE user_id = ?`
+      ).bind(
+        attemptedUploadBytes,
+        nowIso(),
+        userId
+      ).run();
+    } else {
+      result = await env.DB.prepare(
+        `UPDATE user_asset_storage_usage
+         SET used_bytes = used_bytes + ?, updated_at = ?
+         WHERE user_id = ? AND used_bytes + ? <= ?`
+      ).bind(
+        attemptedUploadBytes,
+        nowIso(),
+        userId,
+        attemptedUploadBytes,
+        USER_ASSET_STORAGE_LIMIT_BYTES
+      ).run();
+    }
   } catch (error) {
     if (isMissingQuotaTableError(error)) throw quotaServiceError();
     throw error;
@@ -246,10 +276,13 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
   if (result?.meta?.changes === 1) {
     const usedBytes = await getStoredUsageBytes(env, userId);
     return {
-      limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+      limitBytes: isUnlimited ? null : USER_ASSET_STORAGE_LIMIT_BYTES,
       usedBytes: usedBytes ?? (usedBefore + attemptedUploadBytes),
       attemptedUploadBytes,
-      remainingBytes: Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - (usedBytes ?? (usedBefore + attemptedUploadBytes))),
+      remainingBytes: isUnlimited
+        ? null
+        : Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - (usedBytes ?? (usedBefore + attemptedUploadBytes))),
+      isUnlimited,
     };
   }
 

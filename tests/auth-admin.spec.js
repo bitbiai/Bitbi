@@ -201,9 +201,12 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
   function storageUsage() {
     const hasAssets = assetMap.size > 0;
     const fallback = folderPayload.storageUsage || null;
-    const limitBytes = Number(fallback?.limitBytes) > 0
-      ? Number(fallback.limitBytes)
-      : ASSET_STORAGE_LIMIT_BYTES;
+    const isUnlimited = fallback?.isUnlimited === true;
+    const limitBytes = isUnlimited
+      ? null
+      : (Number(fallback?.limitBytes) > 0
+        ? Number(fallback.limitBytes)
+        : ASSET_STORAGE_LIMIT_BYTES);
     const usedBytes = hasAssets
       ? Array.from(assetMap.values()).reduce((sum, asset) => (
         sum + Number(asset.size_bytes || 0) + Number(asset.poster_size_bytes || 0)
@@ -212,7 +215,8 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
     return {
       usedBytes,
       limitBytes,
-      remainingBytes: Math.max(0, limitBytes - usedBytes),
+      remainingBytes: isUnlimited ? null : Math.max(0, limitBytes - usedBytes),
+      isUnlimited,
     };
   }
 
@@ -2093,6 +2097,7 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
   const saveImageRequests = options.saveImageRequests || [];
   const assetStore = options.assetStore || createSavedAssetsStore(folderPayload, assetsPayload);
   const creditBalance = typeof options.creditBalance === 'number' ? options.creditBalance : 10;
+  const userRole = options.userRole || 'user';
 
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -2103,7 +2108,7 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
         user: {
           id: 'studio-user-1',
           email: 'studio@example.com',
-          role: 'user',
+          role: userRole,
         },
       }),
     });
@@ -2127,7 +2132,7 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
       body: JSON.stringify({
         ok: true,
         data: {
-          isAdmin: false,
+          isAdmin: userRole === 'admin',
           creditBalance,
           dailyCreditAllowance: 10,
         },
@@ -4662,6 +4667,47 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(usage).toHaveText('14,5 MB / 50 MB');
     await expect(usage).toHaveAttribute('aria-label', /Verwendeter Speicher im Assets Manager: 14,5 MB \/ 50 MB/);
     await expect(status).toHaveText('Standardmäßig privat');
+    const directlyBeforeStatus = await usage.evaluate((node) =>
+      node.nextElementSibling?.classList.contains('assets-manager__status-pill')
+    );
+    expect(directlyBeforeStatus).toBe(true);
+
+    const boxes = await Promise.all([
+      usage.boundingBox(),
+      status.boundingBox(),
+    ]);
+    expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
+    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(1);
+  });
+
+  test('admin account Assets Manager shows unlimited storage usage left of the private-by-default status', async ({
+    page,
+  }) => {
+    const usedBytes = Math.round(124.8 * 1024 * 1024);
+    await mockAuthenticatedAssetsManager(page, [], {
+      userRole: 'admin',
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 0,
+        storageUsage: {
+          usedBytes,
+          limitBytes: null,
+          remainingBytes: null,
+          isUnlimited: true,
+        },
+      },
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const usage = page.locator('#studioStorageUsage');
+    const status = page.locator('.assets-manager__status-pill');
+    await expect(usage).toHaveText('124,8 MB / ∞');
+    await expect(usage).toHaveAttribute('aria-label', /Used storage in Assets Manager: 124,8 MB \/ ∞/);
+    await expect(status).toHaveText('Private by default');
     const directlyBeforeStatus = await usage.evaluate((node) =>
       node.nextElementSibling?.classList.contains('assets-manager__status-pill')
     );

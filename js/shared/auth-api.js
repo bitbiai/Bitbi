@@ -7,17 +7,24 @@ const BASE = '/api';
 function normalizeAssetStorageUsage(value) {
     if (!value || typeof value !== 'object') return null;
     const usedBytes = Number(value.usedBytes);
+    const isUnlimited = value.isUnlimited === true;
     const limitBytes = Number(value.limitBytes);
-    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
+    if (!Number.isFinite(usedBytes)) {
+        return null;
+    }
+    if (!isUnlimited && (!Number.isFinite(limitBytes) || limitBytes <= 0)) {
         return null;
     }
     const remainingBytes = Number(value.remainingBytes);
     return {
         usedBytes: Math.max(0, Math.floor(usedBytes)),
-        limitBytes: Math.max(1, Math.floor(limitBytes)),
-        remainingBytes: Number.isFinite(remainingBytes)
-            ? Math.max(0, Math.floor(remainingBytes))
-            : Math.max(0, Math.floor(limitBytes - usedBytes)),
+        limitBytes: isUnlimited ? null : Math.max(1, Math.floor(limitBytes)),
+        remainingBytes: isUnlimited
+            ? null
+            : (Number.isFinite(remainingBytes)
+                ? Math.max(0, Math.floor(remainingBytes))
+                : Math.max(0, Math.floor(limitBytes - usedBytes))),
+        isUnlimited,
     };
 }
 
