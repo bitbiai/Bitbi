@@ -34,6 +34,7 @@ const MAX_IMAGE_NAME_LENGTH = 1000;
 const MAX_FILE_ASSET_NAME_LENGTH = 120;
 const SAVED_ASSET_PAGE_LIMIT = 60;
 const SAVED_ASSET_MOBILE_DOT_LIMIT = 6;
+const STORAGE_MB_BYTES = 1024 * 1024;
 const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -62,6 +63,21 @@ function formatAssetSize(sizeBytes) {
         return `${assetSizeFormatter.format(size / 1024)} KB`;
     }
     return `${Math.round(size)} B`;
+}
+
+function formatStorageMegabytes(sizeBytes) {
+    const size = Number(sizeBytes);
+    if (!Number.isFinite(size) || size <= 0) return '0 MB';
+    return `${assetSizeFormatter.format(size / STORAGE_MB_BYTES)} MB`;
+}
+
+function formatStorageUsage(storageUsage) {
+    const usedBytes = Number(storageUsage?.usedBytes);
+    const limitBytes = Number(storageUsage?.limitBytes);
+    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
+        return '';
+    }
+    return `${formatStorageMegabytes(usedBytes)} / ${formatStorageMegabytes(limitBytes)}`;
 }
 
 function formatAssetCount(count) {
@@ -276,6 +292,7 @@ function normalizeFolders(result) {
         folders: Array.isArray(result?.folders) ? result.folders : [],
         counts: result?.counts || {},
         unfolderedCount: result?.unfolderedCount || 0,
+        storageUsage: result?.storageUsage || null,
     };
 }
 
@@ -337,6 +354,7 @@ export function createSavedAssetsBrowser({
 } = {}) {
     const root = refs.root;
     const $galleryFilter = refs.galleryFilter;
+    const $storageUsage = refs.storageUsage;
     const $folderGrid = refs.folderGrid;
     const $folderBack = refs.folderBack;
     const $folderBackBtn = refs.folderBackBtn;
@@ -431,6 +449,21 @@ export function createSavedAssetsBrowser({
         $galleryMsg.className = 'studio__msg';
     }
 
+    function updateStorageUsage(storageUsage) {
+        if (!$storageUsage) return;
+        const text = formatStorageUsage(storageUsage);
+        if (!text) {
+            $storageUsage.hidden = true;
+            $storageUsage.textContent = '';
+            return;
+        }
+        const label = localeText('assets.storageUsageLabel');
+        $storageUsage.hidden = false;
+        $storageUsage.textContent = text;
+        $storageUsage.title = label;
+        $storageUsage.setAttribute('aria-label', `${label}: ${text}`);
+    }
+
     function setSoundIndicatorState(indicator, isActive) {
         if (!indicator) return;
         indicator.dataset.playing = isActive ? 'true' : 'false';
@@ -517,6 +550,11 @@ export function createSavedAssetsBrowser({
         }
         $mobileActionsMenu.classList.add('visible');
         $mobileActionsToggle.setAttribute('aria-expanded', 'true');
+    }
+
+    async function handleExternalStorageChange() {
+        if (!$storageUsage || !initialized) return;
+        await refresh({ preserveView: true });
     }
 
     function renderEmptyState(message = emptyStateMessage) {
@@ -795,6 +833,7 @@ export function createSavedAssetsBrowser({
             folders = result.folders;
             folderCounts = result.counts;
             unfolderedCount = result.unfolderedCount;
+            updateStorageUsage(result.storageUsage);
         } catch (error) {
             console.warn('Failed to load folders:', error);
             if (requestId !== folderLoadSeq) return false;
@@ -1217,6 +1256,7 @@ export function createSavedAssetsBrowser({
 
         if (requestId !== assetLoadSeq) return;
         hideMsg();
+        updateStorageUsage(page?.storageUsage);
 
         const assets = Array.isArray(page?.assets) ? page.assets : [];
         assetNextCursor = page?.nextCursor || null;
@@ -1694,6 +1734,9 @@ export function createSavedAssetsBrowser({
         document.addEventListener('click', (event) => {
             if (!root?.contains(event.target)) closeMobileMenu();
         });
+        if ($storageUsage) {
+            window.addEventListener('bitbi:assets-storage-changed', handleExternalStorageChange);
+        }
         mobileMediaQuery?.addEventListener?.('change', updateAssetPaginationUi);
 
         const foldersOk = await loadFolders({ preserveFilter: false });

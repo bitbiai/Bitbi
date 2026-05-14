@@ -4,6 +4,23 @@
 
 const BASE = '/api';
 
+function normalizeAssetStorageUsage(value) {
+    if (!value || typeof value !== 'object') return null;
+    const usedBytes = Number(value.usedBytes);
+    const limitBytes = Number(value.limitBytes);
+    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
+        return null;
+    }
+    const remainingBytes = Number(value.remainingBytes);
+    return {
+        usedBytes: Math.max(0, Math.floor(usedBytes)),
+        limitBytes: Math.max(1, Math.floor(limitBytes)),
+        remainingBytes: Number.isFinite(remainingBytes)
+            ? Math.max(0, Math.floor(remainingBytes))
+            : Math.max(0, Math.floor(limitBytes - usedBytes)),
+    };
+}
+
 async function request(method, path, body, options = {}) {
     try {
         const opts = {
@@ -36,6 +53,11 @@ async function request(method, path, body, options = {}) {
         }
         return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
     }
+}
+
+function notifyAssetStorageChanged() {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent('bitbi:assets-storage-changed'));
 }
 
 export function apiRegister(email, password) {
@@ -425,29 +447,37 @@ export function apiAiGenerateImage(promptOrPayload, steps, seed, model) {
 }
 
 export function apiAiGenerateMusic(payload, options = {}) {
-    return request('POST', '/ai/generate-music', payload, options);
+    return request('POST', '/ai/generate-music', payload, options).then((res) => {
+        if (res.ok) notifyAssetStorageChanged();
+        return res;
+    });
 }
 
 export function apiAiGenerateVideo(payload, options = {}) {
-    return request('POST', '/ai/generate-video', payload, options);
+    return request('POST', '/ai/generate-video', payload, options).then((res) => {
+        if (res.ok) notifyAssetStorageChanged();
+        return res;
+    });
 }
 
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');
     const d = res.data?.data;
+    const storageUsage = normalizeAssetStorageUsage(d?.storageUsage);
     // Backward compat: old worker returns { folders: [...] } without counts,
     // or legacy shape could be a bare array. Normalize both.
     if (Array.isArray(d)) {
-        return { folders: d, counts: {}, unfolderedCount: 0 };
+        return { folders: d, counts: {}, unfolderedCount: 0, storageUsage: null };
     }
     if (d && typeof d === 'object') {
         return {
             folders: Array.isArray(d.folders) ? d.folders : [],
             counts: d.counts || {},
             unfolderedCount: d.unfolderedCount || 0,
+            storageUsage,
         };
     }
-    return { folders: [], counts: {}, unfolderedCount: 0 };
+    return { folders: [], counts: {}, unfolderedCount: 0, storageUsage: null };
 }
 
 export async function apiAiGetFoldersForDelete() {
@@ -496,6 +526,7 @@ export async function apiAiGetAssets(folderId, { onlyUnfoldered, limit, cursor }
         nextCursor: typeof data?.next_cursor === 'string' ? data.next_cursor : null,
         hasMore: data?.has_more === true,
         appliedLimit: Number.isFinite(Number(data?.applied_limit)) ? Number(data.applied_limit) : null,
+        storageUsage: normalizeAssetStorageUsage(data?.storageUsage),
     };
 }
 
@@ -511,15 +542,24 @@ export function apiAiSaveImage(imageSource, prompt, model, steps, seed, folderId
         body.imageData = imageSource;
     }
     if (folderId) body.folder_id = folderId;
-    return request('POST', '/ai/images/save', body);
+    return request('POST', '/ai/images/save', body).then((res) => {
+        if (res.ok) notifyAssetStorageChanged();
+        return res;
+    });
 }
 
 export function apiAiSaveAudio(payload) {
-    return request('POST', '/ai/audio/save', payload);
+    return request('POST', '/ai/audio/save', payload).then((res) => {
+        if (res.ok) notifyAssetStorageChanged();
+        return res;
+    });
 }
 
 export function apiAiAttachVideoPoster(assetId, posterBase64) {
-    return request('POST', `/ai/text-assets/${encodeURIComponent(assetId)}/poster`, { posterBase64 });
+    return request('POST', `/ai/text-assets/${encodeURIComponent(assetId)}/poster`, { posterBase64 }).then((res) => {
+        if (res.ok) notifyAssetStorageChanged();
+        return res;
+    });
 }
 
 export function apiAiDeleteImage(imageId) {

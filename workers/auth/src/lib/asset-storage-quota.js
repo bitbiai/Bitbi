@@ -171,6 +171,15 @@ export async function calculateUserAssetStorageUsage(env, userId) {
     + (await calculateTextAssetStorageUsage(env, userId));
 }
 
+export async function getUserAssetStorageUsageSnapshot(env, userId) {
+  const usedBytes = await ensureUserAssetStorageUsage(env, userId);
+  return {
+    usedBytes,
+    limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+    remainingBytes: Math.max(0, USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes),
+  };
+}
+
 async function getStoredUsageBytes(env, userId) {
   try {
     const row = await env.DB.prepare(

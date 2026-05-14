@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
+const ASSET_STORAGE_LIMIT_BYTES = 50 * 1024 * 1024;
 const TEST_MP4_BYTES = fs.readFileSync(path.join(__dirname, '..', 'assets/images/hero/hero-flow-mobile.mp4'));
 const MOBILE_CHROME_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
@@ -197,6 +198,24 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
     assetMap.set(asset.id, cloneJson(asset));
   });
 
+  function storageUsage() {
+    const hasAssets = assetMap.size > 0;
+    const fallback = folderPayload.storageUsage || null;
+    const limitBytes = Number(fallback?.limitBytes) > 0
+      ? Number(fallback.limitBytes)
+      : ASSET_STORAGE_LIMIT_BYTES;
+    const usedBytes = hasAssets
+      ? Array.from(assetMap.values()).reduce((sum, asset) => (
+        sum + Number(asset.size_bytes || 0) + Number(asset.poster_size_bytes || 0)
+      ), 0)
+      : Number(fallback?.usedBytes || 0);
+    return {
+      usedBytes,
+      limitBytes,
+      remainingBytes: Math.max(0, limitBytes - usedBytes),
+    };
+  }
+
   function listAssets({ folderId = null, onlyUnfoldered = false } = {}) {
     let assets = Array.from(assetMap.values());
     if (onlyUnfoldered) {
@@ -233,6 +252,7 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
         folders: cloneJson(folders),
         counts: folderCounts,
         unfolderedCount,
+        storageUsage: storageUsage(),
       };
     },
     list(url) {
@@ -276,6 +296,7 @@ function createSavedAssetsStore(folderPayload = {}, assetsPayload = {}) {
           ? `${last.created_at}|${last.asset_type || ''}|${last.id}`
           : null,
         applied_limit: PAGE_LIMIT,
+        storageUsage: storageUsage(),
       };
     },
     getAsset(id) {
@@ -1579,6 +1600,7 @@ async function mockAdminAiLab(page, captures = {}) {
       model: body.model,
       steps: body.steps ?? null,
       seed: body.seed ?? null,
+      size_bytes: Number(captures.savedImageSizeBytes || body.size_bytes || 1024),
       created_at: '2026-04-10T12:00:00.000Z',
       file_url: `/api/ai/images/${id}/file`,
       original_url: `/api/ai/images/${id}/file`,
@@ -2255,6 +2277,7 @@ async function mockAuthenticatedAssetsManager(page, requests = [], options = {})
       model: body.model,
       steps: body.steps ?? null,
       seed: body.seed ?? null,
+      size_bytes: Number(options.savedImageSizeBytes || body.size_bytes || 1024),
       created_at: '2026-04-10T12:00:00.000Z',
       file_url: `/api/ai/images/${id}/file`,
       original_url: `/api/ai/images/${id}/file`,
@@ -4611,6 +4634,84 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioPreview')).toHaveCount(0);
     await expect(page.locator('#studioSaveBar')).toHaveCount(0);
     expect(requests).toEqual([]);
+  });
+
+  test('German account Assets Manager shows storage usage directly left of the private-by-default status', async ({
+    page,
+  }) => {
+    const usedBytes = Math.floor(14.5 * 1024 * 1024);
+    await mockAuthenticatedAssetsManager(page, [], {
+      folderPayload: {
+        folders: [],
+        counts: {},
+        unfolderedCount: 0,
+        storageUsage: {
+          usedBytes,
+          limitBytes: ASSET_STORAGE_LIMIT_BYTES,
+          remainingBytes: ASSET_STORAGE_LIMIT_BYTES - usedBytes,
+        },
+      },
+    });
+
+    const response = await page.goto('/de/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    const usage = page.locator('#studioStorageUsage');
+    const status = page.locator('.assets-manager__status-pill');
+    await expect(usage).toHaveText('14,5 MB / 50 MB');
+    await expect(usage).toHaveAttribute('aria-label', /Verwendeter Speicher im Assets Manager: 14,5 MB \/ 50 MB/);
+    await expect(status).toHaveText('Standardmäßig privat');
+    const directlyBeforeStatus = await usage.evaluate((node) =>
+      node.nextElementSibling?.classList.contains('assets-manager__status-pill')
+    );
+    expect(directlyBeforeStatus).toBe(true);
+
+    const boxes = await Promise.all([
+      usage.boundingBox(),
+      status.boundingBox(),
+    ]);
+    expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 1);
+    expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(1);
+  });
+
+  test('account Assets Manager refreshes storage usage after image save and delete', async ({
+    page,
+  }) => {
+    await mockAuthenticatedAssetsManager(page, [], {
+      savedImageSizeBytes: Math.floor(14.5 * 1024 * 1024),
+    });
+
+    const response = await page.goto('/account/assets-manager.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
+
+    await page.evaluate(async (base64) => {
+      const { apiAiSaveImage } = await import('/js/shared/auth-api.js');
+      const result = await apiAiSaveImage(
+        { imageData: `data:image/png;base64,${base64}` },
+        'Storage indicator upload',
+        '@cf/black-forest-labs/flux-1-schnell',
+        4,
+        null,
+        null,
+      );
+      if (!result.ok) throw new Error(result.error || 'save failed');
+    }, ONE_PX_PNG_BASE64);
+
+    await expect(page.locator('#studioStorageUsage')).toHaveText('14,5 MB / 50 MB');
+
+    await page.locator('#studioGalleryFilter').selectOption('__all__');
+    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
+    await page.locator('#studioImageGrid .studio__image-item').hover();
+    page.once('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    await page.locator('#studioImageGrid .studio__image-delete').click();
+
+    await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
+    await expect(page.locator('.assets-manager__status-pill')).toHaveText('Private by default');
   });
 
   test('homepage create studio keeps the public model selector restricted to FLUX.1 Schnell', async ({

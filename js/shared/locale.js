@@ -411,6 +411,7 @@ const STRINGS = Object.freeze({
             deleteFolderConfirm: 'Delete folder "{name}" and all its assets?\n\nThis cannot be undone.',
             folderDeleteFailed: 'Failed to delete folder.',
             folderDeleted: 'Folder "{name}" deleted.',
+            storageUsageLabel: 'Used storage in Assets Manager',
         }),
         profile: Object.freeze({
             loadingWallet: 'Loading wallet and account status…',
@@ -964,6 +965,7 @@ const STRINGS = Object.freeze({
             deleteFolderConfirm: 'Ordner „{name}“ und alle enthaltenen Assets löschen?\n\nDies kann nicht rückgängig gemacht werden.',
             folderDeleteFailed: 'Ordner konnte nicht gelöscht werden.',
             folderDeleted: 'Ordner „{name}“ gelöscht.',
+            storageUsageLabel: 'Verwendeter Speicher im Assets Manager',
         }),
         profile: Object.freeze({
             loadingWallet: 'Wallet- und Kontostatus werden geladen…',

@@ -32,6 +32,7 @@ function createBrowser() {
         refs: {
             root: document.getElementById('studioSavedAssetsCard'),
             galleryFilter: document.getElementById('studioGalleryFilter'),
+            storageUsage: document.getElementById('studioStorageUsage'),
             folderGrid: document.getElementById('studioFolderGrid'),
             folderBack: document.getElementById('studioFolderBack'),
             folderBackBtn: document.getElementById('studioFolderBackBtn'),

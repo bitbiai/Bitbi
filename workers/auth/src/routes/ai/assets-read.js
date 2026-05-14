@@ -1,5 +1,6 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
+import { getUserAssetStorageUsageSnapshot } from "../../lib/asset-storage-quota.js";
 import {
   decodePaginationCursor,
   encodePaginationCursor,
@@ -21,6 +22,14 @@ const DEFAULT_MEMBER_ASSET_LIMIT = 60;
 const MAX_MEMBER_ASSET_LIMIT = 100;
 const MEMBER_ASSET_IMAGE_KIND_RANK = 2;
 const MEMBER_ASSET_FILE_KIND_RANK = 1;
+
+async function getStorageUsageOrNull(env, userId) {
+  try {
+    return await getUserAssetStorageUsageSnapshot(env, userId);
+  } catch {
+    return null;
+  }
+}
 
 export async function handleGetImages(ctx) {
   const { request, env, url } = ctx;
@@ -222,6 +231,7 @@ export async function handleGetAssets(ctx) {
     const items = hasMore ? imageResults.slice(0, appliedLimit) : imageResults;
     const assets = items.map((row) => toAiImageAssetRecord(row, { assetType: "image" }));
     const last = items[items.length - 1];
+    const storageUsage = await getStorageUsageOrNull(env, session.user.id);
 
     return json({
       ok: true,
@@ -237,6 +247,7 @@ export async function handleGetAssets(ctx) {
           : null,
         has_more: hasMore,
         applied_limit: appliedLimit,
+        ...(storageUsage ? { storageUsage } : {}),
       },
     });
   }
@@ -250,6 +261,7 @@ export async function handleGetAssets(ctx) {
       : toAiFileAssetRecord(row)
   ));
   const last = pageRows[pageRows.length - 1];
+  const storageUsage = await getStorageUsageOrNull(env, session.user.id);
 
   return json({
     ok: true,
@@ -265,6 +277,7 @@ export async function handleGetAssets(ctx) {
         : null,
       has_more: hasMore,
       applied_limit: appliedLimit,
+      ...(storageUsage ? { storageUsage } : {}),
     },
   });
 }

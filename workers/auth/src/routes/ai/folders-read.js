@@ -1,5 +1,6 @@
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
+import { getUserAssetStorageUsageSnapshot } from "../../lib/asset-storage-quota.js";
 import { isMissingTextAssetTableError } from "./helpers.js";
 
 export async function handleGetFolders(ctx) {
@@ -47,5 +48,15 @@ export async function handleGetFolders(ctx) {
     }
   }
 
-  return json({ ok: true, data: { folders: rows.results, counts, unfolderedCount } });
+  let storageUsage = null;
+  try {
+    storageUsage = await getUserAssetStorageUsageSnapshot(env, session.user.id);
+  } catch {
+    storageUsage = null;
+  }
+
+  const data = { folders: rows.results, counts, unfolderedCount };
+  if (storageUsage) data.storageUsage = storageUsage;
+
+  return json({ ok: true, data });
 }

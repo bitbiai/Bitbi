@@ -9714,8 +9714,69 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('GET /api/ai/folders returns authenticated user storage usage without counting other users', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+      const user = createContractUser({ id: 'folder-storage-user', role: 'user' });
+      const otherUser = createContractUser({ id: 'folder-storage-other', role: 'user' });
+      const usedBytes = Math.floor(14.5 * 1024 * 1024);
+      const env = createAuthTestEnv({
+        users: [user, otherUser],
+        aiTextAssets: [
+          {
+            id: 'f0a10001',
+            user_id: user.id,
+            folder_id: null,
+            r2_key: `users/${user.id}/folders/root/usage.txt`,
+            title: 'Usage',
+            file_name: 'usage.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: usedBytes,
+            preview_text: 'usage',
+            metadata_json: '{}',
+            created_at: nowIso(),
+          },
+          {
+            id: 'f0a10002',
+            user_id: otherUser.id,
+            folder_id: null,
+            r2_key: `users/${otherUser.id}/folders/root/other.txt`,
+            title: 'Other',
+            file_name: 'other.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+            preview_text: 'other',
+            metadata_json: '{}',
+            created_at: nowIso(),
+          },
+        ],
+      });
+      const sessionToken = await seedSession(env, user.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/ai/folders', 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${sessionToken}`,
+          'CF-Connecting-IP': '203.0.113.88',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.storageUsage).toEqual({
+        usedBytes,
+        limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        remainingBytes: USER_ASSET_STORAGE_LIMIT_BYTES - usedBytes,
+      });
+    });
+
     test('GET /api/ai/assets returns the stable mixed-asset contract for authenticated users', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
       const user = createContractUser({ id: 'contract-assets-user', role: 'user' });
       const imageId = 'aa11bb22';
       const textAssetId = 'cc33dd44';
@@ -9771,11 +9832,16 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expectExactKeys(body, ['ok', 'data']);
-      expectExactKeys(body.data, ['assets', 'next_cursor', 'has_more', 'applied_limit']);
+      expectExactKeys(body.data, ['assets', 'next_cursor', 'has_more', 'applied_limit', 'storageUsage']);
       expect(Array.isArray(body.data.assets)).toBe(true);
       expect(body.data.assets.length).toBe(2);
       expect(typeof body.data.has_more).toBe('boolean');
       expect(typeof body.data.applied_limit).toBe('number');
+      expect(body.data.storageUsage).toMatchObject({
+        usedBytes: 128,
+        limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        remainingBytes: USER_ASSET_STORAGE_LIMIT_BYTES - 128,
+      });
 
       const imageAsset = body.data.assets.find((asset) => asset.id === imageId);
       expect(imageAsset).toBeTruthy();
