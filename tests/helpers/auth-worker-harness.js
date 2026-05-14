@@ -899,7 +899,15 @@ class MockD1 {
 
     if (query === 'SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1') {
       const [userId] = bindings;
-      return this.state.users.find((row) => row.id === userId) || null;
+      const row = this.state.users.find((entry) => entry.id === userId);
+      return row ? deepClone({
+        id: row.id,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+        created_at: row.created_at ?? null,
+        updated_at: row.updated_at ?? null,
+      }) : null;
     }
 
     if (query === 'UPDATE users SET role = ?, updated_at = ? WHERE id = ?') {
@@ -4085,6 +4093,22 @@ class MockD1 {
       };
     }
 
+    if (query === 'SELECT folder_id, COALESCE(SUM(size_bytes), 0) AS size_bytes FROM ai_images WHERE user_id = ? GROUP BY folder_id') {
+      const [userId] = bindings;
+      const sizes = new Map();
+      for (const row of this.state.aiImages) {
+        if (row.user_id !== userId) continue;
+        const key = row.folder_id ?? null;
+        sizes.set(key, (sizes.get(key) || 0) + Number(row.size_bytes || 0));
+      }
+      return {
+        results: Array.from(sizes.entries()).map(([folderId, sizeBytes]) => ({
+          folder_id: folderId,
+          size_bytes: sizeBytes,
+        })),
+      };
+    }
+
     if (query === 'SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id') {
       const [userId] = bindings;
       const counts = new Map();
@@ -4097,6 +4121,22 @@ class MockD1 {
         results: Array.from(counts.entries()).map(([folderId, cnt]) => ({
           folder_id: folderId,
           cnt,
+        })),
+      };
+    }
+
+    if (query === 'SELECT folder_id, COALESCE(SUM(size_bytes), 0) + COALESCE(SUM(poster_size_bytes), 0) AS size_bytes FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id') {
+      const [userId] = bindings;
+      const sizes = new Map();
+      for (const row of this.state.aiTextAssets) {
+        if (row.user_id !== userId) continue;
+        const key = row.folder_id ?? null;
+        sizes.set(key, (sizes.get(key) || 0) + Number(row.size_bytes || 0) + Number(row.poster_size_bytes || 0));
+      }
+      return {
+        results: Array.from(sizes.entries()).map(([folderId, sizeBytes]) => ({
+          folder_id: folderId,
+          size_bytes: sizeBytes,
         })),
       };
     }

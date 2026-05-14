@@ -25,6 +25,7 @@ import {
     syncMobileMediaTrigger,
 } from './mobile-media-grid-overlay.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
+import { formatAssetStorageUsage } from './storage-format.js?v=__ASSET_VERSION__';
 
 const UNFOLDERED = '__unfoldered__';
 const ALL_ASSETS = '__all__';
@@ -34,7 +35,6 @@ const MAX_IMAGE_NAME_LENGTH = 1000;
 const MAX_FILE_ASSET_NAME_LENGTH = 120;
 const SAVED_ASSET_PAGE_LIMIT = 60;
 const SAVED_ASSET_MOBILE_DOT_LIMIT = 6;
-const STORAGE_MB_BYTES = 1024 * 1024;
 const assetDateFormatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
@@ -63,25 +63,6 @@ function formatAssetSize(sizeBytes) {
         return `${assetSizeFormatter.format(size / 1024)} KB`;
     }
     return `${Math.round(size)} B`;
-}
-
-function formatStorageMegabytes(sizeBytes) {
-    const size = Number(sizeBytes);
-    if (!Number.isFinite(size) || size <= 0) return '0 MB';
-    return `${assetSizeFormatter.format(size / STORAGE_MB_BYTES)} MB`;
-}
-
-function formatStorageUsage(storageUsage) {
-    const usedBytes = Number(storageUsage?.usedBytes);
-    if (storageUsage?.isUnlimited === true) {
-        if (!Number.isFinite(usedBytes)) return '';
-        return `${formatStorageMegabytes(usedBytes)} / ∞`;
-    }
-    const limitBytes = Number(storageUsage?.limitBytes);
-    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
-        return '';
-    }
-    return `${formatStorageMegabytes(usedBytes)} / ${formatStorageMegabytes(limitBytes)}`;
 }
 
 function formatAssetCount(count) {
@@ -455,7 +436,7 @@ export function createSavedAssetsBrowser({
 
     function updateStorageUsage(storageUsage) {
         if (!$storageUsage) return;
-        const text = formatStorageUsage(storageUsage);
+        const text = formatAssetStorageUsage(storageUsage);
         if (!text) {
             $storageUsage.hidden = true;
             $storageUsage.textContent = '';

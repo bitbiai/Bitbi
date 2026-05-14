@@ -1676,6 +1676,115 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.creditGrantRequests = captures.creditGrantRequests || [];
   captures.userCreditGrantRequests = captures.userCreditGrantRequests || [];
   captures.aiCleanupRequests = captures.aiCleanupRequests || [];
+  captures.storageRequests = captures.storageRequests || [];
+  const adminUsers = captures.adminUsers || [
+    {
+      id: 'user_member',
+      email: 'member@example.com',
+      role: 'user',
+      status: 'active',
+      created_at: '2026-04-18T11:05:00.000Z',
+      updated_at: '2026-04-18T11:05:00.000Z',
+    },
+    {
+      id: 'user_empty',
+      email: 'empty@example.com',
+      role: 'user',
+      status: 'active',
+      created_at: '2026-04-19T11:05:00.000Z',
+      updated_at: '2026-04-19T11:05:00.000Z',
+    },
+  ];
+  const defaultStorageUsage = {
+    usedBytes: Math.round(14.5 * 1024 * 1024),
+    limitBytes: 50 * 1024 * 1024,
+    remainingBytes: 50 * 1024 * 1024 - Math.round(14.5 * 1024 * 1024),
+    isUnlimited: false,
+  };
+  const userStoragePayloads = captures.userStoragePayloads || {
+    user_member: {
+      ok: true,
+      data: {
+        user: adminUsers.find((user) => user.id === 'user_member'),
+        storageUsage: defaultStorageUsage,
+        summary: {
+          assetCount: 2,
+          folderCount: 1,
+          unfolderedCount: 1,
+          unfolderedSizeBytes: 512,
+          totalAssetBytes: Math.round(14.5 * 1024 * 1024),
+        },
+        folders: [
+          {
+            id: 'f100cafe',
+            name: 'Launches',
+            slug: 'launches',
+            status: 'active',
+            created_at: '2026-04-10T09:00:00.000Z',
+            file_count: 1,
+            size_bytes: 1048576,
+          },
+        ],
+        assets: [
+          {
+            id: 'a100cafe',
+            asset_type: 'image',
+            folder_id: 'f100cafe',
+            title: 'Launch Key Visual',
+            prompt: 'Launch Key Visual',
+            mime_type: 'image/png',
+            size_bytes: 1048576,
+            visibility: 'private',
+            is_public: false,
+            created_at: '2026-04-10T12:00:00.000Z',
+            file_url: '/api/admin/users/user_member/assets/a100cafe/file',
+          },
+          {
+            id: 'b200cafe',
+            asset_type: 'text',
+            folder_id: null,
+            title: 'Release Notes',
+            file_name: 'release-notes.txt',
+            source_module: 'text',
+            mime_type: 'text/plain',
+            size_bytes: 512,
+            preview_text: 'Notes',
+            visibility: 'public',
+            is_public: true,
+            created_at: '2026-04-09T12:00:00.000Z',
+            file_url: '/api/admin/users/user_member/assets/b200cafe/file',
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+        applied_limit: 100,
+      },
+    },
+    user_empty: {
+      ok: true,
+      data: {
+        user: adminUsers.find((user) => user.id === 'user_empty'),
+        storageUsage: {
+          usedBytes: 0,
+          limitBytes: 50 * 1024 * 1024,
+          remainingBytes: 50 * 1024 * 1024,
+          isUnlimited: false,
+        },
+        summary: {
+          assetCount: 0,
+          folderCount: 0,
+          unfolderedCount: 0,
+          unfolderedSizeBytes: 0,
+          totalAssetBytes: 0,
+        },
+        folders: [],
+        assets: [],
+        next_cursor: null,
+        has_more: false,
+        applied_limit: 100,
+      },
+    },
+  };
 
   const orgList = {
     ok: true,
@@ -1701,26 +1810,39 @@ async function mockAdminControlPlane(page, captures = {}) {
   await page.route('**/api/admin/users?*', async (route) => {
     await fulfillJson(route, {
       ok: true,
-      users: [
-        {
-          id: 'user_member',
-          email: 'member@example.com',
-          role: 'user',
-          status: 'active',
-          created_at: '2026-04-18T11:05:00.000Z',
-          updated_at: '2026-04-18T11:05:00.000Z',
-        },
-        {
-          id: 'user_empty',
-          email: 'empty@example.com',
-          role: 'user',
-          status: 'active',
-          created_at: '2026-04-19T11:05:00.000Z',
-          updated_at: '2026-04-19T11:05:00.000Z',
-        },
-      ],
+      users: adminUsers,
       next_cursor: null,
     });
+  });
+  await page.route('**/api/admin/users/*/storage**', async (route) => {
+    const match = new URL(route.request().url()).pathname.match(/^\/api\/admin\/users\/([^/]+)\/storage$/);
+    const userId = match ? decodeURIComponent(match[1]) : '';
+    const payload = userStoragePayloads[userId];
+    await fulfillJson(route, payload || { ok: false, error: 'User not found.' }, payload ? 200 : 404);
+  });
+  await page.route('**/api/admin/users/*/assets/*/**', async (route) => {
+    captures.storageRequests.push({
+      method: route.request().method(),
+      path: new URL(route.request().url()).pathname,
+      body: route.request().postData() ? route.request().postDataJSON() : null,
+    });
+    await fulfillJson(route, { ok: true, data: { updated: true } });
+  });
+  await page.route('**/api/admin/users/*/assets/*', async (route) => {
+    captures.storageRequests.push({
+      method: route.request().method(),
+      path: new URL(route.request().url()).pathname,
+      body: null,
+    });
+    await fulfillJson(route, { ok: true, data: { deleted: 1 } });
+  });
+  await page.route('**/api/admin/users/*/folders/*', async (route) => {
+    captures.storageRequests.push({
+      method: route.request().method(),
+      path: new URL(route.request().url()).pathname,
+      body: route.request().postData() ? route.request().postDataJSON() : null,
+    });
+    await fulfillJson(route, { ok: true, data: { updated: true } });
   });
   await page.route('**/api/admin/orgs/org_control_1234567890', async (route) => {
     await fulfillJson(route, {
@@ -8016,7 +8138,7 @@ test.describe('Admin Control Plane', () => {
     expect(mobileHasDocumentOverflow).toBe(false);
   });
 
-  test('Admin Users shows user IDs with copy controls and opens credit details', async ({
+  test('Admin Users replaces Credits with Info and routes to credit or usage details', async ({
     page,
   }) => {
     await mockAdminControlPlane(page);
@@ -8030,9 +8152,22 @@ test.describe('Admin Control Plane', () => {
     const memberRow = page.locator('#userTbody tr', { hasText: 'member@example.com' });
     await expect(memberRow).toContainText('user_member');
     await expect(memberRow.getByRole('button', { name: 'Copy user ID user_member' })).toBeVisible();
-    await expect(memberRow.getByRole('button', { name: 'Credits' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Info' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Credits' })).toHaveCount(0);
+    await expect(memberRow.getByRole('button', { name: 'Make Admin' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Disable' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Revoke Sessions' })).toBeVisible();
+    await expect(memberRow.getByRole('button', { name: 'Delete' })).toBeVisible();
 
-    await memberRow.getByRole('button', { name: 'Credits' }).click();
+    await memberRow.getByRole('button', { name: 'Info' }).click();
+    await expect(page.locator('#userInfoModal')).toBeVisible();
+    await expect(page.locator('#userInfoModal')).toContainText('member@example.com');
+    await expect(page.locator('#userInfoModal')).toContainText('user_member');
+    await expect(page.locator('#userInfoModal [data-info-action="credits"]')).toContainText('Credits');
+    await expect(page.locator('#userInfoModal [data-info-action="usage"]')).toContainText('Usage');
+
+    await page.locator('#userInfoModal [data-info-action="credits"]').click();
+    await expect(page.locator('#userInfoModal')).toBeHidden();
     await expect(page.locator('#userCreditModal')).toBeVisible();
     await expect(page.locator('#userCreditModal')).toContainText('member@example.com');
     await expect(page.locator('#userCreditModal')).toContainText('user_member');
@@ -8045,11 +8180,100 @@ test.describe('Admin Control Plane', () => {
     await page.locator('#userCreditModal .admin-credit-modal__close').click();
     await expect(page.locator('#userCreditModal')).toBeHidden();
 
+    await memberRow.getByRole('button', { name: 'Info' }).click();
+    await page.locator('#userInfoModal [data-info-action="usage"]').click();
+    await expect(page.locator('#userInfoModal')).toBeHidden();
+    await expect(page.locator('#userStorageModal')).toBeVisible();
+    await expect(page.locator('#userStorageModal')).toContainText('member@example.com');
+    await expect(page.locator('#userStorageModal')).toContainText('14,5 MB / 50 MB');
+    await expect(page.locator('#userStorageModal')).toContainText('Launches');
+    await expect(page.locator('#userStorageModal')).toContainText('Launch Key Visual');
+    await expect(page.locator('#userStorageModal')).toContainText('Release Notes');
+    await expect(page.locator('#userStorageModal')).toContainText('a100cafe');
+    await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Rename' }).first()).toBeVisible();
+    await expect(page.locator('#userStorageModal').getByRole('button', { name: 'Delete' }).first()).toBeVisible();
+    await expect(page.locator('#userStorageModal').getByRole('link', { name: 'Open' }).first()).toHaveAttribute('href', '/api/admin/users/user_member/assets/a100cafe/file');
+    await page.locator('#userStorageModal .admin-credit-modal__close').click();
+    await expect(page.locator('#userStorageModal')).toBeHidden();
+
     const emptyRow = page.locator('#userTbody tr', { hasText: 'empty@example.com' });
-    await emptyRow.getByRole('button', { name: 'Credits' }).click();
+    await emptyRow.getByRole('button', { name: 'Info' }).click();
+    await page.locator('#userInfoModal [data-info-action="credits"]').click();
+    await expect(page.locator('#userInfoModal')).toBeHidden();
     await expect(page.locator('#userCreditModal')).toBeVisible();
     await expect(page.locator('#userCreditModal')).toContainText('empty@example.com');
     await expect(page.locator('#userCreditModal')).toContainText('No member credit transactions yet.');
+  });
+
+  test('Admin Users usage overlay shows unlimited storage for selected admin users', async ({
+    page,
+  }) => {
+    const adminUsers = [
+      {
+        id: 'admin_usage',
+        email: 'storage-admin@example.com',
+        role: 'admin',
+        status: 'active',
+        created_at: '2026-04-20T11:05:00.000Z',
+        updated_at: '2026-04-20T11:05:00.000Z',
+      },
+    ];
+    await mockAdminControlPlane(page, {
+      adminUsers,
+      userStoragePayloads: {
+        admin_usage: {
+          ok: true,
+          data: {
+            user: adminUsers[0],
+            storageUsage: {
+              usedBytes: Math.round(124.8 * 1024 * 1024),
+              limitBytes: null,
+              remainingBytes: null,
+              isUnlimited: true,
+            },
+            summary: {
+              assetCount: 1,
+              folderCount: 0,
+              unfolderedCount: 1,
+              unfolderedSizeBytes: Math.round(124.8 * 1024 * 1024),
+              totalAssetBytes: Math.round(124.8 * 1024 * 1024),
+            },
+            folders: [],
+            assets: [
+              {
+                id: 'ad00cafe',
+                asset_type: 'video',
+                folder_id: null,
+                title: 'Admin Archive Render',
+                file_name: 'admin-archive-render.mp4',
+                source_module: 'video',
+                mime_type: 'video/mp4',
+                size_bytes: Math.round(124.8 * 1024 * 1024),
+                visibility: 'private',
+                is_public: false,
+                created_at: '2026-04-20T12:00:00.000Z',
+                file_url: '/api/admin/users/admin_usage/assets/ad00cafe/file',
+              },
+            ],
+            next_cursor: null,
+            has_more: false,
+            applied_limit: 100,
+          },
+        },
+      },
+    });
+
+    const response = await page.goto('/admin/index.html#users');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    const adminRow = page.locator('#userTbody tr', { hasText: 'storage-admin@example.com' });
+    await adminRow.getByRole('button', { name: 'Info' }).click();
+    await page.locator('#userInfoModal [data-info-action="usage"]').click();
+    await expect(page.locator('#userInfoModal')).toBeHidden();
+    await expect(page.locator('#userStorageModal')).toBeVisible();
+    await expect(page.locator('#userStorageModal')).toContainText('124,8 MB / ∞');
+    await expect(page.locator('#userStorageModal')).toContainText('unlimited Assets Manager storage');
+    await expect(page.locator('#userStorageModal')).toContainText('Admin Archive Render');
   });
 
   test('shows unavailable states when a backend capability is absent', async ({

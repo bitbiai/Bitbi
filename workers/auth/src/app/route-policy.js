@@ -325,6 +325,22 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.users.status.update", "PATCH", "/api/admin/users/:id/status", "admin", "smallJson", "admin-action-ip", { audit: { event: "change_status" } }),
   adminJsonWrite("admin.users.sessions.revoke", "POST", "/api/admin/users/:id/revoke-sessions", "admin", null, "admin-action-ip", { audit: { event: "revoke_sessions" } }),
   adminJsonWrite("admin.users.delete", "DELETE", "/api/admin/users/:id", "admin", null, "admin-action-ip", { audit: { event: "delete_user" } }),
+  adminRead("admin.users.storage.read", "/api/admin/users/:id/storage", "admin", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-storage-read-ip", failClosed: true },
+    notes: "Admin-only selected-user Assets Manager inspection. Returns aggregate storage usage plus assets/folders scoped to the target user.",
+  }),
+  adminRead("admin.users.storage.asset.file", "/api/admin/users/:id/assets/:assetId/file", "admin", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-storage-read-ip", failClosed: true },
+    notes: "Admin-only private asset file read. The R2 key is looked up by target user and asset ID; keys are never accepted from the request.",
+  }),
+  adminJsonWrite("admin.users.storage.asset.rename", "PATCH", "/api/admin/users/:id/assets/:assetId/rename", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_renamed" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.asset.move", "PATCH", "/api/admin/users/:id/assets/:assetId/folder", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_moved" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.asset.visibility", "PATCH", "/api/admin/users/:id/assets/:assetId/visibility", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_asset_visibility_updated" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.asset.delete", "DELETE", "/api/admin/users/:id/assets/:assetId", "admin", null, "admin-storage-write-ip", { audit: { event: "admin_user_asset_deleted" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.folder.rename", "PATCH", "/api/admin/users/:id/folders/:folderId", "admin", "smallJson", "admin-storage-write-ip", { audit: { event: "admin_user_folder_renamed" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
+  adminJsonWrite("admin.users.storage.folder.delete", "DELETE", "/api/admin/users/:id/folders/:folderId", "admin", null, "admin-storage-write-ip", { audit: { event: "admin_user_folder_deleted" }, config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"] }),
   adminRead("admin.stats.read", "/api/admin/stats", "admin"),
   adminRead("admin.orgs.list", "/api/admin/orgs", "organizations", {
     config: REQUIRED_CONFIG.authPublicLimiter,

@@ -3356,6 +3356,137 @@
         color: rgba(255, 255, 255, 0.42);
     }
 
+    .admin-info-modal__dialog {
+        width: min(100%, 42rem);
+    }
+
+    .admin-info-modal__body {
+        display: grid;
+        gap: var(--space-4);
+    }
+
+    .admin-info-modal__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-block-start: var(--space-2);
+    }
+
+    .admin-info-modal__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+        gap: var(--space-3);
+    }
+
+    .admin-info-modal__action {
+        min-block-size: 8rem;
+        padding: var(--space-4);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-3);
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.82);
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .admin-info-modal__action:hover {
+        transform: translateY(-1px);
+        border-color: rgba(0, 240, 255, 0.28);
+        background: rgba(0, 240, 255, 0.075);
+    }
+
+    .admin-info-modal__action-label {
+        color: white;
+        font-family: var(--font-display);
+        font-size: 1.2rem;
+        line-height: 1;
+    }
+
+    .admin-info-modal__action-desc {
+        color: rgba(255, 255, 255, 0.54);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .admin-usage-modal__dialog {
+        width: min(100%, 82rem);
+        max-block-size: min(88vh, 58rem);
+    }
+
+    .admin-usage-modal__body {
+        display: grid;
+        gap: var(--space-4);
+    }
+
+    .admin-usage-modal__metrics {
+        margin-block-start: 0;
+    }
+
+    .admin-usage-modal__note {
+        margin-block-start: 0;
+    }
+
+    .admin-usage-modal__section {
+        min-width: 0;
+    }
+
+    .admin-usage-modal__section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+    }
+
+    .admin-usage-modal__table-wrap {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .admin-usage-modal__table {
+        min-inline-size: 62rem;
+    }
+
+    .admin-usage-modal__table--assets {
+        min-inline-size: 86rem;
+    }
+
+    .admin-usage-modal__asset-name {
+        max-inline-size: 16rem;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-usage-modal__action-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .admin-usage-modal__folder-select {
+        min-inline-size: 8.5rem;
+        max-inline-size: 12rem;
+        min-block-size: 2rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(5, 8, 12, 0.88);
+        color: rgba(255, 255, 255, 0.82);
+        font: inherit;
+        font-size: 12px;
+        padding: 0.35rem 0.55rem;
+    }
+
+    .admin-usage-modal__load-more {
+        justify-self: start;
+        margin-block-start: var(--space-3);
+    }
+
     /* ── State (loading / empty) ── */
     .admin-state {
         text-align: center;

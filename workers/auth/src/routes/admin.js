@@ -46,6 +46,7 @@ import { handleAdminBilling } from "./admin-billing.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
 import { handleAdminOrgs } from "./admin-orgs.js";
+import { handleAdminStorage } from "./admin-storage.js";
 import { AiAssetLifecycleError, deleteAllUserAiAssets } from "./ai/lifecycle.js";
 
 const ADMIN_USERS_CURSOR_TYPE = "admin_users";
@@ -168,6 +169,11 @@ export async function handleAdmin(ctx) {
   const adminBillingResult = await handleAdminBilling(ctx);
   if (adminBillingResult) {
     return adminBillingResult;
+  }
+
+  const adminStorageResult = await handleAdminStorage(ctx);
+  if (adminStorageResult) {
+    return adminStorageResult;
   }
 
   const adminOrgsResult = await handleAdminOrgs(ctx);

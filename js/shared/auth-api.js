@@ -253,6 +253,42 @@ export function apiAdminUserBilling(userId) {
     return request('GET', `/admin/users/${encodeURIComponent(userId)}/billing`);
 }
 
+export function apiAdminUserStorage(userId, { limit, cursor } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/users/${encodeURIComponent(userId)}/storage${qs}`);
+}
+
+export function apiAdminRenameUserAsset(userId, assetId, name) {
+    return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}/rename`, { name });
+}
+
+export function apiAdminMoveUserAsset(userId, assetId, folderId) {
+    return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}/folder`, {
+        folder_id: folderId || null,
+    });
+}
+
+export function apiAdminSetUserAssetVisibility(userId, assetId, visibility) {
+    return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}/visibility`, {
+        visibility,
+    });
+}
+
+export function apiAdminDeleteUserAsset(userId, assetId) {
+    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/assets/${encodeURIComponent(assetId)}`);
+}
+
+export function apiAdminRenameUserFolder(userId, folderId, name) {
+    return request('PATCH', `/admin/users/${encodeURIComponent(userId)}/folders/${encodeURIComponent(folderId)}`, { name });
+}
+
+export function apiAdminDeleteUserFolder(userId, folderId) {
+    return request('DELETE', `/admin/users/${encodeURIComponent(userId)}/folders/${encodeURIComponent(folderId)}`);
+}
+
 export function apiAdminGrantOrganizationCredits(orgId, { amount, reason, idempotencyKey }) {
     return request('POST', `/admin/orgs/${encodeURIComponent(orgId)}/credits/grant`, {
         amount,

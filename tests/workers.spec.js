@@ -9522,6 +9522,297 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('GET /api/admin/users/:id/storage returns selected user storage, folders, and assets for admins only', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const { USER_ASSET_STORAGE_LIMIT_BYTES } = await loadAssetStorageQuotaModule();
+      const admin = createAdminUser('storage-inspector-admin');
+      const member = createContractUser({ id: 'storage-target-user', role: 'user', email: 'storage-target@example.com' });
+      const other = createContractUser({ id: 'storage-other-user', role: 'user' });
+      const nonAdmin = createContractUser({ id: 'storage-non-admin', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [admin, member, other, nonAdmin],
+        aiFolders: [{
+          id: 'f00dbabe',
+          user_id: member.id,
+          name: 'Launches',
+          slug: 'launches',
+          status: 'active',
+          created_at: '2026-04-10T09:00:00.000Z',
+        }],
+        aiImages: [
+          {
+            id: 'a100cafe',
+            user_id: member.id,
+            folder_id: 'f00dbabe',
+            r2_key: `users/${member.id}/folders/launches/a100cafe.png`,
+            prompt: 'Launch Key Visual',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 1,
+            size_bytes: 1024,
+            created_at: '2026-04-10T12:00:00.000Z',
+            visibility: 'private',
+          },
+          {
+            id: 'd00dcafe',
+            user_id: other.id,
+            folder_id: null,
+            r2_key: `users/${other.id}/folders/root/d00dcafe.png`,
+            prompt: 'Other User Asset',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 2,
+            size_bytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+            created_at: '2026-04-10T12:30:00.000Z',
+            visibility: 'private',
+          },
+        ],
+        aiTextAssets: [{
+          id: 'b200cafe',
+          user_id: member.id,
+          folder_id: null,
+          r2_key: `users/${member.id}/folders/root/release-notes.txt`,
+          title: 'Release Notes',
+          file_name: 'release-notes.txt',
+          source_module: 'text',
+          mime_type: 'text/plain',
+          size_bytes: 512,
+          preview_text: 'Notes',
+          metadata_json: '{}',
+          created_at: '2026-04-09T12:00:00.000Z',
+          visibility: 'public',
+        }],
+      });
+      const adminToken = await seedSession(env, admin.id);
+      const memberToken = await seedSession(env, nonAdmin.id);
+
+      const denied = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${member.id}/storage`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${memberToken}`,
+          'CF-Connecting-IP': '203.0.113.196',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(denied.status).toBe(403);
+
+      const res = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${member.id}/storage`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'CF-Connecting-IP': '203.0.113.197',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expectExactKeys(body, ['ok', 'data']);
+      expectExactKeys(body.data.user, ['id', 'email', 'role', 'status', 'created_at', 'updated_at']);
+      expect(body.data.user).toMatchObject({
+        id: member.id,
+        email: 'storage-target@example.com',
+        role: 'user',
+      });
+      expect(body.data.storageUsage).toEqual({
+        usedBytes: 1536,
+        limitBytes: USER_ASSET_STORAGE_LIMIT_BYTES,
+        remainingBytes: USER_ASSET_STORAGE_LIMIT_BYTES - 1536,
+        isUnlimited: false,
+      });
+      expect(body.data.summary).toMatchObject({
+        assetCount: 2,
+        folderCount: 1,
+        unfolderedCount: 1,
+        totalAssetBytes: 1536,
+      });
+      expect(body.data.folders).toEqual([
+        expect.objectContaining({
+          id: 'f00dbabe',
+          name: 'Launches',
+          file_count: 1,
+          size_bytes: 1024,
+        }),
+      ]);
+      expect(body.data.assets.map((asset) => asset.id).sort()).toEqual(['a100cafe', 'b200cafe']);
+      expect(body.data.assets.find((asset) => asset.id === 'a100cafe')).toMatchObject({
+        asset_type: 'image',
+        file_url: `/api/admin/users/${member.id}/assets/a100cafe/file`,
+        thumb_url: null,
+        medium_url: null,
+      });
+      expect(body.data.assets.some((asset) => asset.id === 'd00dcafe')).toBe(false);
+    });
+
+    test('GET /api/admin/users/:id/storage reports unlimited storage for selected admin users', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('storage-admin-viewer');
+      const targetAdmin = createContractUser({ id: 'storage-target-admin', role: 'admin' });
+      const usedBytes = Math.round(124.8 * 1024 * 1024);
+      const env = createAuthTestEnv({
+        users: [admin, targetAdmin],
+        aiTextAssets: [{
+          id: 'ad00cafe',
+          user_id: targetAdmin.id,
+          folder_id: null,
+          r2_key: `users/${targetAdmin.id}/folders/root/admin-video.mp4`,
+          title: 'Admin Video',
+          file_name: 'admin-video.mp4',
+          source_module: 'video',
+          mime_type: 'video/mp4',
+          size_bytes: usedBytes,
+          preview_text: 'Admin video',
+          metadata_json: '{}',
+          created_at: '2026-04-09T12:00:00.000Z',
+          visibility: 'private',
+        }],
+      });
+      const adminToken = await seedSession(env, admin.id);
+
+      const res = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${targetAdmin.id}/storage`, 'GET', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'CF-Connecting-IP': '203.0.113.198',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.storageUsage).toEqual({
+        usedBytes,
+        limitBytes: null,
+        remainingBytes: null,
+        isUnlimited: true,
+      });
+    });
+
+    test('admin storage asset actions stay scoped to the selected target user', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('storage-action-admin');
+      const target = createContractUser({ id: 'storage-action-target', role: 'user' });
+      const other = createContractUser({ id: 'storage-action-other', role: 'user' });
+      const env = createAuthTestEnv({
+        users: [admin, target, other],
+        aiFolders: [{
+          id: 'f11dbabe',
+          user_id: target.id,
+          name: 'Target Folder',
+          slug: 'target-folder',
+          status: 'active',
+          created_at: nowIso(),
+        }],
+        aiImages: [
+          {
+            id: 'a111cafe',
+            user_id: target.id,
+            folder_id: null,
+            r2_key: `users/${target.id}/folders/root/a111cafe.png`,
+            prompt: 'Original Name',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 1,
+            size_bytes: 1024,
+            created_at: nowIso(),
+            visibility: 'private',
+          },
+          {
+            id: 'b111cafe',
+            user_id: other.id,
+            folder_id: null,
+            r2_key: `users/${other.id}/folders/root/b111cafe.png`,
+            prompt: 'Other Name',
+            model: '@cf/test-model',
+            steps: 4,
+            seed: 2,
+            size_bytes: 2048,
+            created_at: nowIso(),
+            visibility: 'private',
+          },
+        ],
+        userImages: {
+          [`users/${target.id}/folders/root/a111cafe.png`]: {
+            body: new TextEncoder().encode('target image').buffer,
+            httpMetadata: { contentType: 'image/png' },
+          },
+          [`users/${other.id}/folders/root/b111cafe.png`]: {
+            body: new TextEncoder().encode('other image').buffer,
+            httpMetadata: { contentType: 'image/png' },
+          },
+        },
+      });
+      const adminToken = await seedSession(env, admin.id);
+
+      const rename = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe/rename`, 'PATCH', { name: 'Renamed By Admin' }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(rename.status).toBe(200);
+      expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe').prompt).toBe('Renamed By Admin');
+
+      const move = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe/folder`, 'PATCH', { folder_id: 'f11dbabe' }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(move.status).toBe(200);
+      expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe').folder_id).toBe('f11dbabe');
+
+      const wrongTargetDelete = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/b111cafe`, 'DELETE', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(wrongTargetDelete.status).toBe(404);
+      expect(env.DB.state.aiImages.find((row) => row.id === 'b111cafe')).toBeTruthy();
+
+      const deleteOwned = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/assets/a111cafe`, 'DELETE', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(deleteOwned.status).toBe(200);
+      expect(env.DB.state.aiImages.find((row) => row.id === 'a111cafe')).toBeUndefined();
+      expect(env.DB.state.aiImages.find((row) => row.id === 'b111cafe')).toBeTruthy();
+
+      const renameFolder = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/folders/f11dbabe`, 'PATCH', { name: 'Renamed Folder' }, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(renameFolder.status).toBe(200);
+      expect(env.DB.state.aiFolders.find((row) => row.id === 'f11dbabe').name).toBe('Renamed Folder');
+
+      const deleteFolder = await authWorker.fetch(
+        authJsonRequest(`/api/admin/users/${target.id}/folders/f11dbabe`, 'DELETE', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(deleteFolder.status).toBe(200);
+      expect(env.DB.state.aiFolders.find((row) => row.id === 'f11dbabe')).toBeUndefined();
+    });
+
     test('targeted paginated list routes clamp and default limits safely', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('limit-admin');

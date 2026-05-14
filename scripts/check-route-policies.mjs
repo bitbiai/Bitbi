@@ -18,6 +18,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
   "workers/auth/src/routes/admin.js",
   "workers/auth/src/routes/admin-billing.js",
+  "workers/auth/src/routes/admin-storage.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
   "workers/auth/src/routes/admin-ai.js",
   "workers/auth/src/routes/admin-mfa.js",

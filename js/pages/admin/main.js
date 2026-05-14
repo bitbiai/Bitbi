@@ -23,11 +23,22 @@ import {
     apiAdminRevokeSessions,
     apiAdminDeleteUser,
     apiAdminUserBilling,
+    apiAdminUserStorage,
+    apiAdminRenameUserAsset,
+    apiAdminMoveUserAsset,
+    apiAdminSetUserAssetVisibility,
+    apiAdminDeleteUserAsset,
+    apiAdminRenameUserFolder,
+    apiAdminDeleteUserFolder,
     apiAdminLatestAvatars,
     apiAdminStats,
     apiAdminActivity,
     apiAdminUserActivity,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import {
+    formatAssetStorageUsage,
+    formatStorageBytes,
+} from '../../shared/storage-format.js?v=__ASSET_VERSION__';
 import { galleryItems } from '../../shared/gallery-data.js?v=__ASSET_VERSION__';
 import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
 import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__';
@@ -77,6 +88,14 @@ const $userCreditModal = document.getElementById('userCreditModal');
 const $userCreditModalTitle = document.getElementById('userCreditModalTitle');
 const $userCreditModalSubtitle = document.getElementById('userCreditModalSubtitle');
 const $userCreditModalBody = document.getElementById('userCreditModalBody');
+const $userInfoModal = document.getElementById('userInfoModal');
+const $userInfoModalTitle = document.getElementById('userInfoModalTitle');
+const $userInfoModalSubtitle = document.getElementById('userInfoModalSubtitle');
+const $userInfoModalBody = document.getElementById('userInfoModalBody');
+const $userStorageModal = document.getElementById('userStorageModal');
+const $userStorageModalTitle = document.getElementById('userStorageModalTitle');
+const $userStorageModalSubtitle = document.getElementById('userStorageModalSubtitle');
+const $userStorageModalBody = document.getElementById('userStorageModalBody');
 
 /* Avatar dropdown refs */
 const $avatarDropdown = document.getElementById('avatarDropdown');
@@ -515,6 +534,16 @@ let usersVersion = 0;
 let usersEntries = [];
 let usersNextCursor = null;
 let usersHasMore = false;
+let selectedInfoUser = null;
+let storageModalState = {
+    user: null,
+    folders: [],
+    assets: [],
+    summary: {},
+    storageUsage: null,
+    nextCursor: null,
+    hasMore: false,
+};
 const USERS_LIMIT = 50;
 let statsCache = null;    // { stats, fetchedAt }
 const STATS_TTL = 30_000; // 30 seconds
@@ -1231,8 +1260,8 @@ function buildMobileCard(user) {
     actions.className = 'admin-mobile-card__actions';
 
     actions.appendChild(createActionBtn(
-        'Credits',
-        () => openUserCreditDetails(user),
+        'Info',
+        () => openUserInfoDetails(user),
     ));
 
     const newRole = user.role === 'admin' ? 'user' : 'admin';
@@ -1286,11 +1315,21 @@ function buildMobileCard(user) {
 /* ═══════════════════════════════════════════════════════════
    Users — Credit details overlay
    ═══════════════════════════════════════════════════════════ */
+function syncAdminUserModalBodyLock() {
+    const hasOpenModal = [$userCreditModal, $userInfoModal, $userStorageModal]
+        .some((modal) => modal && !modal.hidden);
+    document.body.classList.toggle('modal-open', hasOpenModal);
+}
+
+function setAdminUserModalOpen(modal, open) {
+    if (!modal) return;
+    modal.hidden = !open;
+    modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+    syncAdminUserModalBodyLock();
+}
+
 function setUserCreditModalOpen(open) {
-    if (!$userCreditModal) return;
-    $userCreditModal.hidden = !open;
-    $userCreditModal.setAttribute('aria-hidden', open ? 'false' : 'true');
-    document.body.classList.toggle('modal-open', open);
+    setAdminUserModalOpen($userCreditModal, open);
 }
 
 function closeUserCreditDetails() {
@@ -1302,6 +1341,470 @@ function userCreditState(message, variant = '') {
     box.className = `admin-credit-modal__state${variant ? ` admin-credit-modal__state--${variant}` : ''}`;
     box.textContent = message;
     return box;
+}
+
+function setUserInfoModalOpen(open) {
+    setAdminUserModalOpen($userInfoModal, open);
+}
+
+function closeUserInfoDetails() {
+    selectedInfoUser = null;
+    setUserInfoModalOpen(false);
+}
+
+function renderInfoUserIdentity(user) {
+    const identity = document.createElement('div');
+    identity.className = 'admin-credit-modal__identity admin-info-modal__identity';
+
+    const main = document.createElement('div');
+    const email = document.createElement('div');
+    email.className = 'admin-credit-modal__identity-email';
+    email.textContent = user.email || 'Unknown email';
+    main.appendChild(email);
+
+    const meta = document.createElement('div');
+    meta.className = 'admin-info-modal__meta';
+    meta.append(
+        createBadge(user.role || 'user', user.role === 'admin' ? 'admin' : 'user'),
+        createBadge(user.status || 'unknown', user.status === 'active' ? 'active' : 'disabled'),
+    );
+    main.appendChild(meta);
+
+    identity.append(main, createUserIdMeta(user.id));
+    return identity;
+}
+
+const infoActions = [
+    {
+        id: 'credits',
+        label: 'Credits',
+        description: 'Inspect personal credit balance and recent member credit transactions.',
+        open: (user) => {
+            closeUserInfoDetails();
+            openUserCreditDetails(user);
+        },
+    },
+    {
+        id: 'usage',
+        label: 'Usage',
+        description: 'Inspect Assets Manager storage, folders, files, visibility, and management actions.',
+        open: (user) => {
+            closeUserInfoDetails();
+            openUserStorageDetails(user);
+        },
+    },
+];
+
+function renderUserInfoDetails(user) {
+    if (!$userInfoModalBody) return;
+    $userInfoModalBody.textContent = '';
+    $userInfoModalBody.appendChild(renderInfoUserIdentity(user));
+
+    const grid = document.createElement('div');
+    grid.className = 'admin-info-modal__grid';
+    for (const action of infoActions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-info-modal__action';
+        button.dataset.infoAction = action.id;
+        button.setAttribute('aria-label', `${action.label} for ${user.email || user.id}`);
+
+        const label = document.createElement('span');
+        label.className = 'admin-info-modal__action-label';
+        label.textContent = action.label;
+
+        const desc = document.createElement('span');
+        desc.className = 'admin-info-modal__action-desc';
+        desc.textContent = action.description;
+
+        button.append(label, desc);
+        button.addEventListener('click', () => action.open(user));
+        grid.appendChild(button);
+    }
+    $userInfoModalBody.appendChild(grid);
+}
+
+function openUserInfoDetails(user) {
+    if (!$userInfoModal || !$userInfoModalBody) return;
+    selectedInfoUser = user;
+    if ($userInfoModalTitle) $userInfoModalTitle.textContent = 'Info';
+    if ($userInfoModalSubtitle) $userInfoModalSubtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
+    renderUserInfoDetails(user);
+    setUserInfoModalOpen(true);
+}
+
+function resetUserStorageState(user) {
+    storageModalState = {
+        user,
+        folders: [],
+        assets: [],
+        summary: {},
+        storageUsage: null,
+        nextCursor: null,
+        hasMore: false,
+    };
+}
+
+function setUserStorageModalOpen(open) {
+    setAdminUserModalOpen($userStorageModal, open);
+}
+
+function closeUserStorageDetails() {
+    setUserStorageModalOpen(false);
+}
+
+function getAssetDisplayName(asset = {}) {
+    return asset.title || asset.prompt || asset.file_name || asset.id || 'Untitled asset';
+}
+
+function getAssetTypeLabel(asset = {}) {
+    if (asset.asset_type === 'image') return 'Image';
+    if (asset.asset_type === 'sound') return 'Audio';
+    if (asset.asset_type === 'video') return 'Video';
+    if (asset.mime_type) return asset.mime_type;
+    return asset.asset_type || 'File';
+}
+
+function getAssetStorageSize(asset = {}) {
+    return Number(asset.size_bytes || 0) + Number(asset.poster_size_bytes || 0);
+}
+
+function findFolderName(folderId, folders = []) {
+    if (!folderId) return 'Unfoldered';
+    return folders.find((folder) => folder.id === folderId)?.name || shortUserId(folderId);
+}
+
+function appendTextCell(row, value, className = '') {
+    const cell = document.createElement('td');
+    if (className) cell.className = className;
+    cell.textContent = value;
+    row.appendChild(cell);
+    return cell;
+}
+
+function renderStorageMetrics(payload = {}) {
+    const metrics = document.createElement('div');
+    metrics.className = 'admin-credit-modal__metrics admin-usage-modal__metrics';
+    const storageText = formatAssetStorageUsage(payload.storageUsage) || 'Storage unavailable';
+    const remaining = !payload.storageUsage
+        ? 'Unavailable'
+        : payload.storageUsage?.isUnlimited
+        ? 'Unlimited'
+        : formatStorageBytes(payload.storageUsage?.remainingBytes);
+    metrics.append(
+        creditMetric('Storage', storageText),
+        creditMetric('Remaining', remaining),
+        creditMetric('Assets', numberFormatter.format(Number(payload.summary?.assetCount || 0))),
+        creditMetric('Folders', numberFormatter.format(Number(payload.summary?.folderCount || 0))),
+    );
+    return metrics;
+}
+
+function renderFolderActions(user, folder) {
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-usage-modal__action-row';
+    wrap.append(
+        createActionBtn('Rename', () => handleAdminRenameFolder(user, folder)),
+        createActionBtn('Delete', () => handleAdminDeleteFolder(user, folder), true),
+    );
+    return wrap;
+}
+
+function renderFoldersTable(user, folders = []) {
+    const section = document.createElement('section');
+    section.className = 'admin-usage-modal__section';
+    const title = document.createElement('h3');
+    title.className = 'admin-credit-modal__section-title';
+    title.textContent = 'Folders';
+    section.appendChild(title);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-credit-modal__table-wrap admin-usage-modal__table-wrap';
+    const table = document.createElement('table');
+    table.className = 'admin-table admin-usage-modal__table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Name', 'Folder ID', 'Files', 'Size', 'Created', 'Actions'].forEach((heading) => {
+        const th = document.createElement('th');
+        th.textContent = heading;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!folders.length) {
+        const row = document.createElement('tr');
+        const cell = appendTextCell(row, 'No folders for this user.', 'admin-credit-modal__empty-cell');
+        cell.colSpan = 6;
+        tbody.appendChild(row);
+    } else {
+        for (const folder of folders) {
+            const row = document.createElement('tr');
+            appendTextCell(row, folder.name || 'Untitled folder');
+            const idCell = appendTextCell(row, '');
+            idCell.appendChild(createUserIdMeta(folder.id, { compact: true }));
+            appendTextCell(row, numberFormatter.format(Number(folder.file_count || 0)));
+            appendTextCell(row, formatStorageBytes(folder.size_bytes));
+            appendTextCell(row, formatDate(folder.created_at));
+            const actionCell = document.createElement('td');
+            actionCell.appendChild(renderFolderActions(user, folder));
+            row.appendChild(actionCell);
+            tbody.appendChild(row);
+        }
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    section.appendChild(wrap);
+    return section;
+}
+
+function buildAssetFolderSelect(user, asset) {
+    const select = document.createElement('select');
+    select.className = 'admin-usage-modal__folder-select';
+    select.setAttribute('aria-label', `Move ${getAssetDisplayName(asset)} to folder`);
+
+    const unfoldered = document.createElement('option');
+    unfoldered.value = '';
+    unfoldered.textContent = 'Unfoldered';
+    select.appendChild(unfoldered);
+
+    for (const folder of storageModalState.folders) {
+        const option = document.createElement('option');
+        option.value = folder.id;
+        option.textContent = folder.name || folder.id;
+        select.appendChild(option);
+    }
+    select.value = asset.folder_id || '';
+    select.addEventListener('change', () => handleAdminMoveAsset(user, asset, select.value || null));
+    return select;
+}
+
+function renderAssetActions(user, asset) {
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-usage-modal__action-row';
+
+    const open = document.createElement('a');
+    open.className = 'btn-action';
+    open.href = asset.file_url || '#';
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open';
+
+    const nextVisibility = asset.visibility === 'public' ? 'private' : 'public';
+    wrap.append(
+        open,
+        createActionBtn('Rename', () => handleAdminRenameAsset(user, asset)),
+        createActionBtn(nextVisibility === 'public' ? 'Make Public' : 'Make Private', () => handleAdminSetAssetVisibility(user, asset, nextVisibility)),
+        buildAssetFolderSelect(user, asset),
+        createActionBtn('Delete', () => handleAdminDeleteAsset(user, asset), true),
+    );
+    return wrap;
+}
+
+function renderAssetsTable(user, assets = []) {
+    const section = document.createElement('section');
+    section.className = 'admin-usage-modal__section';
+    const header = document.createElement('div');
+    header.className = 'admin-usage-modal__section-header';
+    const title = document.createElement('h3');
+    title.className = 'admin-credit-modal__section-title';
+    title.textContent = 'Files and assets';
+    header.appendChild(title);
+    section.appendChild(header);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-credit-modal__table-wrap admin-usage-modal__table-wrap';
+    const table = document.createElement('table');
+    table.className = 'admin-table admin-usage-modal__table admin-usage-modal__table--assets';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Name', 'Type', 'Size', 'Folder', 'Visibility', 'Created', 'Asset ID', 'Actions'].forEach((heading) => {
+        const th = document.createElement('th');
+        th.textContent = heading;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!assets.length) {
+        const row = document.createElement('tr');
+        const cell = appendTextCell(row, 'No Assets Manager files for this user.', 'admin-credit-modal__empty-cell');
+        cell.colSpan = 8;
+        tbody.appendChild(row);
+    } else {
+        for (const asset of assets) {
+            const row = document.createElement('tr');
+            appendTextCell(row, getAssetDisplayName(asset), 'admin-usage-modal__asset-name');
+            appendTextCell(row, getAssetTypeLabel(asset));
+            appendTextCell(row, formatStorageBytes(getAssetStorageSize(asset)));
+            appendTextCell(row, findFolderName(asset.folder_id, storageModalState.folders));
+            const visibilityCell = document.createElement('td');
+            visibilityCell.appendChild(createBadge(asset.visibility || 'private', asset.visibility === 'public' ? 'active' : 'admin'));
+            row.appendChild(visibilityCell);
+            appendTextCell(row, formatDate(asset.created_at));
+            const idCell = appendTextCell(row, '');
+            idCell.appendChild(createUserIdMeta(asset.id, { compact: true }));
+            const actionCell = document.createElement('td');
+            actionCell.appendChild(renderAssetActions(user, asset));
+            row.appendChild(actionCell);
+            tbody.appendChild(row);
+        }
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    section.appendChild(wrap);
+
+    if (storageModalState.hasMore) {
+        const loadMore = createActionBtn('Load more assets', () => loadUserStorageDetails(user, { append: true }));
+        loadMore.classList.add('admin-usage-modal__load-more');
+        section.appendChild(loadMore);
+    }
+    return section;
+}
+
+function renderUserStorageDetails(payload = {}) {
+    if (!$userStorageModalBody) return;
+    const user = payload.user || storageModalState.user || {};
+    $userStorageModalBody.textContent = '';
+    $userStorageModalBody.appendChild(renderInfoUserIdentity(user));
+    $userStorageModalBody.appendChild(renderStorageMetrics(payload));
+
+    const note = document.createElement('div');
+    note.className = 'admin-credit-modal__topup admin-usage-modal__note';
+    note.textContent = payload.storageUsage?.isUnlimited
+        ? 'This user has unlimited Assets Manager storage because the account is an admin.'
+        : 'Storage usage is calculated from active Assets Manager files owned by this user.';
+    $userStorageModalBody.appendChild(note);
+
+    $userStorageModalBody.appendChild(renderFoldersTable(user, payload.folders || []));
+    $userStorageModalBody.appendChild(renderAssetsTable(user, storageModalState.assets || []));
+}
+
+async function loadUserStorageDetails(user, { append = false } = {}) {
+    if (!append) {
+        resetUserStorageState(user);
+        if ($userStorageModalBody) {
+            $userStorageModalBody.textContent = '';
+            $userStorageModalBody.appendChild(userCreditState('Loading storage usage...'));
+        }
+    }
+    const res = await apiAdminUserStorage(user.id, {
+        limit: 100,
+        cursor: append ? storageModalState.nextCursor : undefined,
+    });
+    if (!res.ok) {
+        if ($userStorageModalBody) {
+            $userStorageModalBody.textContent = '';
+            $userStorageModalBody.appendChild(userCreditState(res.error || 'Could not load storage usage.', 'error'));
+        }
+        return;
+    }
+    const payload = res.data?.data || res.data || {};
+    storageModalState = {
+        user: payload.user || user,
+        folders: Array.isArray(payload.folders) ? payload.folders : [],
+        assets: append
+            ? storageModalState.assets.concat(Array.isArray(payload.assets) ? payload.assets : [])
+            : (Array.isArray(payload.assets) ? payload.assets : []),
+        summary: payload.summary || {},
+        storageUsage: payload.storageUsage || null,
+        nextCursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
+        hasMore: payload.has_more === true,
+    };
+    renderUserStorageDetails({
+        ...payload,
+        user: storageModalState.user,
+        folders: storageModalState.folders,
+        summary: storageModalState.summary,
+        storageUsage: storageModalState.storageUsage,
+    });
+}
+
+async function openUserStorageDetails(user) {
+    if (!$userStorageModal || !$userStorageModalBody) return;
+    if ($userStorageModalTitle) $userStorageModalTitle.textContent = 'Usage';
+    if ($userStorageModalSubtitle) $userStorageModalSubtitle.textContent = `${user.email || 'Selected user'} • ${shortUserId(user.id)}`;
+    setUserStorageModalOpen(true);
+    await loadUserStorageDetails(user);
+}
+
+async function refreshOpenUserStorageDetails() {
+    if (!storageModalState.user || !$userStorageModal || $userStorageModal.hidden) return;
+    await loadUserStorageDetails(storageModalState.user);
+}
+
+async function handleAdminRenameAsset(user, asset) {
+    const currentName = getAssetDisplayName(asset);
+    const name = prompt('Rename asset', currentName);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === currentName) return;
+    const res = await apiAdminRenameUserAsset(user.id, asset.id, trimmed);
+    if (res.ok) {
+        showToast('Asset renamed.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+    }
+}
+
+async function handleAdminMoveAsset(user, asset, folderId) {
+    const res = await apiAdminMoveUserAsset(user.id, asset.id, folderId);
+    if (res.ok) {
+        showToast('Asset moved.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+        await refreshOpenUserStorageDetails();
+    }
+}
+
+async function handleAdminSetAssetVisibility(user, asset, visibility) {
+    const res = await apiAdminSetUserAssetVisibility(user.id, asset.id, visibility);
+    if (res.ok) {
+        showToast('Asset visibility updated.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+    }
+}
+
+async function handleAdminDeleteAsset(user, asset) {
+    if (!confirm(`Delete asset "${getAssetDisplayName(asset)}" for ${user.email || user.id}?`)) return;
+    const res = await apiAdminDeleteUserAsset(user.id, asset.id);
+    if (res.ok) {
+        showToast('Asset deleted.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+    }
+}
+
+async function handleAdminRenameFolder(user, folder) {
+    const name = prompt('Rename folder', folder.name || '');
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === folder.name) return;
+    const res = await apiAdminRenameUserFolder(user.id, folder.id, trimmed);
+    if (res.ok) {
+        showToast('Folder renamed.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+    }
+}
+
+async function handleAdminDeleteFolder(user, folder) {
+    if (!confirm(`Delete folder "${folder.name || folder.id}" and its assets for ${user.email || user.id}?`)) return;
+    const res = await apiAdminDeleteUserFolder(user.id, folder.id);
+    if (res.ok) {
+        showToast('Folder deleted.', 'success');
+        await refreshOpenUserStorageDetails();
+    } else {
+        showToast(res.error, 'error');
+    }
 }
 
 function creditMetric(label, value) {
@@ -1441,13 +1944,31 @@ async function openUserCreditDetails(user) {
 }
 
 function bindUserCreditModal() {
-    if (!$userCreditModal || $userCreditModal.dataset.bound === '1') return;
-    $userCreditModal.dataset.bound = '1';
-    $userCreditModal.querySelectorAll('[data-user-credit-close]').forEach((button) => {
-        button.addEventListener('click', closeUserCreditDetails);
-    });
+    if ($userCreditModal && $userCreditModal.dataset.bound !== '1') {
+        $userCreditModal.dataset.bound = '1';
+        $userCreditModal.querySelectorAll('[data-user-credit-close]').forEach((button) => {
+            button.addEventListener('click', closeUserCreditDetails);
+        });
+    }
+    if ($userInfoModal && $userInfoModal.dataset.bound !== '1') {
+        $userInfoModal.dataset.bound = '1';
+        $userInfoModal.querySelectorAll('[data-user-info-close]').forEach((button) => {
+            button.addEventListener('click', closeUserInfoDetails);
+        });
+    }
+    if ($userStorageModal && $userStorageModal.dataset.bound !== '1') {
+        $userStorageModal.dataset.bound = '1';
+        $userStorageModal.querySelectorAll('[data-user-storage-close]').forEach((button) => {
+            button.addEventListener('click', closeUserStorageDetails);
+        });
+    }
+    if (bindUserCreditModal.escapeBound === true) return;
+    bindUserCreditModal.escapeBound = true;
     document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && !$userCreditModal.hidden) closeUserCreditDetails();
+        if (event.key !== 'Escape') return;
+        if ($userInfoModal && !$userInfoModal.hidden) closeUserInfoDetails();
+        if ($userCreditModal && !$userCreditModal.hidden) closeUserCreditDetails();
+        if ($userStorageModal && !$userStorageModal.hidden) closeUserStorageDetails();
     });
 }
 
@@ -1515,7 +2036,7 @@ function renderUsers(users) {
         actionsWrap.className = 'admin-actions';
 
         actionsWrap.appendChild(
-            createActionBtn('Credits', () => openUserCreditDetails(user)),
+            createActionBtn('Info', () => openUserInfoDetails(user)),
         );
 
         // Toggle role
