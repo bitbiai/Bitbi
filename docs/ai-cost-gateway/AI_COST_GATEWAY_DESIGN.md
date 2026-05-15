@@ -220,7 +220,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
 
 Target operation structure:
 
@@ -284,6 +284,21 @@ Failure and replay policy:
 - Completed attempts with missing replay metadata or missing saved objects are terminal replay-unavailable for that idempotency key.
 - Billing finalization failure after provider success is terminal and must not silently return success.
 - The implementation intentionally does not migrate admin async video jobs, admin debug video, platform budget enforcement, OpenClaw/News Pulse visuals, or internal AI Worker video task routes.
+
+## Phase 3.9 Enforcement Guard
+
+Phase 3.9 is check/tooling only. It adds `config/ai-cost-policy-baseline.json` and strengthens `scripts/check-ai-cost-policy.mjs` so local validation fails on:
+
+- duplicate AI cost operation ids
+- duplicate known-gap baseline ids
+- missing baseline route/file references, unless a gap is explicitly marked external/internal-only
+- provider-call source files not represented by the operation registry or known-gap baseline
+- unbaselined route-policy gaps
+- member image, music, or video gateway regression from implemented idempotency/reservation/replay/credit/provider-suppression metadata
+
+The default guard passes with the current accepted admin/platform/internal/OpenClaw baseline. `--strict` remains deterministic and fails while any allowed baseline gaps remain, which makes it useful for a future phase after those gaps are closed.
+
+This phase does not change request handling, provider execution, credit debits, replay behavior, pricing, route policies at runtime, migrations, deploys, or live billing readiness.
 
 ## Route Adapter Responsibilities
 

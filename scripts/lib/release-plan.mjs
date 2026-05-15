@@ -63,6 +63,7 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run test:main-release-readiness",
   "npm run test:ai-cost-gateway",
   "npm run test:ai-cost-operations",
+  "npm run check:ai-cost-policy",
 ]);
 
 const WORKER_RECOMMENDED_CHECKS = Object.freeze([

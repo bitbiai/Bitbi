@@ -4,14 +4,103 @@ import os from "node:os";
 import path from "node:path";
 import {
   AI_COST_INVENTORY_DOC,
+  AI_COST_POLICY_BASELINE_PATH,
   ROUTE_POLICY_PATH,
   analyzeAiCostPolicy,
   parseAiCostPolicyArgs,
   renderAiCostPolicyReport,
 } from "./check-ai-cost-policy.mjs";
+import { AI_COST_OPERATION_REGISTRY } from "../workers/auth/src/lib/ai-cost-operations.js";
+
+const DEFAULT_BASELINE_GAPS = Object.freeze([
+  {
+    id: "admin-ai-baseline",
+    route: "/api/admin/ai/test-text",
+    routePolicyIds: [
+      "admin.ai.test-text",
+      "admin.ai.test-image",
+      "admin.ai.test-embeddings",
+      "admin.ai.test-music",
+      "admin.ai.test-video-debug",
+      "admin.ai.video-jobs.create",
+      "admin.ai.compare",
+      "admin.ai.live-agent",
+    ],
+    functions: ["proxyToAiLab", "proxyLiveAgentToAiLab"],
+    category: "admin",
+    reason: "Known admin provider-cost routes remain unmetered or partially covered pending platform budget policy.",
+    targetFuturePhase: "Phase 4.1 admin/platform budget policy design",
+    severity: "P2",
+    ownerDomain: "admin-ai",
+    providerCostBearing: true,
+    registryOperationIds: [
+      "admin.text.test",
+      "admin.image.test.unmetered",
+      "admin.embeddings.test",
+      "admin.music.test",
+      "admin.video.sync_debug",
+      "admin.video.job.create",
+      "admin.compare",
+      "admin.live_agent",
+    ],
+    coveredByRegistryMetadata: true,
+    allowedUnmigratedForNow: true,
+    external_or_internal_only: true,
+  },
+  {
+    id: "openclaw-baseline",
+    route: "/api/openclaw/news-pulse/ingest",
+    routePolicyIds: ["openclaw.news_pulse.ingest"],
+    functions: ["generateNewsPulseVisual"],
+    category: "background",
+    reason: "Known platform visual generation remains outside member/org billing pending platform budget policy.",
+    targetFuturePhase: "Phase 4.3 platform/background budget policy",
+    severity: "P2",
+    ownerDomain: "openclaw-news-pulse",
+    providerCostBearing: true,
+    registryOperationIds: ["platform.news_pulse.visual.ingest", "platform.news_pulse.visual.scheduled"],
+    coveredByRegistryMetadata: true,
+    allowedUnmigratedForNow: true,
+    external_or_internal_only: true,
+  },
+  {
+    id: "internal-ai-worker-baseline",
+    route: "/internal/ai/*",
+    functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
+    category: "internal",
+    reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
+    targetFuturePhase: "Phase 4.4 internal AI worker caller-contract hardening",
+    severity: "P2",
+    ownerDomain: "ai-worker",
+    providerCostBearing: true,
+    registryOperationIds: [
+      "internal.text.generate",
+      "internal.image.generate",
+      "internal.embeddings.generate",
+      "internal.music.generate",
+      "internal.video.generate",
+      "internal.video_task.create",
+      "internal.video_task.poll",
+      "internal.compare",
+      "internal.live_agent",
+    ],
+    coveredByRegistryMetadata: true,
+    allowedUnmigratedForNow: true,
+    external_or_internal_only: true,
+  },
+]);
+
+function writeBaseline(repoRoot, knownGaps = DEFAULT_BASELINE_GAPS) {
+  fs.mkdirSync(path.join(repoRoot, path.dirname(AI_COST_POLICY_BASELINE_PATH)), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, AI_COST_POLICY_BASELINE_PATH), JSON.stringify({
+    version: "test-ai-cost-policy-baseline",
+    knownGaps,
+  }, null, 2));
+}
 
 function makeRepo({ inventoryExtra = "", routePolicyExtra = "" } = {}) {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-ai-cost-policy-"));
+  writeBaseline(repoRoot);
   fs.mkdirSync(path.join(repoRoot, path.dirname(ROUTE_POLICY_PATH)), { recursive: true });
   fs.mkdirSync(path.join(repoRoot, path.dirname(AI_COST_INVENTORY_DOC)), { recursive: true });
   fs.mkdirSync(path.join(repoRoot, "workers/auth/src/routes/ai"), { recursive: true });
@@ -97,6 +186,8 @@ ${inventoryExtra}
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-video"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-image"));
   assert(result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
+  assert(result.knownPolicyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
+  assert.equal(result.unknownPolicyGaps.length, 0);
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
 }
 
@@ -105,6 +196,7 @@ ${inventoryExtra}
   const strict = analyzeAiCostPolicy(repoRoot, { strict: true });
   assert.equal(strict.ok, false);
   assert(strict.policyGaps.length > 0);
+  assert(strict.strictIssues.some((issue) => issue.includes("Strict mode rejects allowed baseline gap")));
 }
 
 {
@@ -114,6 +206,10 @@ ${inventoryExtra}
   const output = renderAiCostPolicyReport(analyzeAiCostPolicy(repoRoot));
   assert(!output.includes(secretValue));
   assert(output.includes("Registry summary:"));
+  assert(output.includes("Mode: baseline-enforced"));
+  assert(output.includes("Migrated member gateway routes:"));
+  assert(output.includes("Known baseline gaps:"));
+  assert(output.includes("Known baseline policy gaps:"));
   assert(output.includes("Member music gateway prep gaps:"));
   assert(output.includes("member.music.audio.generate"));
   assert(output.includes("member music parent gateway migration is represented in the registry"));
@@ -121,7 +217,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 3.9 should add an admin/platform AI cost telemetry"));
+  assert(output.includes("Phase 4.1 should choose either admin/platform budget policy design"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
 }
@@ -143,8 +239,65 @@ ${inventoryExtra}
   );
   const result = analyzeAiCostPolicy(repoRoot);
   assert(result.inventoryIssues.some((issue) => issue.includes("new-provider-cost-route.js")));
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
   assert.equal(analyzeAiCostPolicy(repoRoot, { strict: true }).ok, false);
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [
+    DEFAULT_BASELINE_GAPS[0],
+    {
+      ...DEFAULT_BASELINE_GAPS[0],
+      reason: "Duplicate fixture.",
+    },
+  ]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("Duplicate AI cost policy baseline id")));
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [{
+    ...DEFAULT_BASELINE_GAPS[0],
+    id: "bad-file-reference",
+    files: ["workers/auth/src/routes/missing-provider-cost-route.js"],
+    external_or_internal_only: false,
+  }]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("referenced file does not exist")));
+}
+
+{
+  const repoRoot = makeRepo();
+  const duplicatedRegistry = [
+    ...AI_COST_OPERATION_REGISTRY,
+    AI_COST_OPERATION_REGISTRY[0],
+  ];
+  const result = analyzeAiCostPolicy(repoRoot, { registryEntries: duplicatedRegistry });
+  assert.equal(result.ok, false);
+  assert(result.registryIssues.some((issue) => issue.includes("Duplicate AI cost operation id")));
+}
+
+{
+  const repoRoot = makeRepo();
+  const regressedRegistry = AI_COST_OPERATION_REGISTRY.map((entry) =>
+    entry.operationConfig?.operationId === "member.video.generate"
+      ? {
+        ...entry,
+        currentStatus: "missing",
+        currentEnforcement: {
+          ...entry.currentEnforcement,
+          reservation: "missing",
+        },
+      }
+      : entry
+  );
+  const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
+  assert.equal(result.ok, false);
+  assert(result.fatalIssues.some((issue) => issue.includes("member.video.generate")));
 }
 
 {

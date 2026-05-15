@@ -13,9 +13,18 @@ import {
 
 export const AI_COST_INVENTORY_DOC = "docs/ai-cost-gateway/AI_COST_ROUTE_INVENTORY.md";
 export const ROUTE_POLICY_PATH = "workers/auth/src/app/route-policy.js";
+export const AI_COST_POLICY_BASELINE_PATH = "config/ai-cost-policy-baseline.json";
 
 export const COST_POLICY_ROUTES = Object.freeze(getAiCostRoutePolicyBaselines());
 export const PROVIDER_CALL_SOURCE_FILES = Object.freeze(getAiCostProviderCallSourceFiles());
+
+const KNOWN_GAP_CATEGORIES = new Set(["admin", "platform", "internal", "background"]);
+const KNOWN_GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
+const MIGRATED_MEMBER_OPERATION_IDS = Object.freeze([
+  "member.image.generate",
+  "member.music.generate",
+  "member.video.generate",
+]);
 
 const PROVIDER_CALL_PATTERNS = Object.freeze([
   "env.AI.run",
@@ -31,8 +40,22 @@ function readFile(repoRoot, relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 
+function readJsonFile(repoRoot, relativePath) {
+  return JSON.parse(readFile(repoRoot, relativePath));
+}
+
 function normalizePathname(value) {
   return String(value || "").replace(/\\/g, "/").replace(/^\.?\//, "");
+}
+
+function asList(value) {
+  if (Array.isArray(value)) return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  const normalized = String(value || "").trim();
+  return normalized ? [normalized] : [];
+}
+
+function sortedUnique(values) {
+  return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))].sort();
 }
 
 function walkFiles(root, relativeDir, output = []) {
@@ -135,15 +158,221 @@ export function scanProviderCallSources(repoRoot) {
   return findings;
 }
 
+export function loadAiCostPolicyBaseline(repoRoot, baselinePath = AI_COST_POLICY_BASELINE_PATH) {
+  return readJsonFile(repoRoot, baselinePath);
+}
+
+function getBaselineFiles(item) {
+  return sortedUnique([...asList(item.file), ...asList(item.files)]);
+}
+
+function getBaselineRoutes(item) {
+  return sortedUnique([...asList(item.route), ...asList(item.routes)]);
+}
+
+function getBaselineRoutePolicyIds(item) {
+  return sortedUnique(asList(item.routePolicyIds));
+}
+
+function getBaselineOperationIds(item) {
+  return sortedUnique(asList(item.registryOperationIds));
+}
+
+function isExternalOnlyBaselineItem(item) {
+  return item?.external_or_internal_only === true || item?.externalOrInternalOnly === true;
+}
+
+function createKnownGapBaselineIndex(baseline) {
+  const byId = new Map();
+  const byFile = new Map();
+  const byRoute = new Map();
+  const byRoutePolicyId = new Map();
+  const byOperationId = new Map();
+  for (const item of baseline?.knownGaps || []) {
+    if (!item?.id) continue;
+    byId.set(item.id, item);
+    for (const file of getBaselineFiles(item)) byFile.set(file, item);
+    for (const route of getBaselineRoutes(item)) byRoute.set(route, item);
+    for (const routePolicyId of getBaselineRoutePolicyIds(item)) byRoutePolicyId.set(routePolicyId, item);
+    for (const operationId of getBaselineOperationIds(item)) byOperationId.set(operationId, item);
+  }
+  return Object.freeze({
+    byId,
+    byFile,
+    byRoute,
+    byRoutePolicyId,
+    byOperationId,
+  });
+}
+
+function routeReferenceExists(route, { routePolicyText, inventoryText, registryEntries }) {
+  if (!route || route.includes("*")) return true;
+  if (routePolicyText.includes(route) || inventoryText.includes(route)) return true;
+  return registryEntries.some((entry) => entry.operationConfig?.routePath === route);
+}
+
+export function validateAiCostPolicyBaseline(repoRoot, {
+  baseline,
+  routePolicyText = "",
+  inventoryText = "",
+  registryEntries = AI_COST_OPERATION_REGISTRY,
+} = {}) {
+  const issues = [];
+  const knownGaps = baseline?.knownGaps;
+  const operationIds = new Set(registryEntries.map((entry) => entry.operationConfig?.operationId).filter(Boolean));
+  const seenIds = new Set();
+
+  if (!baseline || typeof baseline !== "object") {
+    return ["AI cost policy baseline must be a JSON object."];
+  }
+  if (!baseline.version || typeof baseline.version !== "string") {
+    issues.push("AI cost policy baseline is missing version.");
+  }
+  if (!Array.isArray(knownGaps)) {
+    issues.push("AI cost policy baseline knownGaps must be an array.");
+    return issues;
+  }
+
+  for (const item of knownGaps) {
+    if (!item || typeof item !== "object") {
+      issues.push("AI cost policy baseline item must be an object.");
+      continue;
+    }
+    const id = String(item.id || "").trim();
+    if (!id) {
+      issues.push("AI cost policy baseline item is missing id.");
+    } else if (seenIds.has(id)) {
+      issues.push(`Duplicate AI cost policy baseline id "${id}".`);
+    } else {
+      seenIds.add(id);
+    }
+
+    if (!KNOWN_GAP_CATEGORIES.has(item.category)) {
+      issues.push(`${id || "unknown"}: invalid baseline category "${item.category}".`);
+    }
+    if (!KNOWN_GAP_SEVERITIES.has(item.severity)) {
+      issues.push(`${id || "unknown"}: invalid baseline severity "${item.severity}".`);
+    }
+    if (!item.reason || typeof item.reason !== "string") {
+      issues.push(`${id || "unknown"}: missing baseline reason.`);
+    }
+    if (!item.targetFuturePhase || typeof item.targetFuturePhase !== "string") {
+      issues.push(`${id || "unknown"}: missing targetFuturePhase.`);
+    }
+    if (!item.ownerDomain || typeof item.ownerDomain !== "string") {
+      issues.push(`${id || "unknown"}: missing ownerDomain.`);
+    }
+    if (typeof item.providerCostBearing !== "boolean") {
+      issues.push(`${id || "unknown"}: providerCostBearing must be boolean.`);
+    }
+    if (typeof item.coveredByRegistryMetadata !== "boolean") {
+      issues.push(`${id || "unknown"}: coveredByRegistryMetadata must be boolean.`);
+    }
+    if (typeof item.allowedUnmigratedForNow !== "boolean") {
+      issues.push(`${id || "unknown"}: allowedUnmigratedForNow must be boolean.`);
+    }
+    if (item.category === "member") {
+      issues.push(`${id || "unknown"}: member provider-cost routes must not be accepted as known gaps.`);
+    }
+
+    const files = getBaselineFiles(item);
+    const routes = getBaselineRoutes(item);
+    const functions = sortedUnique(asList(item.functions));
+    const routePolicyIds = getBaselineRoutePolicyIds(item);
+    const itemOperationIds = getBaselineOperationIds(item);
+    if (files.length === 0 && routes.length === 0 && functions.length === 0 && routePolicyIds.length === 0) {
+      issues.push(`${id || "unknown"}: baseline item must reference at least one route, file, function, or route policy id.`);
+    }
+    if (item.providerCostBearing && item.coveredByRegistryMetadata !== true) {
+      issues.push(`${id || "unknown"}: provider-cost baseline gaps must be covered by registry metadata.`);
+    }
+    if (item.coveredByRegistryMetadata && itemOperationIds.length === 0) {
+      issues.push(`${id || "unknown"}: coveredByRegistryMetadata=true requires registryOperationIds.`);
+    }
+    for (const operationId of itemOperationIds) {
+      if (MIGRATED_MEMBER_OPERATION_IDS.includes(operationId)) {
+        issues.push(`${id || "unknown"}: migrated member operation "${operationId}" must not be baselined as a gap.`);
+      }
+      if (!operationIds.has(operationId)) {
+        issues.push(`${id || "unknown"}: registryOperationId "${operationId}" does not exist.`);
+      }
+    }
+
+    if (!isExternalOnlyBaselineItem(item)) {
+      for (const file of files) {
+        if (!fs.existsSync(path.join(repoRoot, file))) {
+          issues.push(`${id || "unknown"}: referenced file does not exist: ${file}`);
+        }
+      }
+      for (const route of routes) {
+        if (!routeReferenceExists(route, { routePolicyText, inventoryText, registryEntries })) {
+          issues.push(`${id || "unknown"}: referenced route is not present in route policy, inventory, or registry: ${route}`);
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+function findKnownGapForPolicyGap(baselineIndex, gap) {
+  return baselineIndex.byRoutePolicyId.get(gap.route)
+    || baselineIndex.byRoute.get(gap.path)
+    || baselineIndex.byOperationId.get(gap.operationId)
+    || null;
+}
+
+function findKnownGapForProviderSource(baselineIndex, finding) {
+  return baselineIndex.byFile.get(finding.file) || null;
+}
+
+function validateMigratedMemberGatewayCoverage({ routePolicyText, registryEntries, routes }) {
+  const issues = [];
+  for (const operationId of MIGRATED_MEMBER_OPERATION_IDS) {
+    const entry = registryEntries.find((candidate) => candidate.operationConfig?.operationId === operationId);
+    if (!entry) {
+      issues.push(`Migrated member gateway operation is missing from registry: ${operationId}.`);
+      continue;
+    }
+    if (entry.currentStatus !== "implemented") {
+      issues.push(`${operationId}: currentStatus must remain implemented.`);
+    }
+    for (const field of ["idempotency", "reservation", "replay", "creditCheck", "providerSuppression"]) {
+      if (entry.currentEnforcement?.[field] !== "implemented") {
+        issues.push(`${operationId}: currentEnforcement.${field} must remain implemented.`);
+      }
+    }
+    const routePolicyId = entry.routePolicy?.id;
+    if (!routePolicyId) {
+      issues.push(`${operationId}: migrated member operation must include routePolicy metadata.`);
+      continue;
+    }
+    const routeRecord = routes.find((route) => route.id === routePolicyId);
+    const snippet = findPolicySnippet(routePolicyText, routePolicyId);
+    const actualIdempotency = routeRecord?.actualIdempotency || classifyIdempotency(snippet);
+    if (actualIdempotency !== "required") {
+      issues.push(`${operationId}: route policy ${routePolicyId} must require idempotency.`);
+    }
+  }
+  return issues;
+}
+
 export function analyzeAiCostPolicy(repoRoot, options = {}) {
   const strict = options.strict === true;
   const fatalIssues = [];
   const policyGaps = [];
+  const knownPolicyGaps = [];
+  const unknownPolicyGaps = [];
   const inventoryIssues = [];
-  const registryIssues = validateAiCostOperationRegistry();
-  const registrySummary = summarizeAiCostOperationRegistry();
+  const unknownProviderSources = [];
+  const registryEntries = options.registryEntries || AI_COST_OPERATION_REGISTRY;
+  const registryIssues = validateAiCostOperationRegistry(registryEntries);
+  const registrySummary = summarizeAiCostOperationRegistry(registryEntries);
   const routePolicyPath = options.routePolicyPath || ROUTE_POLICY_PATH;
   const inventoryPath = options.inventoryPath || AI_COST_INVENTORY_DOC;
+  const baselinePath = options.baselinePath || AI_COST_POLICY_BASELINE_PATH;
+  const routesToCheck = Object.freeze(getAiCostRoutePolicyBaselines(registryEntries));
+  const providerCallSourceFiles = Object.freeze(getAiCostProviderCallSourceFiles(registryEntries));
 
   for (const issue of registryIssues) {
     fatalIssues.push(`AI cost operation registry issue: ${issue}`);
@@ -163,9 +392,28 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
     fatalIssues.push(`Missing or unreadable AI cost inventory document: ${inventoryPath}`);
   }
 
+  let baseline = null;
+  let baselineIndex = createKnownGapBaselineIndex({ knownGaps: [] });
+  let baselineIssues = [];
+  try {
+    baseline = options.baseline || loadAiCostPolicyBaseline(repoRoot, baselinePath);
+    baselineIndex = createKnownGapBaselineIndex(baseline);
+    baselineIssues = validateAiCostPolicyBaseline(repoRoot, {
+      baseline,
+      routePolicyText,
+      inventoryText,
+      registryEntries,
+    });
+    for (const issue of baselineIssues) {
+      fatalIssues.push(`AI cost policy baseline issue: ${issue}`);
+    }
+  } catch (error) {
+    fatalIssues.push(`Missing or unreadable AI cost policy baseline: ${baselinePath} (${error.message})`);
+  }
+
   const routes = [];
   if (routePolicyText) {
-    for (const route of COST_POLICY_ROUTES) {
+    for (const route of routesToCheck) {
       const snippet = findPolicySnippet(routePolicyText, route.id);
       const actualIdempotency = classifyIdempotency(snippet);
       const inInventory = inventoryText.includes(route.path)
@@ -185,33 +433,74 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
         inventoryIssues.push(`Inventory is missing route ${route.id} (${route.path}).`);
       }
       if (isPolicyGap(route, actualIdempotency)) {
-        policyGaps.push({
+        const gap = {
           route: route.id,
           path: route.path,
+          operationId: route.operationId,
           expected: route.expected,
           actual: actualIdempotency,
           classification: route.classification,
           notes: route.notes || null,
-        });
+        };
+        policyGaps.push(gap);
+        const knownGap = findKnownGapForPolicyGap(baselineIndex, gap);
+        if (knownGap?.allowedUnmigratedForNow) {
+          knownPolicyGaps.push({
+            ...gap,
+            baselineId: knownGap.id,
+          });
+        } else {
+          unknownPolicyGaps.push(gap);
+        }
       }
     }
   }
 
   const providerSourceFindings = scanProviderCallSources(repoRoot);
   for (const finding of providerSourceFindings) {
-    if (finding.inventoried) continue;
-    inventoryIssues.push(
-      `Provider-call source file is not represented in the baseline inventory: ${finding.file}`
-    );
+    const inventoried = providerCallSourceFiles.includes(finding.file);
+    const knownGap = findKnownGapForProviderSource(baselineIndex, finding);
+    finding.inventoried = inventoried;
+    finding.baselineId = knownGap?.id || null;
+    if (inventoried || knownGap?.allowedUnmigratedForNow) continue;
+    const issue = `Provider-call source file is not represented in the operation registry or known-gap baseline: ${finding.file}`;
+    inventoryIssues.push(issue);
+    unknownProviderSources.push(finding);
+    fatalIssues.push(issue);
   }
 
-  const ok = fatalIssues.length === 0 && (!strict || (policyGaps.length === 0 && inventoryIssues.length === 0));
+  const memberGatewayIssues = routePolicyText
+    ? validateMigratedMemberGatewayCoverage({ routePolicyText, registryEntries, routes })
+    : [];
+  for (const issue of memberGatewayIssues) {
+    fatalIssues.push(`Member gateway enforcement issue: ${issue}`);
+  }
+  for (const gap of unknownPolicyGaps) {
+    fatalIssues.push(`Unbaselined AI cost policy gap: ${gap.route} (${gap.path}).`);
+  }
+
+  const strictIssues = strict
+    ? [
+      ...knownPolicyGaps.map((gap) => `Strict mode rejects known baseline policy gap ${gap.baselineId}: ${gap.route}.`),
+      ...(baseline?.knownGaps || [])
+        .filter((item) => item?.allowedUnmigratedForNow)
+        .map((item) => `Strict mode rejects allowed baseline gap ${item.id}.`),
+    ]
+    : [];
+
+  const ok = fatalIssues.length === 0 && strictIssues.length === 0;
   return {
     ok,
     strict,
     fatalIssues,
+    strictIssues,
     policyGaps,
+    knownPolicyGaps,
+    unknownPolicyGaps,
     inventoryIssues,
+    unknownProviderSources,
+    baseline,
+    baselineIssues,
     registryIssues,
     registrySummary,
     routes,
@@ -293,14 +582,19 @@ export function renderAiCostPolicyReport(result) {
     : "None";
   const providerSummary = result.providerSourceFindings
     .map((finding) => {
-      const status = finding.inventoried ? "inventoried" : "not-in-inventory";
+      const status = finding.inventoried
+        ? "inventoried"
+        : finding.baselineId
+          ? `known-baseline-gap:${finding.baselineId}`
+          : "unknown";
       return `- ${finding.file}: ${status} (${finding.patterns.join(", ")})`;
     })
     .join("\n") || "- None";
+  const knownBaselineGaps = result.baseline?.knownGaps || [];
 
   return [
     "AI cost policy check",
-    `Mode: ${result.strict ? "strict" : "report-only"}`,
+    `Mode: ${result.strict ? "strict" : "baseline-enforced"}`,
     `Result: ${result.ok ? "PASS" : "FAIL"}`,
     "",
     "Registry summary:",
@@ -316,8 +610,21 @@ export function renderAiCostPolicyReport(result) {
     `- Platform budget review operations: ${result.registrySummary.platformBudgetReviewOperations}`,
     `- Highest-risk operations: ${highRisk}`,
     "",
+    "Migrated member gateway routes:",
+    "- POST /api/ai/generate-image member personal path: gateway-migrated",
+    "- POST /api/ai/generate-music: gateway-migrated",
+    "- POST /api/ai/generate-video: gateway-migrated",
+    "",
+    "Known baseline gaps:",
+    formatList(knownBaselineGaps, (gap) =>
+      `- ${gap.id}: ${gap.category}; ${gap.severity}; target ${gap.targetFuturePhase}; registry=${gap.coveredByRegistryMetadata ? "covered" : "missing"}; allowed=${gap.allowedUnmigratedForNow ? "yes" : "no"}`
+    ),
+    "",
     "Registry issues:",
     formatList(result.registryIssues, (issue) => `- ${issue}`),
+    "",
+    "Baseline issues:",
+    formatList(result.baselineIssues || [], (issue) => `- ${issue}`),
     "",
     "Member music gateway prep gaps:",
     renderMemberMusicGatewayPrep(summarizeMemberMusicGatewayPrep()),
@@ -325,19 +632,37 @@ export function renderAiCostPolicyReport(result) {
     "Fatal issues:",
     formatList(result.fatalIssues, (issue) => `- ${issue}`),
     "",
+    "Strict-mode issues:",
+    formatList(result.strictIssues || [], (issue) => `- ${issue}`),
+    "",
     "Current policy gaps:",
     formatList(result.policyGaps, (gap) =>
       `- ${gap.route} (${gap.path}): expected ${gap.expected}, route-policy currently ${gap.actual}; ${gap.classification}${gap.notes ? `; ${gap.notes}` : ""}`
     ),
     "",
+    "Known baseline policy gaps:",
+    formatList(result.knownPolicyGaps || [], (gap) =>
+      `- ${gap.route} (${gap.path}): baseline ${gap.baselineId}; expected ${gap.expected}, actual ${gap.actual}`
+    ),
+    "",
+    "Unknown policy gaps:",
+    formatList(result.unknownPolicyGaps || [], (gap) =>
+      `- ${gap.route} (${gap.path}): expected ${gap.expected}, actual ${gap.actual}`
+    ),
+    "",
     "Inventory issues:",
     formatList(result.inventoryIssues, (issue) => `- ${issue}`),
+    "",
+    "Unknown provider-call sources:",
+    formatList(result.unknownProviderSources || [], (finding) =>
+      `- ${finding.file}: ${finding.patterns.join(", ")}`
+    ),
     "",
     "Provider-call source scan:",
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 3.9 should add an admin/platform AI cost telemetry and route-metadata guard while preserving the migrated member image/music/video gateway invariants.",
+    "- Phase 4.1 should choose either admin/platform budget policy design or one narrow admin/provider-cost migration while preserving the migrated member image/music/video gateway invariants.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");
@@ -360,10 +685,10 @@ function printUsage() {
   console.log(`Usage: node scripts/check-ai-cost-policy.mjs [options]
 
 Options:
-  --strict   Fail on current policy gaps and inventory issues.
+  --strict   Also fail on known baseline gaps; intended for future use once the baseline is empty.
   --help     Show this help.
 
-Default mode is report-only. The command never calls AI providers, reads secret values, deploys, runs remote migrations, or mutates Cloudflare/Stripe/GitHub resources.`);
+Default mode enforces the known-gap baseline: unregistered provider-cost sources, member route regressions, duplicate registry/baseline ids, and unbaselined policy gaps fail. The command never calls AI providers, reads secret values, deploys, runs remote migrations, or mutates Cloudflare/Stripe/GitHub resources.`);
 }
 
 async function main() {

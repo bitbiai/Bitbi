@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 3.8 member video gateway migration. Phase 3.1 added design and inventory. Phase 3.2 added the gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the report-only policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposed member music into parent, lyrics, audio, and cover operations. Phase 3.6 migrates only member music generation to the AI Cost Gateway. Phase 3.7 hardens replay/result metadata, replay-unavailable behavior, cover status writeback, finalization edge cases, and scheduled cleanup for already migrated member image/music flows. Phase 3.8 migrates only member video generation to the same member gateway foundation. It does not migrate admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, internal AI Worker routes directly, org-scoped routes, Stripe, deployment, or public pricing.
+Status: Phase 3.9 AI Cost Gateway enforcement guard and known-gap baseline. Phase 3.1 added design and inventory. Phase 3.2 added the gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposed member music into parent, lyrics, audio, and cover operations. Phase 3.6 migrates only member music generation to the AI Cost Gateway. Phase 3.7 hardens replay/result metadata, replay-unavailable behavior, cover status writeback, finalization edge cases, and scheduled cleanup for already migrated member image/music flows. Phase 3.8 migrates only member video generation to the same member gateway foundation. Phase 3.9 adds `config/ai-cost-policy-baseline.json` and makes `npm run check:ai-cost-policy` fail on unbaselined provider-cost drift while allowing explicitly documented admin/platform/internal/OpenClaw gaps. It does not change runtime route behavior, migrate admin video jobs, migrate admin AI, migrate platform/background AI, migrate OpenClaw/News Pulse, migrate internal AI Worker routes directly, change org-scoped routes, call Stripe/providers, deploy, or change public pricing.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -35,6 +35,7 @@ The current code already has important foundations:
 - Member video generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before PixVerse/HappyHorse provider work, suppresses same-key duplicate provider execution, debits exactly once after durable video asset persistence, returns safe durable-asset replay metadata when available, and returns replay-unavailable without provider re-execution or double debit when the saved result is missing.
 - Admin AI Lab text/music/video/compare/live-agent routes are admin-only but generally uncharged and do not use a shared cost lifecycle.
 - News Pulse visual generation and generated music cover creation can call AI providers outside the member billing lifecycle.
+- `config/ai-cost-policy-baseline.json` explicitly lists the remaining accepted-for-now admin, platform/background, OpenClaw, and internal AI Worker provider-cost gaps. New provider-cost source files, unregistered operations, duplicate registry/baseline ids, and member image/music/video regressions now fail the local policy check by default.
 
 Phase 3.2 adds:
 
@@ -122,9 +123,20 @@ Phase 3.8 adds:
 
 It changes only member video generation behavior. It does not call real providers in tests, add a migration, change public pricing, migrate admin video jobs/admin/platform/internal/OpenClaw routes, call Stripe, deploy, or prove production/live billing readiness.
 
+Phase 3.9 adds:
+
+- `config/ai-cost-policy-baseline.json`
+- baseline validation for duplicate ids, missing route/file references, registry coverage, and invalid known-gap metadata
+- default `check:ai-cost-policy` enforcement that passes only when current gaps match the known baseline
+- unregistered provider-call source detection that fails in default mode
+- migrated member route regression checks for member image, member music, and member video
+- release preflight integration for the default local guard
+
+It is validation/check/tooling/documentation only. It does not change route behavior, debit behavior, provider routing, pricing, migrations, deploys, admin/platform/internal route behavior, or live billing readiness.
+
 ## Current Non-Goals
 
-Phase 3.8 does not:
+Phase 3.9 does not:
 
 - migrate admin video jobs
 - migrate admin AI routes
@@ -147,15 +159,16 @@ Phase 3.8 does not:
 - `AI_COST_GATEWAY_ROADMAP.md` splits future implementation into small, reviewable phases.
 - `MEMBER_MUSIC_COST_DECOMPOSITION.md` decomposes member music provider-cost sub-operations and target failure/replay semantics.
 - `workers/auth/src/lib/ai-cost-operations.js` records the Phase 3.3 operation registry and the member image/music/video gateway status.
+- `config/ai-cost-policy-baseline.json` records the Phase 3.9 accepted-for-now admin/platform/internal/OpenClaw known gaps.
 
 ## Local Check
 
-`npm run check:ai-cost-policy` is a report-only local inventory guard. It validates the Phase 3.3 operation registry, scans route-policy metadata, checks known AI provider-call source files, and compares against the inventory document. It does not call providers, read secrets, deploy, migrate, or mutate local/remote state.
+`npm run check:ai-cost-policy` is now a local enforcement guard. It validates the Phase 3.3 operation registry, validates the Phase 3.9 known-gap baseline, scans route-policy metadata, checks AI provider-call source files, compares against the inventory document, and fails on unbaselined provider-cost drift or migrated member-route regressions. It does not call providers, read secrets, deploy, migrate, or mutate local/remote state.
 
 `npm run test:ai-cost-gateway` runs deterministic unit tests for the Phase 3.2 contract helpers. It does not call providers, read secrets, deploy, migrate, use D1/R2, or mutate local/remote state.
 
 `npm run test:ai-cost-operations` validates the Phase 3.3 registry baseline, uniqueness, target config normalization, deterministic summary counts, source-file coverage, duplicate detection, and no external calls.
 
-The check intentionally reports current gaps without failing by default. It now treats member personal image generation, member music generation, and member video generation as gateway-covered, records Phase 3.7 cover-status/replay/finalization hardening, and continues to report admin, platform/background, OpenClaw, and internal AI Worker gaps.
+The check intentionally allows current admin, platform/background, OpenClaw, and internal AI Worker gaps only when they match `config/ai-cost-policy-baseline.json`. Member personal image generation, member music generation, and member video generation are gateway-covered and must not regress to missing idempotency, reservation, replay, credit check, or provider suppression.
 
-Next implementation phase: Phase 3.9 should add an admin/platform AI cost telemetry and route-metadata guard while preserving the migrated member image/music/video gateway invariants. Production/live billing remains blocked until operator evidence is complete and reviewed.
+Next implementation phase: Phase 4.1 or Phase 3.10 should choose either admin/platform budget policy design or one narrow admin/provider-cost migration while preserving the migrated member image/music/video gateway invariants. Production/live billing remains blocked until operator evidence is complete and reviewed.

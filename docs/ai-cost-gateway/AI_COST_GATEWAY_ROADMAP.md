@@ -374,7 +374,55 @@ Non-goals:
 
 - No admin async video rewrite, no admin/platform/internal/OpenClaw migration, no public pricing change, no Stripe work.
 
-## Phase 3.9: Normalize Admin AI Provider-Cost Behavior
+## Phase 3.9: Enforcement Guard And Known-Gap Baseline
+
+Status: completed for validation/check/tooling/docs only. No runtime route behavior changed.
+
+Scope:
+
+- Add `config/ai-cost-policy-baseline.json` for accepted-for-now admin/platform/background/OpenClaw/internal AI cost gaps.
+- Make default `npm run check:ai-cost-policy` fail when a new provider-cost source file appears without registry metadata or baseline coverage.
+- Validate duplicate registry ids, duplicate baseline ids, missing baseline file/route references, member gateway regressions, and unbaselined route-policy gaps.
+- Keep strict `--strict` behavior deterministic for future use when all baseline gaps are resolved.
+- Add the default local guard to release preflight.
+
+Files touched:
+
+- `config/ai-cost-policy-baseline.json`
+- `scripts/check-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-policy.mjs`
+- `scripts/lib/release-plan.mjs`
+- docs under `docs/ai-cost-gateway/` and current-state docs
+
+Tests:
+
+- baseline loads and validates
+- duplicate baseline ids fail
+- duplicate registry ids fail
+- member image/music/video are not reported as gaps
+- member image/music/video regression fixtures fail
+- known admin/platform/internal gaps pass in default mode
+- unknown provider-cost source fixture fails
+- strict mode fails deterministically while baseline gaps remain
+- no external provider or secret access
+
+Rollback:
+
+- Revert baseline/check/release-preflight integration. No route behavior, schema, ledger, or provider state depends on Phase 3.9.
+
+Deploy units:
+
+- Validation-only by behavior. No Worker deploy is needed unless unrelated runtime files remain in the working tree.
+
+Migration risk:
+
+- None. No schema was added.
+
+Non-goals:
+
+- No admin AI migration, no platform budget runtime enforcement, no internal AI Worker migration, no public pricing change, no Stripe work.
+
+## Phase 4.1: Admin/Platform Provider-Cost Budget Policy Design
 
 Scope:
 
@@ -414,7 +462,7 @@ Non-goals:
 
 - No public/member changes.
 
-## Phase 3.10: Broader Provider Replay And Result Cache Hardening
+## Phase 4.2: Broader Provider Replay And Result Cache Hardening
 
 Scope:
 
@@ -453,7 +501,7 @@ Non-goals:
 
 - No destructive cleanup expansion.
 
-## Phase 3.11: Cost Telemetry And Admin Cost Dashboard
+## Phase 4.3: Cost Telemetry And Admin Cost Dashboard
 
 Scope:
 
@@ -492,12 +540,21 @@ Non-goals:
 
 - No automated provider budget shutdown until separately approved.
 
-## Phase 3.12: Policy Enforcement Guard
+## Historical Superseded Item: Policy Enforcement Guard
 
-Scope:
+Status: superseded by completed Phase 3.9. Keep this section only as historical roadmap context.
+
+Original scope:
 
 - Turn `check:ai-cost-policy` from report-only into an enforcement guard for new provider-cost routes.
 - Require inventory metadata and gateway operation config for every new provider-call path.
+
+Current state:
+
+- Phase 3.9 has implemented the local default guard with `config/ai-cost-policy-baseline.json`.
+- Current default behavior passes only when known admin/platform/internal/OpenClaw gaps match the baseline.
+- New provider-cost sources, member image/music/video regressions, duplicate registry/baseline ids, and missing baseline references fail local validation.
+- Strict mode remains available for future use when accepted baseline gaps are removed.
 
 Likely files:
 
@@ -506,7 +563,7 @@ Likely files:
 - `workers/auth/src/app/route-policy.js`
 - release preflight plan
 
-Tests:
+Historical tests:
 
 - fixture route with provider call but missing gateway metadata fails
 - fixture route with optional idempotency fails when marked member-cost-bearing
@@ -514,7 +571,7 @@ Tests:
 
 Rollback:
 
-- Return guard to report-only while preserving docs.
+- Revert Phase 3.9 baseline/check/preflight integration. Do not return to silent provider-cost drift.
 
 Deploy units:
 
