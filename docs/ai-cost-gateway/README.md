@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 3.3 operation registry and report-only baseline. Phase 3.1 added design and inventory. Phase 3.2 added an unused gateway contract/helper module and deterministic tests. Phase 3.3 adds a central operation registry for known AI provider-cost operations and strengthens the report-only policy check. It does not change runtime AI charging behavior, provider routing, credit debits, reservations, replay, billing, migrations, deployment, or public pricing.
+Status: Phase 3.4 member personal image AI Cost Gateway pilot. Phase 3.1 added design and inventory. Phase 3.2 added the gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the report-only policy check. Phase 3.4 uses that foundation only for member personal image generation; it does not migrate music, video, admin AI, platform/background AI, internal AI Worker routes, org-scoped routes, Stripe, deployment, or public pricing.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -30,7 +30,8 @@ The current code already has important foundations:
 - `workers/auth/src/lib/ai-usage-attempts.js` implements reservation, provider-running, provider-failed, finalizing, billing-failed, succeeded, expiry, and replay metadata states for org-scoped usage attempts.
 - Org-scoped `/api/ai/generate-image` and `/api/ai/generate-text` require idempotency and use usage-attempt reservation/replay behavior.
 - Chargeable Admin AI image tests use org credits and `ai_usage_attempts`.
-- Member image/music/video routes check credits before provider execution and charge after success, but member idempotency is not mandatory and provider execution is not uniformly suppressed on retries.
+- Member personal image generation now requires `Idempotency-Key`, reserves member credits before provider execution, suppresses same-key duplicate provider calls, replays safe stored temporary image metadata when available, debits once after provider success, and releases/no-charges on provider failure.
+- Member music/video routes check credits before provider execution and charge after success, but member idempotency is not mandatory and provider execution is not uniformly suppressed on retries.
 - Admin AI Lab text/music/video/compare/live-agent routes are admin-only but generally uncharged and do not use a shared cost lifecycle.
 - News Pulse visual generation and generated music cover creation can call AI providers outside the member billing lifecycle.
 
@@ -53,31 +54,40 @@ Phase 3.3 adds:
 - current enforcement metadata for idempotency, reservation, replay, credit checks, and provider-call suppression
 - route-policy and provider-call source baselines for the report-only checker
 
-The registry is not imported by any live route yet.
+The registry is now imported by the Phase 3.4 member personal image pilot only.
 
-## Phase 3.1 / 3.2 / 3.3 Non-Goals
+Phase 3.4 adds:
 
-These phases do not:
+- `workers/auth/src/lib/member-ai-usage-attempts.js`
+- `workers/auth/migrations/0048_add_member_ai_usage_attempts.sql`
+- member personal image gateway wiring in `workers/auth/src/lib/ai-usage-policy.js` and `workers/auth/src/routes/ai/images-write.js`
+- focused Worker tests for required idempotency, insufficient-credit fail-before-provider, provider-failure no-charge, same-key replay/no duplicate provider call, conflict behavior, safe metadata, and org/admin compatibility
 
-- require idempotency on any runtime route
-- add new reservations
-- suppress provider calls
-- add replay/cache behavior
-- change credit debit behavior
+The migration is additive and must be applied by an operator before deploying auth Worker code that depends on the member image pilot.
+
+## Phase 3.4 Non-Goals
+
+Phase 3.4 does not:
+
+- migrate music routes
+- migrate video routes
+- migrate admin AI routes
+- migrate platform/background AI routes
+- migrate internal AI Worker routes
+- change org-scoped image/text behavior
 - change model routing
-- add migrations
+- change public pricing
 - call AI providers
 - call Stripe APIs
-- change public billing or pricing
 - deploy anything
-- approve production or live billing readiness
+- approve production, full AI cost readiness, or live billing readiness
 
 ## Documents
 
 - `AI_COST_ROUTE_INVENTORY.md` records known provider-cost routes and current idempotency/reservation/replay/credit behavior.
 - `AI_COST_GATEWAY_DESIGN.md` defines the target gateway lifecycle and route adapter contract.
 - `AI_COST_GATEWAY_ROADMAP.md` splits future implementation into small, reviewable phases.
-- `workers/auth/src/lib/ai-cost-operations.js` records the Phase 3.3 report-only operation registry.
+- `workers/auth/src/lib/ai-cost-operations.js` records the Phase 3.3 operation registry and the Phase 3.4 member-image pilot status.
 
 ## Local Check
 
@@ -87,6 +97,6 @@ These phases do not:
 
 `npm run test:ai-cost-operations` validates the Phase 3.3 registry baseline, uniqueness, target config normalization, deterministic summary counts, source-file coverage, duplicate detection, and no external calls.
 
-The check intentionally reports current gaps without failing by default. A future enforcement phase can move selected rules to strict mode after the gateway contract exists and routes are migrated.
+The check intentionally reports current gaps without failing by default. It now treats member personal image generation as pilot-covered and continues to report member music/video, admin, platform/background, and internal AI Worker gaps.
 
-Next implementation phase: Phase 3.4 should migrate exactly one low-risk route, preferably member personal image generation, unless local evidence shows another route is safer.
+Next implementation phase: Phase 3.5 should migrate member music generation in a narrow PR, accounting for lyrics/music/cover sub-operations under one explicit policy.

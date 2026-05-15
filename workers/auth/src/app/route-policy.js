@@ -589,7 +589,7 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       mode: "optional-organization-context",
       feature: "ai.image.generate",
-      idempotency: "required when organization_id is supplied; provider execution is guarded by ai_usage_attempts",
+      idempotency: "required for member personal and organization-scoped provider-cost image generation; member personal provider execution is guarded by member_ai_usage_attempts and organization provider execution is guarded by ai_usage_attempts",
     },
   }),
   userJsonWrite("ai.generate-text", "POST", "/api/ai/generate-text", "ai-studio", "aiGenerateJson", "ai-generate-text-user", {

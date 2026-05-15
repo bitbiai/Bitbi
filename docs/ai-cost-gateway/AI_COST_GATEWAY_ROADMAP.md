@@ -96,6 +96,8 @@ Non-goals:
 
 ## Phase 3.4: Migrate Member Personal Image
 
+Status: completed for the pilot route only.
+
 Scope:
 
 - Migrate member image generation personal mode to mandatory idempotency and pre-provider reservation, while preserving org-scoped behavior.
@@ -106,34 +108,37 @@ Likely files:
 - `workers/auth/src/routes/ai/images-write.js`
 - `workers/auth/src/lib/ai-cost-gateway.js`
 - `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/lib/member-ai-usage-attempts.js`
+- `workers/auth/migrations/0048_add_member_ai_usage_attempts.sql`
 - `workers/auth/src/lib/ai-usage-policy.js`
 - `tests/workers.spec.js`
 - frontend idempotency callers if they do not already send keys
 
 Tests:
 
-- missing `Idempotency-Key` fails before provider
-- same-key same-body duplicate does not call provider twice
+- missing/malformed `Idempotency-Key` fails before provider
+- insufficient credits fail before provider
+- same-key same-body duplicate does not call provider twice and does not debit twice
 - same-key different-body conflicts
 - provider failure releases/no charge
 - billing failure does not persist/return uncharged result
-- org-scoped image tests still pass
+- org-scoped image and admin legacy image tests still pass
 
 Rollback:
 
-- Restore previous member-image adapter path while leaving gateway module and registry unused.
+- Restore previous member-image adapter path or feature-disable the member personal image route while leaving the additive `0048` table idle. Do not delete member attempt or ledger rows during rollback.
 
 Deploy units:
 
-- Auth Worker and static/pages if frontend idempotency generation changes.
+- Auth Worker. Static/pages only if frontend idempotency generation changes.
 
 Migration risk:
 
-- Prefer existing `ai_usage_attempts`. If schema gap is found, stop and propose an additive migration.
+- Additive migration `0048_add_member_ai_usage_attempts.sql` is required because existing `ai_usage_attempts` is organization-scoped and cannot safely represent member-credit reservations.
 
 Non-goals:
 
-- No music/video migration, no pricing changes.
+- No music/video migration, no admin AI migration, no platform/background AI migration, no internal AI Worker migration, no org-scoped route migration, no pricing changes.
 
 ## Phase 3.5: Migrate Member Music
 

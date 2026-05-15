@@ -4,7 +4,7 @@ Last updated: 2026-05-15
 
 Current status: **production readiness is BLOCKED**. Live billing readiness is also **BLOCKED**.
 
-The latest auth D1 migration declared by `config/release-compat.json` is `0047_add_member_subscriptions_and_credit_buckets.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
+The latest auth D1 migration declared by `config/release-compat.json` is `0048_add_member_ai_usage_attempts.sql`. This document defines the evidence required before any staging-ready, canary-ready, production-ready, or live-billing-ready claim. It does not authorize deployment, remote migrations, Cloudflare changes, Stripe changes, DNS/WAF edits, secret changes, or dashboard mutations.
 
 ## Evidence Rule
 
@@ -20,7 +20,7 @@ Use `docs/production-readiness/EVIDENCE_TEMPLATE.md` for the evidence pack. The 
 | --- | --- | --- | --- | --- |
 | Repo baseline: branch, commit, worktree, release latest migration | Repo maintainer | Local repo | None | No secrets involved. |
 | Local release checks | Repo maintainer | Local repo / CI | None | Commands must not print secrets. |
-| Auth D1 migration status through `0047_add_member_subscriptions_and_credit_buckets.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
+| Auth D1 migration status through `0048_add_member_ai_usage_attempts.sql` | Cloudflare operator | Staging/production Cloudflare account | Cloudflare access required | Record migration names/status only. Do not print credentials. |
 | Auth Worker bindings: D1, R2, Queues, Durable Object, AI, Images, service bindings | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names and present/missing only. |
 | AI Worker bindings and Durable Object migration | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding/migration names and present/missing only. |
 | Contact Worker Durable Object binding | Cloudflare operator | Cloudflare dashboard/API | Cloudflare access required | Record binding names only. |
@@ -111,7 +111,7 @@ npm run readiness:evidence
 npm run readiness:evidence -- --markdown
 ```
 
-Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but staging auth D1 must already have migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` before API smoke checks.
+Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but current staging/auth D1 evidence must now be through `0048_add_member_ai_usage_attempts.sql` before deploying current auth Worker code or running API smoke checks.
 
 Staging read-only evidence example with explicit URLs:
 
@@ -173,7 +173,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0047_add_member_subscriptions_and_credit_buckets.sql`, and warns that direct-main release is risky, production/live billing remains blocked, auth Worker plus static/pages deploy are required for Phase 2.1-2.4 runtime visibility, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0048_add_member_ai_usage_attempts.sql`, and warns that direct-main release is risky, production/live billing remains blocked, auth Worker plus static/pages deploy are required for Phase 2.1-2.4 runtime visibility, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -268,7 +268,7 @@ Unacceptable evidence includes:
 Until filled evidence proves otherwise, these remain unproven:
 
 - Production Cloudflare resource, binding, secret, route, WAF, header, RUM, and alert state.
-- Remote D1 migration status through `0047_add_member_subscriptions_and_credit_buckets.sql`.
+- Remote D1 migration status through `0048_add_member_ai_usage_attempts.sql`.
 - Stripe Testmode checkout/webhook behavior in staging.
 - Live credit-pack canary behavior.
 - BITBI Pro subscription lifecycle behavior.

@@ -2,7 +2,7 @@
 
 Last reconciled: 2026-05-15
 
-Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0047_add_member_subscriptions_and_credit_buckets.sql`.
+Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0048_add_member_ai_usage_attempts.sql`.
 
 This index classifies first-party audit, report, policy, runbook, and handoff Markdown files. No first-party Markdown is deleted in this phase. Historical reports remain historical evidence and should not be rewritten to pretend they were originally about later migrations.
 
@@ -74,4 +74,3 @@ These files should stay available for context but should not be treated as curre
 No first-party Markdown is approved for deletion in this phase.
 
 Future archive/remove candidates must first get an explicit archival plan, an index update, and approval. Current candidates are archive/remove candidate — do not delete in this phase: superseded privacy notes, stale proposal backlogs, and cleanup notes after their evidence is safely preserved elsewhere.
-

@@ -7206,6 +7206,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-legacy-topup-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -7237,6 +7238,179 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       10,
       -expectedPricing.credits,
     ]);
+    expect(env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        user_id: user.id,
+        operation_key: 'member.image.generate',
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'stored',
+        result_save_reference: expect.any(String),
+      }),
+    ]);
+  });
+
+  test('member personal image generation requires a valid Idempotency-Key before provider calls', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'member-image-idempotency-user', role: 'user' });
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const missing = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'missing idempotency key',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missing.status).toBe(428);
+    await expect(missing.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_key_required',
+    });
+
+    const malformed = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'bad idempotency key',
+        steps: 4,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'bad key with spaces',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(malformed.status).toBe(428);
+    await expect(malformed.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_idempotency_key',
+    });
+
+    expect(aiCalls).toBe(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+  });
+
+  test('member personal image gateway rejects insufficient credits before provider calls', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'member-image-broke-user', role: 'user' });
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        prompt: 'insufficient GPT Image 2 credits',
+        model: 'openai/gpt-image-2',
+        quality: 'high',
+        size: '1024x1024',
+        outputFormat: 'png',
+        background: 'auto',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-insufficient-gpt',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(402);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'insufficient_member_credits',
+    });
+    expect(aiCalls).toBe(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+  });
+
+  test('member personal image idempotency replays stored result without double provider call or debit', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'member-image-replay-user', role: 'user' });
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'Idempotency-Key': 'member-image-replay-key',
+    };
+    const body = {
+      prompt: 'replay prompt must not be persisted raw',
+      steps: 4,
+      seed: 99,
+    };
+
+    const first = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', body, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    const second = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', body, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(firstBody.billing).toMatchObject({
+      credits_charged: 1,
+      balance_after: 9,
+    });
+    expect(secondBody.billing).toMatchObject({
+      credits_charged: 1,
+      balance_after: 9,
+      idempotent_replay: true,
+    });
+    expect(secondBody.data.imageBase64).toBe(firstBody.data.imageBase64);
+    expect(secondBody.data.saveReference).toBe(firstBody.data.saveReference);
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === user.id)).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === user.id && row.amount < 0)).toHaveLength(1);
+    expect(JSON.stringify(env.DB.state.memberAiUsageAttempts)).not.toContain(body.prompt);
+
+    const conflict = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', {
+        ...body,
+        prompt: 'same key different request',
+      }, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
+    expect(aiCalls).toBe(1);
   });
 
   test('member image generation fails closed when personal credit policy storage is unavailable', async () => {
@@ -7260,6 +7434,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-policy-missing-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -21875,6 +22050,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-default-path-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -21934,6 +22110,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-klein-path-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -22077,6 +22254,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-gpt-high-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -22245,6 +22423,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-gpt-url-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -22305,6 +22484,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-gpt-provider-fail-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -22430,6 +22610,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-save-ref-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -22472,6 +22653,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-save-by-ref-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -27642,7 +27824,7 @@ test.describe('Worker routes', () => {
     ]);
   });
 
-  test('AI generate: concurrent member requests do not overdraw credits', async () => {
+  test('AI generate: member personal image reservations block concurrent credit overdraw before provider calls', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { consumeMemberCredits, topUpMemberDailyCredits } = await loadBillingModule();
     let firstRunStartedResolve;
@@ -27696,7 +27878,10 @@ test.describe('Worker routes', () => {
       authJsonRequest('/api/ai/generate-image', 'POST', {
         prompt: 'first request',
         steps: 4,
-      }, requestHeaders),
+      }, {
+        ...requestHeaders,
+        'Idempotency-Key': 'member-image-concurrent-first',
+      }),
       env,
       createExecutionContext().execCtx
     );
@@ -27707,32 +27892,35 @@ test.describe('Worker routes', () => {
       authJsonRequest('/api/ai/generate-image', 'POST', {
         prompt: 'second request',
         steps: 4,
-      }, requestHeaders),
+      }, {
+        ...requestHeaders,
+        'Idempotency-Key': 'member-image-concurrent-second',
+      }),
       env,
       createExecutionContext().execCtx
     );
 
-    expect(secondRes.status).toBe(200);
-    const secondBody = await secondRes.json();
-    expect(secondBody).toMatchObject({
+    expect(secondRes.status).toBe(402);
+    await expect(secondRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'insufficient_member_credits',
+    });
+
+    releaseFirstRunResolve();
+    const firstRes = await firstPromise;
+
+    expect(firstRes.status).toBe(200);
+    await expect(firstRes.json()).resolves.toMatchObject({
       ok: true,
       billing: {
         credits_charged: 1,
         balance_after: 0,
       },
     });
-
-    releaseFirstRunResolve();
-    const firstRes = await firstPromise;
-
-    expect(firstRes.status).toBe(402);
-    await expect(firstRes.json()).resolves.toMatchObject({
-      ok: false,
-      code: 'insufficient_member_credits',
-    });
     expect(env.DB.state.memberCreditLedger.at(-1).balance_after).toBe(0);
     expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-user')).toHaveLength(2);
-    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(2);
+    expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-user')).toHaveLength(1);
+    expect(aiCalls).toBe(1);
   });
 
   test('AI generate: failed model runs return a sanitized top-level error and do not consume member credits', async () => {
@@ -27763,6 +27951,7 @@ test.describe('Worker routes', () => {
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-image-provider-fail-1',
       }),
       env,
       createExecutionContext().execCtx
@@ -27782,6 +27971,13 @@ test.describe('Worker routes', () => {
     }));
     expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(0);
     expect(env.DB.state.aiGenerationLog.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(0);
+    expect(env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        user_id: 'quota-fail-user',
+        status: 'provider_failed',
+        billing_status: 'released',
+      }),
+    ]);
   });
 
   test('AI generate: admin users remain exempt from member credit charging', async () => {

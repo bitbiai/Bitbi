@@ -7,7 +7,7 @@ BITBI is a static vanilla HTML/CSS/ES module site backed by Cloudflare Workers. 
 This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of the Alpha Audit reconciliation on 2026-05-15, the latest auth D1 migration is:
 
 ```text
-0047_add_member_subscriptions_and_credit_buckets.sql
+0048_add_member_ai_usage_attempts.sql
 ```
 
 Production remains blocked until staging/live migrations, Worker secrets, bindings, Cloudflare resources, Stripe webhooks, health checks, security headers, and operational evidence are verified without exposing secret values.

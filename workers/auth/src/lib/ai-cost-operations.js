@@ -58,29 +58,25 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.image.generate",
       routeId: "ai.generate-image",
       routePath: "/api/ai/generate-image",
-      notes: "Target config for no-organization member image generation. Current route still accepts optional Idempotency-Key.",
+      notes: "Phase 3.4 pilot config for no-organization member image generation. Member personal mode now requires Idempotency-Key and uses member_ai_usage_attempts for reservation/replay.",
     },
     sourceFiles: ["workers/auth/src/routes/ai/images-write.js"],
-    currentStatus: "partial",
+    currentStatus: "implemented",
     currentEnforcement: {
-      idempotency: "partial",
-      reservation: "missing",
-      replay: "missing",
+      idempotency: "implemented",
+      reservation: "implemented",
+      replay: "implemented",
       creditCheck: "implemented",
-      providerSuppression: "missing",
+      providerSuppression: "implemented",
     },
     routePolicy: {
       id: "ai.generate-image",
       path: "/api/ai/generate-image",
       expectedIdempotency: "required",
     },
-    currentGaps: [
-      "Member mode does not require Idempotency-Key.",
-      "Member mode does not reserve credits before provider execution.",
-      "Member mode does not suppress duplicate provider calls or replay results.",
-    ],
-    gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.4",
+    currentGaps: [],
+    gapSeverity: "P3",
+    nextMigrationPhase: "Gateway adapter hardening after music/video migrations",
   }),
   operation({
     operationConfig: {
@@ -1227,6 +1223,11 @@ export function getAiCostRoutePolicyBaselines(entries = AI_COST_OPERATION_REGIST
       classification: `${entry.operationConfig.actorType}-${entry.operationConfig.billingScope}`,
       notes: entry.operationConfig.notes || null,
     }));
+}
+
+export function getAiCostOperationConfig(operationId, entries = AI_COST_OPERATION_REGISTRY) {
+  const match = entries.find((entry) => entry.operationConfig?.operationId === operationId);
+  return match ? normalizeAiCostOperationConfig(match.operationConfig) : null;
 }
 
 export function getAiCostProviderCallSourceFiles(entries = AI_COST_OPERATION_REGISTRY) {

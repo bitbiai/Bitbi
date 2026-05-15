@@ -68,7 +68,7 @@ For Phase 2.1-2.4 billing review/reconciliation work, the expected impacted depl
 | --- | --- | --- |
 | Auth Worker | yes | Billing review/reconciliation API and route policy live in `workers/auth`. |
 | Static/Pages | yes | Admin Control Plane billing review/reconciliation UI lives in static assets. |
-| Auth D1 schema apply | no new Phase 2.4 schema apply | Phase 2.4 added a computed read-only report and no migration. Existing environments must still be migrated through `0047_add_member_subscriptions_and_credit_buckets.sql`. |
+| Auth D1 schema apply | no new Phase 2.4 schema apply | Phase 2.4 added a computed read-only report and no migration. Current environments must now be migrated through `0048_add_member_ai_usage_attempts.sql` before deploying current auth Worker code. |
 | AI Worker | no | No Phase 2.1-2.4 AI Worker runtime change. |
 | Contact Worker | no | No Phase 2.1-2.4 Contact Worker runtime change. |
 | Stripe dashboard/API | no | No Stripe action is required or approved by this checklist. |
@@ -80,7 +80,7 @@ If `npm run release:plan` reports different deploy units, stop and reconcile the
 Before staging API/UI smoke checks, the staging auth D1 database must already have migrations applied through:
 
 ```text
-0047_add_member_subscriptions_and_credit_buckets.sql
+0048_add_member_ai_usage_attempts.sql
 ```
 
 Evidence requirements:
@@ -88,7 +88,7 @@ Evidence requirements:
 - Record migration names/status only.
 - Do not run remote migrations from this checklist.
 - Do not paste Cloudflare credentials.
-- If staging is not migrated through `0047`, mark the checklist `BLOCKED`.
+- If staging is not migrated through `0048`, mark the checklist `BLOCKED`.
 
 ## 5. Auth Worker Staging Deploy Verification
 

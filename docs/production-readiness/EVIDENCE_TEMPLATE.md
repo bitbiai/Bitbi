@@ -35,9 +35,9 @@ Record the exact branch, commit, and whether the worktree was clean. If dirty, s
 
 ## 3. Migration Status Through Latest Auth Migration
 
-Latest auth D1 migration required by release config: `0047_add_member_subscriptions_and_credit_buckets.sql`.
+Latest auth D1 migration required by release config: `0048_add_member_ai_usage_attempts.sql`.
 
-| Environment | Database | Evidence Through `0047` | Operator | Date | Result |
+| Environment | Database | Evidence Through `0048` | Operator | Date | Result |
 | --- | --- | --- | --- | --- | --- |
 | staging | `bitbi-auth-db` |  |  |  | BLOCKED |
 | production | `bitbi-auth-db` |  |  |  | BLOCKED |
@@ -216,7 +216,7 @@ Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for t
 | Auth Worker deployed commit |  | BLOCKED |
 | Static deployed commit |  | BLOCKED |
 | Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
-| Staging auth D1 migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` |  | BLOCKED |
+| Staging auth D1 migration evidence through `0048_add_member_ai_usage_attempts.sql` |  | BLOCKED |
 | Admin authentication and MFA prerequisites verified |  | BLOCKED |
 | Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
 | Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
@@ -243,7 +243,7 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 | Release plan output attached |  | BLOCKED |
 | Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
 | Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
-| Production D1 migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` |  | BLOCKED |
+| Production D1 migration evidence through `0048_add_member_ai_usage_attempts.sql` |  | BLOCKED |
 | Live readiness evidence collector output with explicit URLs |  | BLOCKED |
 | Manual admin login/MFA smoke evidence |  | BLOCKED |
 | Manual billing review queue list/filter evidence |  | BLOCKED |
@@ -311,7 +311,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 ## 22. Blockers
 
 - Production Cloudflare live validation:
-- Remote migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql`:
+- Remote migration evidence through `0048_add_member_ai_usage_attempts.sql`:
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
 - Phase 2.1-2.4 billing review/reconciliation staging evidence:
@@ -329,7 +329,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, and Phase 2.6 main-only release evidence processes are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, and Phase 2.6 main-only release evidence processes are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0048_add_member_ai_usage_attempts.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, member personal image gateway behavior, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: target design plus Phase 3.3 unused operation registry/report-only baseline. No live route imports the gateway module or registry yet, and no runtime behavior is changed by this document.
+Status: target design plus Phase 3.4 member personal image pilot. The gateway module and registry are currently wired only into member personal image generation; all other provider-cost routes remain outside the runtime gateway.
 
 ## Goals
 
@@ -135,7 +135,7 @@ The registry currently exports:
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. It is report-only and unused by live route handlers in Phase 3.3.
+The registry stores target gateway operation configs plus current enforcement metadata. Phase 3.4 imports it only for `member.image.generate`; other routes still use their pre-existing adapters.
 
 ```js
 const gateway = await prepareAiCostOperation({
@@ -203,7 +203,7 @@ The Phase 3.3 registry additionally records:
 - gap severity
 - next migration phase
 
-Future route adapters can use the registry target config, but Phase 3.3 does not wire it into runtime code.
+Future route adapters can use the registry target config. Phase 3.4 provides the first narrow adapter for member personal image generation and should be used as the reference shape for later music/video migrations, with route-specific storage and replay constraints reviewed separately.
 
 Future implementation details should also define:
 

@@ -403,7 +403,7 @@ async function resolveSaveImageInput(env, body, userId, correlationId) {
   };
 }
 
-async function replayOrgScopedGeneratedImage({
+async function replayGeneratedImageAttempt({
   env,
   usagePolicy,
   prompt,
@@ -445,7 +445,7 @@ async function replayOrgScopedGeneratedImage({
       level: "warn",
       correlationId,
       user_id: userId,
-      organization_id: usagePolicy.organizationId,
+      organization_id: usagePolicy.organizationId || null,
     });
     return respond({
       ok: false,
@@ -577,6 +577,7 @@ export async function handleGenerateImage(ctx) {
       operation: {
         ...AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE,
         credits: imagePricing.credits,
+        modelId: modelConfig.id,
       },
       route: "/api/ai/generate-image",
     });
@@ -597,7 +598,7 @@ export async function handleGenerateImage(ctx) {
 
   if (usagePolicy.mode === "organization") {
     if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
-      return replayOrgScopedGeneratedImage({
+      return replayGeneratedImageAttempt({
         env,
         usagePolicy,
         prompt,
@@ -634,6 +635,41 @@ export async function handleGenerateImage(ctx) {
   }
 
   if (usagePolicy.mode === "member") {
+    if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
+      return replayGeneratedImageAttempt({
+        env,
+        usagePolicy,
+        prompt,
+        aiRequest,
+        modelConfig,
+        respond,
+        correlationId,
+        userId,
+      });
+    }
+    if (usagePolicy.attemptKind === "in_progress") {
+      return respond({
+        ok: false,
+        error: "This idempotent image request is already in progress.",
+        code: "member_ai_usage_attempt_in_progress",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+          credits_reserved: usagePolicy.credits,
+        },
+      }, { status: 409 });
+    }
+    if (usagePolicy.attemptKind === "billing_failed") {
+      return respond({
+        ok: false,
+        error: "Image generation could not be finalized. Please use a new idempotency key to retry.",
+        code: "member_ai_usage_billing_failed",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+        },
+      }, { status: 503 });
+    }
     try {
       await usagePolicy.prepareForProvider();
     } catch (error) {
@@ -656,7 +692,7 @@ export async function handleGenerateImage(ctx) {
   let mimeType = "image/png";
   let providerImageUrl = null;
 
-  if (usagePolicy.mode === "organization") {
+  if (typeof usagePolicy.markProviderRunning === "function") {
     try {
       await usagePolicy.markProviderRunning();
     } catch (error) {
@@ -667,7 +703,7 @@ export async function handleGenerateImage(ctx) {
         level: "error",
         correlationId,
         user_id: userId,
-        organization_id: usagePolicy.organizationId,
+        organization_id: usagePolicy.organizationId || null,
         ...getErrorFields(error),
       });
       return respond({
@@ -711,7 +747,7 @@ export async function handleGenerateImage(ctx) {
       providerImageUrl = extracted.imageUrl || null;
     }
   } catch (e) {
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
           code: "provider_failed",
@@ -735,7 +771,7 @@ export async function handleGenerateImage(ctx) {
   }
 
   if (!base64) {
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
           code: "provider_empty_result",
@@ -763,7 +799,7 @@ export async function handleGenerateImage(ctx) {
       "INSERT INTO ai_generation_log (id, user_id, created_at) VALUES (?, ?, ?)"
     ).bind(logId, userId, completedAt).run();
   } catch (e) {
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
           code: "generation_finalize_failed",
@@ -789,7 +825,7 @@ export async function handleGenerateImage(ctx) {
 
   let billingMetadata = null;
   try {
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markFinalizing === "function") {
       await usagePolicy.markFinalizing();
     }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
@@ -807,7 +843,7 @@ export async function handleGenerateImage(ctx) {
         pricing_version: imagePricing.formula?.pricingVersion || "gpt-image-2-v1",
       } : {}),
     });
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markSucceeded === "function") {
       await usagePolicy.markSucceeded({
         mimeType,
         model: modelConfig.id,
@@ -818,7 +854,7 @@ export async function handleGenerateImage(ctx) {
       });
     }
   } catch (error) {
-    if (usagePolicy.mode === "organization") {
+    if (typeof usagePolicy.markBillingFailed === "function") {
       try {
         await usagePolicy.markBillingFailed({
           code: error?.code || "billing_failed",
@@ -865,7 +901,7 @@ export async function handleGenerateImage(ctx) {
     });
   }
 
-  if (usagePolicy.mode === "organization" && tempSaveResult) {
+  if (typeof usagePolicy.markSucceeded === "function" && tempSaveResult) {
     try {
       await usagePolicy.markSucceeded({
         tempKey: tempSaveResult.tempKey,
@@ -885,7 +921,7 @@ export async function handleGenerateImage(ctx) {
         level: "error",
         correlationId,
         user_id: userId,
-        organization_id: usagePolicy.organizationId,
+        organization_id: usagePolicy.organizationId || null,
         ...getErrorFields(error),
       });
     }

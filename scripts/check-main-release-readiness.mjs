@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
-  "0047_add_member_subscriptions_and_credit_buckets.sql";
+  "0048_add_member_ai_usage_attempts.sql";
 
 const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
   "auth Worker",

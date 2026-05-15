@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Scope: provider-cost route inventory for Phase 3.1 plus Phase 3.3 operation-registry baseline. This is evidence and design only. It does not change runtime behavior, call AI providers, mutate billing, or approve production/live billing readiness.
+Scope: provider-cost route inventory for Phase 3.1 plus Phase 3.3 operation-registry baseline and Phase 3.4 member personal image pilot. This does not approve production/live billing readiness and does not claim full AI Cost Gateway coverage.
 
 Legend:
 
@@ -16,33 +16,33 @@ Legend:
 Highest-risk current gaps:
 
 - Member `/api/ai/generate-video` and `/api/ai/generate-music` only recommend `Idempotency-Key`, check credits before provider calls, and debit after success. They do not reserve credits before provider execution, suppress duplicate provider execution, or replay successful results.
-- Member no-organization `/api/ai/generate-image` also uses optional member idempotency and post-provider debit. It can still spend provider cost on duplicate or concurrent requests before the member ledger rejects/records a duplicate debit.
+- Member no-organization `/api/ai/generate-image` is now the Phase 3.4 pilot. It requires `Idempotency-Key`, reserves credits in `member_ai_usage_attempts` before provider execution, suppresses same-key duplicate provider calls, replays safe temporary image metadata while available, debits exactly once after provider success, and releases/no-charges on provider failure.
 - Member music can trigger multiple provider-cost steps: optional lyrics text generation, music generation, and background cover image generation.
 - Admin AI Lab provider routes are admin-only but mostly uncharged and not uniformly idempotent, reserved, or replayable.
 - News Pulse visual generation can spend AI provider cost from OpenClaw ingest waitUntil and scheduled backfill outside member/org billing scope.
 
-## Phase 3.3 Registry Baseline
+## Phase 3.3 Registry Baseline And Phase 3.4 Pilot
 
 `workers/auth/src/lib/ai-cost-operations.js` is the current report-only operation registry. It records 30 known AI cost operations, including 29 provider-cost operations and one not-applicable personal member text baseline. The registry validates each target operation config through `normalizeAiCostOperationConfig()` and records current enforcement status separately from target policy.
 
-Current registry summary:
+Current registry summary after Phase 3.4:
 
 - member operations: 6
 - organization operations: 2
 - admin/platform operations: 22
-- current missing mandatory idempotency: 4
-- current missing reservation: 4
-- current no replay: 4
+- current missing mandatory idempotency: 3
+- current missing reservation: 3
+- current no replay: 3
 - platform budget review operations: 3
-- highest-risk operations: `member.image.generate`, `member.music.generate`, `member.music.lyrics.generate`, `member.music.cover.generate`, `member.video.generate`, `internal.music.generate`
+- highest-risk operations: `member.music.generate`, `member.music.lyrics.generate`, `member.music.cover.generate`, `member.video.generate`, `internal.music.generate`
 
-The registry is not imported by live routes yet. It is used by `npm run check:ai-cost-policy` and `npm run test:ai-cost-operations` only.
+The registry is imported by the member personal image pilot only. It is also used by `npm run check:ai-cost-policy` and `npm run test:ai-cost-operations`.
 
 ## Inventory Table
 
 | Flow | Route / Trigger | Worker | Handler file/function | User type | Provider / binding | Pricing source | Idempotency | Credits checked before provider | Credits reserved before provider | Duplicate provider suppression | Replay/cache | Failure releases/no charge | Debit timing | Legacy/no-org compatible | Admin-only uncharged | Stores output | Tests | Severity | Recommended next phase |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Member image generation | `POST /api/ai/generate-image` without `organization_id` | auth | `workers/auth/src/routes/ai/images-write.js`, `handleGenerateImage` | member | `env.AI.run`; FLUX.1 Schnell, FLUX.2 Klein, GPT Image 2 via AI Gateway | `js/shared/ai-image-models.mjs`, `js/shared/ai-model-pricing.mjs` | recommended/optional | yes, via member credits and daily top-up | no | no durable provider suppression for member mode | no member result replay | provider failure does not debit; billing/storage failure after provider can still waste provider spend | after provider success | yes | admins bypass member charging in legacy mode | temp generated image in R2 save reference; final save via `/api/ai/images/save` | yes | P1 | Phase 3.4 |
+| Member image generation | `POST /api/ai/generate-image` without `organization_id` | auth | `workers/auth/src/routes/ai/images-write.js`, `handleGenerateImage`; `prepareMemberImageGatewayPolicy` | member | `env.AI.run`; FLUX.1 Schnell, FLUX.2 Klein, GPT Image 2 via AI Gateway | `js/shared/ai-image-models.mjs`, `js/shared/ai-model-pricing.mjs`; registry operation `member.image.generate` | required | yes, via member credits and daily top-up before reservation | yes, `member_ai_usage_attempts` | yes for same key/body pending/completed states | yes while temp result metadata/object is available | provider failure releases reservation/no debit; billing failure is terminal and does not return an uncharged paid result | after provider success and finalizing state | yes for admin legacy bypass only; member personal requires gateway key | admins bypass member charging in legacy mode | temp generated image in R2 save reference; final save via `/api/ai/images/save` | yes | P3 | Monitor pilot, then Phase 3.5 music |
 | Org-scoped image generation | `POST /api/ai/generate-image` with `organization_id` / `organizationId` | auth | `workers/auth/src/routes/ai/images-write.js`, `handleGenerateImage` and `prepareAiUsagePolicy` | org member with member-or-higher role | `env.AI.run` | `js/shared/ai-model-pricing.mjs` | required | yes, org entitlement and credits | yes, `ai_usage_attempts` | yes for same key/body pending/completed/billing-failed states | yes while temp result object is available | provider failure marks attempt failed/no debit | after provider success and finalizing state | no-org path remains separate | no | temp replay object, D1 generation log, optional final R2 asset | yes | P3 | Gateway adapter after contract |
 | Member text generation | no personal/no-org provider route currently exposed; `POST /api/ai/generate-text` rejects missing organization context | auth -> AI worker | `workers/auth/src/routes/ai/text-generate.js`, `handleGenerateText` | member without org context | none because route denies before provider | none | not applicable | not applicable | not applicable | not applicable | not applicable | not applicable | none | no personal text route | no | none | yes through org-required denial behavior | P3 | No gateway migration until product intentionally adds personal text |
 | Org-scoped text generation | `POST /api/ai/generate-text` | auth -> AI worker | `workers/auth/src/routes/ai/text-generate.js`, `handleGenerateText`; internal `workers/ai/src/routes/text.js` | org member with member-or-higher role | `AI_LAB.fetch` to `/internal/ai/test-text`, then `env.AI.run` | fixed `AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE` credit cost | required | yes, org entitlement and credits | yes, `ai_usage_attempts` | yes | yes, bounded text replay metadata | provider failure marks attempt failed/no debit | after provider success | no, org context required | no | text replay metadata only | yes | P3 | Gateway adapter after contract |

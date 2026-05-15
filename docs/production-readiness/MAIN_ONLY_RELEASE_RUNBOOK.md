@@ -24,10 +24,10 @@ For those runtime changes to be visible live, the expected deploy units are:
 1. auth Worker
 2. static/pages
 
-Phase 2.1-2.5 added no new D1 migration, but production D1 must already be verified through:
+Phase 2.1-2.5 added no new D1 migration, but the current release contract now requires production D1 to be verified through:
 
 ```text
-0047_add_member_subscriptions_and_credit_buckets.sql
+0048_add_member_ai_usage_attempts.sql
 ```
 
 ## Non-Negotiable Safety Rules
@@ -43,7 +43,7 @@ Phase 2.1-2.5 added no new D1 migration, but production D1 must already be verif
 
 1. Verify clean commit/worktree.
 2. Run local preflight.
-3. Verify production D1 migration status through `0047_add_member_subscriptions_and_credit_buckets.sql`.
+3. Verify production D1 migration status through `0048_add_member_ai_usage_attempts.sql`.
 4. Deploy auth Worker by the approved operator process.
 5. Deploy static/pages by the approved operator process.
 6. Run the live readiness evidence collector against explicit live URLs.
@@ -87,9 +87,9 @@ Record pass/fail output with branch, commit, operator, and date. Do not paste se
 
 ## 3. Verify Production D1 Migration Status
 
-The production auth D1 database must be verified through `0047_add_member_subscriptions_and_credit_buckets.sql` before live smoke checks. Record migration names/status only.
+The production auth D1 database must be verified through `0048_add_member_ai_usage_attempts.sql` before live smoke checks. Record migration names/status only.
 
-This runbook does not provide or authorize a remote migration command. If production is not verified through `0047`, stop and record final verdict `BLOCKED`.
+This runbook does not provide or authorize a remote migration command. If production is not verified through `0048`, stop and record final verdict `BLOCKED`.
 
 ## 4. Deploy Auth Worker
 

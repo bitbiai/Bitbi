@@ -95,10 +95,10 @@ function classifyIdempotency(snippet) {
   if (!snippet) return "missing";
   const lower = snippet.toLowerCase();
   if (lower.includes("required when")) return "partial";
-  if (lower.includes("idempotency") && lower.includes("recommended")) return "recommended";
-  if (lower.includes("idempotency") && lower.includes("optional")) return "optional";
   if (lower.includes("idempotency-key") && lower.includes("required")) return "required";
   if (lower.includes("idempotency") && lower.includes("required")) return "required";
+  if (lower.includes("idempotency") && lower.includes("recommended")) return "recommended";
+  if (lower.includes("idempotency") && lower.includes("optional")) return "optional";
   return "absent";
 }
 
@@ -270,7 +270,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 3.4 should migrate exactly one low-risk route, preferably member personal image generation, unless evidence shows another route is safer.",
+    "- Phase 3.5 should migrate the next member provider-cost route, preferably member music generation, while preserving the Phase 3.4 member image pilot.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

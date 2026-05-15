@@ -23,7 +23,7 @@ function makeRepo({ inventoryExtra = "", routePolicyExtra = "" } = {}) {
   fs.writeFileSync(path.join(repoRoot, ROUTE_POLICY_PATH), `
 export const ROUTE_POLICIES = Object.freeze([
   userJsonWrite("ai.generate-image", "POST", "/api/ai/generate-image", "ai-studio", "aiGenerateImageJson", "ai-generate-user", {
-    billing: { idempotency: "required when organization_id is supplied; provider execution is guarded by ai_usage_attempts" },
+    billing: { idempotency: "required for member personal and organization-scoped provider-cost image generation; member personal provider execution is guarded by member_ai_usage_attempts and organization provider execution is guarded by ai_usage_attempts" },
   }),
   userJsonWrite("ai.generate-text", "POST", "/api/ai/generate-text", "ai-studio", "aiGenerateJson", "ai-generate-text-user", {
     billing: { idempotency: "required; provider execution and text replay are guarded by ai_usage_attempts" },
@@ -90,10 +90,10 @@ ${inventoryExtra}
   assert.equal(result.registrySummary.totalOperations, 30);
   assert.equal(result.registrySummary.memberOperations, 6);
   assert(result.registrySummary.currentMissingMandatoryIdempotency >= 3);
-  assert(result.registrySummary.highRiskOperations.includes("member.image.generate"));
+  assert(!result.registrySummary.highRiskOperations.includes("member.image.generate"));
   assert(result.policyGaps.some((gap) => gap.route === "ai.generate-music" && gap.actual === "recommended"));
   assert(result.policyGaps.some((gap) => gap.route === "ai.generate-video" && gap.actual === "recommended"));
-  assert(result.policyGaps.some((gap) => gap.route === "ai.generate-image" && gap.actual === "partial"));
+  assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-image"));
   assert(result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
 }

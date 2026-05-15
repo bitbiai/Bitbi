@@ -21,6 +21,21 @@ import {
   markAiUsageAttemptProviderRunning,
   markAiUsageAttemptSucceeded,
 } from "./ai-usage-attempts.js";
+import {
+  beginMemberAiUsageAttempt,
+  billingMetadataFromMemberAttempt,
+  markMemberAiUsageAttemptBillingFailed,
+  markMemberAiUsageAttemptFinalizing,
+  markMemberAiUsageAttemptProviderFailed,
+  markMemberAiUsageAttemptProviderRunning,
+  markMemberAiUsageAttemptSucceeded,
+} from "./member-ai-usage-attempts.js";
+import {
+  AI_COST_GATEWAY_PHASES,
+  AiCostGatewayError,
+  createAiCostGatewayPlan,
+} from "./ai-cost-gateway.js";
+import { getAiCostOperationConfig } from "./ai-cost-operations.js";
 import { OrgRbacError, normalizeOrgId, orgRbacErrorResponse, requireOrgRole } from "./orgs.js";
 import { sha256Hex } from "./tokens.js";
 import { MINIMAX_MUSIC_2_6_BASE_CREDITS } from "../../../../js/shared/music-2-6-pricing.mjs";
@@ -171,6 +186,164 @@ export function aiUsagePolicyErrorResponse(error) {
   };
 }
 
+function aiCostGatewayErrorToBillingError(error) {
+  if (error instanceof BillingError) return error;
+  if (error instanceof AiCostGatewayError) {
+    return new BillingError(error.message, {
+      status: error.status || 400,
+      code: error.code || "ai_cost_gateway_error",
+    });
+  }
+  return error;
+}
+
+async function prepareMemberImageGatewayPolicy({
+  env,
+  request,
+  user,
+  body,
+  resolvedOperation,
+  route,
+}) {
+  const operationConfig = getAiCostOperationConfig(resolvedOperation.id);
+  if (!operationConfig) {
+    throw new BillingError("AI cost operation is not registered.", {
+      status: 503,
+      code: "ai_cost_operation_unavailable",
+    });
+  }
+
+  let gatewayPlan;
+  try {
+    gatewayPlan = await createAiCostGatewayPlan({
+      operationConfig: {
+        ...operationConfig,
+        creditCost: resolvedOperation.credits,
+        quantity: resolvedOperation.quantity || operationConfig.quantity || 1,
+      },
+      routePath: route,
+      routeId: operationConfig.routeId,
+      actorId: user?.id || null,
+      billingScopeId: user?.id || null,
+      modelId: body?.model || null,
+      providerFamily: operationConfig.providerFamily,
+      clientIdempotencyKey: request.headers.get("Idempotency-Key"),
+      body,
+      includePromptHash: true,
+      hashFields: ["prompt", "negativePrompt", "negative_prompt", "referenceImages"],
+      excludeOrganizationContextAliases: true,
+      excludeFields: ["csrf", "csrfToken", "authToken", "authorization", "cookie"],
+    });
+  } catch (error) {
+    throw aiCostGatewayErrorToBillingError(error);
+  }
+
+  if (gatewayPlan.state === AI_COST_GATEWAY_PHASES.REQUIRES_IDEMPOTENCY) {
+    throw new BillingError("A valid Idempotency-Key header is required.", {
+      status: 428,
+      code: "idempotency_key_required",
+    });
+  }
+  if (!gatewayPlan.scopedIdempotencyKey) {
+    throw new BillingError("A valid Idempotency-Key header is required.", {
+      status: 428,
+      code: "idempotency_key_required",
+    });
+  }
+
+  const attemptState = await beginMemberAiUsageAttempt({
+    env,
+    userId: user?.id || null,
+    featureKey: resolvedOperation.featureKey,
+    operationKey: resolvedOperation.id,
+    route,
+    idempotencyKey: gatewayPlan.scopedIdempotencyKey,
+    requestFingerprint: gatewayPlan.fingerprint,
+    creditCost: resolvedOperation.credits,
+    quantity: resolvedOperation.quantity || 1,
+    metadata: {
+      gateway_version: gatewayPlan.gatewayVersion,
+      operation_id: gatewayPlan.operationId,
+      route,
+      replay_policy: gatewayPlan.replayPolicy,
+    },
+    beforeReserve: () => topUpMemberDailyCredits({
+      env,
+      userId: user?.id || null,
+    }),
+  });
+
+  return {
+    mode: "member",
+    gatewayMode: "ai-cost-pilot",
+    organizationId: null,
+    featureKey: resolvedOperation.featureKey,
+    credits: resolvedOperation.credits,
+    attemptKind: attemptState.kind,
+    attempt: attemptState.attempt,
+    idempotencyKey: gatewayPlan.scopedIdempotencyKey,
+    requestFingerprint: gatewayPlan.fingerprint,
+    dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+    gatewayPlan,
+    async prepareForProvider() {
+      return {
+        topUp: attemptState.preparation || null,
+        balanceBefore: null,
+        idempotentReplay: false,
+      };
+    },
+    async markProviderRunning() {
+      return markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+    },
+    async markProviderFailed({ code = "provider_failed", message = null } = {}) {
+      return markMemberAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { code, message });
+    },
+    async markFinalizing() {
+      return markMemberAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+    },
+    async markBillingFailed({ code = "billing_failed", message = null } = {}) {
+      return markMemberAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message });
+    },
+    async markSucceeded(result = {}) {
+      return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, result);
+    },
+    billingMetadata({ replay = false, balanceAfter = null } = {}) {
+      return billingMetadataFromMemberAttempt(
+        {
+          ...attemptState.attempt,
+          balanceAfter: balanceAfter == null ? attemptState.attempt.balanceAfter : balanceAfter,
+        },
+        { replay }
+      );
+    },
+    async chargeAfterSuccess(metadata = {}) {
+      const result = await consumeMemberCredits({
+        env,
+        userId: user?.id || null,
+        featureKey: resolvedOperation.featureKey,
+        quantity: resolvedOperation.quantity || 1,
+        credits: resolvedOperation.credits,
+        idempotencyKey: gatewayPlan.scopedIdempotencyKey,
+        requestFingerprint: gatewayPlan.fingerprint,
+        metadata: {
+          route,
+          operation: resolvedOperation.id,
+          gateway_version: gatewayPlan.gatewayVersion,
+          ...metadata,
+        },
+        source: resolvedOperation.source || "member_image_generation",
+      });
+      return {
+        user_id: user?.id || null,
+        feature: resolvedOperation.featureKey,
+        credits_charged: resolvedOperation.credits,
+        balance_after: result.creditBalance,
+        daily_credit_allowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
+      };
+    },
+  };
+}
+
 export async function prepareAiUsagePolicy({
   env,
   request,
@@ -194,6 +367,17 @@ export async function prepareAiUsagePolicy({
           return null;
         },
       };
+    }
+
+    if (resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE.id) {
+      return prepareMemberImageGatewayPolicy({
+        env,
+        request,
+        user,
+        body,
+        resolvedOperation,
+        route,
+      });
     }
 
     const requestFingerprint = await buildMemberRequestFingerprint({

@@ -54,18 +54,18 @@ For the existing Phase 2.1-2.4 runtime changes to be visible live:
 
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
-## 4. Required Production D1 Migration Evidence Through 0047
+## 4. Required Production D1 Migration Evidence Through 0048
 
 Required latest auth migration:
 
 ```text
-0047_add_member_subscriptions_and_credit_buckets.sql
+0048_add_member_ai_usage_attempts.sql
 ```
 
 | Check | Evidence | Result |
 | --- | --- | --- |
 | Production auth D1 migration status checked by operator |  | BLOCKED |
-| `0047_add_member_subscriptions_and_credit_buckets.sql` present/applied |  | BLOCKED |
+| `0048_add_member_ai_usage_attempts.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
 | No remote migration was run from this checklist |  | BLOCKED |
 

@@ -11,7 +11,7 @@ German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1
-migration as `0047_add_member_subscriptions_and_credit_buckets.sql`. This audit
+migration as `0048_add_member_ai_usage_attempts.sql`. This audit
 does not approve production deploy, full live billing readiness, full SaaS
 maturity, full tenant isolation, or legal compliance.
 
