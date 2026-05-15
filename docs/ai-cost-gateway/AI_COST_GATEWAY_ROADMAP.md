@@ -201,7 +201,7 @@ Tests:
 - registry entry uniqueness and normalizer coverage
 - member music parent/lyrics/audio/cover operation presence
 - deterministic bundled-vs-sub-operation metadata
-- report-only output keeps member music marked unmigrated
+- historical Phase 3.5 report-only output kept member music marked unmigrated before the Phase 3.6 migration
 - member image remains pilot-covered
 - no external provider or secret access
 
@@ -282,13 +282,17 @@ Non-goals:
 
 ## Phase 3.7: Replay/Result Cache Hardening Before Member Video
 
+Status: completed for already migrated member image/music flows only. Phase 3.7 adds replay-unavailable handling, safe result metadata, music cover status writeback, terminal finalization behavior, and scheduled cleanup for `member_ai_usage_attempts`. It adds no migration and does not deploy.
+
 Scope:
 
 - Harden member image/music replay metadata and result availability semantics.
-- Add explicit cleanup/expiry behavior for member music attempt replay metadata if needed.
-- Decide whether generated lyrics need a safe replay pointer or should remain intentionally absent from attempt metadata.
-- Add cover final-status writeback or an explicit no-writeback policy.
-- Prepare member video migration only after replay/result-cache behavior is reviewed.
+- Return safe replay-unavailable responses for completed attempts whose result metadata/object is missing or expired.
+- Avoid automatic provider re-execution and double debit for completed same-key replay-unavailable attempts.
+- Keep generated lyrics intentionally absent from attempt metadata and replay responses.
+- Add cover final-status writeback with `pending`, `succeeded`, `failed`, and `skipped`.
+- Add scheduled cleanup/expiry behavior for expired/stuck `member_ai_usage_attempts`.
+- Preserve these invariants while migrating member video.
 
 Likely files:
 
@@ -301,10 +305,10 @@ Likely files:
 
 Tests:
 
-- expired/replay-unavailable member music attempts do not call providers or double debit
+- expired/replay-unavailable member image/music attempts do not call providers or double debit
 - metadata cleanup does not delete saved media, ledger rows, member usage rows, or unrelated R2 objects
-- cover status writeback, if added, does not expose raw prompts/lyrics/R2 keys
-- image replay behavior remains unchanged
+- cover status writeback does not expose raw prompts/lyrics/R2 keys
+- member image and music gateway behavior remains compatible except that replay responses omit raw prompt/lyrics fields
 
 Rollback:
 
@@ -316,27 +320,32 @@ Deploy units:
 
 Migration risk:
 
-- Prefer no schema. Stop and plan a forward-only migration if replay cleanup/writeback cannot fit safely in `member_ai_usage_attempts.metadata_json`.
+- No schema was added. Existing 0048 fields and bounded `metadata_json` are sufficient for this phase.
 
 Non-goals:
 
-- No member video migration yet, no admin/platform/internal AI migration, no public pricing change, no Stripe work.
+- No admin/platform/internal AI migration, no public pricing change, no Stripe work.
 
 ## Phase 3.8: Migrate Member Video
 
+Status: completed for member `/api/ai/generate-video` only. Phase 3.8 uses the existing 0048 `member_ai_usage_attempts` foundation and adds no migration.
+
 Scope:
 
-- Require idempotency on `/api/ai/generate-video`.
-- Reserve before provider execution and remote output ingest.
-- Persist replay pointer after successful ingest.
-- Decide how to handle provider success plus ingest failure.
+- Require idempotency on member `/api/ai/generate-video`.
+- Reserve one parent member attempt before PixVerse/HappyHorse provider execution and remote output ingest.
+- Persist safe durable saved-asset replay metadata after successful ingest and debit.
+- Treat provider success plus output fetch/storage failure as terminal no-charge before debit.
+- Return replay-unavailable without provider re-execution or double debit when the saved result is missing.
 
-Likely files:
+Files touched:
 
 - `workers/auth/src/routes/ai/video-generate.js`
-- `workers/auth/src/lib/ai-cost-gateway.js`
+- `workers/auth/src/lib/ai-usage-policy.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/app/route-policy.js`
+- `scripts/check-ai-cost-policy.mjs`
 - `tests/workers.spec.js`
-- static Generate Lab callers/tests if needed
 
 Tests:
 
@@ -346,6 +355,8 @@ Tests:
 - remote output fetch failure no charge but no unbounded retry storm
 - billing failure cleanup is safe
 - result replay/expired replay behavior
+- same-key/different request conflict
+- no raw prompt/internal R2 keys in attempt replay metadata
 
 Rollback:
 
@@ -353,15 +364,15 @@ Rollback:
 
 Deploy units:
 
-- Auth Worker and static/pages if caller idempotency changes.
+- Auth Worker. No static/pages change was required in Phase 3.8.
 
 Migration risk:
 
-- Replay/output pointer may need additive metadata. Stop before migration if needed.
+- No schema was added. Existing 0048 fields and bounded `metadata_json` are sufficient for this phase.
 
 Non-goals:
 
-- No admin async video rewrite.
+- No admin async video rewrite, no admin/platform/internal/OpenClaw migration, no public pricing change, no Stripe work.
 
 ## Phase 3.9: Normalize Admin AI Provider-Cost Behavior
 

@@ -1971,6 +1971,13 @@ class MockD1 {
       return deepClone(this.state.memberAiUsageAttempts.find((row) => row.id === attemptId) || null);
     }
 
+    if (query.startsWith("SELECT id FROM member_ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1")) {
+      const [tempKey] = bindings;
+      return deepClone(this.state.memberAiUsageAttempts.find((row) =>
+        row.result_temp_key === tempKey && row.result_status === 'stored'
+      ) || null);
+    }
+
     if (query.startsWith("INSERT INTO member_ai_usage_attempts ( id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, created_at, updated_at, expires_at, metadata_json ) SELECT")) {
       const [
         id,
@@ -2166,6 +2173,117 @@ class MockD1 {
         updated_at: updatedAt,
         completed_at: completedAt,
       });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE member_ai_usage_attempts SET metadata_json = ?, updated_at = ? WHERE id = ?")) {
+      const [metadataJson, updatedAt, id] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) => entry.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.metadata_json = metadataJson;
+      row.updated_at = updatedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE member_ai_usage_attempts SET result_status = ?, result_temp_key = NULL, result_save_reference = NULL')) {
+      const [resultStatus, metadataJson, errorCode, errorMessage, updatedAt, id] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) =>
+        entry.id === id && entry.status === 'succeeded' && entry.billing_status === 'finalized'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        result_status: resultStatus,
+        result_temp_key: null,
+        result_save_reference: null,
+        metadata_json: metadataJson,
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE expires_at <= ?')) {
+      const [expiresAt, limit] = bindings;
+      const rows = this.state.memberAiUsageAttempts
+        .filter((row) =>
+          String(row.expires_at || '') <= String(expiresAt || '') &&
+          (
+            (row.billing_status === 'reserved' && ['reserved', 'provider_running', 'provider_failed', 'finalizing'].includes(row.status)) ||
+            (row.status === 'succeeded' && row.billing_status === 'finalized' && row.result_status === 'stored')
+          )
+        )
+        .sort((a, b) =>
+          String(a.expires_at).localeCompare(String(b.expires_at)) ||
+          String(a.updated_at).localeCompare(String(b.updated_at)) ||
+          String(a.id).localeCompare(String(b.id))
+        )
+        .slice(0, Number(limit || 25));
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith("UPDATE member_ai_usage_attempts SET status = 'expired', provider_status = CASE WHEN provider_status = 'failed' THEN 'failed' ELSE 'expired' END")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id, expiresAt] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.billing_status === 'reserved' &&
+        ['reserved', 'provider_running', 'provider_failed'].includes(entry.status) &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'expired',
+        provider_status: row.provider_status === 'failed' ? 'failed' : 'expired',
+        billing_status: 'released',
+        result_status: 'none',
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE member_ai_usage_attempts SET status = 'billing_failed', provider_status = 'succeeded', billing_status = 'failed', result_status = 'none', result_temp_key = NULL")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, id, expiresAt] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.status === 'finalizing' &&
+        entry.billing_status === 'reserved' &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        status: 'billing_failed',
+        provider_status: 'succeeded',
+        billing_status: 'failed',
+        result_status: 'none',
+        result_temp_key: null,
+        result_save_reference: null,
+        error_code: errorCode,
+        error_message: errorMessage,
+        updated_at: updatedAt,
+        completed_at: completedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE member_ai_usage_attempts SET result_status = 'expired', result_temp_key = NULL, result_save_reference = NULL")) {
+      const [metadataJson, updatedAt, id, expectedTempKey, , expiresAt] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) =>
+        entry.id === id &&
+        entry.status === 'succeeded' &&
+        entry.billing_status === 'finalized' &&
+        entry.result_status === 'stored' &&
+        (expectedTempKey == null || entry.result_temp_key === expectedTempKey) &&
+        String(entry.expires_at || '') <= String(expiresAt || '')
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.result_status = 'expired';
+      row.result_temp_key = null;
+      row.result_save_reference = null;
+      row.metadata_json = metadataJson;
+      row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -6603,6 +6721,31 @@ class MockD1 {
             source_module: row.source_module,
             poster_r2_key: row.poster_r2_key ?? null,
             metadata_json: row.metadata_json || '{}',
+          }
+        : null;
+    }
+
+    if (query === "SELECT id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, created_at, poster_r2_key, poster_width, poster_height, poster_size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'video' LIMIT 1") {
+      const [assetId, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) =>
+        item.id === assetId && item.user_id === userId && item.source_module === 'video'
+      );
+      return row
+        ? {
+            id: row.id,
+            folder_id: row.folder_id ?? null,
+            r2_key: row.r2_key,
+            title: row.title,
+            file_name: row.file_name,
+            source_module: row.source_module,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            preview_text: row.preview_text,
+            created_at: row.created_at,
+            poster_r2_key: row.poster_r2_key ?? null,
+            poster_width: row.poster_width ?? null,
+            poster_height: row.poster_height ?? null,
+            poster_size_bytes: row.poster_size_bytes ?? null,
           }
         : null;
     }

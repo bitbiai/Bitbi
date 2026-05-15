@@ -403,6 +403,48 @@ async function resolveSaveImageInput(env, body, userId, correlationId) {
   };
 }
 
+function buildImageAttemptMetadata({
+  prompt,
+  aiRequest,
+  modelConfig,
+  imagePricing,
+  gptRequest = null,
+  replayStatus,
+  replayReason = null,
+} = {}) {
+  return {
+    gateway_result_type: "member_image",
+    replay: {
+      status: replayStatus,
+      available: replayStatus === "available",
+      reason: replayReason || null,
+    },
+    image_request: {
+      prompt_length: String(prompt || "").length,
+      model_id: modelConfig?.id || null,
+      request_mode: modelConfig?.requestMode || "json",
+      steps: aiRequest?.steps ?? null,
+      seed_present: aiRequest?.seed != null,
+      pricing_credits: imagePricing?.credits ?? null,
+      pricing_source: imagePricing?.formula?.pricingVersion || "ai-model-pricing",
+      ...(gptRequest ? {
+        quality: gptRequest.quality,
+        size: gptRequest.size,
+        output_format: gptRequest.outputFormat,
+        background: gptRequest.background,
+        reference_image_count: gptRequest.referenceImageCount,
+      } : {}),
+    },
+  };
+}
+
+async function markImageReplayUnavailable(usagePolicy, options = {}) {
+  if (typeof usagePolicy?.markReplayUnavailable !== "function") return;
+  try {
+    await usagePolicy.markReplayUnavailable(options);
+  } catch {}
+}
+
 async function replayGeneratedImageAttempt({
   env,
   usagePolicy,
@@ -428,6 +470,11 @@ async function replayGeneratedImageAttempt({
     !attempt.resultTempKey ||
     !attempt.resultSaveReference
   ) {
+    await markImageReplayUnavailable(usagePolicy, {
+      code: "ai_usage_result_unavailable",
+      message: "Completed member image attempt has no replay payload.",
+      resultStatus: "unavailable",
+    });
     return respond({
       ok: false,
       error: "The idempotent image request completed, but the generated image is no longer replayable.",
@@ -447,6 +494,11 @@ async function replayGeneratedImageAttempt({
       user_id: userId,
       organization_id: usagePolicy.organizationId || null,
     });
+    await markImageReplayUnavailable(usagePolicy, {
+      code: "ai_usage_replay_temp_missing",
+      message: "Member image replay object is missing.",
+      resultStatus: "expired",
+    });
     return respond({
       ok: false,
       error: "The idempotent image result is no longer available.",
@@ -457,6 +509,11 @@ async function replayGeneratedImageAttempt({
 
   const tempBuffer = await toArrayBuffer(tempObject.body ?? tempObject);
   if (!tempBuffer || tempBuffer.byteLength === 0) {
+    await markImageReplayUnavailable(usagePolicy, {
+      code: "ai_usage_replay_temp_unreadable",
+      message: "Member image replay object is unreadable.",
+      resultStatus: "expired",
+    });
     return respond({
       ok: false,
       error: "The idempotent image result is no longer available.",
@@ -470,7 +527,8 @@ async function replayGeneratedImageAttempt({
     data: {
       imageBase64: encodeBytesToBase64(new Uint8Array(tempBuffer)),
       mimeType: tempObject.httpMetadata?.contentType || attempt.resultMimeType || "image/png",
-      prompt,
+      prompt: null,
+      promptLength: attempt.resultPromptLength ?? String(prompt || "").length,
       steps: attempt.resultSteps ?? aiRequest.steps,
       seed: attempt.resultSeed ?? aiRequest.seed,
       model: attempt.resultModel || modelConfig.id,
@@ -851,6 +909,16 @@ export async function handleGenerateImage(ctx) {
         steps: aiRequest.steps,
         seed: aiRequest.seed,
         balanceAfter: billingMetadata.balance_after,
+        resultStatus: "unavailable",
+        metadata: buildImageAttemptMetadata({
+          prompt,
+          aiRequest,
+          modelConfig,
+          imagePricing,
+          gptRequest,
+          replayStatus: "unavailable",
+          replayReason: "temp_object_not_created",
+        }),
       });
     }
   } catch (error) {
@@ -912,6 +980,15 @@ export async function handleGenerateImage(ctx) {
         steps: aiRequest.steps,
         seed: aiRequest.seed,
         balanceAfter: billingMetadata?.balance_after ?? null,
+        resultStatus: "stored",
+        metadata: buildImageAttemptMetadata({
+          prompt,
+          aiRequest,
+          modelConfig,
+          imagePricing,
+          gptRequest,
+          replayStatus: "available",
+        }),
       });
     } catch (error) {
       logDiagnostic({

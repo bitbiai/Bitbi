@@ -58,7 +58,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.image.generate",
       routeId: "ai.generate-image",
       routePath: "/api/ai/generate-image",
-      notes: "Phase 3.4 pilot config for no-organization member image generation. Member personal mode now requires Idempotency-Key and uses member_ai_usage_attempts for reservation/replay.",
+      notes: "Phase 3.4 pilot config for no-organization member image generation. Phase 3.7 hardens replay-unavailable metadata and scheduled cleanup while keeping member_ai_usage_attempts as the reservation/replay foundation.",
     },
     sourceFiles: ["workers/auth/src/routes/ai/images-write.js"],
     currentStatus: "implemented",
@@ -76,7 +76,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: [],
     gapSeverity: "P3",
-    nextMigrationPhase: "Gateway adapter hardening after music/video migrations",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -204,7 +204,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.music.generate",
       routeId: "ai.generate-music",
       routePath: "/api/ai/generate-music",
-      notes: "Phase 3.6 gateway-migrated parent operation for bundled MiniMax Music 2.6 member generation. One parent member_ai_usage_attempts reservation covers lyrics, audio, and scheduled cover generation.",
+      notes: "Phase 3.6 gateway-migrated parent operation for bundled MiniMax Music 2.6 member generation. Phase 3.7 records safe replay-unavailable, cover status, finalization, and cleanup metadata on the parent member_ai_usage_attempts row.",
     },
     subOperationIds: Object.freeze([
       "member.music.lyrics.generate",
@@ -228,11 +228,10 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       expectedIdempotency: "required",
     },
     currentGaps: [
-      "Full raw generated lyrics replay is intentionally not stored in member attempt metadata; replay returns safe audio/asset metadata.",
-      "Cover generation final status is not yet written back to the parent attempt after the background task finishes.",
+      "Full raw generated lyrics replay is intentionally not stored in member attempt metadata; replay returns safe audio/asset metadata without raw prompt or lyrics.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.7 replay/result cache hardening",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -269,10 +268,10 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     routePolicy: null,
     currentGaps: [
-      "Generated lyrics are not stored raw in member attempt replay metadata; successful duplicate requests replay audio/asset metadata only.",
+      "Generated lyrics are intentionally omitted from replay metadata and replay response; users can request a new generation with a new key when exact lyrics text must be regenerated.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.7 replay/result cache hardening",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -312,7 +311,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Binary audio replay is represented by the persisted member asset rather than raw audio in member attempt metadata.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.7 replay/result cache hardening",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -333,13 +332,13 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.music.cover.generate",
       routeId: "ai.generate-music",
       routePath: "/api/ai/generate-music",
-      notes: "Automatic background cover generation after successful member music generation. Phase 3.6 policy includes the cover provider call in the parent bundled music reservation with no separate user-visible charge.",
+      notes: "Automatic background cover generation after successful member music generation. Phase 3.7 writes pending/succeeded/failed/skipped status back to the parent attempt while keeping the provider call inside the parent bundled music reservation with no separate user-visible charge.",
     },
     parentOperationId: "member.music.generate",
     billingRelationship: "included_in_parent_music_charge",
     currentChargeModel: "not_billed_separately",
     sourceFiles: ["workers/auth/src/lib/member-music-cover.js"],
-    currentStatus: "partial",
+    currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",
       reservation: "implemented",
@@ -349,11 +348,10 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     routePolicy: null,
     currentGaps: [
-      "Cover generation runs after audio success as a best-effort background task; final cover status is not written back to the parent attempt yet.",
       "Cover retry/replay semantics are still partially constrained by existing poster state rather than a dedicated cover attempt.",
     ],
-    gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7 replay/result cache hardening",
+    gapSeverity: "P3",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -374,16 +372,16 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.video.generate",
       routeId: "ai.generate-video",
       routePath: "/api/ai/generate-video",
-      notes: "Target config for PixVerse/HappyHorse member video generation.",
+      notes: "Phase 3.8 member video gateway migration for PixVerse/HappyHorse generation. The route requires Idempotency-Key, reserves member credits in member_ai_usage_attempts before provider execution, suppresses same-key duplicate provider calls, and finalizes exactly once after durable video asset persistence.",
     },
     sourceFiles: ["workers/auth/src/routes/ai/video-generate.js"],
-    currentStatus: "missing",
+    currentStatus: "implemented",
     currentEnforcement: {
-      idempotency: "recommended",
-      reservation: "missing",
-      replay: "missing",
+      idempotency: "implemented",
+      reservation: "implemented",
+      replay: "implemented",
       creditCheck: "implemented",
-      providerSuppression: "missing",
+      providerSuppression: "implemented",
     },
     routePolicy: {
       id: "ai.generate-video",
@@ -391,11 +389,11 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       expectedIdempotency: "required",
     },
     currentGaps: [
-      "Idempotency-Key is recommended, not required.",
-      "Provider execution and remote output ingest are not reserved/replayable.",
+      "Admin async video jobs, admin debug video, and internal video-task routes remain separate unmigrated platform/admin budget flows.",
+      "Replay returns durable saved-asset metadata and does not re-run providers; deleted/private asset objects return replay-unavailable and require a new idempotency key.",
     ],
-    gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.7 or later",
+    gapSeverity: "P3",
+    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
   }),
   operation({
     operationConfig: {
@@ -434,7 +432,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -473,7 +471,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Completed same-key result replay returns billing metadata but not the generated image result."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -508,7 +506,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Unpriced admin models need explicit platform/admin budget telemetry before broad use."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -547,7 +545,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -586,7 +584,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -625,7 +623,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Debug route has no gateway budget telemetry if explicitly enabled."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Keep disabled; revisit in Phase 3.7 only if retained",
+    nextMigrationPhase: "Keep disabled; revisit only if retained",
   }),
   operation({
     operationConfig: {
@@ -664,7 +662,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Job rows provide idempotency, but no explicit platform budget reservation exists."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform async video budget hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -699,7 +697,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Response-loss edge after provider task creation still needs verification."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.8",
+    nextMigrationPhase: "Phase 3.9 admin/platform async video budget hardening",
   }),
   operation({
     operationConfig: {
@@ -734,7 +732,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Polling should remain tied to a persisted provider task id and safe retry policy."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.8",
+    nextMigrationPhase: "Phase 3.9 admin/platform async video budget hardening",
   }),
   operation({
     operationConfig: {
@@ -773,7 +771,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry for multi-model provider spend."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -812,7 +810,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry for streaming provider spend."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform streaming budget telemetry after member video",
   }),
   operation({
     operationConfig: {
@@ -987,7 +985,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Internal route must stay service-only and caller-gated."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7 if sync debug remains",
+    nextMigrationPhase: "Keep disabled; revisit only if retained",
   }),
   operation({
     operationConfig: {
@@ -1022,7 +1020,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Caller/job-row policy must suppress duplicate provider task creation after response-loss edge cases."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.8",
+    nextMigrationPhase: "Phase 3.9 internal video task policy hardening",
   }),
   operation({
     operationConfig: {
@@ -1057,7 +1055,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Keep tied to persisted provider task ids and bounded polling policy."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.8",
+    nextMigrationPhase: "Phase 3.9 internal video task policy hardening",
   }),
   operation({
     operationConfig: {
@@ -1092,7 +1090,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Admin compare caller needs explicit platform budget telemetry."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
   }),
   operation({
     operationConfig: {
@@ -1127,7 +1125,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Admin live-agent caller needs explicit platform budget telemetry."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.7",
+    nextMigrationPhase: "Admin/platform streaming budget telemetry after member video",
   }),
   operation({
     operationConfig: {

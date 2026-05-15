@@ -266,16 +266,17 @@ export function summarizeMemberMusicGatewayPrep(entries = AI_COST_OPERATION_REGI
       "audio success followed by storage failure remains no-charge but can waste provider spend",
       "billing finalization failure is terminal and still requires operator/customer support handling",
       "generated lyrics are not replayed raw from attempt metadata",
+      "completed replay-unavailable attempts require a new idempotency key rather than automatic provider re-execution",
     ]),
     coverBudgetAmbiguity: cover
-      ? "generated music cover/background cover is included in the Phase 3.6 parent bundled music reservation with no separate user-visible charge; final cover status writeback remains partial"
+      ? "generated music cover/background cover is included in the parent bundled music reservation with no separate user-visible charge; Phase 3.7 records pending/succeeded/failed/skipped cover status on the parent attempt"
       : "generated music cover/background cover operation is missing from the registry",
   });
 }
 
 function renderMemberMusicGatewayPrep(summary) {
   return [
-    `- Status: ${summary.unmigrated ? "member music is still partially unmigrated" : "member music parent gateway migration is represented in the registry; member image and member music are the migrated member AI Cost Gateway routes."}`,
+    `- Status: ${summary.unmigrated ? "member music is still partially unmigrated" : "member music parent gateway migration is represented in the registry; member image, music, and video are the migrated member AI Cost Gateway routes."}`,
     `- Sub-operations tracked: ${formatIdList(summary.operationIds)}`,
     `- Missing mandatory idempotency: ${formatIdList(summary.missingMandatoryIdempotency)}`,
     `- Missing pre-provider reservation: ${formatIdList(summary.missingPreProviderReservation)}`,
@@ -336,7 +337,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 3.7 should harden replay/result metadata and then migrate the next single high-risk member route, with member video remaining the primary unmigrated member AI cost gap.",
+    "- Phase 3.9 should add an admin/platform AI cost telemetry and route-metadata guard while preserving the migrated member image/music/video gateway invariants.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

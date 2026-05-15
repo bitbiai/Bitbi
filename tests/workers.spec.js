@@ -7189,6 +7189,39 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     };
   }
 
+  function seedMemberAiUsageAttempt(overrides = {}) {
+    return {
+      id: overrides.id || 'maua_seeded00000000000000000000000000',
+      user_id: overrides.user_id || 'phase3-member-ai-user',
+      feature_key: overrides.feature_key || 'ai.image.generate',
+      operation_key: overrides.operation_key || 'member.image.generate',
+      route: overrides.route || '/api/ai/generate-image',
+      idempotency_key: overrides.idempotency_key || `ai:${overrides.id || 'seeded'}`,
+      request_fingerprint: overrides.request_fingerprint || `fingerprint-${overrides.id || 'seeded'}`,
+      credit_cost: overrides.credit_cost ?? 1,
+      quantity: overrides.quantity ?? 1,
+      status: overrides.status || 'reserved',
+      provider_status: overrides.provider_status || 'not_started',
+      billing_status: overrides.billing_status || 'reserved',
+      result_status: overrides.result_status || 'none',
+      result_temp_key: overrides.result_temp_key ?? null,
+      result_save_reference: overrides.result_save_reference ?? null,
+      result_mime_type: overrides.result_mime_type ?? null,
+      result_model: overrides.result_model ?? null,
+      result_prompt_length: overrides.result_prompt_length ?? null,
+      result_steps: overrides.result_steps ?? null,
+      result_seed: overrides.result_seed ?? null,
+      balance_after: overrides.balance_after ?? null,
+      error_code: overrides.error_code ?? null,
+      error_message: overrides.error_message ?? null,
+      created_at: overrides.created_at || '2026-05-15T10:00:00.000Z',
+      updated_at: overrides.updated_at || '2026-05-15T10:00:00.000Z',
+      completed_at: overrides.completed_at ?? null,
+      expires_at: overrides.expires_at || '2000-01-01T00:00:00.000Z',
+      metadata_json: overrides.metadata_json || '{}',
+    };
+  }
+
   test('member user-scoped image generation top-ups and charges credits using shared Flux 1 Schnell pricing', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
@@ -7411,6 +7444,71 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       code: 'idempotency_conflict',
     });
     expect(aiCalls).toBe(1);
+  });
+
+  test('member personal image completed replay-unavailable is terminal and does not double debit', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'member-image-missing-replay-user', role: 'user' });
+    let aiCalls = 0;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async () => {
+        aiCalls += 1;
+        return { image: ONE_PIXEL_PNG_DATA_URI };
+      },
+    });
+    const token = await seedSession(env, user.id);
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'Idempotency-Key': 'member-image-missing-replay-key',
+    };
+    const body = {
+      prompt: 'prompt that must not be stored or replayed raw',
+      steps: 4,
+    };
+
+    const first = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', body, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    const attempt = env.DB.state.memberAiUsageAttempts[0];
+    expect(attempt.result_status).toBe('stored');
+    const replayTempKey = attempt.result_temp_key;
+    expect(env.USER_IMAGES.objects.has(replayTempKey)).toBe(true);
+    env.USER_IMAGES.objects.delete(replayTempKey);
+
+    const second = await authWorker.fetch(
+      authJsonRequest('/api/ai/generate-image', 'POST', body, headers),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(second.status).toBe(410);
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      ok: false,
+      code: 'ai_usage_result_unavailable',
+      billing: {
+        idempotent_replay: true,
+        balance_after: 9,
+      },
+    });
+    expect(JSON.stringify(secondBody)).not.toContain(body.prompt);
+    expect(JSON.stringify(secondBody)).not.toContain(replayTempKey);
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === user.id)).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === user.id && row.amount < 0)).toHaveLength(1);
+    expect(env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      result_status: 'expired',
+      result_temp_key: null,
+      result_save_reference: null,
+      error_code: 'ai_usage_replay_temp_missing',
+    }));
+    expect(JSON.stringify(env.DB.state.memberAiUsageAttempts)).not.toContain(body.prompt);
+    expect(firstBody.data.saveReference).toBeTruthy();
   });
 
   test('member image generation fails closed when personal credit policy storage is unavailable', async () => {
@@ -7696,12 +7794,325 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/video/');
     expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
     expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].poster_r2_key)).toBe(true);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(1);
+    expect(env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      user_id: user.id,
+      feature_key: 'ai.video.generate',
+      operation_key: 'member.video.generate',
+      status: 'succeeded',
+      provider_status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'stored',
+      result_save_reference: body.data.asset.id,
+      result_mime_type: 'video/mp4',
+      result_model: 'pixverse/v6',
+      result_prompt_length: 'A neon city timelapse with cinematic motion.'.length,
+      result_seed: 42,
+      balance_after: 1815,
+    }));
+    const attemptMetadata = JSON.parse(env.DB.state.memberAiUsageAttempts[0].metadata_json);
+    expect(attemptMetadata).toEqual(expect.objectContaining({
+      gateway_result_type: 'member_video',
+      video_request: expect.objectContaining({
+        prompt_length: 'A neon city timelapse with cinematic motion.'.length,
+        duration: 5,
+        quality: '720p',
+        price: 185,
+      }),
+      video_replay: expect.objectContaining({
+        videoUrl: `/api/ai/text-assets/${body.data.asset.id}/file`,
+        posterUrl: `/api/ai/text-assets/${body.data.asset.id}/poster`,
+        posterAvailable: true,
+      }),
+    }));
+    expect(JSON.stringify(env.DB.state.memberAiUsageAttempts)).not.toContain('A neon city timelapse');
+    expect(JSON.stringify(env.DB.state.memberAiUsageAttempts)).not.toContain(env.DB.state.aiTextAssets[0].r2_key);
     expect(env.IMAGES.transformCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({
         transforms: [expect.objectContaining({ width: 320, height: 320, fit: 'scale-down' })],
         outputOptions: expect.objectContaining({ format: 'image/webp', quality: 82 }),
       }),
     ]));
+  });
+
+  test('member video generation requires a valid Idempotency-Key before provider calls', async () => {
+    const { authWorker, env, token, calls, fetchCalls } = await createMemberVideoHarness();
+
+    const missing = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: null,
+    });
+    expect(missing.status).toBe(428);
+    await expect(missing.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_key_required',
+    });
+
+    const malformed = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: 'bad key with spaces',
+    });
+    expect(malformed.status).toBe(428);
+    await expect(malformed.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_idempotency_key',
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+  });
+
+  test('member video gateway rejects insufficient credits before provider calls', async () => {
+    const { authWorker, env, token, calls, fetchCalls } = await createMemberVideoHarness({
+      creditBalance: 0,
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: 'member-video-insufficient-credits-key',
+    });
+
+    expect(res.status).toBe(402);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'insufficient_member_credits',
+    });
+    expect(calls).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+  });
+
+  test('member video idempotency replays saved result without double provider call or debit', async () => {
+    const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness();
+    const body = {
+      prompt: 'A city video prompt that must not be stored in attempt replay metadata.',
+      duration: 5,
+      quality: '720p',
+      generate_audio: true,
+      seed: 9,
+    };
+
+    const first = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body,
+      idempotencyKey: 'member-video-replay-key-123456',
+    });
+    const second = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body,
+      idempotencyKey: 'member-video-replay-key-123456',
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      ok: true,
+      data: {
+        prompt: null,
+        promptLength: body.prompt.length,
+        videoUrl: firstBody.data.videoUrl,
+        posterUrl: firstBody.data.posterUrl,
+        asset: {
+          id: firstBody.data.asset.id,
+          source_module: 'video',
+          mime_type: 'video/mp4',
+        },
+      },
+      billing: {
+        user_id: user.id,
+        feature: 'ai.video.generate',
+        credits_charged: 185,
+        balance_after: 1815,
+        idempotent_replay: true,
+      },
+    });
+    expect(JSON.stringify(secondBody)).not.toContain(body.prompt);
+    expect(JSON.stringify(secondBody)).not.toContain(env.DB.state.aiTextAssets[0].r2_key);
+    expect(calls).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(2);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === user.id)).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === user.id && row.amount < 0)).toHaveLength(1);
+    expect(JSON.stringify(env.DB.state.memberAiUsageAttempts)).not.toContain(body.prompt);
+
+    const conflict = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        ...body,
+        prompt: 'same key but different video request',
+      },
+      idempotencyKey: 'member-video-replay-key-123456',
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test('member video completed replay-unavailable does not re-run providers or double debit', async () => {
+    const { authWorker, env, token, user, calls, fetchCalls } = await createMemberVideoHarness();
+    const body = {
+      prompt: 'Replay unavailable video prompt must not leak.',
+      duration: 5,
+      quality: '720p',
+      generate_audio: true,
+    };
+
+    const first = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body,
+      idempotencyKey: 'member-video-replay-missing-key',
+    });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    const asset = env.DB.state.aiTextAssets.find((row) => row.id === firstBody.data.asset.id);
+    env.USER_IMAGES.objects.delete(asset.r2_key);
+
+    const second = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body,
+      idempotencyKey: 'member-video-replay-missing-key',
+    });
+
+    expect(second.status).toBe(410);
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      ok: false,
+      code: 'member_ai_usage_result_unavailable',
+      billing: {
+        user_id: user.id,
+        feature: 'ai.video.generate',
+        idempotent_replay: true,
+      },
+    });
+    expect(JSON.stringify(secondBody)).not.toContain(body.prompt);
+    expect(JSON.stringify(secondBody)).not.toContain(asset.r2_key);
+    expect(calls).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(2);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.user_id === user.id)).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === user.id && row.amount < 0)).toHaveLength(1);
+    expect(env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      result_status: 'expired',
+      result_save_reference: null,
+      error_code: 'member_video_replay_object_missing',
+    }));
+  });
+
+  test('member video duplicate in-progress request does not call provider again', async () => {
+    let resolveProvider;
+    let providerStarted;
+    const providerStartedPromise = new Promise((resolve) => {
+      providerStarted = resolve;
+    });
+    const providerReleasePromise = new Promise((resolve) => {
+      resolveProvider = resolve;
+    });
+    const { authWorker, env, token, calls } = await createMemberVideoHarness({
+      aiRun: async () => {
+        providerStarted();
+        await providerReleasePromise;
+        return {
+          video_url: 'https://video.example/generated.mp4',
+          poster_url: 'https://video.example/poster.webp',
+        };
+      },
+    });
+    const requestBody = {
+      prompt: 'A concurrent city video.',
+      duration: 5,
+      quality: '720p',
+      generate_audio: true,
+    };
+    const firstPromise = postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: requestBody,
+      idempotencyKey: 'member-video-in-progress-key',
+    });
+    await providerStartedPromise;
+
+    const second = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      body: requestBody,
+      idempotencyKey: 'member-video-in-progress-key',
+    });
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'member_ai_usage_attempt_in_progress',
+      billing: {
+        feature: 'ai.video.generate',
+        credits_reserved: 185,
+      },
+    });
+    expect(calls).toHaveLength(1);
+
+    resolveProvider();
+    const first = await firstPromise;
+    expect(first.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.video.generate')).toHaveLength(1);
+  });
+
+  test('member video storage failure after provider success does not debit credits', async () => {
+    const { authWorker, env, token, calls, fetchCalls } = await createMemberVideoHarness({
+      fetch: async () => new Response('missing video', {
+        status: 502,
+        headers: { 'content-type': 'text/plain' },
+      }),
+    });
+
+    const res = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: 'member-video-storage-failure-key',
+    });
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'video_download_failed',
+    });
+    expect(calls).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(1);
+    expect(env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.video.generate')).toHaveLength(0);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.feature_key === 'ai.video.generate')).toHaveLength(0);
+    expect(env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        feature_key: 'ai.video.generate',
+        operation_key: 'member.video.generate',
+        status: 'billing_failed',
+        billing_status: 'failed',
+        error_code: 'video_download_failed',
+      }),
+    ]);
   });
 
   test('member HappyHorse T2V generation charges shared pricing and saves a video asset', async () => {
@@ -7938,6 +8349,15 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       row.feature_key === 'ai.video.generate'
     )).toHaveLength(0);
     expect(providerFailure.env.DB.state.aiTextAssets).toHaveLength(0);
+    expect(providerFailure.env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        feature_key: 'ai.video.generate',
+        operation_key: 'member.video.generate',
+        status: 'provider_failed',
+        billing_status: 'released',
+        error_code: 'upstream_error',
+      }),
+    ]);
 
     const billingFailure = await createMemberVideoHarness({
       missingTables: ['member_usage_events'],
@@ -7953,15 +8373,23 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         resolution: '720P',
         ratio: '16:9',
       },
-      idempotencyKey: null,
+      idempotencyKey: 'member-happyhorse-billing-fail',
     });
     expect(billingRes.status).toBe(503);
     await expect(billingRes.json()).resolves.toMatchObject({
       ok: false,
-      code: 'ai_usage_policy_unavailable',
+      code: 'usage_record_failed',
     });
     expect(billingFailure.env.DB.state.aiTextAssets).toHaveLength(0);
     expect(Array.from(billingFailure.env.USER_IMAGES.objects.keys()).filter((key) => key.includes('/video/'))).toHaveLength(0);
+    expect(billingFailure.env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        feature_key: 'ai.video.generate',
+        operation_key: 'member.video.generate',
+        status: 'billing_failed',
+        billing_status: 'failed',
+      }),
+    ]);
   });
 
   test('member PixVerse V6 video poster can be attached from captured preview frame', async () => {
@@ -8400,6 +8828,21 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(consumes).toHaveLength(1);
     expect(consumes[0].amount).toBe(-150);
     expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.image.generate')).toHaveLength(0);
+    const attemptMetadata = JSON.parse(env.DB.state.memberAiUsageAttempts[0].metadata_json);
+    expect(attemptMetadata.cover_generation_status).toBe('succeeded');
+    expect(attemptMetadata.sub_operations.cover).toEqual(expect.objectContaining({
+      status: 'succeeded',
+      billing_relationship: 'included_in_parent_music_bundle',
+      model_id: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(attemptMetadata.sub_operations.cover.poster).toEqual(expect.objectContaining({
+      width: 320,
+      height: 320,
+      size_bytes: expect.any(Number),
+    }));
+    const serializedAttempt = JSON.stringify(attemptMetadata);
+    expect(serializedAttempt).not.toContain(musicAsset.poster_r2_key);
+    expect(serializedAttempt).not.toContain('tmp/ai-generated/music-covers/');
   });
 
   test('member music cover failures keep the saved track playable and do not add a credit charge', async () => {
@@ -8447,6 +8890,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     );
     expect(consumes).toHaveLength(1);
     expect(consumes[0].amount).toBe(-150);
+    const attemptMetadata = JSON.parse(env.DB.state.memberAiUsageAttempts[0].metadata_json);
+    expect(attemptMetadata.cover_generation_status).toBe('failed');
+    expect(attemptMetadata.sub_operations.cover).toEqual(expect.objectContaining({
+      status: 'failed',
+      billing_relationship: 'included_in_parent_music_bundle',
+      reason: 'poster_unavailable',
+    }));
+    expect(JSON.stringify(attemptMetadata)).not.toContain('tmp/ai-generated/music-covers/');
   });
 
   test('member music cover generation is not exposed as a standalone free image route', async () => {
@@ -8764,6 +9215,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(secondBody).toMatchObject({
       ok: true,
       data: {
+        prompt: null,
+        lyricsPreview: null,
         audioUrl: firstBody.data.audioUrl,
         asset: {
           id: firstBody.data.asset.id,
@@ -8784,6 +9237,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(consumes[0].amount).toBe(-150);
     expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(1);
     expect(calls).toHaveLength(1);
+    expect(JSON.stringify(secondBody)).not.toContain('Retry this melody');
 
     const conflict = await postGenerateMusic({
       worker: authWorker,
@@ -8800,6 +9254,59 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       code: 'idempotency_conflict',
     });
     expect(calls).toHaveLength(1);
+  });
+
+  test('member music completed replay-unavailable does not re-run providers or double debit', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness();
+    const idempotencyKey = 'member-music-replay-unavailable-key';
+    const lyrics = '[Verse]\nAudio exists but replay metadata is missing';
+
+    const first = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: { lyrics },
+      idempotencyKey,
+    });
+    expect(first.status).toBe(200);
+    const attempt = env.DB.state.memberAiUsageAttempts[0];
+    expect(attempt).toEqual(expect.objectContaining({
+      status: 'succeeded',
+      billing_status: 'finalized',
+      result_status: 'stored',
+    }));
+    attempt.metadata_json = JSON.stringify({
+      gateway_result_type: 'member_music',
+      cover_generation_status: 'pending',
+    });
+
+    const second = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: { lyrics },
+      idempotencyKey,
+    });
+    expect(second.status).toBe(409);
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      ok: false,
+      code: 'member_ai_usage_result_unavailable',
+      billing: {
+        idempotent_replay: true,
+        balance_after: 50,
+      },
+    });
+    expect(JSON.stringify(secondBody)).not.toContain(lyrics);
+    expect(calls).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    )).toHaveLength(1);
+    expect(env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      result_status: 'unavailable',
+      result_save_reference: null,
+      error_code: 'member_ai_usage_music_replay_unavailable',
+    }));
   });
 
   test('member music generation fails closed when personal credit policy storage is unavailable', async () => {
@@ -10343,6 +10850,128 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expect(JSON.stringify(diagnostics.entries)).not.toContain(expiredReplayKey);
       expect(env.DB.state.usageEvents).toHaveLength(0);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+    } finally {
+      diagnostics.restore();
+    }
+  });
+
+  test('Phase 3.7 scheduled cleanup releases member attempts and expires member replay objects safely', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const diagnostics = captureDiagnosticLogs();
+    const user = createContractUser({ id: 'phase37-member-cleanup-user', role: 'user' });
+    const { buildAiGeneratedTempOriginalKey } = await loadAiGeneratedSaveReferenceModule();
+    const expiredReplayKey = buildAiGeneratedTempOriginalKey(user.id, 'member-expired-linked-replay');
+    const activeReplayKey = buildAiGeneratedTempOriginalKey(user.id, 'member-active-linked-replay');
+    const unlinkedTempKey = buildAiGeneratedTempOriginalKey(user.id, 'member-unlinked-temp');
+    const savedUserMediaKey = `users/${user.id}/folders/unsorted/saved-image.png`;
+    const env = createAuthTestEnv({
+      users: [user],
+      userImages: {
+        [expiredReplayKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [activeReplayKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [unlinkedTempKey]: {
+          body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+        [savedUserMediaKey]: {
+          body: Buffer.from('saved-user-media'),
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2000-01-01T00:00:00.000Z',
+        },
+      },
+      memberAiUsageAttempts: [
+        seedMemberAiUsageAttempt({
+          id: 'maua_phase37_reserved_expired',
+          user_id: user.id,
+          status: 'provider_running',
+          provider_status: 'running',
+          billing_status: 'reserved',
+          expires_at: '2000-01-01T00:00:00.000Z',
+        }),
+        seedMemberAiUsageAttempt({
+          id: 'maua_phase37_replay_expired',
+          user_id: user.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: expiredReplayKey,
+          result_save_reference: 'member-expired-save-reference',
+          balance_after: 9,
+          completed_at: '2026-05-15T10:01:00.000Z',
+          expires_at: '2000-01-01T00:00:00.000Z',
+          metadata_json: JSON.stringify({
+            gateway_result_type: 'member_image',
+            replay: { status: 'available', available: true },
+          }),
+        }),
+        seedMemberAiUsageAttempt({
+          id: 'maua_phase37_replay_active',
+          user_id: user.id,
+          status: 'succeeded',
+          provider_status: 'succeeded',
+          billing_status: 'finalized',
+          result_status: 'stored',
+          result_temp_key: activeReplayKey,
+          result_save_reference: 'member-active-save-reference',
+          balance_after: 9,
+          completed_at: '2026-05-15T10:02:00.000Z',
+          expires_at: '2999-01-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    try {
+      await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+
+      expect(env.USER_IMAGES.objects.has(expiredReplayKey)).toBe(false);
+      expect(env.USER_IMAGES.objects.has(activeReplayKey)).toBe(true);
+      expect(env.USER_IMAGES.objects.has(unlinkedTempKey)).toBe(false);
+      expect(env.USER_IMAGES.objects.has(savedUserMediaKey)).toBe(true);
+      expect(env.USER_IMAGES.deleteCalls).toEqual(expect.arrayContaining([
+        expiredReplayKey,
+        unlinkedTempKey,
+      ]));
+      expect(env.USER_IMAGES.deleteCalls).not.toContain(activeReplayKey);
+      expect(env.USER_IMAGES.deleteCalls).not.toContain(savedUserMediaKey);
+      expect(env.DB.state.memberAiUsageAttempts.find((row) => row.id === 'maua_phase37_reserved_expired')).toMatchObject({
+        status: 'expired',
+        provider_status: 'expired',
+        billing_status: 'released',
+        result_status: 'none',
+      });
+      expect(env.DB.state.memberAiUsageAttempts.find((row) => row.id === 'maua_phase37_replay_expired')).toMatchObject({
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'expired',
+        result_temp_key: null,
+        result_save_reference: null,
+      });
+      expect(env.DB.state.memberAiUsageAttempts.find((row) => row.id === 'maua_phase37_replay_active')).toMatchObject({
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'stored',
+        result_temp_key: activeReplayKey,
+      });
+      expect(findDiagnosticEvent(diagnostics.entries, 'member_ai_usage_attempt_cleanup_completed')).toEqual(expect.objectContaining({
+        component: 'scheduled-member-ai-usage-attempt-cleanup',
+        scanned_count: 2,
+        reservations_released_count: 1,
+        replay_objects_deleted_count: 1,
+        replay_object_metadata_cleared_count: 1,
+      }));
+      expect(JSON.stringify(diagnostics.entries)).not.toContain(expiredReplayKey);
+      expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+      expect(env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     } finally {
       diagnostics.restore();
     }

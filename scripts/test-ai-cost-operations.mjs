@@ -86,13 +86,11 @@ assert.deepEqual(summary, {
   memberOperations: 7,
   organizationOperations: 2,
   adminPlatformOperations: 22,
-  currentMissingMandatoryIdempotency: 1,
-  currentMissingReservation: 1,
-  currentNoReplay: 1,
+  currentMissingMandatoryIdempotency: 0,
+  currentMissingReservation: 0,
+  currentNoReplay: 0,
   platformBudgetReviewOperations: 2,
-  highRiskOperations: [
-    "member.video.generate",
-  ],
+  highRiskOperations: [],
 });
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();

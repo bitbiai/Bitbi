@@ -51,6 +51,7 @@ import {
 import { archiveColdActivityLogs } from "./lib/activity-archive.js";
 import { cleanupExpiredDataExportArchives } from "./lib/data-export-cleanup.js";
 import { cleanupExpiredAiUsageAttempts } from "./lib/ai-usage-attempts.js";
+import { cleanupExpiredMemberAiUsageAttempts } from "./lib/member-ai-usage-attempts.js";
 import { refreshNewsPulse } from "./lib/news-pulse.js";
 import {
   processNewsPulseVisualBackfill,
@@ -156,6 +157,14 @@ async function isLinkedAiUsageReplayObject(env, key) {
   try {
     const row = await env.DB.prepare(
       "SELECT id FROM ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1"
+    ).bind(key).first();
+    if (row?.id) return true;
+  } catch (error) {
+    if (!String(error?.message || error).includes("no such table")) throw error;
+  }
+  try {
+    const row = await env.DB.prepare(
+      "SELECT id FROM member_ai_usage_attempts WHERE result_temp_key = ? AND result_status = 'stored' LIMIT 1"
     ).bind(key).first();
     return Boolean(row?.id);
   } catch (error) {
@@ -440,6 +449,53 @@ export default {
         service: "bitbi-auth",
         component: "scheduled-ai-usage-attempt-cleanup",
         event: "ai_usage_attempt_cleanup_failed",
+        level: "error",
+        ...getErrorFields(error),
+      });
+    }
+
+    try {
+      const memberUsageAttemptCleanup = await cleanupExpiredMemberAiUsageAttempts({
+        env,
+        now,
+        limit: 25,
+        dryRun: false,
+      });
+      if (
+        memberUsageAttemptCleanup.scannedCount > 0 ||
+        memberUsageAttemptCleanup.expiredCount > 0 ||
+        memberUsageAttemptCleanup.reservationsReleasedCount > 0 ||
+        memberUsageAttemptCleanup.replayMetadataExpiredCount > 0 ||
+        memberUsageAttemptCleanup.replayObjectsDeletedCount > 0 ||
+        memberUsageAttemptCleanup.replayObjectFailedCount > 0 ||
+        memberUsageAttemptCleanup.failedCount > 0 ||
+        memberUsageAttemptCleanup.skippedCount > 0
+      ) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-member-ai-usage-attempt-cleanup",
+          event: "member_ai_usage_attempt_cleanup_completed",
+          level: memberUsageAttemptCleanup.failedCount > 0 || memberUsageAttemptCleanup.skippedCount > 0 ? "warn" : "info",
+          scanned_count: memberUsageAttemptCleanup.scannedCount,
+          expired_count: memberUsageAttemptCleanup.expiredCount,
+          reservations_released_count: memberUsageAttemptCleanup.reservationsReleasedCount,
+          replay_metadata_expired_count: memberUsageAttemptCleanup.replayMetadataExpiredCount,
+          replay_objects_eligible_count: memberUsageAttemptCleanup.replayObjectsEligibleCount,
+          replay_objects_deleted_count: memberUsageAttemptCleanup.replayObjectsDeletedCount,
+          replay_object_metadata_cleared_count: memberUsageAttemptCleanup.replayObjectMetadataClearedCount,
+          replay_objects_skipped_active_count: memberUsageAttemptCleanup.replayObjectsSkippedActiveCount,
+          replay_objects_skipped_unsafe_key_count: memberUsageAttemptCleanup.replayObjectsSkippedUnsafeKeyCount,
+          replay_objects_skipped_missing_object_count: memberUsageAttemptCleanup.replayObjectsSkippedMissingObjectCount,
+          replay_object_failed_count: memberUsageAttemptCleanup.replayObjectFailedCount,
+          skipped_count: memberUsageAttemptCleanup.skippedCount,
+          failed_count: memberUsageAttemptCleanup.failedCount,
+        });
+      }
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-member-ai-usage-attempt-cleanup",
+        event: "member_ai_usage_attempt_cleanup_failed",
         level: "error",
         ...getErrorFields(error),
       });

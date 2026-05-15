@@ -203,7 +203,7 @@ Phase 3.4 adds the member personal image gateway pilot and additive auth migrati
 
 The mandatory operator order is migration `0048` first, then auth Worker deploy from the reviewed commit. Do not deploy auth Worker code that depends on `member_ai_usage_attempts` before remote migration `0048` is applied and verified. Use `PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` to record member personal image smoke evidence, including missing/malformed idempotency rejection, same-key duplicate behavior, conflict behavior, and no-charge failure evidence when safely testable.
 
-This evidence does not prove that member music, member video, admin AI, platform/background AI, internal AI Worker routes, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
+This evidence does not prove that admin video jobs, admin AI, platform/background AI, internal AI Worker routes, OpenClaw/News Pulse visuals, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
 
 ## Live/Staging Credential Checks
 

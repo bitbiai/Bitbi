@@ -468,7 +468,7 @@ function buildMusicReplayMetadata({
   return {
     gateway_result_type: "member_music",
     cover_generation_policy: "included_in_parent_music_bundle",
-    cover_generation_status: "scheduled",
+    cover_generation_status: "pending",
     sub_operations: {
       lyrics: {
         operation_id: "member.music.lyrics.generate",
@@ -484,7 +484,7 @@ function buildMusicReplayMetadata({
       },
       cover: {
         operation_id: "member.music.cover.generate",
-        status: "scheduled",
+        status: "pending",
         billing_relationship: "included_in_parent_music_bundle",
       },
     },
@@ -516,6 +516,8 @@ function buildMusicReplayMetadata({
       sizeBytes: savedAsset.size_bytes,
       traceId: musicBody?.traceId || null,
       asset: replayAsset,
+      coverStatus: "pending",
+      posterAvailable: false,
       lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
       balance_after: billingMetadata?.balance_after ?? null,
     },
@@ -524,7 +526,8 @@ function buildMusicReplayMetadata({
 
 function buildMusicReplayData({ input, replay }) {
   return {
-    prompt: input.prompt,
+    prompt: null,
+    promptLength: input.prompt.length,
     mode: replay.mode || input.musicMode,
     lyricsMode: replay.lyricsMode || (input.instrumental ? "auto" : input.lyrics ? "custom" : "auto"),
     generatedLyrics: null,
@@ -537,13 +540,21 @@ function buildMusicReplayData({ input, replay }) {
     channels: replay.channels ?? null,
     bitrate: replay.bitrate ?? null,
     sizeBytes: replay.sizeBytes ?? null,
-    lyricsPreview: replay.lyricsPreviewAvailable ? input.lyrics || null : null,
+    lyricsPreview: null,
+    lyricsPreviewAvailable: Boolean(replay.lyricsPreviewAvailable),
     traceId: replay.traceId || null,
     asset: replay.asset || null,
   };
 }
 
-function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
+async function markMusicReplayUnavailable(usagePolicy, { code, message, resultStatus = "unavailable" }) {
+  if (typeof usagePolicy?.markReplayUnavailable !== "function") return;
+  try {
+    await usagePolicy.markReplayUnavailable({ code, message, resultStatus });
+  } catch {}
+}
+
+async function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
   if (usagePolicy.attemptKind === "completed_expired") {
     return respond({
       ok: false,
@@ -560,6 +571,11 @@ function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
     !replay?.audioUrl ||
     !replay?.asset?.id
   ) {
+    await markMusicReplayUnavailable(usagePolicy, {
+      code: "member_ai_usage_music_replay_unavailable",
+      message: "Completed member music attempt has no replayable audio metadata.",
+      resultStatus: "unavailable",
+    });
     return respond({
       ok: false,
       error: "The idempotent music request completed, but the generated audio is no longer replayable.",
@@ -919,6 +935,20 @@ export async function handleGenerateMusic(ctx) {
         user_id: userId,
         ...getErrorFields(error),
       });
+      await markMusicBillingFailed(usagePolicy, {
+        code: error?.code || "member_music_result_metadata_failed",
+        message: "Music usage billing succeeded but result metadata finalization failed.",
+      });
+      return respond({
+        ok: false,
+        error: "Music generation could not be finalized. Please contact support before retrying.",
+        code: "member_ai_usage_finalization_failed",
+        billing: {
+          ...billingMetadata,
+          credits_charged: input.price,
+          price: input.price,
+        },
+      }, { status: 503 });
     }
   }
 
@@ -926,6 +956,7 @@ export async function handleGenerateMusic(ctx) {
     env,
     userId,
     assetId: savedAsset.id,
+    attemptId: usagePolicy?.attempt?.id || null,
     styleInput: input.prompt,
     correlationId,
   });

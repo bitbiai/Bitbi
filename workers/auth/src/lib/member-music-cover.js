@@ -1,5 +1,6 @@
 import { logDiagnostic, getErrorFields } from "../../../../js/shared/worker-observability.mjs";
 import { processGeneratedMusicCoverPoster } from "./ai-text-assets.js";
+import { recordMemberAiUsageAttemptCoverStatus } from "./member-ai-usage-attempts.js";
 import { randomTokenHex } from "./tokens.js";
 
 export const MEMBER_MUSIC_COVER_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
@@ -110,14 +111,38 @@ async function loadMusicAssetForCover(env, { userId, assetId }) {
   ).bind(assetId, userId).first();
 }
 
+async function recordCoverStatusSafe(env, {
+  attemptId,
+  status,
+  reason = null,
+  poster = null,
+} = {}) {
+  if (!attemptId) return;
+  try {
+    await recordMemberAiUsageAttemptCoverStatus(env, {
+      attemptId,
+      status,
+      reason,
+      model: MEMBER_MUSIC_COVER_MODEL_ID,
+      poster,
+    });
+  } catch {}
+}
+
 export async function generateMemberMusicCover({
   env,
   userId,
   assetId,
+  attemptId = null,
   styleInput,
   correlationId = null,
 }) {
   if (!env?.AI || typeof env.AI.run !== "function") {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "skipped",
+      reason: "ai_binding_missing",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -134,6 +159,11 @@ export async function generateMemberMusicCover({
   try {
     row = await loadMusicAssetForCover(env, { userId, assetId });
   } catch (error) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "failed",
+      reason: "asset_lookup_failed",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -147,16 +177,39 @@ export async function generateMemberMusicCover({
     return null;
   }
 
-  if (!row || row.poster_r2_key) {
+  if (!row) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "skipped",
+      reason: "asset_missing",
+    });
+    return null;
+  }
+  if (row.poster_r2_key) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "skipped",
+      reason: "poster_already_exists",
+    });
     return null;
   }
 
   const prompt = buildMemberMusicCoverPrompt(parseStoredMusicPrompt(row, styleInput));
   let image;
   try {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "pending",
+      reason: null,
+    });
     const result = await env.AI.run(MEMBER_MUSIC_COVER_MODEL_ID, { prompt });
     image = await extractImageBytes(result);
   } catch (error) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "failed",
+      reason: "provider_failed",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -172,6 +225,11 @@ export async function generateMemberMusicCover({
   }
 
   if (!image?.bytes?.byteLength) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "failed",
+      reason: "provider_empty_result",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -191,6 +249,11 @@ export async function generateMemberMusicCover({
       httpMetadata: { contentType: image.mimeType || DEFAULT_COVER_MIME_TYPE },
     });
   } catch (error) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "failed",
+      reason: "temp_store_failed",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -210,6 +273,11 @@ export async function generateMemberMusicCover({
     coverBytes: image.bytes,
   });
   if (!poster?.r2Key) {
+    await recordCoverStatusSafe(env, {
+      attemptId,
+      status: "failed",
+      reason: "poster_unavailable",
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: COMPONENT,
@@ -222,6 +290,16 @@ export async function generateMemberMusicCover({
     });
     return null;
   }
+
+  await recordCoverStatusSafe(env, {
+    attemptId,
+    status: "succeeded",
+    poster: {
+      width: poster.width,
+      height: poster.height,
+      sizeBytes: poster.sizeBytes,
+    },
+  });
 
   try {
     await env.USER_IMAGES.delete(tempKey);

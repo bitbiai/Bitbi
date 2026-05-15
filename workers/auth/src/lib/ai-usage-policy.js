@@ -28,7 +28,9 @@ import {
   markMemberAiUsageAttemptFinalizing,
   markMemberAiUsageAttemptProviderFailed,
   markMemberAiUsageAttemptProviderRunning,
+  markMemberAiUsageAttemptReplayUnavailable,
   markMemberAiUsageAttemptSucceeded,
+  mergeMemberAiUsageAttemptMetadata,
 } from "./member-ai-usage-attempts.js";
 import {
   AI_COST_GATEWAY_PHASES,
@@ -315,6 +317,12 @@ async function prepareMemberGatewayPolicy({
     async markSucceeded(result = {}) {
       return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, result);
     },
+    async markReplayUnavailable(result = {}) {
+      return markMemberAiUsageAttemptReplayUnavailable(env, attemptState.attempt.id, result);
+    },
+    async mergeMetadata(patch = {}) {
+      return mergeMemberAiUsageAttemptMetadata(env, attemptState.attempt.id, patch);
+    },
     billingMetadata({ replay = false, balanceAfter = null } = {}) {
       return billingMetadataFromMemberAttempt(
         {
@@ -379,7 +387,8 @@ export async function prepareAiUsagePolicy({
 
     if (
       resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE.id ||
-      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id
+      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id ||
+      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_VIDEO_GENERATE.id
     ) {
       return prepareMemberGatewayPolicy({
         env,

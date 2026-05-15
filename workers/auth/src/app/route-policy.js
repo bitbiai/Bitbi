@@ -619,7 +619,7 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       mode: "member-credit-account",
       feature: "ai.video.generate",
-      idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied",
+      idempotency: "required; member video generation is guarded by one bundled member_ai_usage_attempts parent reservation before provider-cost work",
     },
   }),
   policy({

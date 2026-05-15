@@ -220,7 +220,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. The implementation uses the existing additive `0048` member attempt table and does not add a new migration. It changes only the member music route; member video, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
 
 Target operation structure:
 
@@ -243,8 +243,8 @@ Implemented sequence:
 8. Run required audio generation under `member.music.audio.generate`; store safe provider status and a replay pointer only after audio is persisted safely.
 9. Persist the music asset before final debit. If storage fails after provider success, mark a no-charge failure or terminal safe state and do not return an uncharged paid result.
 10. Finalize exactly one member debit after audio provider success and successful local save.
-11. Schedule cover generation only after final music success. Phase 3.6 policy includes cover generation in the parent music bundle with no separate visible charge.
-12. Replay a completed same-key request from safe asset/result metadata when available. If replay expired, return safe replay-expired metadata and require a new key for fresh provider work.
+11. Schedule cover generation only after final music success. Phase 3.6 policy includes cover generation in the parent music bundle with no separate visible charge; Phase 3.7 records safe `pending`/`succeeded`/`failed`/`skipped` cover status on the parent attempt.
+12. Replay a completed same-key request from safe asset/result metadata when available. If replay is expired, missing, or unavailable, return a safe replay-unavailable response, do not call providers again, do not debit again, and require a new key for fresh provider work.
 
 Failure and replay policy:
 
@@ -253,10 +253,37 @@ Failure and replay policy:
 - Music audio success plus storage failure should not debit and should not return the paid output as user-owned media.
 - Billing finalization failure is terminal; do not replay unpaid output.
 - Duplicate in-progress same-key requests should return in-progress/conflict without additional provider calls.
-- Duplicate completed same-key requests should not debit again and should not call lyrics/audio providers again when replay metadata is valid.
-- Cover failure is non-fatal to the finalized music debit. Cover final-status writeback to the parent attempt remains a Phase 3.7 hardening gap.
+- Duplicate completed same-key requests should not debit again and should not call lyrics/audio providers again when replay metadata is valid or unavailable.
+- Cover failure is non-fatal to the finalized music debit. Phase 3.7 writes safe cover status to the parent attempt without storing poster R2 keys or temporary cover keys in attempt metadata.
+- Scheduled cleanup releases expired/stuck member reservations without debits and expires/deletes only approved-prefix temporary replay objects linked to `member_ai_usage_attempts`; it must not delete saved media, ledger rows, usage events, attempt rows, or unrelated R2 objects.
 
 Safe music gateway metadata may include operation ids, model ids, pricing version, credit amount, prompt hash/length, lyrics hash/length, generated lyrics flag, instrumental flag, asset id, provider status, replay availability, cover status, and correlation id. It must not include secret values, cookies, raw auth tokens, provider credentials, raw request fingerprints, unbounded prompts, or unbounded lyrics in gateway state.
+
+## Member Video Gateway Flow
+
+Phase 3.8 migrates member `/api/ai/generate-video` only. The route remains synchronous and still calls the existing PixVerse V6 / HappyHorse T2V provider path, then fetches and persists the returned video/poster into the member's private `ai_text_assets` storage. The migration changes cost-control behavior around that existing flow without migrating admin video jobs or internal AI Worker video task routes.
+
+Implemented sequence:
+
+1. Require a valid `Idempotency-Key` before provider execution or remote output fetch.
+2. Build a parent fingerprint from route id, operation id `member.video.generate`, member id, member credit account, model/pricing version, prompt hash/length, image-input hash, duration, quality/resolution/ratio, seed, audio/watermark flags, and stable request options.
+3. Reject same key with a different fingerprint before provider execution.
+4. Apply the existing daily member top-up/check behavior and reserve the full dynamic video credit cost in `member_ai_usage_attempts` before provider work.
+5. Mark the parent attempt provider-running before `env.AI.run`.
+6. On provider failure, release/no-charge the reservation.
+7. On provider success, fetch and validate the remote video/poster under existing media limits, then persist the video asset to R2/D1 before debit.
+8. If remote output fetch or storage fails before debit, mark a terminal no-charge state and do not return a paid output.
+9. Finalize exactly one member debit after durable video asset persistence.
+10. Store safe durable-asset replay metadata on the parent attempt. It may include model id, pricing dimensions, prompt length/hash-derived fingerprint, asset id, public member asset URLs, poster availability, and size/duration fields. It must not include raw prompt text, raw image input, cookies, auth tokens, secrets, provider credentials, signed provider URLs, or internal R2 keys.
+11. Replay a completed same-key request from safe saved-asset metadata when available. If the saved asset row or object is missing, return replay-unavailable, do not call providers again, do not debit again, and require a new key for fresh provider work.
+
+Failure and replay policy:
+
+- Duplicate in-progress same-key requests return `member_ai_usage_attempt_in_progress` and do not call the provider again.
+- Duplicate completed same-key requests with valid saved asset metadata return a bounded replay response with `prompt: null`, `promptLength`, safe model/pricing fields, asset id, and member asset URLs.
+- Completed attempts with missing replay metadata or missing saved objects are terminal replay-unavailable for that idempotency key.
+- Billing finalization failure after provider success is terminal and must not silently return success.
+- The implementation intentionally does not migrate admin async video jobs, admin debug video, platform budget enforcement, OpenClaw/News Pulse visuals, or internal AI Worker video task routes.
 
 ## Route Adapter Responsibilities
 

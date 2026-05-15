@@ -471,6 +471,234 @@ function extractProviderPosterUrl(raw) {
   return "";
 }
 
+function safeVideoReplayAsset(asset) {
+  if (!asset) return null;
+  return {
+    id: asset.id,
+    folder_id: asset.folder_id ?? null,
+    source_module: "video",
+    mime_type: asset.mime_type || "video/mp4",
+    size_bytes: asset.size_bytes ?? null,
+    created_at: asset.created_at || null,
+    poster_width: asset.poster_width ?? null,
+    poster_height: asset.poster_height ?? null,
+    poster_size_bytes: asset.poster_size_bytes ?? null,
+    file_url: `/api/ai/text-assets/${encodeURIComponent(asset.id)}/file`,
+    poster_url: asset.poster_available
+      ? `/api/ai/text-assets/${encodeURIComponent(asset.id)}/poster`
+      : null,
+  };
+}
+
+function buildVideoReplayMetadata({
+  input,
+  savedAsset,
+  providerResponse,
+  billingMetadata,
+}) {
+  const posterAvailable = Boolean(savedAsset.poster_url);
+  const replayAsset = safeVideoReplayAsset({
+    ...savedAsset,
+    poster_available: posterAvailable,
+  });
+  return {
+    gateway_result_type: "member_video",
+    video_request: {
+      prompt_length: input.prompt.length,
+      negative_prompt_present: Boolean(input.negativePrompt),
+      negative_prompt_length: input.negativePrompt ? input.negativePrompt.length : 0,
+      image_input_present: Boolean(input.imageInput),
+      image_input_hash: input.imageInputHash || null,
+      duration: input.duration,
+      aspect_ratio: input.aspectRatio || null,
+      quality: input.quality || null,
+      resolution: input.resolution || null,
+      ratio: input.ratio || null,
+      seed: input.seed ?? null,
+      generate_audio: input.generateAudio ?? null,
+      watermark: input.watermark ?? null,
+      workflow: input.workflow || (input.imageInput ? "image-to-video" : "text-to-video"),
+      price: input.price,
+    },
+    video_replay: {
+      model: {
+        id: input.modelId,
+        label: input.modelLabel,
+        vendor: input.vendor,
+      },
+      provider: input.provider,
+      preset: input.preset,
+      mimeType: savedAsset.mime_type,
+      videoUrl: savedAsset.file_url,
+      posterUrl: savedAsset.poster_url || null,
+      asset: replayAsset,
+      duration: input.duration,
+      aspectRatio: input.aspectRatio || null,
+      quality: input.quality || null,
+      resolution: input.resolution || null,
+      ratio: input.ratio || null,
+      seed: input.seed ?? null,
+      generateAudio: input.generateAudio ?? null,
+      watermark: input.watermark ?? null,
+      elapsedMs: providerResponse.elapsedMs ?? null,
+      sizeBytes: savedAsset.size_bytes,
+      posterAvailable,
+      balance_after: billingMetadata?.balance_after ?? null,
+    },
+  };
+}
+
+function buildVideoReplayData({ input, replay }) {
+  return {
+    prompt: null,
+    promptLength: input.prompt.length,
+    model: replay.model || {
+      id: input.modelId,
+      label: input.modelLabel,
+      vendor: input.vendor,
+    },
+    provider: replay.provider || input.provider,
+    preset: replay.preset || input.preset,
+    duration: replay.duration ?? input.duration,
+    aspect_ratio: replay.aspectRatio ?? input.aspectRatio,
+    quality: replay.quality ?? input.quality,
+    resolution: replay.resolution ?? input.resolution,
+    ratio: replay.ratio ?? input.ratio,
+    seed: replay.seed ?? input.seed,
+    watermark: replay.watermark ?? input.watermark,
+    generate_audio: replay.generateAudio ?? input.generateAudio,
+    mimeType: replay.mimeType || "video/mp4",
+    videoUrl: replay.videoUrl,
+    posterUrl: replay.posterUrl || null,
+    asset: replay.asset || null,
+  };
+}
+
+async function fetchVideoReplayAsset(env, { userId, assetId }) {
+  const safeAssetId = String(assetId || "").trim();
+  if (!safeAssetId) {
+    return { ok: false, code: "member_video_replay_asset_missing" };
+  }
+  const row = await env.DB.prepare(
+    `SELECT id, folder_id, r2_key, title, file_name, source_module, mime_type,
+            size_bytes, preview_text, created_at, poster_r2_key, poster_width,
+            poster_height, poster_size_bytes
+     FROM ai_text_assets
+     WHERE id = ? AND user_id = ? AND source_module = 'video'
+     LIMIT 1`
+  ).bind(safeAssetId, userId).first();
+  if (!row?.r2_key) {
+    return { ok: false, code: "member_video_replay_asset_missing" };
+  }
+  const object = await env.USER_IMAGES.head(row.r2_key);
+  if (!object) {
+    return { ok: false, code: "member_video_replay_object_missing" };
+  }
+  let posterAvailable = false;
+  if (row.poster_r2_key) {
+    try {
+      posterAvailable = Boolean(await env.USER_IMAGES.head(row.poster_r2_key));
+    } catch {
+      posterAvailable = false;
+    }
+  }
+  return {
+    ok: true,
+    asset: safeVideoReplayAsset({
+      ...row,
+      poster_available: posterAvailable,
+    }),
+  };
+}
+
+async function markVideoReplayUnavailable(usagePolicy, { code, message, resultStatus = "unavailable" }) {
+  if (typeof usagePolicy?.markReplayUnavailable !== "function") return;
+  try {
+    await usagePolicy.markReplayUnavailable({ code, message, resultStatus });
+  } catch {}
+}
+
+async function replayGeneratedVideoAttempt({ env, usagePolicy, input, respond }) {
+  if (usagePolicy.attemptKind === "completed_expired") {
+    return respond({
+      ok: false,
+      error: "The idempotent video result is no longer available.",
+      code: "member_ai_usage_result_expired",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  const replay = usagePolicy.attempt?.metadata?.video_replay || null;
+  if (
+    usagePolicy.attempt?.resultStatus !== "stored" ||
+    !usagePolicy.attempt?.resultSaveReference ||
+    !replay?.videoUrl ||
+    !replay?.asset?.id
+  ) {
+    await markVideoReplayUnavailable(usagePolicy, {
+      code: "member_ai_usage_video_replay_unavailable",
+      message: "Completed member video attempt has no replayable video metadata.",
+      resultStatus: "unavailable",
+    });
+    return respond({
+      ok: false,
+      error: "The idempotent video request completed, but the generated video is no longer replayable.",
+      code: "member_ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 409 });
+  }
+
+  const replayAsset = await fetchVideoReplayAsset(env, {
+    userId: usagePolicy.attempt.userId,
+    assetId: usagePolicy.attempt.resultSaveReference,
+  });
+  if (!replayAsset.ok) {
+    await markVideoReplayUnavailable(usagePolicy, {
+      code: replayAsset.code,
+      message: "Completed member video replay object is unavailable.",
+      resultStatus: "expired",
+    });
+    return respond({
+      ok: false,
+      error: "The idempotent video result is no longer available.",
+      code: "member_ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  return respond({
+    ok: true,
+    data: buildVideoReplayData({
+      input,
+      replay: {
+        ...replay,
+        asset: replayAsset.asset,
+        videoUrl: replayAsset.asset.file_url,
+        posterUrl: replayAsset.asset.poster_url,
+      },
+    }),
+    billing: {
+      ...usagePolicy.billingMetadata({ replay: true }),
+      credits_charged: usagePolicy.credits,
+      price: usagePolicy.credits,
+    },
+  });
+}
+
+async function markVideoProviderFailed(usagePolicy, { code, message }) {
+  if (typeof usagePolicy?.markProviderFailed !== "function") return;
+  try {
+    await usagePolicy.markProviderFailed({ code, message });
+  } catch {}
+}
+
+async function markVideoBillingFailed(usagePolicy, { code, message }) {
+  if (typeof usagePolicy?.markBillingFailed !== "function") return;
+  try {
+    await usagePolicy.markBillingFailed({ code, message });
+  } catch {}
+}
+
 async function invokeMemberVideoModel(env, modelId, payload, { correlationId, userId }) {
   const startedAt = Date.now();
   if (!env?.AI || typeof env.AI.run !== "function") {
@@ -678,6 +906,32 @@ export async function handleGenerateVideo(ctx) {
   }
 
   if (usagePolicy.mode === "member") {
+    if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
+      return replayGeneratedVideoAttempt({ env, usagePolicy, input, respond });
+    }
+    if (usagePolicy.attemptKind === "in_progress") {
+      return respond({
+        ok: false,
+        error: "This idempotent video request is already in progress.",
+        code: "member_ai_usage_attempt_in_progress",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+          credits_reserved: usagePolicy.credits,
+        },
+      }, { status: 409 });
+    }
+    if (usagePolicy.attemptKind === "billing_failed") {
+      return respond({
+        ok: false,
+        error: "Video generation could not be finalized. Please use a new idempotency key to retry.",
+        code: "member_ai_usage_billing_failed",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+        },
+      }, { status: 503 });
+    }
     try {
       await usagePolicy.prepareForProvider();
     } catch (error) {
@@ -696,9 +950,34 @@ export async function handleGenerateVideo(ctx) {
     }
   }
 
+  if (typeof usagePolicy.markProviderRunning === "function") {
+    try {
+      await usagePolicy.markProviderRunning();
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-video",
+        event: "member_video_attempt_start_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        ...getErrorFields(error),
+      });
+      return respond({
+        ok: false,
+        error: "AI usage policy could not be verified.",
+        code: "ai_usage_policy_unavailable",
+      }, { status: 503 });
+    }
+  }
+
   const providerPayload = buildProviderPayload(input);
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId });
   if (!providerResponse.ok) {
+    await markVideoProviderFailed(usagePolicy, {
+      code: providerResponse.code || "upstream_error",
+      message: "Video provider call failed.",
+    });
     return respond({
       ok: false,
       error: providerResponse.error || "Video generation failed.",
@@ -717,6 +996,10 @@ export async function handleGenerateVideo(ctx) {
       correlationId,
     });
   } catch (error) {
+    await markVideoBillingFailed(usagePolicy, {
+      code: error?.code || "video_storage_failed",
+      message: "Video generation succeeded, but required video persistence failed before billing.",
+    });
     if (isAssetStorageQuotaError(error)) {
       return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
     }
@@ -739,6 +1022,9 @@ export async function handleGenerateVideo(ctx) {
 
   let billingMetadata = null;
   try {
+    if (typeof usagePolicy.markFinalizing === "function") {
+      await usagePolicy.markFinalizing();
+    }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: input.modelId,
       preset: input.preset,
@@ -755,6 +1041,10 @@ export async function handleGenerateVideo(ctx) {
     });
   } catch (error) {
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
+    await markVideoBillingFailed(usagePolicy, {
+      code: error?.code || "billing_failed",
+      message: "Video usage billing finalization failed.",
+    });
     const policyError = aiUsagePolicyErrorResponse(error);
     logDiagnostic({
       service: "bitbi-auth",
@@ -766,7 +1056,58 @@ export async function handleGenerateVideo(ctx) {
       code: policyError.body?.code || "member_video_charge_failed",
       ...getErrorFields(error),
     });
+    if (policyError.body?.code === "ai_usage_policy_unavailable") {
+      return respond({
+        ok: false,
+        error: "Video usage could not be recorded.",
+        code: "usage_record_failed",
+      }, { status: 503 });
+    }
     return respond(policyError.body, { status: policyError.status });
+  }
+
+  if (typeof usagePolicy.markSucceeded === "function") {
+    try {
+      await usagePolicy.markSucceeded({
+        saveReference: savedAsset.id,
+        mimeType: savedAsset.mime_type,
+        model: input.modelId,
+        promptLength: input.prompt.length,
+        seed: input.seed,
+        balanceAfter: billingMetadata.balance_after,
+        resultStatus: "stored",
+        metadata: buildVideoReplayMetadata({
+          input,
+          savedAsset,
+          providerResponse,
+          billingMetadata,
+        }),
+      });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-video",
+        event: "member_video_attempt_result_update_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        ...getErrorFields(error),
+      });
+      await markVideoBillingFailed(usagePolicy, {
+        code: error?.code || "member_video_result_metadata_failed",
+        message: "Video usage billing succeeded but result metadata finalization failed.",
+      });
+      return respond({
+        ok: false,
+        error: "Video generation could not be finalized. Please contact support before retrying.",
+        code: "member_ai_usage_finalization_failed",
+        billing: {
+          ...billingMetadata,
+          credits_charged: input.price,
+          price: input.price,
+        },
+      }, { status: 503 });
+    }
   }
 
   return respond({

@@ -32,7 +32,7 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: { idempotency: "required; member music generation is guarded by one bundled member_ai_usage_attempts parent reservation covering lyrics/audio/cover provider-cost work" },
   }),
   userJsonWrite("ai.generate-video", "POST", "/api/ai/generate-video", "ai-studio", "aiGenerateVideoJson", "ai-generate-video-user", {
-    billing: { idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied" },
+    billing: { idempotency: "required; member video generation is guarded by one bundled member_ai_usage_attempts parent reservation before provider-cost work" },
   }),
   adminJsonWrite("admin.ai.test-image", "POST", "/api/admin/ai/test-image", "admin-ai", "adminJson", "admin-ai-image-ip", {
     notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure.",
@@ -89,12 +89,12 @@ ${inventoryExtra}
   assert.equal(result.ok, true, JSON.stringify(result.fatalIssues));
   assert.equal(result.registrySummary.totalOperations, 31);
   assert.equal(result.registrySummary.memberOperations, 7);
-  assert.equal(result.registrySummary.currentMissingMandatoryIdempotency, 1);
+  assert.equal(result.registrySummary.currentMissingMandatoryIdempotency, 0);
   assert(!result.registrySummary.highRiskOperations.includes("member.image.generate"));
   assert(!result.registrySummary.highRiskOperations.includes("member.music.audio.generate"));
-  assert(result.registrySummary.highRiskOperations.includes("member.video.generate"));
+  assert(!result.registrySummary.highRiskOperations.includes("member.video.generate"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-music"));
-  assert(result.policyGaps.some((gap) => gap.route === "ai.generate-video" && gap.actual === "recommended"));
+  assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-video"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-image"));
   assert(result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
@@ -117,11 +117,11 @@ ${inventoryExtra}
   assert(output.includes("Member music gateway prep gaps:"));
   assert(output.includes("member.music.audio.generate"));
   assert(output.includes("member music parent gateway migration is represented in the registry"));
-  assert(output.includes("member image and member music are the migrated member AI Cost Gateway routes"));
+  assert(output.includes("member image, music, and video are the migrated member AI Cost Gateway routes"));
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 3.7 should harden replay/result metadata"));
+  assert(output.includes("Phase 3.9 should add an admin/platform AI cost telemetry"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
 }
