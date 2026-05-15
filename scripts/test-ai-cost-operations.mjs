@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
+  AI_COST_BUDGET_SCOPES,
+  AI_COST_BUDGET_SCOPE_POLICIES,
   AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
   getAiCostRoutePolicyBaselines,
@@ -10,6 +13,25 @@ import { normalizeAiCostOperationConfig } from "../workers/auth/src/lib/ai-cost-
 
 const issues = validateAiCostOperationRegistry();
 assert.deepEqual(issues, []);
+
+const policyBaseline = JSON.parse(
+  readFileSync(new URL("../config/ai-cost-policy-baseline.json", import.meta.url), "utf8")
+);
+
+for (const requiredScope of [
+  "member_credit_account",
+  "organization_credit_account",
+  "admin_org_credit_account",
+  "platform_admin_lab_budget",
+  "platform_background_budget",
+  "openclaw_news_pulse_budget",
+  "internal_ai_worker_caller_enforced",
+  "explicit_unmetered_admin",
+  "external_provider_only",
+]) {
+  assert(Object.values(AI_COST_BUDGET_SCOPES).includes(requiredScope), `Expected budget scope ${requiredScope}`);
+  assert(AI_COST_BUDGET_SCOPE_POLICIES[requiredScope], `Expected policy for budget scope ${requiredScope}`);
+}
 
 const operationIds = AI_COST_OPERATION_REGISTRY.map((entry) => entry.operationConfig.operationId);
 assert.equal(new Set(operationIds).size, operationIds.length);
@@ -90,8 +112,64 @@ assert.deepEqual(summary, {
   currentMissingReservation: 0,
   currentNoReplay: 0,
   platformBudgetReviewOperations: 2,
+  budgetScopeCounts: {
+    member_credit_account: 0,
+    organization_credit_account: 0,
+    admin_org_credit_account: 1,
+    platform_admin_lab_budget: 8,
+    platform_background_budget: 0,
+    openclaw_news_pulse_budget: 2,
+    internal_ai_worker_caller_enforced: 11,
+    explicit_unmetered_admin: 0,
+    external_provider_only: 0,
+  },
   highRiskOperations: [],
 });
+
+for (const entry of AI_COST_OPERATION_REGISTRY.filter((candidate) =>
+  candidate.operationConfig.actorType === "admin" ||
+  candidate.operationConfig.actorType === "platform"
+)) {
+  if (entry.operationConfig.providerCost === false) continue;
+  assert(entry.budgetPolicy, `Expected budget policy for ${entry.operationConfig.operationId}`);
+  assert(entry.budgetPolicy.targetBudgetScope, `Expected target budget scope for ${entry.operationConfig.operationId}`);
+  assert(entry.budgetPolicy.targetFuturePhase, `Expected target future phase for ${entry.operationConfig.operationId}`);
+  assert(entry.budgetPolicy.targetEnforcement, `Expected target enforcement for ${entry.operationConfig.operationId}`);
+}
+
+const baselineGapOperationIds = new Set(policyBaseline.knownGaps.map((gap) => gap.operationId).filter(Boolean));
+for (const migratedMemberOperationId of [
+  "member.image.generate",
+  "member.music.generate",
+  "member.video.generate",
+]) {
+  assert(!baselineGapOperationIds.has(migratedMemberOperationId), `${migratedMemberOperationId} must not be a baseline gap`);
+}
+
+for (const gap of policyBaseline.knownGaps) {
+  assert(gap.targetBudgetScope, `Expected target budget scope for baseline gap ${gap.id}`);
+  assert(gap.targetFuturePhase, `Expected target future phase for baseline gap ${gap.id}`);
+  assert(gap.temporaryAllowanceReason, `Expected temporary allowance reason for baseline gap ${gap.id}`);
+  assert(gap.killSwitchTarget || gap.killSwitchExemptionReason, `Expected kill-switch target or exemption for baseline gap ${gap.id}`);
+  assert(gap.futureEnforcementPath, `Expected future enforcement path for baseline gap ${gap.id}`);
+}
+
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.text.test").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "internal.text.generate").budgetPolicy.targetBudgetScope,
+  AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED
+);
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();
 assert(routePolicyBaselines.some((entry) => entry.id === "ai.generate-image" && entry.expected === "required"));

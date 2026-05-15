@@ -12,6 +12,102 @@ export const AI_COST_CURRENT_ENFORCEMENT_STATUSES = Object.freeze([
   "not_applicable",
 ]);
 
+export const AI_COST_BUDGET_SCOPES = Object.freeze({
+  MEMBER_CREDIT_ACCOUNT: "member_credit_account",
+  ORGANIZATION_CREDIT_ACCOUNT: "organization_credit_account",
+  ADMIN_ORG_CREDIT_ACCOUNT: "admin_org_credit_account",
+  PLATFORM_ADMIN_LAB_BUDGET: "platform_admin_lab_budget",
+  PLATFORM_BACKGROUND_BUDGET: "platform_background_budget",
+  OPENCLAW_NEWS_PULSE_BUDGET: "openclaw_news_pulse_budget",
+  INTERNAL_AI_WORKER_CALLER_ENFORCED: "internal_ai_worker_caller_enforced",
+  EXPLICIT_UNMETERED_ADMIN: "explicit_unmetered_admin",
+  EXTERNAL_PROVIDER_ONLY: "external_provider_only",
+});
+
+export const AI_COST_BUDGET_SCOPE_POLICIES = Object.freeze({
+  [AI_COST_BUDGET_SCOPES.MEMBER_CREDIT_ACCOUNT]: Object.freeze({
+    owner: "member",
+    creditsDebited: true,
+    adminVisibleBudgetRequired: false,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: true,
+    operatorReviewRequired: false,
+  }),
+  [AI_COST_BUDGET_SCOPES.ORGANIZATION_CREDIT_ACCOUNT]: Object.freeze({
+    owner: "organization",
+    creditsDebited: true,
+    adminVisibleBudgetRequired: false,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: true,
+    operatorReviewRequired: false,
+  }),
+  [AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT]: Object.freeze({
+    owner: "selected organization for admin-initiated paid tests",
+    creditsDebited: true,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: true,
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET]: Object.freeze({
+    owner: "platform admin lab budget",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: "operation-dependent",
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.PLATFORM_BACKGROUND_BUDGET]: Object.freeze({
+    owner: "platform background job budget",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: true,
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET]: Object.freeze({
+    owner: "OpenClaw / News Pulse platform budget",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: true,
+    replayExpected: true,
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED]: Object.freeze({
+    owner: "caller route or queue job",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: "delegated",
+    replayExpected: "delegated",
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN]: Object.freeze({
+    owner: "explicit admin exception",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: true,
+    killSwitchRequired: true,
+    idempotencyMandatory: false,
+    replayExpected: false,
+    operatorReviewRequired: true,
+  }),
+  [AI_COST_BUDGET_SCOPES.EXTERNAL_PROVIDER_ONLY]: Object.freeze({
+    owner: "external provider / not billed by BITBI",
+    creditsDebited: false,
+    adminVisibleBudgetRequired: false,
+    killSwitchRequired: true,
+    idempotencyMandatory: "caller-dependent",
+    replayExpected: "caller-dependent",
+    operatorReviewRequired: true,
+  }),
+});
+
 const ENFORCEMENT_DETAIL_STATUSES = new Set([
   "implemented",
   "partial",
@@ -22,17 +118,215 @@ const ENFORCEMENT_DETAIL_STATUSES = new Set([
 ]);
 
 const GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
+const BUDGET_SCOPE_VALUES = new Set(Object.values(AI_COST_BUDGET_SCOPES));
 
 function freezeList(value = []) {
   return Object.freeze([...value]);
 }
 
+function budgetPolicy(targetBudgetScope, {
+  currentBudgetScope = targetBudgetScope,
+  targetFuturePhase,
+  targetEnforcementStatus = "missing",
+  targetEnforcement = {},
+  notes,
+  temporaryBaselineAllowed = false,
+  dailyLimitTarget = "required_before_runtime_enforcement",
+  monthlyLimitTarget = "required_before_runtime_enforcement",
+  killSwitchTarget = "required_before_runtime_enforcement",
+} = {}) {
+  return Object.freeze({
+    targetBudgetScope,
+    currentBudgetScope,
+    targetFuturePhase,
+    targetEnforcementStatus,
+    targetEnforcement: Object.freeze({ ...targetEnforcement }),
+    notes,
+    temporaryBaselineAllowed,
+    dailyLimitTarget,
+    monthlyLimitTarget,
+    killSwitchTarget,
+  });
+}
+
+const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
+  "admin.text.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required_or_explicit_exception", budgetLedger: "platform_admin_lab_budget", replay: "metadata_or_disabled", killSwitch: "required" },
+    notes: "Admin text test should move from implicit unmetered use to explicit platform admin lab budget telemetry before runtime migration.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.image.test.charged": budgetPolicy(AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT, {
+    targetFuturePhase: "Phase 4.3 admin BFL image test budget enforcement hardening",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "required", budgetLedger: "selected_org_credit_account", replay: "metadata_only", killSwitch: "required" },
+    notes: "Charged BFL image tests already debit selected organization credits; future work should align metadata with the admin/platform policy contract.",
+  }),
+  "admin.image.test.unmetered": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required_or_explicit_exception", budgetLedger: "platform_admin_lab_budget", replay: "metadata_or_disabled", killSwitch: "required" },
+    notes: "Unpriced admin image models must become explicit platform admin lab budget spend or stay disabled.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.embeddings.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required_or_explicit_exception", budgetLedger: "platform_admin_lab_budget", replay: "disabled", killSwitch: "required" },
+    notes: "Embeddings test remains admin-only and should be explicit platform lab budget spend if retained.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.music.test": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required", budgetLedger: "platform_admin_lab_budget", replay: "metadata_or_disabled", killSwitch: "required" },
+    notes: "Admin music tests can create high provider spend and need explicit platform lab budget controls.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.video.sync_debug": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required", budgetLedger: "platform_admin_lab_budget", replay: "disabled", killSwitch: "ALLOW_SYNC_VIDEO_DEBUG plus budget flag" },
+    notes: "Sync video debug should remain disabled unless an explicit platform lab budget and emergency runbook exist.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.video.job.create": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    targetFuturePhase: "Phase 4.4 admin async video job budget enforcement",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "required", budgetLedger: "platform_admin_lab_budget", replay: "job_metadata", killSwitch: "required" },
+    notes: "Admin video jobs already have job idempotency but need explicit budget reservation/telemetry.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.video.task.create": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.4 admin async video job budget enforcement",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "delegated_to_job", budgetLedger: "caller_enforced", replay: "provider_task_metadata", killSwitch: "required" },
+    notes: "Provider task creation must remain tied to the admin video job budget and duplicate-task guard.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.video.task.poll": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.4 admin async video job budget enforcement",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "delegated_to_job", budgetLedger: "caller_enforced", replay: "provider_status_metadata", killSwitch: "required" },
+    notes: "Polling should stay bounded by persisted provider task ids and admin video job state.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.compare": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "required", budgetLedger: "platform_admin_lab_budget", replay: "metadata_or_disabled", killSwitch: "required" },
+    notes: "Admin compare can fan out to multiple provider calls and needs explicit budget accounting.",
+    temporaryBaselineAllowed: true,
+  }),
+  "admin.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
+    currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    targetEnforcementStatus: "missing",
+    targetEnforcement: { idempotency: "stream_session_required", budgetLedger: "platform_admin_lab_budget", replay: "disabled", killSwitch: "required" },
+    notes: "Streaming live-agent spend needs stream duration/token telemetry and a platform lab budget cap.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.text.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Internal text route should remain service-only and require caller-side operation metadata.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.image.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Internal image route should remain service-only and require caller-side operation metadata.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.embeddings.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Internal embeddings route should remain service-only and require caller-side operation metadata if used.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.music.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Member music caller is migrated; admin/internal callers still need caller-policy metadata.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.video.generate": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Internal sync video route should remain caller-gated and debug-disabled unless explicitly budgeted.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.video_task.create": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_job_enforced", budgetLedger: "caller_enforced", replay: "provider_task_metadata", killSwitch: "service_binding_only" },
+    notes: "Internal provider task creation can create external spend and must be tied to caller/job budget state.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.video_task.poll": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_job_enforced", budgetLedger: "caller_enforced", replay: "provider_status_metadata", killSwitch: "service_binding_only" },
+    notes: "Internal polling must stay bounded and linked to persisted provider task ids.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.compare": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_enforced", budgetLedger: "caller_enforced", replay: "caller_enforced", killSwitch: "service_binding_only" },
+    notes: "Internal compare can fan out and must be controlled by the admin caller policy.",
+    temporaryBaselineAllowed: true,
+  }),
+  "internal.live_agent": budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
+    targetEnforcementStatus: "delegated",
+    targetEnforcement: { idempotency: "caller_stream_session", budgetLedger: "caller_enforced", replay: "disabled", killSwitch: "service_binding_only" },
+    notes: "Internal live-agent spend must be controlled by caller stream-session policy.",
+    temporaryBaselineAllowed: true,
+  }),
+  "platform.news_pulse.visual.ingest": budgetPolicy(AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET, {
+    targetFuturePhase: "Phase 4.5 OpenClaw/News Pulse visual budget controls",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "deterministic_item_key", budgetLedger: "openclaw_news_pulse_budget", replay: "durable_thumbnail", killSwitch: "required" },
+    notes: "Ingest-triggered visuals need platform budget caps and a kill switch around existing visual status rows.",
+    temporaryBaselineAllowed: true,
+  }),
+  "platform.news_pulse.visual.scheduled": budgetPolicy(AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET, {
+    targetFuturePhase: "Phase 4.5 OpenClaw/News Pulse visual budget controls",
+    targetEnforcementStatus: "partial",
+    targetEnforcement: { idempotency: "deterministic_item_key", budgetLedger: "openclaw_news_pulse_budget", replay: "durable_thumbnail", killSwitch: "required" },
+    notes: "Scheduled/backfill visuals need batch caps, daily/monthly platform budget limits, and operator visibility.",
+    temporaryBaselineAllowed: true,
+  }),
+});
+
+function resolvedBudgetPolicy(entry) {
+  return entry.budgetPolicy || BUDGET_POLICY_BY_OPERATION_ID[entry.operationConfig?.operationId] || null;
+}
+
 function operation(entry) {
+  const entryBudgetPolicy = resolvedBudgetPolicy(entry);
   return Object.freeze({
     ...entry,
     operationConfig: Object.freeze({ ...entry.operationConfig }),
     sourceFiles: freezeList(entry.sourceFiles),
     currentEnforcement: Object.freeze({ ...entry.currentEnforcement }),
+    budgetPolicy: entryBudgetPolicy ? Object.freeze({
+      ...entryBudgetPolicy,
+      targetEnforcement: Object.freeze({ ...entryBudgetPolicy.targetEnforcement }),
+    }) : null,
     routePolicy: entry.routePolicy ? Object.freeze({ ...entry.routePolicy }) : null,
     currentGaps: freezeList(entry.currentGaps),
   });
@@ -76,7 +370,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: [],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -231,7 +525,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Full raw generated lyrics replay is intentionally not stored in member attempt metadata; replay returns safe audio/asset metadata without raw prompt or lyrics.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -271,7 +565,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Generated lyrics are intentionally omitted from replay metadata and replay response; users can request a new generation with a new key when exact lyrics text must be regenerated.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -311,7 +605,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Binary audio replay is represented by the persisted member asset rather than raw audio in member attempt metadata.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -351,7 +645,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Cover retry/replay semantics are still partially constrained by existing poster state rather than a dedicated cover attempt.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -393,7 +687,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Replay returns durable saved-asset metadata and does not re-run providers; deleted/private asset objects return replay-unavailable and require a new idempotency key.",
     ],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform AI cost telemetry and route metadata guard",
+    nextMigrationPhase: "Phase 4.1 admin/platform budget policy design",
   }),
   operation({
     operationConfig: {
@@ -432,7 +726,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -471,7 +765,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Completed same-key result replay returns billing metadata but not the generated image result."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -506,7 +800,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Unpriced admin models need explicit platform/admin budget telemetry before broad use."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -545,7 +839,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -584,7 +878,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry or gateway metadata is enforced at runtime."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -662,7 +956,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["Job rows provide idempotency, but no explicit platform budget reservation exists."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform async video budget hardening after member video",
+    nextMigrationPhase: "Phase 4.4 admin async video job budget enforcement",
   }),
   operation({
     operationConfig: {
@@ -697,7 +991,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Response-loss edge after provider task creation still needs verification."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.9 admin/platform async video budget hardening",
+    nextMigrationPhase: "Phase 4.4 admin async video job budget enforcement",
   }),
   operation({
     operationConfig: {
@@ -732,7 +1026,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Polling should remain tied to a persisted provider task id and safe retry policy."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 admin/platform async video budget hardening",
+    nextMigrationPhase: "Phase 4.4 admin async video job budget enforcement",
   }),
   operation({
     operationConfig: {
@@ -771,7 +1065,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry for multi-model provider spend."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -810,7 +1104,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit admin budget telemetry for streaming provider spend."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform streaming budget telemetry after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -1020,7 +1314,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Caller/job-row policy must suppress duplicate provider task creation after response-loss edge cases."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.9 internal video task policy hardening",
+    nextMigrationPhase: "Phase 4.6 internal AI Worker route caller-policy guard",
   }),
   operation({
     operationConfig: {
@@ -1055,7 +1349,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Keep tied to persisted provider task ids and bounded polling policy."],
     gapSeverity: "P3",
-    nextMigrationPhase: "Phase 3.9 internal video task policy hardening",
+    nextMigrationPhase: "Phase 4.6 internal AI Worker route caller-policy guard",
   }),
   operation({
     operationConfig: {
@@ -1090,7 +1384,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Admin compare caller needs explicit platform budget telemetry."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform budget telemetry hardening after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -1125,7 +1419,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Admin live-agent caller needs explicit platform budget telemetry."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Admin/platform streaming budget telemetry after member video",
+    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
   }),
   operation({
     operationConfig: {
@@ -1164,7 +1458,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: ["No explicit platform AI budget cap/telemetry exists for News Pulse visuals."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.9",
+    nextMigrationPhase: "Phase 4.5 OpenClaw/News Pulse visual budget controls",
   }),
   operation({
     operationConfig: {
@@ -1199,7 +1493,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["No explicit platform AI budget cap/telemetry exists for scheduled visual backfill."],
     gapSeverity: "P2",
-    nextMigrationPhase: "Phase 3.9",
+    nextMigrationPhase: "Phase 4.5 OpenClaw/News Pulse visual budget controls",
   }),
 ]);
 
@@ -1246,6 +1540,34 @@ export function validateAiCostOperationRegistry(entries = AI_COST_OPERATION_REGI
         issues.push(`${normalized.operationId}: invalid currentEnforcement.${field} "${status}".`);
       }
     }
+    const entryBudgetPolicy = resolvedBudgetPolicy(entry);
+    if (needsBudgetPolicy(normalized)) {
+      if (!entryBudgetPolicy) {
+        issues.push(`${normalized.operationId}: missing budgetPolicy metadata.`);
+      } else {
+        if (!BUDGET_SCOPE_VALUES.has(entryBudgetPolicy.targetBudgetScope)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.targetBudgetScope "${entryBudgetPolicy.targetBudgetScope}".`);
+        }
+        if (!BUDGET_SCOPE_VALUES.has(entryBudgetPolicy.currentBudgetScope)) {
+          issues.push(`${normalized.operationId}: invalid budgetPolicy.currentBudgetScope "${entryBudgetPolicy.currentBudgetScope}".`);
+        }
+        if (!entryBudgetPolicy.targetFuturePhase || typeof entryBudgetPolicy.targetFuturePhase !== "string") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.targetFuturePhase.`);
+        }
+        if (!entryBudgetPolicy.targetEnforcementStatus || typeof entryBudgetPolicy.targetEnforcementStatus !== "string") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.targetEnforcementStatus.`);
+        }
+        if (!entryBudgetPolicy.targetEnforcement || typeof entryBudgetPolicy.targetEnforcement !== "object") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.targetEnforcement.`);
+        }
+        if (!entryBudgetPolicy.notes || typeof entryBudgetPolicy.notes !== "string") {
+          issues.push(`${normalized.operationId}: missing budgetPolicy.notes.`);
+        }
+        if (typeof entryBudgetPolicy.temporaryBaselineAllowed !== "boolean") {
+          issues.push(`${normalized.operationId}: budgetPolicy.temporaryBaselineAllowed must be boolean.`);
+        }
+      }
+    }
     if (entry.routePolicy) {
       if (!entry.routePolicy.id || !entry.routePolicy.path || !entry.routePolicy.expectedIdempotency) {
         issues.push(`${normalized.operationId}: routePolicy must include id, path, and expectedIdempotency.`);
@@ -1287,6 +1609,16 @@ function countWhere(entries, predicate) {
   return entries.reduce((count, entry) => count + (predicate(entry) ? 1 : 0), 0);
 }
 
+function needsBudgetPolicy(normalized) {
+  return normalized.providerCost && (
+    normalized.actorType === "admin" ||
+    normalized.actorType === "platform" ||
+    normalized.billingScope === AI_COST_GATEWAY_SCOPES.PLATFORM_BUDGET ||
+    normalized.billingScope === AI_COST_GATEWAY_SCOPES.UNMETERED_ADMIN ||
+    normalized.billingScope === AI_COST_GATEWAY_SCOPES.EXTERNAL
+  );
+}
+
 export function summarizeAiCostOperationRegistry(entries = AI_COST_OPERATION_REGISTRY) {
   const normalizedEntries = entries.map((entry) => ({
     entry,
@@ -1320,6 +1652,12 @@ export function summarizeAiCostOperationRegistry(entries = AI_COST_OPERATION_REG
     platformBudgetReviewOperations: countWhere(providerCostEntries, ({ config }) =>
       config.billingScope === AI_COST_GATEWAY_SCOPES.PLATFORM_BUDGET
     ),
+    budgetScopeCounts: Object.freeze(Object.fromEntries(
+      Object.values(AI_COST_BUDGET_SCOPES).map((scope) => [
+        scope,
+        countWhere(entries, (entry) => resolvedBudgetPolicy(entry)?.targetBudgetScope === scope),
+      ])
+    )),
     highRiskOperations,
   });
 }

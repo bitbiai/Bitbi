@@ -27,6 +27,14 @@ processing, admin audit and user activity logging, data lifecycle
 planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
 Cloudflare Workers AI / AI Gateway model calls.
 
+Phase 4.1 adds admin/platform AI budget policy design and local
+registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform
+budget policy helper contracts, deterministic tests, and stricter baseline/check
+metadata for kill-switch targets or explicit exemptions plus future enforcement
+paths. These phases do not change runtime AI provider behavior, call providers,
+add storage, mutate billing/credits, add Admin UI, or make
+admin/platform/internal/OpenClaw AI cost flows production-ready.
+
 The existing public privacy pages were materially stale. They described a
 lighter site, made broad third-party/no-sharing statements that are no longer
 accurate, and included old Cloudflare RUM/YouTube/contact retention claims that

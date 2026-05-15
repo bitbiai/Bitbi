@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: target design plus Phase 3.4 member personal image pilot. The gateway module and registry are currently wired only into member personal image generation; all other provider-cost routes remain outside the runtime gateway.
+Status: target design plus Phase 4.2 admin/platform budget policy helper contract. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module for future route migrations, but Admin AI, admin video jobs, platform/background AI, OpenClaw/News Pulse, and internal AI Worker provider routes remain outside runtime budget enforcement.
 
 ## Goals
 
@@ -28,7 +28,9 @@ Primary goals:
 2. Resolve actor and billing scope
    - Actor is anonymous, member, org member, platform admin, or machine actor.
    - Billing scope is member personal balance, organization balance, admin-unmetered, or platform-internal budget.
-   - Platform/admin-unmetered operations still produce cost telemetry.
+   - Phase 4.1 adds a target budget-scope taxonomy for non-member-credit flows: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`.
+   - Phase 4.2 adds pure helper validation and plan classification for those scopes; no runtime route imports the helper yet.
+   - Platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
    - Gateway calls a model cost resolver before provider execution.
@@ -129,13 +131,32 @@ Phase 3.3 registry module: `workers/auth/src/lib/ai-cost-operations.js`
 The registry currently exports:
 
 - `AI_COST_OPERATION_REGISTRY_VERSION`
+- `AI_COST_BUDGET_SCOPES`
+- `AI_COST_BUDGET_SCOPE_POLICIES`
 - `AI_COST_OPERATION_REGISTRY`
 - `validateAiCostOperationRegistry(entries)`
 - `getAiCostRoutePolicyBaselines(entries)`
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. Phase 3.4 imports it only for `member.image.generate`; other routes still use their pre-existing adapters.
+The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract, but admin/platform/internal operations still use their pre-existing adapters.
+
+Phase 4.2 admin/platform budget helper: `workers/auth/src/lib/admin-platform-budget-policy.js`
+
+The helper currently exports:
+
+- `ADMIN_PLATFORM_BUDGET_POLICY_VERSION`
+- `ADMIN_PLATFORM_BUDGET_SCOPES`
+- `ADMIN_PLATFORM_BUDGET_ACTIONS`
+- `ADMIN_PLATFORM_BUDGET_PLAN_STATUSES`
+- `AdminPlatformBudgetPolicyError`
+- `normalizeAdminPlatformBudgetOperation(input)`
+- `buildAdminPlatformBudgetFingerprint(input)`
+- `buildAdminPlatformBudgetAuditFields(input)`
+- `classifyAdminPlatformBudgetPlan(input)`
+- `validateAdminPlatformKillSwitchConfig(input)`
+
+The Phase 4.2 implementation is pure and deterministic. It does not call D1, R2, Cloudflare AI, the AI Worker, Stripe, Cloudflare APIs, network fetch, or live environment variables. It validates target budget-scope contracts, kill-switch metadata, explicit unmetered-admin justification, caller-enforced exemptions, safe audit field shape, and plan status for future admin/platform route migrations.
 
 ```js
 const gateway = await prepareAiCostOperation({
@@ -220,7 +241,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for future budget-scope, kill-switch, audit, fingerprint, and plan classification work. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated at runtime.
 
 Target operation structure:
 
@@ -300,6 +321,50 @@ The default guard passes with the current accepted admin/platform/internal/OpenC
 
 This phase does not change request handling, provider execution, credit debits, replay behavior, pricing, route policies at runtime, migrations, deploys, or live billing readiness.
 
+## Phase 4.1 Admin/Platform Budget Policy
+
+Phase 4.1 is design, metadata, and check output only. It converts the Phase 3.9 known-gap baseline into a target budget model for non-member-credit AI provider spend.
+
+Target budget scopes:
+
+- `admin_org_credit_account`: selected organization pays for admin-initiated charged tests, such as priced BFL admin image tests.
+- `platform_admin_lab_budget`: platform-owned spend for admin text/image/music/compare/live-agent/debug testing.
+- `platform_background_budget`: platform-owned spend for background jobs if a future provider-cost backfill is introduced.
+- `openclaw_news_pulse_budget`: platform-owned visual budget for OpenClaw/News Pulse generated thumbnails and scheduled visual backfill.
+- `internal_ai_worker_caller_enforced`: service-only AI Worker routes that must inherit operation/budget metadata from the Auth Worker caller or queue job.
+- `explicit_unmetered_admin`: temporary reviewed exception, not a default runtime mode.
+- `external_provider_only`: external provider involvement where BITBI does not debit credits but still needs safe caller policy.
+
+Target behavior for future admin/platform migrations:
+
+- require deterministic idempotency or an explicit reviewed unmetered exception before provider execution
+- deny before provider execution when platform/admin budgets, daily/monthly caps, or kill switches block the operation
+- keep charged admin BFL image tests on selected organization credits while adding explicit admin budget metadata
+- bind admin async video task create/poll to a parent job budget reservation before provider task creation
+- keep internal AI Worker routes service-only and reject unknown callers in a future caller-policy guard
+- use deterministic item/job keys for OpenClaw/News Pulse visuals
+- emit only safe telemetry: operation id, budget scope, actor id, provider/model id, estimate, status, replay status, and safe error codes
+- never store raw prompts, lyrics, cookies, auth tokens, provider secrets, Stripe data, raw provider payloads, payment details, or internal R2 keys in budget metadata
+
+Phase 4.1 does not enforce these scopes at runtime, add budget tables, add Admin UI, call providers, change credit debits, or make production/live billing ready.
+
+## Phase 4.2 Admin/Platform Budget Helper Contract
+
+Phase 4.2 is contract/helper/test only. It adds the future route-migration contract for non-member-credit provider spend without importing the helper from runtime routes.
+
+Helper contract:
+
+- Budget scopes validated: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, `external_provider_only`, plus shared compatibility recognition for `member_credit_account` and `organization_credit_account`.
+- Kill-switch metadata shape: `flagName`, `defaultState`, `requiredForProviderCall`, `disabledBehavior`, `operatorCanOverride`, `scope`, and notes.
+- High-risk scopes default to safe/off unless a future migration explicitly documents why not.
+- Explicit unmetered admin operations require justification.
+- Internal/caller-enforced and external-provider-only scopes require explicit exemption text rather than silent missing kill switches.
+- Audit fields are allowlisted and safe: policy version, operation id, actor id/role, budget scope, owner domain, provider/model ids, estimate, idempotency policy, kill-switch flag name, plan status, reason, and correlation id.
+- Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
+- Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
+
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. The next implementation phase should migrate exactly one narrow admin/provider-cost flow or add a report-only budget evidence collector.
+
 ## Route Adapter Responsibilities
 
 Route adapters remain responsible for:
@@ -341,6 +406,7 @@ Replay storage should:
 - Org operations charge organization credits and already fit the `ai_usage_attempts` pattern.
 - Admin operations may remain uncharged only if explicitly classified as `admin_unmetered`; high-cost admin operations should still require idempotency/job rows and record platform cost telemetry.
 - Platform background operations such as News Pulse visuals should use deterministic item/job keys and platform budget caps rather than member credits.
+- Internal AI Worker operations should remain service-only and inherit caller-side budget metadata; direct internal route budget ownership should not replace caller enforcement.
 
 ## Safety Invariants
 

@@ -11,6 +11,7 @@ import {
   renderAiCostPolicyReport,
 } from "./check-ai-cost-policy.mjs";
 import { AI_COST_OPERATION_REGISTRY } from "../workers/auth/src/lib/ai-cost-operations.js";
+import { AI_COST_BUDGET_SCOPES } from "../workers/auth/src/lib/ai-cost-operations.js";
 
 const DEFAULT_BASELINE_GAPS = Object.freeze([
   {
@@ -29,9 +30,13 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     functions: ["proxyToAiLab", "proxyLiveAgentToAiLab"],
     category: "admin",
     reason: "Known admin provider-cost routes remain unmetered or partially covered pending platform budget policy.",
-    targetFuturePhase: "Phase 4.1 admin/platform budget policy design",
+    temporaryAllowanceReason: "Admin-only routes remain accepted only while Phase 4.2 defines platform admin lab budget contract/helpers.",
+    targetBudgetScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    targetFuturePhase: "Phase 4.2 admin AI budget policy contract/helpers",
     severity: "P2",
     ownerDomain: "admin-ai",
+    killSwitchTarget: "ENABLE_ADMIN_AI_BUDGETED_TESTS",
+    futureEnforcementPath: "Phase 4.2 helper contract, then one narrow admin route migration.",
     providerCostBearing: true,
     registryOperationIds: [
       "admin.text.test",
@@ -54,9 +59,13 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     functions: ["generateNewsPulseVisual"],
     category: "background",
     reason: "Known platform visual generation remains outside member/org billing pending platform budget policy.",
-    targetFuturePhase: "Phase 4.3 platform/background budget policy",
+    temporaryAllowanceReason: "OpenClaw visuals remain accepted only while Phase 4.5 defines visual budget controls.",
+    targetBudgetScope: AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+    targetFuturePhase: "Phase 4.5 OpenClaw/News Pulse visual budget controls",
     severity: "P2",
     ownerDomain: "openclaw-news-pulse",
+    killSwitchTarget: "ENABLE_OPENCLAW_NEWS_PULSE_AI_BUDGET",
+    futureEnforcementPath: "Phase 4.5 OpenClaw/News Pulse visual budget controls.",
     providerCostBearing: true,
     registryOperationIds: ["platform.news_pulse.visual.ingest", "platform.news_pulse.visual.scheduled"],
     coveredByRegistryMetadata: true,
@@ -69,9 +78,13 @@ const DEFAULT_BASELINE_GAPS = Object.freeze([
     functions: ["invokeAi", "invokeAiVideo", "createVideoProviderTask", "pollVideoProviderTask"],
     category: "internal",
     reason: "Known internal service routes rely on caller-side gateway or admin policy controls.",
-    targetFuturePhase: "Phase 4.4 internal AI worker caller-contract hardening",
+    temporaryAllowanceReason: "Internal service routes remain accepted only while Phase 4.6 defines caller-policy guards.",
+    targetBudgetScope: AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+    targetFuturePhase: "Phase 4.6 internal AI Worker route caller-policy guard",
     severity: "P2",
     ownerDomain: "ai-worker",
+    killSwitchTarget: "caller route budget kill switch required",
+    futureEnforcementPath: "Phase 4.6 internal AI Worker caller-policy guard.",
     providerCostBearing: true,
     registryOperationIds: [
       "internal.text.generate",
@@ -209,6 +222,10 @@ ${inventoryExtra}
   assert(output.includes("Mode: baseline-enforced"));
   assert(output.includes("Migrated member gateway routes:"));
   assert(output.includes("Known baseline gaps:"));
+  assert(output.includes("killSwitch="));
+  assert(output.includes("Admin gaps by budget scope:"));
+  assert(output.includes("Platform/background gaps by budget scope:"));
+  assert(output.includes("Internal AI Worker caller-enforced gaps:"));
   assert(output.includes("Known baseline policy gaps:"));
   assert(output.includes("Member music gateway prep gaps:"));
   assert(output.includes("member.music.audio.generate"));
@@ -217,7 +234,8 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.1 should choose either admin/platform budget policy design"));
+  assert(output.includes("Phase 4.3 should migrate exactly one narrow admin/provider-cost flow"));
+  assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
 }
@@ -255,6 +273,55 @@ ${inventoryExtra}
   const result = analyzeAiCostPolicy(repoRoot);
   assert.equal(result.ok, false);
   assert(result.baselineIssues.some((issue) => issue.includes("Duplicate AI cost policy baseline id")));
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [{
+    ...DEFAULT_BASELINE_GAPS[0],
+    id: "missing-budget-scope",
+    targetBudgetScope: undefined,
+  }]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("invalid targetBudgetScope")));
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [{
+    ...DEFAULT_BASELINE_GAPS[0],
+    id: "missing-temporary-reason",
+    temporaryAllowanceReason: undefined,
+  }]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("missing temporaryAllowanceReason")));
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [{
+    ...DEFAULT_BASELINE_GAPS[0],
+    id: "missing-kill-switch-target",
+    killSwitchTarget: undefined,
+    killSwitchExemptionReason: undefined,
+  }]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("missing killSwitchTarget")));
+}
+
+{
+  const repoRoot = makeRepo();
+  writeBaseline(repoRoot, [{
+    ...DEFAULT_BASELINE_GAPS[0],
+    id: "missing-future-enforcement-path",
+    futureEnforcementPath: undefined,
+  }]);
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.baselineIssues.some((issue) => issue.includes("missing futureEnforcementPath")));
 }
 
 {

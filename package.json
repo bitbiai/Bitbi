@@ -19,6 +19,7 @@
     "test:ai-cost-policy": "node scripts/test-ai-cost-policy.mjs",
     "test:ai-cost-gateway": "node scripts/test-ai-cost-gateway.mjs",
     "test:ai-cost-operations": "node scripts/test-ai-cost-operations.mjs",
+    "test:admin-platform-budget-policy": "node scripts/test-admin-platform-budget-policy.mjs",
     "test:cloudflare-prereqs": "node scripts/test-cloudflare-deploy-prereqs.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
     "test:asset-version": "node scripts/test-asset-version.mjs",

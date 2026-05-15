@@ -422,72 +422,133 @@ Non-goals:
 
 - No admin AI migration, no platform budget runtime enforcement, no internal AI Worker migration, no public pricing change, no Stripe work.
 
-## Phase 4.1: Admin/Platform Provider-Cost Budget Policy Design
+## Phase 4.1: Admin/Platform AI Budget Policy Design
+
+Status: completed for design, registry metadata, baseline metadata, report output, and deterministic tests only. No runtime admin/platform/internal/OpenClaw route behavior changed.
 
 Scope:
 
-- Classify admin routes as charged-org, admin-unmetered, debug-disabled, or platform-budgeted.
-- Add idempotency requirements or job rows to high-cost admin routes where appropriate.
+- Convert the Phase 3.9 known-gap baseline into a concrete budget policy model for non-member-credit AI provider spend.
+- Define budget scopes: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`.
+- Add budget policy metadata to admin/platform/internal registry entries without marking them runtime-enforced.
+- Add `targetBudgetScope` and `temporaryAllowanceReason` to known baseline gaps.
+- Group `check:ai-cost-policy` output by admin, platform/background, and internal caller-enforced budget scope.
+
+Files:
+
+- `docs/ai-cost-gateway/ADMIN_PLATFORM_BUDGET_POLICY.md`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `config/ai-cost-policy-baseline.json`
+- `scripts/check-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-operations.mjs`
+- AI Cost Gateway docs and current-state docs
+
+Tests:
+
+- budget scope taxonomy exists
+- admin/platform/internal operations have target budget scopes
+- baseline items have target future phase and temporary allowance reason
+- member image/music/video are not baseline gaps
+- admin/OpenClaw/internal gaps remain explicit baseline gaps
+- default check passes with the baseline
+- strict mode fails while baseline gaps remain
+- no external provider or secret access
+
+Rollback:
+
+- Revert design docs, registry budget metadata, baseline budget fields, and report/test output. No route behavior, schema, ledger, provider state, or saved result depends on Phase 4.1.
+
+Deploy units:
+
+- Validation-only by behavior. The release classifier may mark auth Worker impacted because registry metadata lives under `workers/auth/src/lib`, but no runtime admin/platform route imports new behavior.
+
+Migration risk:
+
+- None. No schema is added.
+
+Non-goals:
+
+- No runtime budget enforcement, admin route migration, internal AI Worker route change, Admin UI, pricing change, provider call, Stripe work, or production/live billing readiness claim.
+
+## Phase 4.2: Admin/Platform Budget Policy Contract Helpers
+
+Status: completed for pure helper, baseline validation, preflight, and deterministic tests only. No runtime admin/platform/internal/OpenClaw route behavior changed.
+
+Scope:
+
+- Add pure budget policy helper functions and tests for admin/platform operations without migrating live routes.
+- Normalize budget operation configs, budget owners, kill-switch metadata, explicit unmetered justification, and safe observability/audit metadata.
+- Define deterministic fingerprints for admin lab, streaming, fan-out, background, and internal caller-enforced operation types.
+- Classify future budget plan statuses such as `platform_budget_review`, `admin_org_credit_required`, `caller_enforced`, `explicit_unmetered`, `requires_kill_switch`, and `invalid_config`.
 - Keep `ALLOW_SYNC_VIDEO_DEBUG` disabled by default.
 
 Likely files:
 
-- `workers/auth/src/routes/admin-ai.js`
-- `workers/auth/src/lib/ai-video-jobs.js`
-- `workers/auth/src/app/route-policy.js`
-- `workers/ai/src/routes/*`
-- `tests/workers.spec.js`
-- `tests/auth-admin.spec.js`
+- `workers/auth/src/lib/admin-platform-budget-policy.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `scripts/test-admin-platform-budget-policy.mjs`
+- `scripts/check-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-policy.mjs`
+- `scripts/lib/release-plan.mjs`
+- docs under `docs/ai-cost-gateway/`
 
 Tests:
 
-- admin text/music/compare/live-agent policy metadata exists
-- charged admin image behavior unchanged
-- admin async video idempotency/job behavior unchanged
-- sync debug remains hidden unless flag enabled
+- valid admin/platform budget configs normalize
+- explicit unmetered admin exceptions require reason/owner/kill switch
+- budget scopes reject missing owner/kill-switch metadata
+- internal caller-enforced and external-provider-only exemptions must be explicit
+- deterministic fingerprints are stable
+- audit fields omit secrets, prompts, cookies, auth headers, Stripe data, Cloudflare tokens, and private keys
+- default AI cost policy baseline requires kill-switch target or exemption plus future enforcement path
+- no providers, Stripe, Cloudflare APIs, D1, R2, or network calls
 
 Rollback:
 
-- Revert route-policy/adapter metadata only; keep admin access controls.
+- Remove unused helper functions/tests, package script, preflight check, and baseline validation fields. No runtime route should depend on Phase 4.2 until a later narrow migration imports it.
 
 Deploy units:
 
-- Auth Worker; possibly static/pages if Admin AI UI copy changes.
+- Auth Worker may be classified as impacted if helper files live under `workers/auth/src/lib`; behavior is validation-only until imported by runtime routes.
 
 Migration risk:
 
-- None expected.
+- None expected. Do not add schema in this contract phase.
 
 Non-goals:
 
-- No public/member changes.
+- No admin AI runtime migration, no admin video job migration, no OpenClaw/News Pulse migration, no internal route enforcement, no Admin UI.
 
-## Phase 4.2: Broader Provider Replay And Result Cache Hardening
+## Phase 4.3: Admin BFL Image Test Budget Enforcement Hardening
 
 Scope:
 
-- Harden replay storage across image/text/music/video.
-- Add prefix allowlists, retention, cleanup, admin inspection, and expired replay behavior.
-- Verify async video provider task create/poll edge cases.
+- Narrowly harden priced Admin AI BFL image tests that already debit selected organization credits.
+- Preserve existing selected-organization credit debit behavior and add explicit `admin_org_credit_account` metadata, budget reason, finalization/replay classification, and operator-safe telemetry.
+- Keep unpriced admin image models either disabled or under explicit platform admin lab budget policy.
 
 Likely files:
 
+- `workers/auth/src/routes/admin-ai.js`
+- `workers/auth/src/lib/admin-ai-image-credit-pricing.js`
 - `workers/auth/src/lib/ai-usage-attempts.js`
-- `workers/auth/src/lib/ai-cost-gateway.js`
-- R2 temp/replay helpers
-- `workers/auth/src/lib/ai-video-jobs.js`
-- tests
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/app/route-policy.js`
+- `tests/workers.spec.js`
 
 Tests:
 
-- replay object prefix/user/attempt validation
-- expired replay metadata cleanup
-- no unrelated R2 deletion
-- response-loss duplicate provider task scenario for async video, if locally representable
+- priced admin BFL image still requires organization id and `Idempotency-Key`
+- insufficient org credits fail before provider call
+- provider failure does not debit credits
+- same-key duplicate does not double debit
+- unpriced branch cannot silently bypass budget metadata
+- no Stripe, public pricing, or member route behavior changes
 
 Rollback:
 
-- Disable replay for affected operation while preserving attempts and ledger rows.
+- Feature-disable/hide the priced admin BFL test branch or revert the route adapter while preserving historical `ai_usage_attempts` and ledger rows.
 
 Deploy units:
 
@@ -495,38 +556,167 @@ Deploy units:
 
 Migration risk:
 
-- Possible additive metadata columns only if existing `metadata_json` is insufficient.
+- None expected if existing `ai_usage_attempts` metadata is sufficient; add only nullable metadata if evidence proves otherwise.
 
 Non-goals:
 
-- No destructive cleanup expansion.
+- No broad Admin AI Lab migration, no admin video jobs, no public billing/pricing changes.
 
-## Phase 4.3: Cost Telemetry And Admin Cost Dashboard
+## Phase 4.4: Admin Async Video Job Budget Enforcement
 
 Scope:
 
-- Add safe AI cost telemetry for member/org/admin/platform operations.
-- Add admin read-only cost summaries.
-- Include News Pulse and generated music covers as platform/internal budget items.
+- Add platform admin lab budget reservation/telemetry to admin async video job create and queue processing.
+- Tie internal video-task create/poll calls to a parent admin video job budget state.
+- Address response-loss and duplicate queue delivery around provider task creation without changing member video behavior.
 
 Likely files:
 
-- `workers/auth/src/lib/ai-cost-gateway.js`
-- admin read-only routes
-- Admin Control Plane UI
-- docs/runbooks
-- tests
+- `workers/auth/src/lib/ai-video-jobs.js`
+- `workers/auth/src/routes/admin-ai.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/app/route-policy.js`
+- `workers/ai/src/routes/video-task.js` only if caller-policy metadata must be passed through
+- Worker tests
 
 Tests:
 
-- no secrets/raw prompts in telemetry output
-- per-route/model/provider cost summaries
-- read-only admin endpoint auth/MFA/rate-limit policy
-- static UI safe empty/error states
+- job creation budget denied before provider task creation
+- duplicate job idempotency does not create duplicate provider tasks
+- queue retry after task create response loss is safe
+- poll only uses persisted provider task id
+- no member video/image/music regression
+- no real provider calls in tests
 
 Rollback:
 
-- Hide dashboard/read endpoint; telemetry rows remain historical evidence.
+- Disable admin async video job creation or revert budget adapter while keeping existing job rows/provider task ids for operator review.
+
+Deploy units:
+
+- Auth Worker. AI Worker only if service-route caller metadata contract changes.
+
+Migration risk:
+
+- Possible additive job/budget metadata if existing job table cannot represent reservation/finalization safely.
+
+Non-goals:
+
+- No member video migration, no live provider testing, no public UI, no Stripe work.
+
+## Phase 4.5: OpenClaw/News Pulse Visual Budget Controls
+
+Scope:
+
+- Add `openclaw_news_pulse_budget` controls around ingest-triggered and scheduled visual generation.
+- Use deterministic item/job budget keys, batch/window caps, attempt caps, and a visual-generation kill switch.
+- Preserve current public News Pulse read behavior and existing visual status rows.
+
+Likely files:
+
+- `workers/auth/src/lib/news-pulse-visuals.js`
+- `workers/auth/src/routes/openclaw-news-pulse.js`
+- `workers/auth/src/index.js` scheduled handler
+- `workers/auth/src/lib/ai-cost-operations.js`
+- route-policy/check docs and Worker tests
+
+Tests:
+
+- cap/kill-switch blocks provider before execution
+- item-level status suppresses duplicate visual work
+- scheduled batch respects budget window
+- ready thumbnail prevents regeneration
+- failed rows retry only within attempt/budget caps
+- no member/org/admin credit mutation
+
+Rollback:
+
+- Disable visual generation/backfill while keeping existing ready thumbnails and News Pulse cache rows.
+
+Deploy units:
+
+- Auth Worker.
+
+Migration risk:
+
+- Possible additive budget/status metadata only if existing News Pulse visual columns are insufficient.
+
+Non-goals:
+
+- No public News Pulse UI redesign, no member billing, no OpenClaw ingest auth changes.
+
+## Phase 4.6: Internal AI Worker Caller-Policy Guard
+
+Scope:
+
+- Keep internal AI Worker routes service-only but require caller-supplied operation/budget metadata or a signed caller policy before provider execution.
+- Reject unknown/internal callers and prevent new service routes from bypassing registry/baseline classification.
+- Preserve member image/music/video callers and admin callers during migration.
+
+Likely files:
+
+- `workers/ai/src/index.js`
+- `workers/ai/src/routes/text.js`
+- `workers/ai/src/routes/image.js`
+- `workers/ai/src/routes/music.js`
+- `workers/ai/src/routes/video.js`
+- `workers/ai/src/routes/video-task.js`
+- `workers/ai/src/routes/compare.js`
+- `workers/ai/src/routes/live-agent.js`
+- Auth Worker proxy/caller metadata helpers
+- Worker tests and `check:ai-cost-policy`
+
+Tests:
+
+- service auth still required
+- missing caller-policy metadata rejects before provider execution where enabled
+- migrated member callers pass required operation metadata
+- admin callers pass only after their budget phase is ready or remain explicitly baselined
+- no public exposure, no secret logging, no real provider calls
+
+Rollback:
+
+- Disable caller-policy enforcement flag while preserving service-auth requirements and route-policy baseline checks.
+
+Deploy units:
+
+- AI Worker and Auth Worker if caller metadata is passed from Auth.
+
+Migration risk:
+
+- None expected unless durable internal call audit is added later.
+
+Non-goals:
+
+- No public route exposure, no member billing changes, no admin budget dashboard.
+
+## Phase 4.7: Admin/Platform Budget Observability Dashboard
+
+Scope:
+
+- Add read-only admin/platform AI budget summaries after telemetry from earlier phases is reliable.
+- Show budget scope, operation id, actor/admin, provider/model, daily/monthly spend estimates, kill-switch state, and unresolved budget warnings.
+- Keep it observational; remediation and provider actions remain manual/future work.
+
+Likely files:
+
+- admin read-only routes
+- `workers/auth/src/lib/ai-cost-gateway.js` or budget telemetry helpers
+- Admin Control Plane static UI
+- `css/admin/admin.css`
+- `tests/auth-admin.spec.js`
+- `tests/workers.spec.js`
+
+Tests:
+
+- admin/MFA/rate-limit policy for read endpoint
+- sanitized output with no raw prompts, secrets, auth headers, provider payloads, Stripe data, or internal R2 keys
+- empty/error/loading states in Admin Control Plane
+- no remediation/Stripe/provider action buttons
+
+Rollback:
+
+- Hide the dashboard/read endpoint. Telemetry rows remain historical evidence.
 
 Deploy units:
 
@@ -534,11 +724,11 @@ Deploy units:
 
 Migration risk:
 
-- Likely additive table or use existing attempts/usage metadata. Add only forward migrations.
+- Possible additive telemetry table only after the contract/helper phases prove existing metadata is insufficient.
 
 Non-goals:
 
-- No automated provider budget shutdown until separately approved.
+- No automated shutdown/remediation, no live billing readiness claim, no pricing changes.
 
 ## Historical Superseded Item: Policy Enforcement Guard
 

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  AI_COST_BUDGET_SCOPES,
   AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
   getAiCostRoutePolicyBaselines,
@@ -20,6 +21,7 @@ export const PROVIDER_CALL_SOURCE_FILES = Object.freeze(getAiCostProviderCallSou
 
 const KNOWN_GAP_CATEGORIES = new Set(["admin", "platform", "internal", "background"]);
 const KNOWN_GAP_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
+const KNOWN_BUDGET_SCOPES = new Set(Object.values(AI_COST_BUDGET_SCOPES));
 const MIGRATED_MEMBER_OPERATION_IDS = Object.freeze([
   "member.image.generate",
   "member.music.generate",
@@ -256,11 +258,26 @@ export function validateAiCostPolicyBaseline(repoRoot, {
     if (!item.reason || typeof item.reason !== "string") {
       issues.push(`${id || "unknown"}: missing baseline reason.`);
     }
+    if (!item.temporaryAllowanceReason || typeof item.temporaryAllowanceReason !== "string") {
+      issues.push(`${id || "unknown"}: missing temporaryAllowanceReason.`);
+    }
+    if (!KNOWN_BUDGET_SCOPES.has(item.targetBudgetScope)) {
+      issues.push(`${id || "unknown"}: invalid targetBudgetScope "${item.targetBudgetScope}".`);
+    }
     if (!item.targetFuturePhase || typeof item.targetFuturePhase !== "string") {
       issues.push(`${id || "unknown"}: missing targetFuturePhase.`);
     }
     if (!item.ownerDomain || typeof item.ownerDomain !== "string") {
       issues.push(`${id || "unknown"}: missing ownerDomain.`);
+    }
+    if (!item.killSwitchTarget && !item.killSwitchExemptionReason) {
+      issues.push(`${id || "unknown"}: missing killSwitchTarget or killSwitchExemptionReason.`);
+    }
+    if (item.killSwitchTarget && typeof item.killSwitchTarget !== "string") {
+      issues.push(`${id || "unknown"}: killSwitchTarget must be a string.`);
+    }
+    if (!item.futureEnforcementPath || typeof item.futureEnforcementPath !== "string") {
+      issues.push(`${id || "unknown"}: missing futureEnforcementPath.`);
     }
     if (typeof item.providerCostBearing !== "boolean") {
       issues.push(`${id || "unknown"}: providerCostBearing must be boolean.`);
@@ -576,6 +593,27 @@ function renderMemberMusicGatewayPrep(summary) {
   ].join("\n");
 }
 
+function renderBudgetScopeGroup(title, gaps, scopes) {
+  const scopeSet = new Set(scopes);
+  const scoped = gaps.filter((gap) => scopeSet.has(gap.targetBudgetScope));
+  const lines = [title];
+  if (scoped.length === 0) {
+    lines.push("- None");
+    return lines.join("\n");
+  }
+  const grouped = new Map();
+  for (const gap of scoped) {
+    const scope = gap.targetBudgetScope || "unknown";
+    const entries = grouped.get(scope) || [];
+    entries.push(gap);
+    grouped.set(scope, entries);
+  }
+  for (const [scope, entries] of [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(`- ${scope}: ${entries.map((entry) => entry.id).sort().join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
 export function renderAiCostPolicyReport(result) {
   const highRisk = result.registrySummary.highRiskOperations.length
     ? result.registrySummary.highRiskOperations.join(", ")
@@ -617,8 +655,23 @@ export function renderAiCostPolicyReport(result) {
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
-      `- ${gap.id}: ${gap.category}; ${gap.severity}; target ${gap.targetFuturePhase}; registry=${gap.coveredByRegistryMetadata ? "covered" : "missing"}; allowed=${gap.allowedUnmigratedForNow ? "yes" : "no"}`
+      `- ${gap.id}: ${gap.category}; ${gap.severity}; scope=${gap.targetBudgetScope || "missing"}; killSwitch=${gap.killSwitchTarget || gap.killSwitchExemptionReason || "missing"}; target ${gap.targetFuturePhase}; registry=${gap.coveredByRegistryMetadata ? "covered" : "missing"}; allowed=${gap.allowedUnmigratedForNow ? "yes" : "no"}`
     ),
+    "",
+    renderBudgetScopeGroup("Admin gaps by budget scope:", knownBaselineGaps, [
+      AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+      AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
+      AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+    ]),
+    "",
+    renderBudgetScopeGroup("Platform/background gaps by budget scope:", knownBaselineGaps, [
+      AI_COST_BUDGET_SCOPES.PLATFORM_BACKGROUND_BUDGET,
+      AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+    ]),
+    "",
+    renderBudgetScopeGroup("Internal AI Worker caller-enforced gaps:", knownBaselineGaps, [
+      AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+    ]),
     "",
     "Registry issues:",
     formatList(result.registryIssues, (issue) => `- ${issue}`),
@@ -662,7 +715,8 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.1 should choose either admin/platform budget policy design or one narrow admin/provider-cost migration while preserving the migrated member image/music/video gateway invariants.",
+    "- Phase 4.3 should migrate exactly one narrow admin/provider-cost flow or add a report-only budget evidence collector after the Phase 4.2 helper contract.",
+    "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");
