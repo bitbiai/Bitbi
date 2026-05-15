@@ -6,6 +6,8 @@ Status: phased implementation plan only. Production/live billing remains BLOCKED
 
 ## Phase 3.2: Gateway Contract And Tests
 
+Status: completed for contract/test foundation only.
+
 Scope:
 
 - Add gateway contract module, operation config types by convention, fingerprint helpers, and state-machine tests.
@@ -15,8 +17,7 @@ Scope:
 Likely files:
 
 - `workers/auth/src/lib/ai-cost-gateway.js`
-- `workers/auth/src/lib/ai-cost-operations.js`
-- `tests/workers.spec.js`
+- `scripts/test-ai-cost-gateway.mjs`
 - `scripts/check-ai-cost-policy.mjs`
 - docs under `docs/ai-cost-gateway/`
 
@@ -29,6 +30,7 @@ Tests:
 - provider failure release/no charge
 - billing failure terminal state
 - secret redaction
+- invalid config blocking
 
 Rollback:
 
@@ -46,7 +48,53 @@ Non-goals:
 
 - No route migration, no public UI change, no billing/pricing change.
 
-## Phase 3.3: Migrate One Low-Risk Member Route
+## Phase 3.3: AI Cost Operation Registry Baseline
+
+Status: completed for report-only route metadata baseline only. No live route was migrated.
+
+Scope:
+
+- Add a central AI Cost Operation Registry for every inventoried provider-cost operation.
+- Validate each target operation config through the Phase 3.2 gateway normalizer.
+- Strengthen `check:ai-cost-policy` to load the registry, summarize current gaps, compare route-policy metadata where practical, and remain report-only by default.
+- Do not migrate runtime routes yet.
+
+Likely files:
+
+- `workers/auth/src/lib/ai-cost-gateway.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `scripts/check-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-operations.mjs`
+- docs under `docs/ai-cost-gateway/`
+
+Tests:
+
+- every registry entry normalizes through the gateway contract
+- operation ids are unique
+- known high-risk operations are present
+- route-policy/provider-source baselines are deterministic
+- report-only mode passes with current known gaps
+- strict mode fails on current known gaps
+- no external calls are made
+
+Rollback:
+
+- Remove unused registry/check/test additions. No live route should depend on them.
+
+Deploy units:
+
+- Auth Worker may be classified as impacted because the registry is under `workers/auth/src/lib`, but no route imports it yet.
+
+Migration risk:
+
+- None.
+
+Non-goals:
+
+- No route migration, no public UI change, no billing/pricing change.
+
+## Phase 3.4: Migrate Member Personal Image
 
 Scope:
 
@@ -57,6 +105,7 @@ Likely files:
 
 - `workers/auth/src/routes/ai/images-write.js`
 - `workers/auth/src/lib/ai-cost-gateway.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
 - `workers/auth/src/lib/ai-usage-policy.js`
 - `tests/workers.spec.js`
 - frontend idempotency callers if they do not already send keys
@@ -72,7 +121,7 @@ Tests:
 
 Rollback:
 
-- Restore previous member-image adapter path while leaving gateway module unused.
+- Restore previous member-image adapter path while leaving gateway module and registry unused.
 
 Deploy units:
 
@@ -86,7 +135,7 @@ Non-goals:
 
 - No music/video migration, no pricing changes.
 
-## Phase 3.4: Migrate Member Music
+## Phase 3.5: Migrate Member Music
 
 Scope:
 
@@ -127,7 +176,7 @@ Non-goals:
 
 - No video migration, no public pricing change.
 
-## Phase 3.5: Migrate Member Video
+## Phase 3.6: Migrate Member Video
 
 Scope:
 
@@ -168,7 +217,7 @@ Non-goals:
 
 - No admin async video rewrite.
 
-## Phase 3.6: Normalize Admin AI Provider-Cost Behavior
+## Phase 3.7: Normalize Admin AI Provider-Cost Behavior
 
 Scope:
 
@@ -208,7 +257,7 @@ Non-goals:
 
 - No public/member changes.
 
-## Phase 3.7: Provider Replay And Result Cache Hardening
+## Phase 3.8: Provider Replay And Result Cache Hardening
 
 Scope:
 
@@ -247,7 +296,7 @@ Non-goals:
 
 - No destructive cleanup expansion.
 
-## Phase 3.8: Cost Telemetry And Admin Cost Dashboard
+## Phase 3.9: Cost Telemetry And Admin Cost Dashboard
 
 Scope:
 
@@ -286,7 +335,7 @@ Non-goals:
 
 - No automated provider budget shutdown until separately approved.
 
-## Phase 3.9: Policy Enforcement Guard
+## Phase 3.10: Policy Enforcement Guard
 
 Scope:
 

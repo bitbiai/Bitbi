@@ -3,107 +3,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  getAiCostProviderCallSourceFiles,
+  getAiCostRoutePolicyBaselines,
+  summarizeAiCostOperationRegistry,
+  validateAiCostOperationRegistry,
+} from "../workers/auth/src/lib/ai-cost-operations.js";
 
 export const AI_COST_INVENTORY_DOC = "docs/ai-cost-gateway/AI_COST_ROUTE_INVENTORY.md";
 export const ROUTE_POLICY_PATH = "workers/auth/src/app/route-policy.js";
 
-export const COST_POLICY_ROUTES = Object.freeze([
-  {
-    id: "ai.generate-image",
-    path: "/api/ai/generate-image",
-    classification: "member-and-org-cost-bearing",
-    expected: "required",
-    notes: "Org mode is required/reserved; member mode is still optional/recommended and is a Phase 3 gap.",
-  },
-  {
-    id: "ai.generate-text",
-    path: "/api/ai/generate-text",
-    classification: "org-cost-bearing",
-    expected: "required",
-  },
-  {
-    id: "ai.generate-music",
-    path: "/api/ai/generate-music",
-    classification: "member-cost-bearing",
-    expected: "required",
-  },
-  {
-    id: "ai.generate-video",
-    path: "/api/ai/generate-video",
-    classification: "member-cost-bearing",
-    expected: "required",
-  },
-  {
-    id: "admin.ai.test-image",
-    path: "/api/admin/ai/test-image",
-    classification: "admin-priced-org-cost-bearing-for-priced-models",
-    expected: "required",
-  },
-  {
-    id: "admin.ai.test-text",
-    path: "/api/admin/ai/test-text",
-    classification: "admin-unmetered-provider-cost",
-    expected: "explicit-admin-unmetered",
-  },
-  {
-    id: "admin.ai.test-music",
-    path: "/api/admin/ai/test-music",
-    classification: "admin-unmetered-provider-cost",
-    expected: "explicit-admin-unmetered",
-  },
-  {
-    id: "admin.ai.test-video-debug",
-    path: "/api/admin/ai/test-video",
-    classification: "admin-unmetered-provider-cost-debug-gated",
-    expected: "explicit-admin-unmetered",
-  },
-  {
-    id: "admin.ai.video-jobs.create",
-    path: "/api/admin/ai/video-jobs",
-    classification: "admin-async-provider-cost",
-    expected: "required",
-  },
-  {
-    id: "admin.ai.compare",
-    path: "/api/admin/ai/compare",
-    classification: "admin-unmetered-provider-cost",
-    expected: "explicit-admin-unmetered",
-  },
-  {
-    id: "admin.ai.live-agent",
-    path: "/api/admin/ai/live-agent",
-    classification: "admin-unmetered-provider-cost",
-    expected: "explicit-admin-unmetered",
-  },
-  {
-    id: "openclaw.news_pulse.ingest",
-    path: "/api/openclaw/news-pulse/ingest",
-    classification: "machine-provider-cost-background",
-    expected: "platform-budget-or-deterministic-key",
-  },
-]);
-
-export const PROVIDER_CALL_SOURCE_FILES = Object.freeze([
-  "workers/auth/src/routes/ai/images-write.js",
-  "workers/auth/src/routes/ai/text-generate.js",
-  "workers/auth/src/routes/ai/music-generate.js",
-  "workers/auth/src/routes/ai/video-generate.js",
-  "workers/auth/src/routes/admin-ai.js",
-  "workers/auth/src/lib/admin-ai-proxy.js",
-  "workers/auth/src/lib/ai-video-jobs.js",
-  "workers/auth/src/lib/member-music-cover.js",
-  "workers/auth/src/lib/news-pulse-visuals.js",
-  "workers/ai/src/routes/text.js",
-  "workers/ai/src/routes/image.js",
-  "workers/ai/src/routes/embeddings.js",
-  "workers/ai/src/routes/music.js",
-  "workers/ai/src/routes/video.js",
-  "workers/ai/src/routes/video-task.js",
-  "workers/ai/src/routes/compare.js",
-  "workers/ai/src/routes/live-agent.js",
-  "workers/ai/src/lib/invoke-ai.js",
-  "workers/ai/src/lib/invoke-ai-video.js",
-]);
+export const COST_POLICY_ROUTES = Object.freeze(getAiCostRoutePolicyBaselines());
+export const PROVIDER_CALL_SOURCE_FILES = Object.freeze(getAiCostProviderCallSourceFiles());
 
 const PROVIDER_CALL_PATTERNS = Object.freeze([
   "env.AI.run",
@@ -228,8 +139,14 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
   const fatalIssues = [];
   const policyGaps = [];
   const inventoryIssues = [];
+  const registryIssues = validateAiCostOperationRegistry();
+  const registrySummary = summarizeAiCostOperationRegistry();
   const routePolicyPath = options.routePolicyPath || ROUTE_POLICY_PATH;
   const inventoryPath = options.inventoryPath || AI_COST_INVENTORY_DOC;
+
+  for (const issue of registryIssues) {
+    fatalIssues.push(`AI cost operation registry issue: ${issue}`);
+  }
 
   let routePolicyText = "";
   try {
@@ -250,7 +167,9 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
     for (const route of COST_POLICY_ROUTES) {
       const snippet = findPolicySnippet(routePolicyText, route.id);
       const actualIdempotency = classifyIdempotency(snippet);
-      const inInventory = inventoryText.includes(route.path) || inventoryText.includes(route.id);
+      const inInventory = inventoryText.includes(route.path)
+        || inventoryText.includes(route.id)
+        || inventoryText.includes(route.operationId);
       const record = {
         ...route,
         actualIdempotency,
@@ -292,6 +211,8 @@ export function analyzeAiCostPolicy(repoRoot, options = {}) {
     fatalIssues,
     policyGaps,
     inventoryIssues,
+    registryIssues,
+    registrySummary,
     routes,
     providerSourceFindings,
   };
@@ -303,6 +224,9 @@ function formatList(items, formatter) {
 }
 
 export function renderAiCostPolicyReport(result) {
+  const highRisk = result.registrySummary.highRiskOperations.length
+    ? result.registrySummary.highRiskOperations.join(", ")
+    : "None";
   const providerSummary = result.providerSourceFindings
     .map((finding) => {
       const status = finding.inventoried ? "inventoried" : "not-in-inventory";
@@ -314,6 +238,22 @@ export function renderAiCostPolicyReport(result) {
     "AI cost policy check",
     `Mode: ${result.strict ? "strict" : "report-only"}`,
     `Result: ${result.ok ? "PASS" : "FAIL"}`,
+    "",
+    "Registry summary:",
+    `- Version: ${result.registrySummary.version}`,
+    `- Total operations: ${result.registrySummary.totalOperations}`,
+    `- Provider-cost operations: ${result.registrySummary.providerCostOperations}`,
+    `- Member operations: ${result.registrySummary.memberOperations}`,
+    `- Organization operations: ${result.registrySummary.organizationOperations}`,
+    `- Admin/platform operations: ${result.registrySummary.adminPlatformOperations}`,
+    `- Current missing mandatory idempotency: ${result.registrySummary.currentMissingMandatoryIdempotency}`,
+    `- Current missing reservation: ${result.registrySummary.currentMissingReservation}`,
+    `- Current no replay: ${result.registrySummary.currentNoReplay}`,
+    `- Platform budget review operations: ${result.registrySummary.platformBudgetReviewOperations}`,
+    `- Highest-risk operations: ${highRisk}`,
+    "",
+    "Registry issues:",
+    formatList(result.registryIssues, (issue) => `- ${issue}`),
     "",
     "Fatal issues:",
     formatList(result.fatalIssues, (issue) => `- ${issue}`),
@@ -328,6 +268,9 @@ export function renderAiCostPolicyReport(result) {
     "",
     "Provider-call source scan:",
     providerSummary,
+    "",
+    "Recommended next phase:",
+    "- Phase 3.4 should migrate exactly one low-risk route, preferably member personal image generation, unless evidence shows another route is safer.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: target design only. No runtime behavior is changed by this document.
+Status: target design plus Phase 3.3 unused operation registry/report-only baseline. No live route imports the gateway module or registry yet, and no runtime behavior is changed by this document.
 
 ## Goals
 
@@ -107,7 +107,35 @@ Primary goals:
 
 ## Gateway API Shape
 
-Candidate module: `workers/auth/src/lib/ai-cost-gateway.js`
+Phase 3.2 module: `workers/auth/src/lib/ai-cost-gateway.js`
+
+The module currently exports:
+
+- `AI_COST_GATEWAY_VERSION`
+- `AI_COST_GATEWAY_MODES`
+- `AI_COST_GATEWAY_SCOPES`
+- `AI_COST_GATEWAY_PHASES`
+- `AiCostGatewayError`
+- `normalizeAiCostOperationConfig(config)`
+- `buildAiCostRequestFingerprint(input)`
+- `buildAiCostScopedIdempotencyKey(input)`
+- `classifyAiCostGatewayState(input)`
+- `createAiCostGatewayPlan(input)`
+
+The Phase 3.2 implementation is pure and deterministic. It does not call D1, R2, Cloudflare AI, the AI Worker, Stripe, Cloudflare APIs, or network fetch. It validates future operation contracts, hashes request fingerprints, scopes client idempotency keys, and classifies the next action a future route adapter would take.
+
+Phase 3.3 registry module: `workers/auth/src/lib/ai-cost-operations.js`
+
+The registry currently exports:
+
+- `AI_COST_OPERATION_REGISTRY_VERSION`
+- `AI_COST_OPERATION_REGISTRY`
+- `validateAiCostOperationRegistry(entries)`
+- `getAiCostRoutePolicyBaselines(entries)`
+- `getAiCostProviderCallSourceFiles(entries)`
+- `summarizeAiCostOperationRegistry(entries)`
+
+The registry stores target gateway operation configs plus current enforcement metadata. It is report-only and unused by live route handlers in Phase 3.3.
 
 ```js
 const gateway = await prepareAiCostOperation({
@@ -149,12 +177,36 @@ try {
 
 Each operation config should define:
 
-- `key`
-- `route`
+- `operationId`
+- `routeId` / `routePath`
 - `featureKey`
-- `billingMode`: `member_credits`, `organization_credits`, `admin_unmetered`, `platform_budget`, or `storage_only`
-- `actorTypes`
-- `requiresIdempotency`
+- `actorType`: `member`, `organization`, `admin`, or `platform`
+- `billingScope`: `member_credit_account`, `organization_credit_account`, `platform_budget`, `unmetered_admin`, or `external`
+- `providerFamily`
+- `modelId` or `modelResolverKey`
+- `creditCost`, `costUnits`, `quantity`, and/or explicit `costPolicy`
+- `idempotencyPolicy`
+- `reservationPolicy`
+- `replayPolicy`
+- `failurePolicy`
+- `storagePolicy`
+- `observabilityEventPrefix`
+- `notes`
+
+The Phase 3.3 registry additionally records:
+
+- current enforcement status: `implemented`, `partial`, `missing`, or `not_applicable`
+- current idempotency/reservation/replay/credit/provider-suppression details
+- route-policy comparison metadata where practical
+- source files that can directly or indirectly cause provider cost
+- current gaps
+- gap severity
+- next migration phase
+
+Future route adapters can use the registry target config, but Phase 3.3 does not wire it into runtime code.
+
+Future implementation details should also define:
+
 - `requestFingerprintFields`
 - `modelResolver`
 - `costResolver`
@@ -261,5 +313,6 @@ For each migrated route:
 For the gateway module:
 
 - pure unit tests for fingerprint, idempotency state, reservation state, and error mapping
+- Phase 3.2 deterministic test harness in `scripts/test-ai-cost-gateway.mjs`
 - Worker tests for D1 concurrency/idempotency behavior
 - static route-policy/check tests that block new cost-bearing routes without gateway metadata after enforcement begins

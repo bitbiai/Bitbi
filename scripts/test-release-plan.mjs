@@ -256,6 +256,8 @@ function createContext() {
       { command: "npm run check:doc-currentness", cwd: null, execute: true },
       { command: "npm run test:readiness-evidence", cwd: null, execute: true },
       { command: "npm run test:main-release-readiness", cwd: null, execute: true },
+      { command: "npm run test:ai-cost-gateway", cwd: null, execute: true },
+      { command: "npm run test:ai-cost-operations", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {
         command: "npx wrangler d1 migrations apply bitbi-auth-db --remote",

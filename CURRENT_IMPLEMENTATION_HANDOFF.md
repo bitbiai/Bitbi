@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 3.1, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, the gated live Credits/Organization dashboards, member credit buckets, BITBI Pro subscription scaffolding, the 2026-05-15 Alpha Audit documentation reconciliation, Stripe live billing lifecycle operator-review queue/resolution UI foundations, read-only local billing reconciliation reporting, main-only release gate/checklist evidence planning, and AI Cost Gateway design/inventory work. This is not a production deploy approval, live billing readiness claim, or AI cost readiness claim.
+Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 3.3, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, the gated live Credits/Organization dashboards, member credit buckets, BITBI Pro subscription scaffolding, the 2026-05-15 Alpha Audit documentation reconciliation, Stripe live billing lifecycle operator-review queue/resolution UI foundations, read-only local billing reconciliation reporting, main-only release gate/checklist evidence planning, and AI Cost Gateway design/inventory/contract/operation-registry work. This is not a production deploy approval, live billing readiness claim, or AI cost readiness claim.
 
 ## Current Baseline
 
@@ -11,7 +11,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Branch | `main` |
 | Latest observed commit before Phase 2-O work | `9198621 org` |
 | Working tree at Phase 2-O start | Clean |
-| Latest implemented work | Phase 3.1 AI Cost Gateway design, route inventory, roadmap, and report-only local policy-gap check plus Phase 2.6 main-only direct-release runbook/checklist and local readiness gate, Phase 2.4 read-only admin billing reconciliation report, Phase 2.3 Admin Control Plane UI for the Stripe live billing lifecycle review queue, prior Phase 2.2 review APIs, BITBI Pro member subscription/credit bucket foundation, and Alpha Audit documentation reconciliation |
+| Latest implemented work | Phase 3.3 AI Cost Operation Registry/report-only baseline plus Phase 3.2 AI Cost Gateway contract/helpers/tests, Phase 3.1 route inventory/roadmap/report-only local policy-gap check, Phase 2.6 main-only direct-release runbook/checklist and local readiness gate, Phase 2.4 read-only admin billing reconciliation report, Phase 2.3 Admin Control Plane UI for the Stripe live billing lifecycle review queue, prior Phase 2.2 review APIs, BITBI Pro member subscription/credit bucket foundation, and Alpha Audit documentation reconciliation |
 | Latest corrective fix | Current-state documentation is reconciled to the release contract latest auth migration, `0047_add_member_subscriptions_and_credit_buckets.sql`; historical phase reports remain preserved as historical evidence. |
 | Latest auth D1 migration | `0047_add_member_subscriptions_and_credit_buckets.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
@@ -22,7 +22,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Phase 2-M validation | Baseline `npm run release:preflight`, focused Phase 2-M/Phase 2-L Worker tests, focused Admin AI/Credits static tests, `npm run test:workers` 359/359, `npm run test:static` 168/168, `npm run build:static`, and `npm run release:preflight` passed during implementation |
 | Phase 2-N validation | See `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md` and final Codex response for command results |
 | Phase 2-O validation | See `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md` and final Codex response for command results |
-| Merge readiness | Ready only after current Phase 3.1 validation passes; no commit made by Codex |
+| Merge readiness | Ready only after current Phase 3.3 validation passes; no commit made by Codex |
 | Staging readiness | Requires migrations/config/resources and functional staging verification |
 | Production readiness | Blocked |
 | Live billing readiness | Guarded one-time credit-pack, BITBI Pro subscription, review-only failure/refund/dispute/expired-checkout classification, admin-only review queue/resolution metadata code, Admin Control Plane UI for that queue, and a read-only local reconciliation report exist, with Phase 2.6 main-only evidence guidance for direct `main` deploys, but full live billing remains blocked without live evidence, approved remediation workflow, and legal/product approval |
@@ -49,12 +49,14 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Per-user asset storage quota now resolves free versus active BITBI Pro limits through the subscription state.
 - Phase 2.1 records selected live Stripe failed-payment, refund, dispute, and expired-checkout webhook events as sanitized billing action review metadata only. Phase 2.2 exposes those records through admin-only review list/detail/resolution metadata APIs. Phase 2.3 adds Admin Control Plane UI for the queue, safe detail panel, blocked-event warnings, and note/confirmation-gated `resolved` / `dismissed` actions with generated `Idempotency-Key`. Phase 2.4 adds `GET /api/admin/billing/reconciliation` and an Admin Control Plane panel that summarizes local D1 billing events, checkout sessions, credit ledgers, subscriptions, and review states as read-only risk signals. Phase 2.6 adds a main-only direct-release runbook/checklist and `check:main-release-readiness` local gate because the owner deploys from `main`. These phases do not automatically grant, reverse, subtract, delete, cancel, refund, call Stripe, claw back credits, resolve credits/accounts beyond manual metadata, deploy, or prove production readiness.
 - Phase 3.1 adds `docs/ai-cost-gateway/` route inventory/design/roadmap docs and report-only `check:ai-cost-policy` / `test:ai-cost-policy` tooling. It does not change runtime AI charging behavior, call AI providers, mutate billing, require idempotency, reserve credits, suppress duplicate provider calls, add provider replay/cache, or prove production readiness.
+- Phase 3.2 adds unused AI Cost Gateway helpers in `workers/auth/src/lib/ai-cost-gateway.js` plus `test:ai-cost-gateway`. It normalizes future operation configs, builds safe request fingerprints and scoped idempotency keys, and returns pure gateway plans. It is not imported by any live route and does not change existing AI charging, Idempotency-Key, reservation, debit, provider, replay, UI, or billing behavior.
+- Phase 3.3 adds an unused AI Cost Operation Registry in `workers/auth/src/lib/ai-cost-operations.js` plus `test:ai-cost-operations`. It records normalized target operation configs, current enforcement metadata, route-policy baselines, and source-file inventory for 30 known AI cost operations. `check:ai-cost-policy` now validates that registry and remains report-only by default. It is not imported by any live route and does not change existing AI charging, Idempotency-Key, reservation, debit, provider, replay, UI, or billing behavior.
 
 ## What Is Not Implemented
 
 - Full production payment processing, customer portal, Stripe Tax, Stripe Connect, coupons, invoice operations, refund/chargeback automation, automated failed-payment remediation, approved billing remediation workflow, or live billing readiness evidence. Phase 2.4 is a read-only local reconciliation report only, not remediation. Phase 2.6 is release evidence/checklist tooling only, not runtime behavior or production approval.
 - Full tenant-owned asset migration or full enterprise tenant isolation.
-- A single runtime AI Cost Gateway for all expensive member/admin/platform AI routes with required idempotency, pre-provider reservations, provider-result replay/cache, and release-on-failure semantics. Phase 3.1 documents the design and route inventory only; the gateway contract and route migrations are not implemented.
+- A single runtime AI Cost Gateway for all expensive member/admin/platform AI routes with required idempotency, pre-provider reservations, provider-result replay/cache, and release-on-failure semantics. Phase 3.2 adds the unused contract/helper foundation and Phase 3.3 adds the unused registry/report-only baseline only; route migrations are not implemented.
 - User self-service privacy center.
 - Irreversible deletion/anonymization executor.
 - Legal/compliance certification.
@@ -77,7 +79,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Do not claim live billing readiness until Phase 2.3 failed-payment/refund/dispute/chargeback/expired-checkout review capture, Admin Control Plane UI, resolution metadata, Phase 2.4 read-only reconciliation reporting, and Phase 2.6 main-only evidence gates are verified live and billing remediation workflows are implemented or explicitly accepted with documented operational controls.
 - Verify Phase 2-M admin-only BFL image-test charging against real staging/canary org credit balances, including no provider call on missing org/idempotency/insufficient credits, no debit on provider failure, exactly-once debit on retry, and ledger/dashboard visibility.
 - Verify Phase 2-N organization selection in staging/canary, including solo-admin BITBI auto-selection, platform-admin organization selector, owner-only Organization page access, Organization/Credits/Admin AI Lab context sharing, and visible debit diagnostics after BFL admin image tests.
-- Do not claim AI cost readiness until the Phase 3.2+ gateway contract and route migrations require idempotency, reserve credits before provider calls, suppress duplicate provider execution, replay safe results, and release reservations on provider failure across provider-cost routes.
+- Do not claim AI cost readiness until Phase 3.4+ route migrations require idempotency, reserve credits before provider calls, suppress duplicate provider execution, replay safe results, and release reservations on provider failure across provider-cost routes.
 - Verify Admin Control Plane and Pricing in staging against real APIs.
 - Run live health/security-header checks with explicit URLs.
 - Verify dashboard-managed WAF/static headers/RUM/alerts or codify them.
@@ -198,7 +200,7 @@ Do not run production deploys, remote D1 migrations, `release:apply`, live Strip
 
 ## Recommended Next Work
 
-Recommended next phase: Phase 3.2 AI Cost Gateway contract/tests with no route migration, staging/main-only verification evidence, or if staging is intentionally skipped, a bounded operator-run production canary using `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` for Testmode and `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` for the shortest possible live credit-pack canary window. Include Phase 2-N organization selection and Phase 2-M admin-only BFL image-test charging in that canary after selecting/seeding the intended organization with enough credits. This is not production-readiness approval.
+Recommended next phase: Phase 3.4 AI Cost Gateway migration for exactly one low-risk route, preferably member personal image generation; staging/main-only verification evidence; or if staging is intentionally skipped, a bounded operator-run production canary using `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` for Testmode and `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` for the shortest possible live credit-pack canary window. Include Phase 2-N organization selection and Phase 2-M admin-only BFL image-test charging in that canary after selecting/seeding the intended organization with enough credits. This is not production-readiness approval.
 
 Priority order:
 
@@ -210,12 +212,12 @@ Priority order:
 6. Verify Phase 2-N `/account/organization.html`, active organization selector/defaulting, solo-admin BITBI owner setup, Organization/Credits/Admin AI Lab context sharing, and safe platform-admin-not-owner warning.
 7. Verify Phase 2-M Admin AI Lab organization selector, BFL cost labels, sufficient-credit denial, provider-failure no-charge behavior, exactly-once debit, balance refresh, and sanitized ledger/Credits/Organization dashboard display.
 8. Verify Phase 2.3 billing review UI/resolution metadata and Phase 2.4 read-only reconciliation reporting through the Phase 2.6 main-only evidence process if no staging environment exists, without treating either as remediation.
-9. Run `npm run check:ai-cost-policy` when changing AI route policy metadata or provider-calling routes; it is report-only in Phase 3.1 and documents current gaps.
-10. Choose one next implementation track: Phase 3.2 AI Cost Gateway contract/tests, refund/chargeback/manual-remediation policy, video AI entitlement wiring, or tenant-owned asset migration.
+9. Run `npm run check:ai-cost-policy` when changing AI route policy metadata or provider-calling routes; it is report-only and now validates the Phase 3.3 operation registry plus current gaps.
+10. Choose one next implementation track: Phase 3.4 AI Cost Gateway one-route migration, refund/chargeback/manual-remediation policy, video AI entitlement wiring, or tenant-owned asset migration.
 
 ## What Not To Redo
 
-Do not redo Phase 0/1 hardening, Phase 2-A org/RBAC, Phase 2-B billing foundations, Phase 2-C/D/E/F image usage enforcement/replay/cleanup, Phase 2-H text generation, Phase 2-I billing event ingestion, Phase 2-J Stripe Testmode checkout, Phase 2-K admin checkout lockdown, Phase 2-L live credit packs/Credits dashboard, Phase 2-M admin BFL image-test charging, Phase 2-N organization context/credit-debit visibility, Phase 2.3 billing review UI, Phase 2.4 read-only reconciliation reporting, Phase 2.6 main-only release evidence tooling, Phase 3.1 AI Cost Gateway inventory/design docs, Admin Control Plane, or Pricing unless a focused regression is found.
+Do not redo Phase 0/1 hardening, Phase 2-A org/RBAC, Phase 2-B billing foundations, Phase 2-C/D/E/F image usage enforcement/replay/cleanup, Phase 2-H text generation, Phase 2-I billing event ingestion, Phase 2-J Stripe Testmode checkout, Phase 2-K admin checkout lockdown, Phase 2-L live credit packs/Credits dashboard, Phase 2-M admin BFL image-test charging, Phase 2-N organization context/credit-debit visibility, Phase 2.3 billing review UI, Phase 2.4 read-only reconciliation reporting, Phase 2.6 main-only release evidence tooling, Phase 3.1 AI Cost Gateway inventory/design docs, Phase 3.2 AI Cost Gateway contract/helpers/tests, Phase 3.3 AI Cost Operation Registry/report-only baseline, Admin Control Plane, or Pricing unless a focused regression is found.
 
 ## Commit Guidance
 

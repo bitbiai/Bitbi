@@ -38,6 +38,7 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Charged admin image tests require organization_id, Idempotency-Key, server-side credit calculation, sufficient organization credits, and no charge on provider failure.",
   }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {}),
+  adminJsonWrite("admin.ai.test-embeddings", "POST", "/api/admin/ai/test-embeddings", "admin-ai", "adminJson", "admin-ai-embeddings-ip", {}),
   adminJsonWrite("admin.ai.test-music", "POST", "/api/admin/ai/test-music", "admin-ai", "adminJson", "admin-ai-music-ip", {}),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {}),
   adminJsonWrite("admin.ai.video-jobs.create", "POST", "/api/admin/ai/video-jobs", "admin-ai", "adminVideoJobJson", "admin-ai-video-job-create-ip", {
@@ -59,6 +60,7 @@ export const ROUTE_POLICIES = Object.freeze([
 /api/ai/generate-video
 /api/admin/ai/test-image
 /api/admin/ai/test-text
+/api/admin/ai/test-embeddings
 /api/admin/ai/test-music
 /api/admin/ai/test-video
 /api/admin/ai/video-jobs
@@ -84,10 +86,15 @@ ${inventoryExtra}
 {
   const repoRoot = makeRepo();
   const result = analyzeAiCostPolicy(repoRoot);
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, JSON.stringify(result.fatalIssues));
+  assert.equal(result.registrySummary.totalOperations, 30);
+  assert.equal(result.registrySummary.memberOperations, 6);
+  assert(result.registrySummary.currentMissingMandatoryIdempotency >= 3);
+  assert(result.registrySummary.highRiskOperations.includes("member.image.generate"));
   assert(result.policyGaps.some((gap) => gap.route === "ai.generate-music" && gap.actual === "recommended"));
   assert(result.policyGaps.some((gap) => gap.route === "ai.generate-video" && gap.actual === "recommended"));
   assert(result.policyGaps.some((gap) => gap.route === "ai.generate-image" && gap.actual === "partial"));
+  assert(result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert(!result.policyGaps.some((gap) => gap.route === "ai.generate-text"));
 }
 
@@ -104,6 +111,8 @@ ${inventoryExtra}
   process.env.AI_PROVIDER_SECRET = secretValue;
   const output = renderAiCostPolicyReport(analyzeAiCostPolicy(repoRoot));
   assert(!output.includes(secretValue));
+  assert(output.includes("Registry summary:"));
+  assert(output.includes("Recommended next phase:"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;
 }
