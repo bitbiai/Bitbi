@@ -1,0 +1,267 @@
+# BITBI Production/Staging Evidence Pack
+
+Evidence date:
+
+Prepared by:
+
+Environment: local / staging / canary / production
+
+Branch:
+
+Commit:
+
+Default final verdict: **BLOCKED**
+
+Allowed final verdict values: **BLOCKED**, **STAGING READY**, **CANARY READY**, **PRODUCTION READY**.
+
+Do not paste secret values, raw webhook secrets/signatures, API keys, private keys, bearer tokens, session cookies, raw provider payloads, or unredacted customer data.
+
+## 1. Repo Baseline
+
+| Item | Evidence |
+| --- | --- |
+| `pwd` |  |
+| `git branch --show-current` |  |
+| `git rev-parse HEAD` |  |
+| `git status --short` summary |  |
+| `npm run readiness:evidence` output attached | yes / no |
+| `npm run readiness:evidence -- --markdown` output attached | yes / no |
+| Operator-run `--include-live` read-only HTTP evidence attached | yes / no / not applicable |
+| Repo-local checks attached | yes / no |
+
+## 2. Branch / Commit / Worktree
+
+Record the exact branch, commit, and whether the worktree was clean. If dirty, summarize changed file categories without pasting secrets.
+
+## 3. Migration Status Through Latest Auth Migration
+
+Latest auth D1 migration required by release config: `0047_add_member_subscriptions_and_credit_buckets.sql`.
+
+| Environment | Database | Evidence Through `0047` | Operator | Date | Result |
+| --- | --- | --- | --- | --- | --- |
+| staging | `bitbi-auth-db` |  |  |  | BLOCKED |
+| production | `bitbi-auth-db` |  |  |  | BLOCKED |
+
+Do not run remote migrations from this template. Record only operator-run migration status evidence.
+
+## 4. Cloudflare Auth Worker Bindings
+
+| Binding Type | Expected Name(s) | Staging Present? | Production Present? | Evidence Link/Note |
+| --- | --- | --- | --- | --- |
+| D1 | `DB` / `bitbi-auth-db` |  |  |  |
+| R2 | `PRIVATE_MEDIA`, `USER_IMAGES`, `AUDIT_ARCHIVE` |  |  |  |
+| Queues | `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`, `AI_VIDEO_JOBS_QUEUE` |  |  |  |
+| Durable Object | `PUBLIC_RATE_LIMITER` |  |  |  |
+| AI / Images | `AI`, `IMAGES` |  |  |  |
+| Service binding | `AI_LAB` |  |  |  |
+| Cron | `0 3 * * *` |  |  |  |
+
+## 5. Cloudflare AI Worker Bindings
+
+| Binding Type | Expected Name(s) | Staging Present? | Production Present? | Evidence Link/Note |
+| --- | --- | --- | --- | --- |
+| AI | `AI` |  |  |  |
+| Durable Object | `SERVICE_AUTH_REPLAY` |  |  |  |
+| DO migration | `v1-service-auth-replay` |  |  |  |
+
+## 6. Cloudflare Contact Worker Bindings
+
+| Binding Type | Expected Name(s) | Staging Present? | Production Present? | Evidence Link/Note |
+| --- | --- | --- | --- | --- |
+| Durable Object | `PUBLIC_RATE_LIMITER` |  |  |  |
+| DO migration | `v1-public-rate-limiter` |  |  |  |
+| Route/custom domain | `contact.bitbi.ai` |  |  |  |
+
+## 7. D1 / R2 / Queue / Durable Object / Service Binding Presence
+
+Summarize read-only evidence that each expected Cloudflare resource exists in the target environment. Record names and status only.
+
+| Resource | Staging Evidence | Production Evidence | Result |
+| --- | --- | --- | --- |
+| D1 database |  |  | BLOCKED |
+| R2 buckets |  |  | BLOCKED |
+| Queues |  |  | BLOCKED |
+| Durable Objects |  |  | BLOCKED |
+| Service bindings |  |  | BLOCKED |
+| Worker routes |  |  | BLOCKED |
+
+## 8. Required Secret Presence, Redacted
+
+Record `present` / `missing` only. Never paste values.
+
+| Secret Name | Staging | Production | Evidence Link/Note |
+| --- | --- | --- | --- |
+| `SESSION_SECRET` |  |  |  |
+| `SESSION_HASH_SECRET` |  |  |  |
+| `PAGINATION_SIGNING_SECRET` |  |  |  |
+| `ADMIN_MFA_ENCRYPTION_KEY` |  |  |  |
+| `ADMIN_MFA_PROOF_SECRET` |  |  |  |
+| `ADMIN_MFA_RECOVERY_HASH_SECRET` |  |  |  |
+| `AI_SAVE_REFERENCE_SIGNING_SECRET` |  |  |  |
+| `RESEND_API_KEY` |  |  |  |
+| `AI_SERVICE_AUTH_SECRET` |  |  |  |
+
+## 9. Stripe Testmode Configuration Presence, Redacted
+
+Record `present` / `missing` only. Never paste values.
+
+| Name | Staging/Testmode Status | Evidence Link/Note |
+| --- | --- | --- |
+| `STRIPE_MODE` |  |  |
+| `STRIPE_SECRET_KEY` |  |  |
+| `STRIPE_WEBHOOK_SECRET` |  |  |
+| `STRIPE_CHECKOUT_SUCCESS_URL` |  |  |
+| `STRIPE_CHECKOUT_CANCEL_URL` |  |  |
+| `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` |  |  |
+
+## 10. Stripe Live Configuration Presence, Redacted
+
+Record `present` / `missing` only. Never paste values.
+
+| Name | Canary/Production Status | Evidence Link/Note |
+| --- | --- | --- |
+| `ENABLE_LIVE_STRIPE_CREDIT_PACKS` |  |  |
+| `STRIPE_LIVE_SECRET_KEY` |  |  |
+| `STRIPE_LIVE_WEBHOOK_SECRET` |  |  |
+| `STRIPE_LIVE_CHECKOUT_SUCCESS_URL` |  |  |
+| `STRIPE_LIVE_CHECKOUT_CANCEL_URL` |  |  |
+| `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS` |  |  |
+| `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID` |  |  |
+| `STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL` |  |  |
+| `STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL` |  |  |
+
+## 11. Live Health Checks
+
+Optional helper command for read-only HTTP evidence. This does not prove production readiness and does not perform credentialed Cloudflare/Stripe validation:
+
+```bash
+npm run readiness:evidence -- \
+  --include-live \
+  --static-url <staging-or-canary-static-url> \
+  --auth-worker-url <staging-or-canary-auth-base-url> \
+  --ai-worker-url <staging-or-canary-ai-base-url> \
+  --contact-worker-url <staging-or-canary-contact-base-url> \
+  --output docs/production-readiness/evidence/YYYY-MM-DD-<environment>-readiness.md
+```
+
+The helper runs only read-only GET requests against explicit URLs. It records status, final origin, selected safe headers, and public-safe health fields only. It strips query strings/fragments, does not send credentials, does not print env values, and does not dump page or JSON bodies.
+
+| Check | URL/Environment | Operator | Date | Result | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| Auth health |  |  |  | BLOCKED |  |
+| Contact health/form non-mutating validation, if applicable |  |  |  | BLOCKED |  |
+| Static site availability |  |  |  | BLOCKED |  |
+
+## 12. Static Security Headers
+
+| Header/Policy | Staging Result | Production Result | Evidence |
+| --- | --- | --- | --- |
+| HSTS |  |  |  |
+| CSP or documented equivalent |  |  |  |
+| X-Content-Type-Options |  |  |  |
+| Referrer-Policy |  |  |  |
+| Permissions-Policy |  |  |  |
+| Cache behavior |  |  |  |
+
+## 13. Admin Control Plane Smoke Evidence
+
+| Smoke | Account/Role | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| Admin MFA enforced |  |  | BLOCKED |  |
+| Dashboard loads sanitized data |  |  | BLOCKED |  |
+| Readiness panels do not expose secrets |  |  | BLOCKED |  |
+| Billing/event panels redact payloads |  |  | BLOCKED |  |
+| Data lifecycle panels render fail-closed/unavailable states |  |  | BLOCKED |  |
+
+## 14. Pricing / Credits / Organization Smoke Evidence
+
+| Smoke | Account/Role | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| Pricing page copy and CTAs |  |  | BLOCKED |  |
+| Account Credits dashboard |  |  | BLOCKED |  |
+| Organization dashboard/context |  |  | BLOCKED |  |
+| Active organization selection survives expected navigation |  |  | BLOCKED |  |
+| Ineligible users are denied billing actions |  |  | BLOCKED |  |
+
+## 15. Stripe Testmode Checkout / Webhook Smoke Evidence
+
+| Smoke | Environment | Result | Evidence |
+| --- | --- | --- | --- |
+| Testmode checkout disabled by default |  | BLOCKED |  |
+| Testmode checkout canary enabled intentionally |  | BLOCKED |  |
+| Admin-created checkout succeeds |  | BLOCKED |  |
+| Non-admin-created checkout does not grant credits |  | BLOCKED |  |
+| Webhook signature verification rejects invalid signatures |  | BLOCKED |  |
+| Duplicate webhook does not double grant |  | BLOCKED |  |
+| Failed/unpaid/expired session does not grant credits |  | BLOCKED |  |
+
+## 16. Live Credit-Pack Canary Evidence, If Intentionally Enabled
+
+Leave this section BLOCKED unless an approved bounded live canary occurred.
+
+| Canary Item | Result | Evidence |
+| --- | --- | --- |
+| Approval and rollback owner recorded | BLOCKED |  |
+| `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` window recorded | BLOCKED |  |
+| Live checkout created by eligible account only | BLOCKED |  |
+| Live webhook signature verified | BLOCKED |  |
+| Exactly-once live credit grant | BLOCKED |  |
+| Role revocation/no-credit path | BLOCKED |  |
+| Flag disabled after canary | BLOCKED |  |
+
+## 17. BITBI Pro Subscription Evidence
+
+| Smoke | Environment | Result | Evidence |
+| --- | --- | --- | --- |
+| Subscription checkout disabled by default |  | BLOCKED |  |
+| Subscription checkout enabled only by approved flag |  | BLOCKED |  |
+| Verified subscription checkout records subscription state |  | BLOCKED |  |
+| Paid invoice tops up subscription bucket exactly once |  | BLOCKED |  |
+| Cancel at period end works for signed-in owner |  | BLOCKED |  |
+| Reactivate works for signed-in owner |  | BLOCKED |  |
+| Failed payment does not grant credits |  | BLOCKED |  |
+| Refund/dispute/chargeback behavior documented and tested |  | BLOCKED |  |
+
+## 18. Restore Drill Evidence
+
+| Drill | Environment | Operator | Date | Result | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| D1 backup/restore drill |  |  |  | BLOCKED |  |
+| R2 recovery/owner-map drill |  |  |  | BLOCKED |  |
+| Queue backlog/poison recovery drill |  |  |  | BLOCKED |  |
+| Rollback rehearsal |  |  |  | BLOCKED |  |
+
+## 19. Alert / WAF / Static Header / RUM Evidence
+
+| Control | Environment | Result | Evidence |
+| --- | --- | --- | --- |
+| Auth Worker alerting |  | BLOCKED |  |
+| AI Worker alerting |  | BLOCKED |  |
+| Contact Worker alerting |  | BLOCKED |  |
+| Queue backlog alerting |  | BLOCKED |  |
+| WAF/rate-limit dashboard rules |  | BLOCKED |  |
+| Static security transform rules |  | BLOCKED |  |
+| Cloudflare RUM setting reviewed |  | BLOCKED |  |
+
+## 20. Blockers
+
+- Production Cloudflare live validation:
+- Remote migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql`:
+- Stripe Testmode checkout/webhook evidence:
+- Stripe live credit-pack/BITBI Pro canary evidence:
+- Refund/dispute/chargeback/failed-payment/reconciliation evidence:
+- Restore drill evidence:
+- Alert/WAF/static header/RUM evidence:
+- Legal/product approval:
+
+## 21. Final Verdict
+
+Final verdict: **BLOCKED**
+
+Rationale:
+
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+
+Approver:
+
+Date:

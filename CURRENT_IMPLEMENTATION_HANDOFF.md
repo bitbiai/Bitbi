@@ -1,8 +1,8 @@
 # Current Implementation Handoff
 
-Date: 2026-04-29
+Date: 2026-05-15
 
-Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2-O, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, and the gated live Credits/Organization dashboards. This is not a production deploy approval.
+Purpose: concise restart point for future Codex sessions after Phase 0 through Phase 2-O, Admin Control Plane, Pricing / Credit Purchase, pricing asset-reference fix, Stripe Testmode config-diagnostics/admin-checkout lockdown work, the gated live Credits/Organization dashboards, member credit buckets, BITBI Pro subscription scaffolding, and the 2026-05-15 Alpha Audit documentation reconciliation. This is not a production deploy approval or live billing readiness claim.
 
 ## Current Baseline
 
@@ -11,9 +11,9 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Branch | `main` |
 | Latest observed commit before Phase 2-O work | `9198621 org` |
 | Working tree at Phase 2-O start | Clean |
-| Latest implemented work | Phase 2-O Pricing hero/live-pack cleanup and profile navigation reconciliation |
-| Latest corrective fix | Profile navigation eligibility now matches the real `/api/profile` account payload, so platform admins see Credits and Organization under Wallet even though `/api/profile` does not include `account.id`. |
-| Latest auth D1 migration | `0040_add_live_stripe_credit_pack_scope.sql` |
+| Latest implemented work | BITBI Pro member subscription/credit bucket foundation plus Alpha Audit documentation reconciliation |
+| Latest corrective fix | Current-state documentation is reconciled to the release contract latest auth migration, `0047_add_member_subscriptions_and_credit_buckets.sql`; historical phase reports remain preserved as historical evidence. |
+| Latest auth D1 migration | `0047_add_member_subscriptions_and_credit_buckets.sql` |
 | Latest AI Worker Durable Object migration | `v1-service-auth-replay` |
 | Baseline preflight | `npm run release:preflight` passed before Phase 2-M edits |
 | Prior documentation reconciliation validation | `git diff --check`, release/config/route/body/data/activity/operational checks, Worker tests 346/346, static tests 163/163, asset-version checks, static build, and `npm run release:preflight` passed before Phase 2-L |
@@ -22,10 +22,10 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 | Phase 2-M validation | Baseline `npm run release:preflight`, focused Phase 2-M/Phase 2-L Worker tests, focused Admin AI/Credits static tests, `npm run test:workers` 359/359, `npm run test:static` 168/168, `npm run build:static`, and `npm run release:preflight` passed during implementation |
 | Phase 2-N validation | See `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md` and final Codex response for command results |
 | Phase 2-O validation | See `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md` and final Codex response for command results |
-| Merge readiness | Ready for review after Phase 2-N validation; no commit made |
+| Merge readiness | Ready only after Phase 0 documentation/currentness validation passes; no commit made by Codex |
 | Staging readiness | Requires migrations/config/resources and functional staging verification |
 | Production readiness | Blocked |
-| Live billing readiness | Narrow live one-time credit-pack checkout exists behind `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`; full live billing remains blocked |
+| Live billing readiness | Guarded one-time credit-pack and BITBI Pro subscription code exists, but full live billing remains blocked without live/staging evidence, failure/refund/dispute handling, reconciliation workflow, and legal/product approval |
 
 ## What Is Implemented
 
@@ -44,12 +44,15 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Admin Control Plane frontend for existing sanitized admin APIs.
 - Admin-only Pricing page for Free, 5,000 credits, and 12,000 credits, with paid CTAs routed to the Credits dashboard instead of direct checkout creation.
 - Stripe Testmode config diagnostics that identify missing variable names without exposing values.
+- Member credit ledger/bucket foundation through migration `0047`, separating subscription, purchased, and legacy/bonus credits while preserving existing ledger compatibility.
+- BITBI Pro subscription checkout/cancel/reactivate scaffolding and paid-invoice subscription credit top-up handling behind live Stripe configuration gates.
+- Per-user asset storage quota now resolves free versus active BITBI Pro limits through the subscription state.
 
 ## What Is Not Implemented
 
-- Public live Stripe checkout, subscriptions, invoices, customer portal, Stripe Tax, Stripe Connect, coupons, refund/chargeback automation, or full production payment processing.
+- Full production payment processing, customer portal, Stripe Tax, Stripe Connect, coupons, invoice operations, refund/chargeback automation, failed-payment handling, billing reconciliation/admin needs-review workflow, or live billing readiness evidence.
 - Full tenant-owned asset migration or full enterprise tenant isolation.
-- Video/music member-facing credit enforcement.
+- A single AI Cost Gateway for all expensive member AI routes with required idempotency, pre-provider reservations, provider-result replay/cache, and release-on-failure semantics.
 - User self-service privacy center.
 - Irreversible deletion/anonymization executor.
 - Legal/compliance certification.
@@ -57,7 +60,7 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 
 ## Production Blockers
 
-- Apply auth migrations through `0040`.
+- Apply auth migrations through `0047`.
 - Provision required auth/AI/contact secrets and verify without printing values.
 - Verify matching `AI_SERVICE_AUTH_SECRET` in auth and AI Workers.
 - Verify `SERVICE_AUTH_REPLAY` binding and DO migration.
@@ -68,6 +71,8 @@ Purpose: concise restart point for future Codex sessions after Phase 0 through P
 - Configure live Stripe values only if running the Phase 2-L canary: `ENABLE_LIVE_STRIPE_CREDIT_PACKS`, `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET`, `STRIPE_LIVE_CHECKOUT_SUCCESS_URL`, `STRIPE_LIVE_CHECKOUT_CANCEL_URL`.
 - Keep `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` except during the explicitly bounded live credit-pack canary.
 - Verify live checkout/webhook exactly-once credit grant behavior only through the operator-run canary.
+- Configure and verify BITBI Pro subscription values only if running an explicitly approved subscription canary: `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS`, `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID`, `STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL`, and `STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL`.
+- Do not claim live billing readiness until failed-payment, refund, dispute/chargeback, expired-checkout, and billing reconciliation/needs-review workflows are implemented or explicitly accepted with documented operational controls.
 - Verify Phase 2-M admin-only BFL image-test charging against real staging/canary org credit balances, including no provider call on missing org/idempotency/insufficient credits, no debit on provider failure, exactly-once debit on retry, and ledger/dashboard visibility.
 - Verify Phase 2-N organization selection in staging/canary, including solo-admin BITBI auto-selection, platform-admin organization selector, owner-only Organization page access, Organization/Credits/Admin AI Lab context sharing, and visible debit diagnostics after BFL admin image tests.
 - Verify Admin Control Plane and Pricing in staging against real APIs.
@@ -194,7 +199,7 @@ Recommended next phase: staging verification and deployment evidence, or if stag
 
 Priority order:
 
-1. Apply migrations through `0040` in staging and verify release compatibility against real resources.
+1. Apply migrations through `0047` in staging and verify release compatibility against real resources.
 2. Configure Stripe Testmode in staging and verify platform-admin-only checkout, kill-switch failure, webhook signature validation, exact-once credit grant, duplicate delivery, payload mismatch, unpaid/no-credit behavior, non-admin-created checkout no-credit behavior, and Pricing success/cancel states.
 3. Verify Admin Control Plane sections against real staging APIs.
 4. Verify org/billing/image/text/lifecycle cleanup flows end-to-end in staging.

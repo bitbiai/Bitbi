@@ -78,6 +78,10 @@ jobs:
         run: npm run check:admin-activity-query-shape
       - name: Check data lifecycle guardrails
         run: npm run check:data-lifecycle
+      - name: Run doc currentness tests
+        run: npm run test:doc-currentness
+      - name: Check documentation currentness
+        run: npm run check:doc-currentness
       - name: Run asset version tests
         run: npm run test:asset-version
       - name: Validate release compatibility

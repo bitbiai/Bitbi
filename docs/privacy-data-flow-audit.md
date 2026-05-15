@@ -2,11 +2,18 @@
 
 Audit date: 2026-05-03
 
+Last reconciled: 2026-05-15
+
 Scope: repository-level audit for the public privacy policy and German
 Datenschutzerklaerung. This report is an engineering/privacy inventory, not
 legal advice and not a compliance certification. It is intended for owner and
 German/EU privacy-lawyer review before relying on the public wording as final
 legal text.
+
+Current release truth: `config/release-compat.json` declares the latest auth D1
+migration as `0047_add_member_subscriptions_and_credit_buckets.sql`. This audit
+does not approve production deploy, full live billing readiness, full SaaS
+maturity, full tenant isolation, or legal compliance.
 
 ## 1. Executive Summary
 
@@ -15,8 +22,9 @@ contains account creation, session authentication, email verification and
 password reset, profile/avatar data, wallet linking, favorites, AI generation
 for image/text/video/music, saved assets and folders, public publication
 features for Mempics/Memvids/Memtracks, member and organization credit ledgers,
-Stripe checkout/webhook processing, admin audit and user activity logging, data
-lifecycle planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
+member subscription and credit bucket scaffolding, Stripe checkout/webhook
+processing, admin audit and user activity logging, data lifecycle
+planning/export archives, Cloudflare R2/D1/Queues/Durable Objects, and
 Cloudflare Workers AI / AI Gateway model calls.
 
 The existing public privacy pages were materially stale. They described a
@@ -84,8 +92,9 @@ Repo-wide searches included privacy-sensitive terms such as `localStorage`,
 | Generated media and saved assets | AI outputs and user save actions | Asset library, playback, download, publish | D1 `ai_images`, `ai_text_assets`, `ai_video_jobs`; R2 `USER_IMAGES`; derivative queues | Private by default; public if published | Cloudflare R2/Images/Workers AI/model providers | Publication intentionally exposes media and selected metadata publicly. |
 | Folders/assets manager | User creates/manages folders/assets | Organize saved media | D1 `ai_folders`, asset rows, R2 references | Private/member | Cloudflare D1/R2 | Folder names and metadata can contain user-provided text. |
 | Public Mempics/Memvids/Memtracks | User toggles publication | Public gallery playback/browsing | Public gallery routes select `visibility='public'` rows | Public to anyone | Cloudflare R2/Worker cache, site visitors | Published file URLs, titles/captions, display name/avatar become public. |
-| Credits and usage | Generation/billing actions | Quotas, charge credits, prevent double charge | D1 `member_credit_ledger`, `member_usage_events`, org `credit_ledger`, `usage_events`, `ai_usage_attempts` | Private/admin/billing | Cloudflare D1, Stripe for purchases | Billing/usage records may need legal retention; not fully integrated into lifecycle export/delete. |
-| Stripe checkout/webhook metadata | Credit purchases | Payment processing and credit grants | `billing_checkout_sessions`, `billing_provider_events`, `billing_event_actions` | Account/org/admin billing | Stripe | Code stores Stripe ids/status/pack metadata and sanitized summaries, not full card numbers. |
+| Credits and usage | Generation/billing actions | Quotas, charge credits, prevent double charge | D1 `member_credit_ledger`, `member_usage_events`, `member_credit_buckets`, `member_credit_bucket_events`, org `credit_ledger`, `usage_events`, `ai_usage_attempts` | Private/admin/billing | Cloudflare D1, Stripe for purchases | Billing/usage records may need legal retention; not fully integrated into lifecycle export/delete. |
+| Stripe checkout/webhook/subscription metadata | Credit purchases and BITBI Pro subscription scaffolding | Payment processing, credit grants, subscription state, reconciliation evidence | `billing_checkout_sessions`, `billing_member_checkout_sessions`, `billing_member_subscriptions`, `billing_member_subscription_checkout_sessions`, `billing_provider_events`, `billing_event_actions` | Account/org/admin billing | Stripe | Code stores Stripe ids/status/pack/subscription metadata and sanitized summaries, not full card numbers. Failure/refund/dispute/chargeback/reconciliation operations are not proven complete. |
+| Asset storage quota | Asset upload/save activity | Enforce member storage limits | D1 `user_asset_storage_usage`, asset metadata and R2 object references | Private/member/admin | Cloudflare D1/R2 | Quota summaries are derived account data and are not yet integrated into lifecycle export/delete planning. |
 | Organization membership | Org creation/memberships | Org/team/account credit foundation | D1 `organizations`, `organization_memberships` | Private/org/admin | Cloudflare D1 | Export/delete treatment is not fully implemented in lifecycle planning. |
 | User/admin activity logs | Auth/profile/admin/billing/security actions | Security, audit, support, abuse prevention | D1 `user_activity_log`, `admin_audit_log`, `activity_search_index`; archived to R2 | Admin/operator | Cloudflare Queues/D1/R2 | Hot retention/archiving exists; legal retention policy still needs owner review. |
 | Data lifecycle/export records | Admin/support lifecycle process | Export/deletion/anonymization planning | D1 `data_lifecycle_*`, `data_export_archives`; R2 `AUDIT_ARCHIVE` | Admin/support | Cloudflare R2/D1 | Export exists as admin workflow; irreversible hard deletion is not enabled by default. |
@@ -98,7 +107,7 @@ Repo-wide searches included privacy-sensitive terms such as `localStorage`,
 | Cloudflare | Workers, D1, R2, Queues, Durable Objects, Workers AI, AI Gateway, Images, CDN/DNS/security, logs | Requests, IP/user-agent/header metadata, account/media/billing records, AI inputs/outputs, R2 objects, logs | Public text should not claim EU-only processing. Workers AI docs say customer content is not used to train Workers AI models without explicit consent, but model-specific third-party terms should still be reviewed. AI Gateway logs may include prompts/responses if enabled. |
 | GitHub Pages / GitHub | Static site hosting/deploy pipeline | Static page request metadata and repository/deploy data | Repo does not prove GitHub Pages log retention for visitors. |
 | Resend | Verification/reset/contact email API | Recipient email, email metadata, email contents, contact form messages | Contact message retention in mailbox/Resend is outside repo. |
-| Stripe | One-time live/test credit-pack checkout and webhooks | Checkout/customer/session/payment intent ids, transaction data, contact/payment details entered at Stripe | Bitbi code does not store full card details; Stripe is an independent payment processor/controller/processor depending on context. Refunds/chargebacks/tax/invoice policy needs review. |
+| Stripe | One-time live/test credit-pack checkout, BITBI Pro subscription checkout scaffolding, and webhooks | Checkout/customer/session/subscription/payment intent ids, transaction data, contact/payment details entered at Stripe | Bitbi code does not store full card details; Stripe is an independent payment processor/controller/processor depending on context. Refunds/chargebacks/tax/invoice/reconciliation policy needs review. |
 | Cloudflare Workers AI / model vendors | Text/image/embedding/live-agent/image cover generation | Prompts, images, audio/video inputs/outputs, embeddings/settings | Vendors from model registry include Meta, Google, OpenAI OSS, BAAI, Black Forest Labs; code mainly calls through Cloudflare binding. |
 | PixVerse | Member/admin video model through Workers AI/AI Gateway | Video prompts, negative prompts, optional image data, settings, generated video URLs/outputs | Provider terms/retention not proven by repo. |
 | MiniMax | Music 2.6 through AI Worker service binding and gateway | Music prompts/style, lyrics, settings, generated audio/metadata | Provider terms/retention not proven by repo. |

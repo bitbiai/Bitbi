@@ -57,6 +57,9 @@ const ALWAYS_RECOMMENDED_CHECKS = Object.freeze([
   "npm run check:worker-body-parsers",
   "npm run check:admin-activity-query-shape",
   "npm run check:data-lifecycle",
+  "npm run test:doc-currentness",
+  "npm run check:doc-currentness",
+  "npm run test:readiness-evidence",
 ]);
 
 const WORKER_RECOMMENDED_CHECKS = Object.freeze([
@@ -132,6 +135,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "AGENTS.md"
     || normalized === "CLAUDE.md"
     || normalized === "README.md"
+    || /^ALPHA_AUDIT_[0-9_]+\.md$/.test(normalized)
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
     || /^CURRENT_[A-Z0-9_]+\.md$/.test(normalized)
     || /^DATA_[A-Z0-9_]+\.md$/.test(normalized)

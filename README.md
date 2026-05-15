@@ -1,8 +1,16 @@
 # BITBI
 
-**AI visuals, sound explorations, and creative coding projects.**
+**AI visuals, sound explorations, generated media, accounts, credits, and Cloudflare-backed product foundations.**
 
-BITBI is a static creative portfolio and digital playground that brings together AI-generated visuals, sound explorations, and creative coding into one branded experience.
+BITBI is a static vanilla HTML/CSS/ES module site backed by Cloudflare Workers. It started as a creative portfolio and now includes authenticated account flows, generated media storage, member credits, organization and billing foundations, guarded Stripe checkout/webhook flows, admin operations tooling, and AI generation surfaces.
+
+This repository is not a production-deploy approval, full SaaS maturity claim, full tenant-isolation claim, legal compliance certification, or live billing readiness claim. The release contract in `config/release-compat.json` is the current deploy/schema source of truth. As of the Alpha Audit reconciliation on 2026-05-15, the latest auth D1 migration is:
+
+```text
+0047_add_member_subscriptions_and_credit_buckets.sql
+```
+
+Production remains blocked until staging/live migrations, Worker secrets, bindings, Cloudflare resources, Stripe webhooks, health checks, security headers, and operational evidence are verified without exposing secret values.
 
 ## Live Site
 
@@ -10,11 +18,12 @@ BITBI is a static creative portfolio and digital playground that brings together
 
 ## What this project includes
 
-- **AI Creations Gallery** — curated generative visuals and creative imagery
-- **Sound Lab** — ambient textures, sonic sketches, and audio compositions
-- **Assets Manager** — saved media and folder management
-- **Contact flow** — privacy-aware contact form setup
-- **Account-related pages** — profile, password reset, email verification, and admin-related flows
+- **AI Creations Gallery** — public generated visuals and creative imagery
+- **Sound Lab / Memtracks / Memvids** — audio and video media experiences
+- **Assets Manager** — saved media, folders, storage quotas, and generated asset management
+- **Account flows** — profile, wallet, credits, organization, password reset, email verification, and localized account pages
+- **Admin area** — admin-only users, billing inspection, AI Lab, lifecycle, operations, and control-plane surfaces
+- **Cloudflare Workers APIs** — auth/admin/media/billing/AI/contact routes with D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images, and service bindings
 
 ## Tech Stack
 
@@ -24,18 +33,19 @@ BITBI is a static creative portfolio and digital playground that brings together
 - **GitHub Pages** for static hosting
 - **GitHub Actions** for deployment
 - **Cloudflare Workers** for backend-like functionality
-- **Cloudflare D1** for auth-related persistence
+- **Cloudflare D1** for auth, media, lifecycle, org, billing, credit, subscription, and operational persistence
+- **Cloudflare R2 / Queues / Durable Objects / Workers AI / Images** for media, async work, rate limiting, replay protection, and generation flows
 - **Self-hosted assets first** wherever possible
 
 ## Project Philosophy
 
-BITBI is intentionally lightweight and direct:
+BITBI is intentionally lightweight at the frontend layer and Cloudflare-native at the backend layer:
 
 - no unnecessary framework overhead
-- no mandatory build step for the main site
+- no framework rewrite of the static site
 - self-hosted assets whenever technically possible
-- creative freedom first
-- privacy-conscious integrations
+- explicit release/deploy contract for migrations, Workers, static deploy, and manual Cloudflare prerequisites
+- conservative security posture for auth, admin, private media, billing, and AI cost-sensitive routes
 
 ## Repository Structure
 

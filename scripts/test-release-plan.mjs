@@ -105,6 +105,7 @@ function createContext() {
     files: [
       "tests/workers.spec.js",
       "AGENTS.md",
+      "ALPHA_AUDIT_2026_05_15.md",
       "AUDIT_NEXT_LEVEL.md",
       "PHASE0_REMEDIATION_REPORT.md",
       "PHASE0B_REMEDIATION_REPORT.md",
@@ -116,12 +117,14 @@ function createContext() {
       "DATA_INVENTORY.md",
       "CURRENT_IMPLEMENTATION_HANDOFF.md",
       "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
+      "docs/audits/README.md",
     ],
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
     "AGENTS.md",
     "AI_VIDEO_ASYNC_JOB_DESIGN.md",
+    "ALPHA_AUDIT_2026_05_15.md",
     "AUDIT_NEXT_LEVEL.md",
     "CURRENT_IMPLEMENTATION_HANDOFF.md",
     "DATA_INVENTORY.md",
@@ -132,6 +135,7 @@ function createContext() {
     "PHASE1_OBSERVABILITY_BASELINE.md",
     "PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md",
     "SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md",
+    "docs/audits/README.md",
     "tests/workers.spec.js",
   ]);
   assert.equal(plan.isNoop, true);
@@ -248,6 +252,9 @@ function createContext() {
       { command: "npm run check:worker-body-parsers", cwd: null, execute: true },
       { command: "npm run check:admin-activity-query-shape", cwd: null, execute: true },
       { command: "npm run check:data-lifecycle", cwd: null, execute: true },
+      { command: "npm run test:doc-currentness", cwd: null, execute: true },
+      { command: "npm run check:doc-currentness", cwd: null, execute: true },
+      { command: "npm run test:readiness-evidence", cwd: null, execute: true },
       { command: "npm run test:workers", cwd: null, execute: true },
       {
         command: "npx wrangler d1 migrations apply bitbi-auth-db --remote",

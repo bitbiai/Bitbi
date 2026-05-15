@@ -1,8 +1,8 @@
 # SaaS Progress and Current State Report
 
-Date: 2026-04-29
+Date: 2026-05-15
 
-Scope: documentation/audit reconciliation for the BITBI SaaS hardening roadmap. This report reconciles the current repository state after Phase 0 through the latest committed work. It is not a legal compliance certification, production deploy approval, live billing approval, or full tenant-isolation claim.
+Scope: documentation/audit reconciliation for the BITBI SaaS hardening roadmap. This report reconciles the current repository state after Phase 0 through the latest committed work and the 2026-05-15 Alpha Audit documentation-currentness pass. It is not a legal compliance certification, production deploy approval, live billing approval, or full tenant-isolation claim.
 
 ## 1. Executive Summary
 
@@ -13,9 +13,9 @@ The repository now has a substantially improved SaaS foundation:
 - Security hardening: HMAC Auth-to-AI service authentication, nonce replay protection, fail-closed sensitive route limits, byte-limited request parsing, durable admin MFA failed-attempt state, purpose-specific auth secrets, route-policy registry/checks, and secret/DOM/toolchain quality gates.
 - Reliability and operations: async admin video jobs with queues/R2/poison handling, debug-gated sync video route, health checks, SLO/event/runbook/backup-restore docs, release compatibility checks, live-check scripts, and operational readiness guards.
 - Data lifecycle: data inventory, retention baseline, lifecycle request schema, admin planning APIs, bounded export archive generation/download, expired archive cleanup, and a safe reversible-action executor pilot with irreversible deletion disabled by default.
-- SaaS foundations: organizations, memberships, basic RBAC, billing plans, entitlements, credit ledger, usage events, org-scoped AI image/text credit enforcement, usage attempts/reservations/replay, usage-attempt cleanup/admin inspection, replay-object cleanup, provider-neutral billing event ingestion, Stripe Testmode checkout/session tracking, verified Testmode checkout credit grants, server-side platform-admin-only Testmode checkout lockdown, admin-only Pricing page, Admin Control Plane, gated live Credits dashboard, gated Organization dashboard/active organization selection, admin-only credit charging for selected Black Forest Labs Admin AI image tests, and a Pricing UI cleanup that reflects the current 5,000/12,000 live credit-pack model without direct checkout creation.
+- SaaS foundations: organizations, memberships, basic RBAC, billing plans, entitlements, credit ledger, usage events, member credit ledgers/buckets, BITBI Pro subscription state/checkout scaffolding, org-scoped AI image/text credit enforcement, usage attempts/reservations/replay, usage-attempt cleanup/admin inspection, replay-object cleanup, provider-neutral billing event ingestion, Stripe Testmode checkout/session tracking, verified Testmode checkout credit grants, server-side platform-admin-only Testmode checkout lockdown, admin-only Pricing page, Admin Control Plane, gated live Credits dashboard, gated Organization dashboard/active organization selection, admin-only credit charging for selected Black Forest Labs Admin AI image tests, and a Pricing UI cleanup that reflects the current 5,000/12,000 live credit-pack model plus BITBI Pro without direct checkout creation.
 
-The repository is not full enterprise SaaS maturity. Production deploy remains blocked until migrations through `0040`, live Cloudflare secret/binding/resource verification, Stripe Testmode configuration, explicit `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` canary enablement when needed, live Stripe credit-pack configuration with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` only during a bounded canary window, checkout/webhook verification, org/billing/AI/lifecycle/admin/pricing/Credits/Organization/Admin AI Lab verification, and live health/security-header evidence are complete. Phase 2-N clarifies that credits belong to organizations, not platform-admin users, and makes the selected organization context shared by Organization, Credits, and Admin AI Lab BFL image-test charging. Phase 2-O aligns the admin-only Pricing page runtime UI with the current live credit-pack tiers and routes paid CTAs to the gated Credits dashboard; public live billing, subscriptions, invoices, customer portal, Stripe Tax, Stripe Connect, refund/chargeback automation, full tenant-owned asset migration, full Cloudflare IaC/drift control, legal-approved privacy workflows, formal load budgets, and compliance certification remain incomplete.
+The repository is not full enterprise SaaS maturity. Production deploy remains blocked until migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, live Cloudflare secret/binding/resource verification, Stripe Testmode configuration, explicit `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true` canary enablement when needed, live Stripe credit-pack configuration with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true` only during a bounded canary window, BITBI Pro subscription configuration with `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=true` only during an approved canary, checkout/webhook verification, org/billing/AI/lifecycle/admin/pricing/Credits/Organization/Admin AI Lab verification, and live health/security-header evidence are complete. Phase 2-N clarifies that credits belong to organizations, not platform-admin users, and makes the selected organization context shared by Organization, Credits, and Admin AI Lab BFL image-test charging. Phase 2-O aligns the admin-only Pricing page runtime UI with the current live credit-pack tiers and routes paid CTAs to the gated Credits dashboard; the later member subscription/bucket work adds BITBI Pro scaffolding and separated member credit buckets. Public/full live billing, invoices, customer portal, Stripe Tax, Stripe Connect, refund/chargeback automation, failed-payment handling, billing reconciliation/admin needs-review workflow, full tenant-owned asset migration, full Cloudflare IaC/drift control, legal-approved privacy workflows, formal load budgets, and compliance certification remain incomplete.
 
 ## 2. Current Branch / Commit / Working Tree Status
 
@@ -35,11 +35,11 @@ The repository is not full enterprise SaaS maturity. Production deploy remains b
 | Overall SaaS readiness | Substantially improved SaaS foundation, but not full enterprise SaaS maturity. |
 | Security readiness | Stronger than original baseline for auth, service auth, replay, rate limits, body parsing, admin MFA, route policy, and secrets. Still requires live secret parity, live Cloudflare checks, legacy fallback retirement, and broader SAST/SBOM/license gates. |
 | Operational readiness | Repo-owned runbooks/SLO/event/backup docs and checks exist. Live alerting, restore drill evidence, dashboard drift enforcement, and production incident evidence are still missing. |
-| Billing readiness | Credit-ledger, entitlements, usage events, provider-neutral events, Stripe Testmode credit-pack checkout, narrow live one-time credit-pack checkout, and admin-only BFL image-test debits exist. Testmode checkout is server-side platform-admin-only and disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`. Live credit-pack checkout is limited to platform admins and active org owners and disabled unless `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`. No public billing, subscriptions, invoices, customer portal, tax, refund/chargeback automation, or full production payment processing. |
+| Billing readiness | Credit-ledger, entitlements, usage events, provider-neutral events, Stripe Testmode credit-pack checkout, narrow live one-time credit-pack checkout, member credit buckets, BITBI Pro subscription checkout/state scaffolding, and admin-only BFL image-test debits exist. Testmode checkout is server-side platform-admin-only and disabled unless `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT=true`. Live credit-pack checkout is disabled unless `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`; BITBI Pro subscription checkout is disabled unless `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=true`. No full live billing readiness, invoices, customer portal, tax, refund/chargeback automation, failed-payment handling, reconciliation workflow, or full production payment processing. |
 | Tenant readiness | Organization/membership/RBAC foundation exists. Existing assets are still largely user-owned, not fully tenant-owned. Full tenant isolation is not complete. |
 | Privacy/compliance readiness | Admin/support lifecycle planning, export archives, cleanup, and reversible executor pilot exist. User self-service, legal-approved retention, contact processor workflow, irreversible deletion, and compliance certification remain incomplete. |
 | Production readiness | Blocked until staging/live verification and migration/secret/resource prerequisites are complete. |
-| Live billing readiness | Narrow live one-time credit-pack checkout exists behind a disabled-by-default operator flag. Full live billing readiness remains blocked. |
+| Live billing readiness | Guarded one-time credit-pack and BITBI Pro subscription code exists behind disabled-by-default operator flags. Full live billing readiness remains blocked. |
 
 ## 4. Phase-By-Phase Timeline
 
@@ -73,6 +73,7 @@ The repository is not full enterprise SaaS maturity. Production deploy remains b
 | Phase 2-M | Completed for current scope | Update live pack economics and charge platform-admin-only Admin AI image tests for supported Black Forest Labs image models against selected organization credits. | `admin-ai-image-credit-pricing.js`, `stripe-billing.js`, `billing.js`, `routes/admin-ai.js`, Admin AI Lab UI/tests/docs. | Baseline preflight, focused Phase 2-M/Phase 2-L Worker tests, focused Admin AI/Credits static tests, Worker 359/359, static 168/168, static build, and release preflight passed. | Verify Admin AI Lab organization selector/cost labels, sufficient-credit denial, provider-failure no-charge behavior, exactly-once debit/idempotency, and sanitized ledger/Credits dashboard display in staging or bounded canary. |
 | Phase 2-N | Completed for current scope | Add Organization page, shared active organization selection/defaulting, role visibility, and safe credit-debit diagnostics for platform-admin Admin AI image tests. | `/account/organization.html`, `js/pages/organization/main.js`, `js/shared/active-organization.js`, `GET /api/orgs/:id/organization-dashboard`, Admin AI Lab org context integration/tests/docs. | Targeted Worker and static tests passed during implementation; full validation is recorded in `PHASE2N_ORGANIZATION_CONTEXT_AND_CREDIT_DEBIT_VISIBILITY_REPORT.md` and the final Codex response. | Verify solo-admin BITBI ownership/setup, active organization defaulting, Organization/Credits/Admin AI Lab context sharing, post-test balance refresh, and debit diagnostics against real staging/canary data. |
 | Phase 2-O | Completed for current scope | Clean up and redesign the admin-only Pricing page to show the current live credit-pack tiers and route paid CTAs to Credits; compact profile navigation when Wallet/Credits/Organization are visible. | `pricing.html`, `css/pages/pricing.css`, `js/pages/pricing/main.js`, `css/account/profile.css`, `tests/auth-admin.spec.js`. | Validation is recorded in `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md` and the final Codex response. | Verify Pricing copy/CTA behavior and profile navigation with real auth states in staging/canary; checkout still depends on Credits dashboard backend verification. |
+| BITBI Pro member subscriptions | Completed for current implementation scope | Add member credit buckets, local Stripe subscription state, subscription checkout tracking, subscription invoice top-up handling, cancel/reactivate routes, and Pro storage quota behavior while preserving existing member ledger compatibility. | `0047_add_member_subscriptions_and_credit_buckets.sql`, `billing.js`, `stripe-billing.js`, `routes/account-credits.js`, Pricing/Credits pages, legal copy/tests. | Validation expectations are recorded in `PHASE_MEMBER_SUBSCRIPTIONS_PRO_REPORT.md`; full staging/live evidence is still required. | Apply migration `0047`; verify live subscription config disabled-by-default behavior, checkout, paid-invoice top-up, cancel/reactivate, bucket separation, storage quota changes, and no full live billing readiness claim. |
 | Profile nav corrective fix | Completed for current scope | Fix `/account/profile.html` Credits/Organization visibility for the real `/api/profile` account payload, which does not include `account.id`. | `js/pages/profile/main.js`, `tests/auth-admin.spec.js`, Phase 2-O/current-state docs. | Focused static regression coverage now uses a production-like profile response without `account.id` for platform-admin and owner states. | Deploy updated static assets; verify live platform-admin profile shows Wallet, Credits, and Organization in order. |
 | Admin Control Plane | Completed for current scope | Frontend admin operating surface over existing APIs. | `admin/index.html`, `js/pages/admin/control-plane.js`, `css/admin/admin.css`. | Report records Worker 346/346, static 159/159, preflight pass after corrective pass. | Staging verification against real APIs. |
 | Pricing / Credit Packs | Completed for current scope | Admin-only pricing page. Phase 2-O removes runtime Testmode positioning, updates the hero to `Credits for BITBI AI`, shows Free/5,000/12,000 tiers, and routes paid CTAs to `/account/credits.html` instead of direct checkout creation. | `pricing.html`, `js/pages/pricing/main.js`, `css/pages/pricing.css`, `css/account/profile.css`. | Phase 2-O validation is recorded in `PHASE2O_PRICING_HERO_LIVE_PACKS_AND_PROFILE_NAV_REPORT.md`; original rollout evidence remains in `PHASE_PRICING_PAGE_CREDIT_PACKS_REPORT.md`. | Staging Pricing access/copy/CTA verification and Credits dashboard checkout verification; no public pricing expansion. |
@@ -142,6 +143,11 @@ Implemented:
 - Free plan and entitlement seed exists, including `ai.text.generate`, `ai.image.generate`, `ai.video.generate`, private storage, member max, monthly credits, and balance cap.
 - Migration `0039` raises the free-plan `credits.balance.max` to support 5000/10000-credit Testmode pack grants.
 - Migration `0040` adds checkout authorization/payment-state fields needed for live credit-pack reconciliation and grant authorization.
+- Migration `0041` adds personal member credit ledger and usage events.
+- Migration `0042` adds live member credit-pack checkout tracking.
+- Migrations `0043` through `0045` add News Pulse/OpenClaw D1 cache, ingest nonce, and visual metadata support.
+- Migration `0046` adds user asset storage quota accounting.
+- Migration `0047` adds BITBI Pro member subscription state, subscription checkout tracking, separated member credit buckets, and bucket-level events.
 - `billing.js` resolves org billing state, checks entitlements/credits, grants/consumes credits idempotently, and prevents negative balances.
 - Phase 2-M updates the live pack catalog to `live_credits_5000` at 9.99 EUR and `live_credits_12000` at 19.99 EUR. New live checkout creation does not offer `live_credits_10000`.
 - Phase 2-M also records `admin_ai_image_test` credit ledger/usage debits when platform admins successfully run charged BFL Admin AI image tests for a selected organization.
@@ -150,7 +156,7 @@ Implemented:
 Not complete:
 
 - No public live payment provider activation.
-- No subscription billing, invoices, customer portal, taxes, coupons, Stripe Connect, production checkout, or monthly credit grant scheduler.
+- No full production billing operations, invoices, customer portal, taxes, coupons, Stripe Connect, failed-payment/refund/dispute handling, billing reconciliation/admin needs-review workflow, or production checkout readiness. BITBI Pro subscription checkout/state scaffolding exists but remains gated and unproven without staging/live evidence.
 - Billing export/delete policy remains deferred pending legal/product review.
 
 ## 10. Stripe Testmode / Checkout / Webhook Status
@@ -177,7 +183,7 @@ Not complete:
 - Testmode checkout is not production-ready.
 - Subscriptions, invoices, customer portal, Stripe Tax, Connect, and production-trusted live webhooks are not implemented.
 
-## 10A. Live Stripe Credit-Pack Status
+## 10A. Live Stripe Credit-Pack And BITBI Pro Status
 
 Implemented:
 
@@ -191,11 +197,13 @@ Implemented:
 - Live checkout is disabled unless `ENABLE_LIVE_STRIPE_CREDIT_PACKS=true`.
 - Live webhook uses `STRIPE_LIVE_WEBHOOK_SECRET` and accepts only live events.
 - Credit grants require a persisted live checkout row and revalidate authorization scope at webhook time.
+- Member live credit-pack checkout and BITBI Pro subscription checkout routes exist under `/api/account/billing/*`; they require account auth, same-origin mutation protection, idempotency, legal confirmations where applicable, and disabled-by-default live Stripe configuration gates.
+- BITBI Pro subscription invoice events can top up the subscription bucket after verified paid invoice events, and subscription cancel/reactivate routes preserve paid-period semantics.
 
 Not complete:
 
 - No public pricing rollout.
-- No subscriptions, invoices, customer portal, Stripe Tax, coupons, Connect, refund/chargeback automation, or final billing operations process.
+- No invoices/customer portal, Stripe Tax, coupons, Connect, failed-payment handling, refund/chargeback automation, expired-session lifecycle handling, billing reconciliation/admin needs-review workflow, or final billing operations process.
 - Staging/live verification was not performed by Codex.
 
 ## 11. AI Usage Credit Enforcement Status
@@ -296,11 +304,11 @@ Not complete:
 
 ## 16. Current Migrations And Required Deployment Order
 
-Latest auth D1 migration: `0040_add_live_stripe_credit_pack_scope.sql`.
+Latest auth D1 migration: `0047_add_member_subscriptions_and_credit_buckets.sql`.
 
 Required auth migration order before staging auth Worker behavior that depends on these phases:
 
-1. Apply all auth migrations through `0040`.
+1. Apply all auth migrations through `0047`.
 2. Deploy AI Worker with matching `AI_SERVICE_AUTH_SECRET` and `SERVICE_AUTH_REPLAY` Durable Object migration `v1-service-auth-replay`.
 3. Deploy auth Worker with required D1/R2/Queue/service/DO bindings.
 4. Deploy contact Worker with required `RESEND_API_KEY` and limiter DO.
@@ -360,13 +368,14 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 
 ## 19. Current Production Blockers
 
-- Apply auth migrations through `0040`.
+- Apply auth migrations through `0047`.
 - Provision and verify required auth/AI/contact secrets without printing values.
 - Verify matching `AI_SERVICE_AUTH_SECRET` in auth and AI Workers.
 - Deploy/verify `SERVICE_AUTH_REPLAY` Durable Object and migration.
 - Verify D1/R2/Queue/service bindings, including `USER_IMAGES`, `AUDIT_ARCHIVE`, `AI_LAB`, `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`, and `AI_VIDEO_JOBS_QUEUE`.
 - Configure Stripe Testmode only for Testmode flows: `STRIPE_MODE=test`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`.
 - Configure live Stripe only for the Phase 2-L canary with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` initially, `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET`, `STRIPE_LIVE_CHECKOUT_SUCCESS_URL`, and `STRIPE_LIVE_CHECKOUT_CANCEL_URL`.
+- Configure BITBI Pro subscription values only for an approved subscription canary: `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=false` initially, `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID`, `STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL`, and `STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL`.
 - Keep `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` absent/false except during an explicitly approved admin-only Testmode canary window.
 - Verify Stripe Testmode checkout and webhook endpoint in staging.
 - Verify Admin Control Plane and Pricing in staging with real APIs.
@@ -401,9 +410,9 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 
 - No full tenant-owned asset migration.
 - No public/full live billing readiness.
-- No subscriptions, invoices, customer portal, tax, coupons, Connect, refund/chargeback automation, or public checkout.
-- Video/music member usage is not credit-enforced.
-- Member-facing image pricing is unchanged by Phase 2-M; only the platform-admin Admin AI image-test flow for listed BFL models is newly charged.
+- No invoices, customer portal, tax, coupons, Connect, failed-payment handling, refund/chargeback automation, billing reconciliation/admin needs-review workflow, or public checkout.
+- Member image/music/video credit charging is not yet unified behind one required-idempotency pre-provider reservation/replay AI Cost Gateway.
+- Member-facing image pricing is unchanged by Phase 2-M; platform-admin Admin AI image-test charging and member credit/subscription buckets are separate later foundations.
 - User self-service privacy flows remain deferred.
 - Irreversible deletion is disabled and not legal-approved.
 - Contact processor retention/export/delete workflow remains manual/open.
@@ -414,8 +423,8 @@ Live Cloudflare validation, live Stripe setup, real production billing webhook t
 
 ## 22. Recommended Next Phases
 
-1. Staging verification and deployment evidence phase: apply migrations through `0040` in staging, configure Testmode Stripe, configure live Stripe with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` initially, enable canary flags only for bounded windows, verify all Phase 0 through Pricing/Phase 2-M flows, run live health/header checks, and document results.
-2. Billing operations hardening: keep public billing disabled while designing refund/chargeback/manual-review policy, subscriptions/invoices/customer portal/tax/legal terms, and webhook side-effect policy.
+1. Staging verification and deployment evidence phase: apply migrations through `0047` in staging, configure Testmode Stripe, configure live Stripe with `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` and `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=false` initially, enable canary flags only for bounded windows, verify all Phase 0 through BITBI Pro subscription/credit bucket flows, run live health/header checks, and document results.
+2. Billing operations hardening: keep public/full live billing disabled while designing failed-payment, expired-checkout, refund/chargeback, reconciliation/admin needs-review, invoice/customer portal/tax/legal, and webhook side-effect policy.
 3. Tenant-owned asset migration phase: add nullable organization ownership to one low-risk domain, backfill safely, and prove dual-read behavior.
 4. Video AI entitlement wiring phase: wire a member-safe async video route to org entitlements/credits without touching admin debug/lab flows.
 5. Operational maturity phase: Cloudflare IaC/drift checks, alerts, restore drills, load budgets, and incident evidence.
@@ -438,6 +447,7 @@ Do not start all tracks at once.
 - Phase 2-K platform-admin-only checkout lockdown and explicit Testmode checkout kill switch.
 - Phase 2-L narrow live credit-pack checkout and Credits dashboard foundation.
 - Phase 2-M admin BFL image-test credit pricing and charging.
+- BITBI Pro member subscription/credit bucket foundation.
 - Admin Control Plane and admin-only Pricing page.
 
 Only revisit these if a focused regression is found.
@@ -446,7 +456,7 @@ Only revisit these if a focused regression is found.
 
 Nothing should be deployed from Codex. For staging, operators should deploy:
 
-- Auth migrations through `0040`.
+- Auth migrations through `0047`.
 - AI Worker with service-auth replay binding/migration.
 - Auth Worker with all D1/R2/Queue/service/DO bindings and secrets.
 - Contact Worker with contact secret and limiter binding.
@@ -456,7 +466,7 @@ Production should not be deployed until staging evidence is recorded and live/ma
 
 ## 25. Rollback Considerations
 
-- Migrations `0034` through `0040` are additive/forward-only; do not attempt destructive rollback. Disable routes/UI instead if a problem occurs.
+- Migrations `0034` through `0047` are additive/forward-only; do not attempt destructive rollback. Disable routes/UI instead if a problem occurs.
 - Pricing page rollback can remove/hide `pricing.html`, pricing JS/CSS, and header links while leaving migrations and backend foundation idle.
 - Stripe Testmode checkout can fail closed by setting/removing `ENABLE_ADMIN_STRIPE_TEST_CHECKOUT` or by removing Stripe Testmode config from the environment.
 - Live credit-pack checkout can fail closed by setting/removing `ENABLE_LIVE_STRIPE_CREDIT_PACKS` or by removing live Stripe checkout config from the environment.
@@ -467,7 +477,7 @@ Production should not be deployed until staging evidence is recorded and live/ma
 
 - Start with `CURRENT_IMPLEMENTATION_HANDOFF.md`, this report, `AUDIT_NEXT_LEVEL.md`, `AUDIT_ACTION_PLAN.md`, `DATA_INVENTORY.md`, and `docs/DATA_RETENTION_POLICY.md`.
 - Confirm `git status --short` is clean before implementing new phases.
-- Confirm latest auth migration is `0040_add_live_stripe_credit_pack_scope.sql`.
+- Confirm latest auth migration is `0047_add_member_subscriptions_and_credit_buckets.sql`.
 - Run `npm run release:preflight` before feature work if practical.
 - Do not claim production readiness, live billing, full tenant isolation, or legal compliance.
 - Do not run deploys, remote migrations, live Stripe setup, real production webhook tests, or Cloudflare dashboard mutations.
