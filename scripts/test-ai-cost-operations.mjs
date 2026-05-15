@@ -22,6 +22,9 @@ for (const entry of AI_COST_OPERATION_REGISTRY) {
 for (const requiredId of [
   "member.image.generate",
   "member.music.generate",
+  "member.music.lyrics.generate",
+  "member.music.audio.generate",
+  "member.music.cover.generate",
   "member.video.generate",
   "admin.text.test",
   "admin.image.test.charged",
@@ -32,25 +35,62 @@ for (const requiredId of [
   "internal.video_task.create",
   "internal.live_agent",
   "platform.news_pulse.visual.ingest",
-  "member.music.cover.generate",
 ]) {
   assert(operationIds.includes(requiredId), `Expected registry operation ${requiredId}`);
 }
 
+const musicEntries = AI_COST_OPERATION_REGISTRY.filter((entry) =>
+  entry.operationConfig.operationId.startsWith("member.music.")
+);
+assert.deepEqual(
+  musicEntries.map((entry) => entry.operationConfig.operationId).sort(),
+  [
+    "member.music.audio.generate",
+    "member.music.cover.generate",
+    "member.music.generate",
+    "member.music.lyrics.generate",
+  ]
+);
+const musicParent = AI_COST_OPERATION_REGISTRY.find((entry) =>
+  entry.operationConfig.operationId === "member.music.generate"
+);
+assert.deepEqual(
+  [...musicParent.subOperationIds].sort(),
+  [
+    "member.music.audio.generate",
+    "member.music.cover.generate",
+    "member.music.lyrics.generate",
+  ]
+);
+assert.equal(musicParent.billingRelationship, "parent_bundle");
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) =>
+    entry.operationConfig.operationId === "member.music.audio.generate"
+  ).billingRelationship,
+  "included_in_parent_music_charge"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) =>
+    entry.operationConfig.operationId === "member.music.cover.generate"
+  ).billingRelationship,
+  "post_success_background_budget_pending"
+);
+
 const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
   version: "ai-cost-operations-2026-05-15",
-  totalOperations: 30,
-  providerCostOperations: 29,
-  memberOperations: 6,
+  totalOperations: 31,
+  providerCostOperations: 30,
+  memberOperations: 7,
   organizationOperations: 2,
   adminPlatformOperations: 22,
-  currentMissingMandatoryIdempotency: 3,
-  currentMissingReservation: 3,
-  currentNoReplay: 3,
+  currentMissingMandatoryIdempotency: 4,
+  currentMissingReservation: 4,
+  currentNoReplay: 4,
   platformBudgetReviewOperations: 3,
   highRiskOperations: [
     "internal.music.generate",
+    "member.music.audio.generate",
     "member.music.cover.generate",
     "member.music.generate",
     "member.music.lyrics.generate",

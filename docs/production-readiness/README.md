@@ -165,7 +165,7 @@ Any production deploy or canary mention in this repository is **not approved by 
 
 ## Main-Only Direct Release Gate
 
-The owner deploys directly from `main` and does not use a separate staging environment. This is riskier than staging because the first deployed environment is live. Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md` for any direct-main release of the Phase 2.1-2.4 billing lifecycle review/reconciliation workflow.
+The owner deploys directly from `main` and does not use a separate staging environment. This is riskier than staging because the first deployed environment is live. Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md` for any direct-main release. For the Phase 3.4 member personal image AI Cost Gateway pilot, also use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md`.
 
 Local main-release gate:
 
@@ -173,7 +173,7 @@ Local main-release gate:
 npm run check:main-release-readiness
 ```
 
-The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0048_add_member_ai_usage_attempts.sql`, and warns that direct-main release is risky, production/live billing remains blocked, auth Worker plus static/pages deploy are required for Phase 2.1-2.4 runtime visibility, and production D1 migration status must be verified manually.
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0048_add_member_ai_usage_attempts.sql`, and warns that direct-main release is risky, production/live billing remains blocked, migration `0048` must be verified before auth Worker deploy, and production D1 migration status must be verified manually.
 
 For local planning evidence only:
 
@@ -191,6 +191,19 @@ Allowed direct-main checklist verdicts are:
 - `ROLLBACK REQUIRED`
 
 `PRODUCTION READY` is not an automatic checklist outcome. Main-only evidence does not prove external Stripe truth, live billing readiness, refund/dispute/chargeback remediation, or legal/accounting readiness.
+
+## Phase 3.4 Member Image Gateway Main-Only Evidence
+
+Phase 3.4 adds the member personal image gateway pilot and additive auth migration `0048_add_member_ai_usage_attempts.sql`. The reviewed release plan for this scope should report:
+
+- auth schema checkpoint `0048_add_member_ai_usage_attempts.sql`
+- auth Worker
+- no static/pages deploy for Phase 3.4 itself
+- no AI Worker/contact Worker deploy
+
+The mandatory operator order is migration `0048` first, then auth Worker deploy from the reviewed commit. Do not deploy auth Worker code that depends on `member_ai_usage_attempts` before remote migration `0048` is applied and verified. Use `PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` to record member personal image smoke evidence, including missing/malformed idempotency rejection, same-key duplicate behavior, conflict behavior, and no-charge failure evidence when safely testable.
+
+This evidence does not prove that member music, member video, admin AI, platform/background AI, internal AI Worker routes, or all provider-result replay paths are migrated. Production readiness and live billing readiness remain `BLOCKED`.
 
 ## Live/Staging Credential Checks
 

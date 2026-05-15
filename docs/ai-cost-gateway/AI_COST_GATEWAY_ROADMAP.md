@@ -140,34 +140,130 @@ Non-goals:
 
 - No music/video migration, no admin AI migration, no platform/background AI migration, no internal AI Worker migration, no org-scoped route migration, no pricing changes.
 
-## Phase 3.5: Migrate Member Music
+## Phase 3.4.1: Main-Only Deploy/Evidence Checklist
+
+Status: completed for documentation/checklist scope only.
+
+Scope:
+
+- Add the main-only operator checklist for the Phase 3.4 member personal image pilot.
+- Document that remote auth D1 migration `0048_add_member_ai_usage_attempts.sql` must be applied and verified before auth Worker deployment.
+- Record expected release-plan impact: auth schema checkpoint `0048` plus auth Worker; no static/pages, AI Worker, or contact Worker impact for Phase 3.4 itself.
+- Add evidence template fields for member image gateway smoke checks.
+
+Files:
+
+- `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md`
+- `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md`
+- `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`
+- `docs/production-readiness/EVIDENCE_TEMPLATE.md`
+- `docs/production-readiness/README.md`
+
+Tests:
+
+- Documentation/check tooling validation only. No live provider calls, remote migrations, deploys, or route behavior changes.
+
+Rollback:
+
+- Revert documentation/checklist changes if the owner chooses a different evidence process. Do not delete migration `0048` or member attempt rows as rollback.
+
+Deploy units:
+
+- None from Phase 3.4.1 itself. Phase 3.4 runtime still requires auth schema checkpoint `0048` and auth Worker when an operator releases it.
+
+Non-goals:
+
+- No runtime AI change, no new migration, no provider call, no music/video/admin/platform migration, no credit behavior change.
+
+## Phase 3.5: Member Music Cost Decomposition And Gateway Prep
+
+Status: completed for design, registry, docs, and report-only checks only. No live music route behavior changed.
+
+Scope:
+
+- Decompose member music into parent request, optional lyrics generation, required audio generation, and generated cover/background cover sub-operations.
+- Add explicit registry metadata for `member.music.generate`, `member.music.lyrics.generate`, `member.music.audio.generate`, and `member.music.cover.generate`.
+- Document current charge model, failure scenarios, partial-success risks, replay needs, and cover budget ambiguity.
+- Strengthen report-only `check:ai-cost-policy` output and deterministic tests for music sub-operation gaps.
+
+Files:
+
+- `docs/ai-cost-gateway/MEMBER_MUSIC_COST_DECOMPOSITION.md`
+- `docs/ai-cost-gateway/AI_COST_GATEWAY_DESIGN.md`
+- `docs/ai-cost-gateway/AI_COST_ROUTE_INVENTORY.md`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `scripts/check-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-policy.mjs`
+- `scripts/test-ai-cost-operations.mjs`
+
+Tests:
+
+- registry entry uniqueness and normalizer coverage
+- member music parent/lyrics/audio/cover operation presence
+- deterministic bundled-vs-sub-operation metadata
+- report-only output keeps member music marked unmigrated
+- member image remains pilot-covered
+- no external provider or secret access
+
+Rollback:
+
+- Revert documentation, registry metadata, and report-only check/test changes. No live route or schema depends on Phase 3.5.
+
+Deploy units:
+
+- Validation-only by behavior. The release classifier may mark auth Worker impacted because the registry file lives under `workers/auth/src/lib`, but no live music route imports new music behavior.
+
+Migration risk:
+
+- None. No schema is added in Phase 3.5.
+
+Non-goals:
+
+- No music route migration, no idempotency requirement change, no reservation, no replay, no credit debit change, no provider call.
+
+## Phase 3.6: Member Music Gateway Migration
 
 Scope:
 
 - Require idempotency on `/api/ai/generate-music`.
-- Reserve before lyrics/music provider calls.
-- Treat optional lyrics generation and cover generation as sub-operations under one parent cost policy.
-- Decide whether cover generation is bundled, platform-budgeted, or disabled on repeated failures.
+- Reserve the full parent music cost before optional lyrics or required audio provider calls.
+- Treat optional lyrics generation and audio generation as sub-operations under one parent cost policy.
+- Decide whether cover generation is bundled, platform-budgeted, or disabled/retry-limited before claiming cover coverage.
+- Preserve the current bundled credit schedule unless product explicitly changes pricing separately.
 
 Likely files:
 
 - `workers/auth/src/routes/ai/music-generate.js`
 - `workers/auth/src/lib/member-music-cover.js`
 - `workers/auth/src/lib/ai-cost-gateway.js`
+- `workers/auth/src/lib/ai-cost-operations.js`
+- `workers/auth/src/lib/member-ai-usage-attempts.js`
 - `tests/workers.spec.js`
 - static Sound Lab callers/tests if needed
 
+Why music is more complex than member image:
+
+- One user request can run a separate lyrics text provider call and a MiniMax audio provider call before final debit.
+- Audio provider success is followed by local R2/D1 save and then billing finalization, so storage/billing failures must not return unpaid output.
+- Background cover generation currently runs after music success and has an unresolved bundled-vs-platform-budget policy.
+- Safe replay may need both asset replay metadata and sub-operation status metadata.
+
 Tests:
 
+- missing/malformed key fails before provider
 - duplicate key does not run text/music provider twice
+- same key with different request conflicts before provider
 - separate lyrics provider failure is no-charge
 - music provider failure is no-charge
+- audio success plus storage failure is no-charge and does not return unpaid output
+- billing failure is terminal and safe
 - cover failure does not affect finalized music billing unless policy says otherwise
 - save/billing failure cleanup remains safe
+- same-key completed retry does not debit twice and does not call providers again when replay is available
 
 Rollback:
 
-- Revert music adapter to previous post-provider debit behavior; leave gateway module.
+- Revert the music adapter to previous post-provider debit behavior. Leave gateway modules and additive tables intact. Do not delete saved music assets, member attempt rows, or credit ledger rows during rollback.
 
 Deploy units:
 
@@ -175,13 +271,13 @@ Deploy units:
 
 Migration risk:
 
-- Possible replay metadata needs additive schema or R2 pointer policy. Prefer existing `ai_usage_attempts` first.
+- Existing `member_ai_usage_attempts` from migration `0048` may be sufficient if it can safely store music operation keys, parent request fingerprints, replay metadata, and terminal billing failure states. Verify before coding. Additive schema should be used only if the table cannot safely represent music parent/sub-operation metadata.
 
 Non-goals:
 
-- No video migration, no public pricing change.
+- No video migration, no admin/platform/internal AI migration, no public pricing change, no automatic cover retry storm, no Stripe work.
 
-## Phase 3.6: Migrate Member Video
+## Phase 3.7: Migrate Member Video
 
 Scope:
 
@@ -222,7 +318,7 @@ Non-goals:
 
 - No admin async video rewrite.
 
-## Phase 3.7: Normalize Admin AI Provider-Cost Behavior
+## Phase 3.8: Normalize Admin AI Provider-Cost Behavior
 
 Scope:
 
@@ -262,7 +358,7 @@ Non-goals:
 
 - No public/member changes.
 
-## Phase 3.8: Provider Replay And Result Cache Hardening
+## Phase 3.9: Provider Replay And Result Cache Hardening
 
 Scope:
 
@@ -301,7 +397,7 @@ Non-goals:
 
 - No destructive cleanup expansion.
 
-## Phase 3.9: Cost Telemetry And Admin Cost Dashboard
+## Phase 3.10: Cost Telemetry And Admin Cost Dashboard
 
 Scope:
 
@@ -340,7 +436,7 @@ Non-goals:
 
 - No automated provider budget shutdown until separately approved.
 
-## Phase 3.10: Policy Enforcement Guard
+## Phase 3.11: Policy Enforcement Guard
 
 Scope:
 

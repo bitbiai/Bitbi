@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
   getAiCostRoutePolicyBaselines,
   summarizeAiCostOperationRegistry,
@@ -223,6 +224,69 @@ function formatList(items, formatter) {
   return items.map(formatter).join("\n");
 }
 
+function formatIdList(ids) {
+  return ids.length ? ids.map((id) => `\`${id}\``).join(", ") : "None";
+}
+
+export function summarizeMemberMusicGatewayPrep(entries = AI_COST_OPERATION_REGISTRY) {
+  const musicEntries = entries
+    .filter((entry) => String(entry.operationConfig?.operationId || "").startsWith("member.music."))
+    .sort((left, right) => left.operationConfig.operationId.localeCompare(right.operationConfig.operationId));
+  const operationIds = musicEntries.map((entry) => entry.operationConfig.operationId);
+  const missingMandatoryIdempotency = musicEntries
+    .filter((entry) =>
+      entry.operationConfig.idempotencyPolicy === "required"
+      && entry.currentEnforcement?.idempotency !== "implemented"
+    )
+    .map((entry) => entry.operationConfig.operationId);
+  const missingPreProviderReservation = musicEntries
+    .filter((entry) =>
+      entry.operationConfig.reservationPolicy === "required"
+      && entry.currentEnforcement?.reservation !== "implemented"
+    )
+    .map((entry) => entry.operationConfig.operationId);
+  const missingProviderSuppression = musicEntries
+    .filter((entry) => !["implemented", "partial"].includes(entry.currentEnforcement?.providerSuppression))
+    .map((entry) => entry.operationConfig.operationId);
+  const missingReplay = musicEntries
+    .filter((entry) =>
+      entry.operationConfig.replayPolicy !== "disabled"
+      && !["implemented", "partial"].includes(entry.currentEnforcement?.replay)
+    )
+    .map((entry) => entry.operationConfig.operationId);
+  const cover = musicEntries.find((entry) => entry.operationConfig.operationId === "member.music.cover.generate");
+  return Object.freeze({
+    operationIds,
+    unmigrated: musicEntries.some((entry) => entry.currentStatus === "missing"),
+    missingMandatoryIdempotency,
+    missingPreProviderReservation,
+    missingProviderSuppression,
+    missingReplay,
+    partialSuccessRisks: Object.freeze([
+      "lyrics success followed by music failure",
+      "audio success followed by storage failure",
+      "audio success followed by billing finalization failure",
+      "duplicate in-progress or completed request without durable replay",
+    ]),
+    coverBudgetAmbiguity: cover
+      ? "generated music cover/background cover is automatic after successful music generation, not billed separately today, and still needs an explicit bundled-vs-platform-budget decision"
+      : "generated music cover/background cover operation is missing from the registry",
+  });
+}
+
+function renderMemberMusicGatewayPrep(summary) {
+  return [
+    "- Status: member music is still unmigrated; member personal image remains the only migrated member AI Cost Gateway route.",
+    `- Sub-operations tracked: ${formatIdList(summary.operationIds)}`,
+    `- Missing mandatory idempotency: ${formatIdList(summary.missingMandatoryIdempotency)}`,
+    `- Missing pre-provider reservation: ${formatIdList(summary.missingPreProviderReservation)}`,
+    `- Missing duplicate provider-call suppression: ${formatIdList(summary.missingProviderSuppression)}`,
+    `- Missing replay/cache: ${formatIdList(summary.missingReplay)}`,
+    `- Partial-success risks: ${summary.partialSuccessRisks.join("; ")}`,
+    `- Cover/background provider-cost ambiguity: ${summary.coverBudgetAmbiguity}`,
+  ].join("\n");
+}
+
 export function renderAiCostPolicyReport(result) {
   const highRisk = result.registrySummary.highRiskOperations.length
     ? result.registrySummary.highRiskOperations.join(", ")
@@ -255,6 +319,9 @@ export function renderAiCostPolicyReport(result) {
     "Registry issues:",
     formatList(result.registryIssues, (issue) => `- ${issue}`),
     "",
+    "Member music gateway prep gaps:",
+    renderMemberMusicGatewayPrep(summarizeMemberMusicGatewayPrep()),
+    "",
     "Fatal issues:",
     formatList(result.fatalIssues, (issue) => `- ${issue}`),
     "",
@@ -270,7 +337,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 3.5 should migrate the next member provider-cost route, preferably member music generation, while preserving the Phase 3.4 member image pilot.",
+    "- Phase 3.6 should migrate member music generation in one narrow PR after the Phase 3.5 decomposition/check baseline is reviewed and the Phase 3.4 image pilot evidence is accepted or explicitly waived.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

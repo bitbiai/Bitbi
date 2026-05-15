@@ -259,7 +259,31 @@ Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/productio
 
 Main-only release evidence does not prove external Stripe truth, does not enable live billing, does not prove refund/dispute/chargeback remediation, and does not prove legal/accounting readiness.
 
-## 18. Live Credit-Pack Canary Evidence, If Intentionally Enabled
+## 18. Phase 3.4 Member Image Gateway Pilot Evidence
+
+Use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md` for the full operator checklist. This section records evidence for the member personal image AI Cost Gateway pilot only. It does not prove that all AI cost routes are migrated.
+
+| Evidence Item | Main/Live Evidence | Result |
+| --- | --- | --- |
+| Deployed commit SHA |  | BLOCKED |
+| Release plan result: auth schema checkpoint `0048` plus auth Worker; static/pages not required for Phase 3.4 |  | BLOCKED |
+| Remote migration `0048_add_member_ai_usage_attempts.sql` evidence |  | BLOCKED |
+| Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
+| Member personal image valid-key smoke evidence |  | BLOCKED |
+| Missing `Idempotency-Key` rejection evidence before provider call |  | BLOCKED |
+| Malformed `Idempotency-Key` rejection evidence before provider call |  | BLOCKED |
+| Insufficient-credit pre-provider rejection evidence, if safely testable |  | BLOCKED |
+| Provider-failure no-charge evidence, if safely testable with mocks/non-live controls only |  | BLOCKED |
+| Duplicate same-key behavior evidence: no duplicate debit and replay/suppression when available |  | BLOCKED |
+| Same-key different-request conflict evidence |  | BLOCKED |
+| Org-scoped image behavior remains on existing org attempt path |  | BLOCKED |
+| Admin legacy/no-org image behavior remains exempt as documented |  | BLOCKED |
+| No raw prompt, secret, cookie, token, provider payload, or unsafe R2 key in evidence |  | BLOCKED |
+| Operator verdict: `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, `MAIN DEPLOYED - OPERATOR VERIFIED`, or `ROLLBACK REQUIRED` |  | BLOCKED |
+
+Phase 3.4 evidence does not prove full AI Cost Gateway coverage. Member music/video, admin AI, platform/background AI, internal AI Worker routes, and broader replay/provider-result cache work remain open. Live billing remains blocked.
+
+## 19. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
 Leave this section BLOCKED unless an approved bounded live canary occurred.
 
@@ -273,7 +297,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Role revocation/no-credit path | BLOCKED |  |
 | Flag disabled after canary | BLOCKED |  |
 
-## 19. BITBI Pro Subscription Evidence
+## 20. BITBI Pro Subscription Evidence
 
 | Smoke | Environment | Result | Evidence |
 | --- | --- | --- | --- |
@@ -287,7 +311,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Refund/dispute/chargeback behavior documented and tested as review queue/resolution metadata only |  | BLOCKED |  |
 | Automated refund/dispute/chargeback credit remediation is intentionally absent or separately approved |  | BLOCKED |  |
 
-## 20. Restore Drill Evidence
+## 21. Restore Drill Evidence
 
 | Drill | Environment | Operator | Date | Result | Evidence |
 | --- | --- | --- | --- | --- | --- |
@@ -296,7 +320,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Queue backlog/poison recovery drill |  |  |  | BLOCKED |  |
 | Rollback rehearsal |  |  |  | BLOCKED |  |
 
-## 21. Alert / WAF / Static Header / RUM Evidence
+## 22. Alert / WAF / Static Header / RUM Evidence
 
 | Control | Environment | Result | Evidence |
 | --- | --- | --- | --- |
@@ -308,10 +332,11 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Static security transform rules |  | BLOCKED |  |
 | Cloudflare RUM setting reviewed |  | BLOCKED |  |
 
-## 22. Blockers
+## 23. Blockers
 
 - Production Cloudflare live validation:
 - Remote migration evidence through `0048_add_member_ai_usage_attempts.sql`:
+- Phase 3.4 member personal image gateway main-only evidence:
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
 - Phase 2.1-2.4 billing review/reconciliation staging evidence:
@@ -323,7 +348,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Alert/WAF/static header/RUM evidence:
 - Legal/product approval:
 
-## 23. Final Verdict
+## 24. Final Verdict
 
 Final verdict: **BLOCKED**
 

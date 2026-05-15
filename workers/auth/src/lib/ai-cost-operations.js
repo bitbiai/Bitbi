@@ -204,8 +204,15 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.music.generate",
       routeId: "ai.generate-music",
       routePath: "/api/ai/generate-music",
-      notes: "Target parent operation for MiniMax Music 2.6 member generation.",
+      notes: "Target parent operation for bundled MiniMax Music 2.6 member generation. Phase 3.5 decomposes lyrics/audio/cover cost paths but does not migrate the live route.",
     },
+    subOperationIds: Object.freeze([
+      "member.music.lyrics.generate",
+      "member.music.audio.generate",
+      "member.music.cover.generate",
+    ]),
+    billingRelationship: "parent_bundle",
+    currentChargeModel: "fixed_member_credit_schedule_after_success",
     sourceFiles: ["workers/auth/src/routes/ai/music-generate.js", "workers/ai/src/routes/music.js", "workers/ai/src/lib/invoke-ai.js"],
     currentStatus: "missing",
     currentEnforcement: {
@@ -222,11 +229,12 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     },
     currentGaps: [
       "Idempotency-Key is recommended, not required.",
-      "Lyrics/music provider calls are not covered by one reservation.",
+      "Lyrics/audio/cover provider-cost sub-operations are not covered by one durable parent reservation.",
       "Successful result replay is not available.",
+      "Partial-success cases can spend provider cost before final music save/billing succeeds.",
     ],
     gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.5",
+    nextMigrationPhase: "Phase 3.6",
   }),
   operation({
     operationConfig: {
@@ -247,8 +255,11 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.music.lyrics.generate",
       routeId: "ai.generate-music",
       routePath: "/api/ai/generate-music",
-      notes: "Optional lyrics sub-operation inside member music generation.",
+      notes: "Optional separate lyrics text sub-operation inside member music generation. Target policy keeps it under the parent music reservation/debit.",
     },
+    parentOperationId: "member.music.generate",
+    billingRelationship: "included_in_parent_music_charge",
+    currentChargeModel: "included_when separateLyricsGeneration adds the fixed 10-credit surcharge",
     sourceFiles: ["workers/auth/src/routes/ai/music-generate.js", "workers/ai/src/routes/text.js", "workers/ai/src/lib/invoke-ai.js"],
     currentStatus: "missing",
     currentEnforcement: {
@@ -261,10 +272,53 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: [
       "Provider cost can be spent before the final music generation succeeds.",
-      "No separate sub-operation reservation or replay metadata exists.",
+      "No parent-scoped sub-operation reservation or replay metadata exists.",
+      "Duplicate parent requests can rerun lyrics generation.",
     ],
     gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.5",
+    nextMigrationPhase: "Phase 3.6",
+  }),
+  operation({
+    operationConfig: {
+      operationId: "member.music.audio.generate",
+      featureKey: "ai.music.generate",
+      actorType: "member",
+      billingScope: AI_COST_GATEWAY_SCOPES.MEMBER_CREDIT_ACCOUNT,
+      providerFamily: "ai_worker",
+      modelResolverKey: "member.music.audio_model",
+      creditCost: 0,
+      costPolicy: "included_in_member_music_parent_charge",
+      quantity: 1,
+      idempotencyPolicy: "required",
+      reservationPolicy: "required",
+      replayPolicy: "durable_result",
+      failurePolicy: ["release_reservation", "no_charge", "terminal_billing_failure"],
+      storagePolicy: "user_images",
+      observabilityEventPrefix: "member.music.audio.generate",
+      routeId: "ai.generate-music",
+      routePath: "/api/ai/generate-music",
+      notes: "Required MiniMax audio sub-operation inside member music generation. Target policy stores safe replay/output metadata under the parent attempt and finalizes one parent debit.",
+    },
+    parentOperationId: "member.music.generate",
+    billingRelationship: "included_in_parent_music_charge",
+    currentChargeModel: "included_in_fixed_member_music_charge",
+    sourceFiles: ["workers/auth/src/routes/ai/music-generate.js", "workers/ai/src/routes/music.js", "workers/ai/src/lib/invoke-ai.js"],
+    currentStatus: "missing",
+    currentEnforcement: {
+      idempotency: "recommended",
+      reservation: "missing",
+      replay: "missing",
+      creditCheck: "partial",
+      providerSuppression: "missing",
+    },
+    routePolicy: null,
+    currentGaps: [
+      "Required music provider call can be repeated by duplicate requests.",
+      "No durable parent reservation prevents provider spend before final debit.",
+      "Storage or billing failure after audio success can waste provider spend without replay.",
+    ],
+    gapSeverity: "P1",
+    nextMigrationPhase: "Phase 3.6",
   }),
   operation({
     operationConfig: {
@@ -285,8 +339,11 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "member.music.cover.generate",
       routeId: "ai.generate-music",
       routePath: "/api/ai/generate-music",
-      notes: "Background cover generation after successful member music generation; target budget policy is unresolved.",
+      notes: "Automatic background cover generation after successful member music generation; target decision must explicitly choose bundled member charge, platform budget, or disabled/retry-limited behavior.",
     },
+    parentOperationId: "member.music.generate",
+    billingRelationship: "post_success_background_budget_pending",
+    currentChargeModel: "not_billed_separately",
     sourceFiles: ["workers/auth/src/lib/member-music-cover.js"],
     currentStatus: "missing",
     currentEnforcement: {
@@ -300,9 +357,10 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     currentGaps: [
       "Background cover provider spend is not part of the parent reservation.",
       "No explicit member-vs-platform budget decision exists yet.",
+      "Cover retry/replay semantics are only partially constrained by existing poster state.",
     ],
     gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.5",
+    nextMigrationPhase: "Phase 3.6",
   }),
   operation({
     operationConfig: {
@@ -344,7 +402,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       "Provider execution and remote output ingest are not reserved/replayable.",
     ],
     gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.6",
+    nextMigrationPhase: "Phase 3.7 or later",
   }),
   operation({
     operationConfig: {
@@ -901,7 +959,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     routePolicy: null,
     currentGaps: ["Member music caller still needs gateway enforcement before this delegated route is fully safe."],
     gapSeverity: "P1",
-    nextMigrationPhase: "Phase 3.5 via member music caller",
+    nextMigrationPhase: "Phase 3.6 via member music caller",
   }),
   operation({
     operationConfig: {

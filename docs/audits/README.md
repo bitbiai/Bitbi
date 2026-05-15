@@ -35,6 +35,7 @@ These files should match the current release contract and must not claim product
 | `docs/SLO_ALERT_BASELINE.md` | Keep/current | SLO/alert baseline; live alert evidence still needs verification. |
 | `docs/runbooks/*.md` | Keep/current | Incident runbooks for auth, AI, contact, D1, R2, queues, MFA, secrets, rollback. |
 | `docs/ops/*.md` | Keep/current | Operator notes for live pulse and Stripe custom-domain setup. |
+| `docs/production-readiness/*.md` | Keep/current | Evidence templates, staging/main-only release checklists, and production-readiness guardrails, including the Phase 3.4 member image gateway main-only checklist. |
 | `.agents/skills/**/SKILL.md` | Keep/current | Local Codex skill instructions; not audit reports but part of operational documentation. |
 
 ## Historical Phase Report

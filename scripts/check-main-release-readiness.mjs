@@ -9,8 +9,8 @@ export const EXPECTED_MAIN_RELEASE_AUTH_MIGRATION =
   "0048_add_member_ai_usage_attempts.sql";
 
 const MAIN_RELEASE_DEPLOY_UNITS = Object.freeze([
+  "auth schema checkpoint 0048",
   "auth Worker",
-  "static/pages",
 ]);
 
 function readJson(filePath) {
@@ -111,16 +111,18 @@ export function collectMainReleaseReadiness(options = {}) {
       "Direct-main release is riskier than staging because no separate staging environment is used.",
       "Production readiness remains BLOCKED until operator evidence is complete and reviewed.",
       "Live billing readiness remains BLOCKED; this check does not enable billing or approve Stripe live use.",
-      "Phase 2.1-2.4 runtime visibility requires both auth Worker and static/pages deployment from the reviewed main commit.",
-      `Production D1 migration status through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION} must be verified manually before live smoke checks.`,
+      "Phase 3.4 member personal image gateway visibility requires auth D1 migration 0048 before auth Worker deployment from the reviewed main commit.",
+      `Production D1 migration status through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION} must be verified manually before auth Worker deploy and live smoke checks.`,
       "This check never deploys, runs remote migrations, calls Stripe APIs, changes secrets, or mutates Cloudflare/GitHub settings.",
     ],
     requiredManualEvidence: [
       "Clean reviewed main commit and release-plan output.",
       `Production auth D1 migration evidence through ${EXPECTED_MAIN_RELEASE_AUTH_MIGRATION}.`,
       "Auth Worker deployed commit evidence.",
-      "Static/pages deployed commit evidence.",
       "Live readiness evidence collector output with explicit URLs.",
+      "Member personal image gateway smoke evidence.",
+      "Missing/malformed Idempotency-Key rejection evidence.",
+      "Duplicate same-key/no double-debit evidence when safely testable.",
       "Admin login/MFA smoke evidence.",
       "Billing review queue/detail/resolution smoke evidence.",
       "Billing reconciliation smoke evidence.",
@@ -149,7 +151,7 @@ export function renderMainReleaseReadinessText(readiness) {
     `Commit: ${readiness.commit}`,
     `Worktree: ${formatStatusSummary(readiness.status)}${readiness.allowDirty ? " (allowed for local planning)" : ""}`,
     `Latest auth migration: ${readiness.latestAuthMigration}`,
-    `Expected Phase 2.1-2.4 deploy units: ${readiness.expectedDeployUnits.join(", ")}`,
+    `Expected current deploy units: ${readiness.expectedDeployUnits.join(", ")}`,
     `Production readiness: ${readiness.productionReadiness}`,
     `Live billing readiness: ${readiness.liveBillingReadiness}`,
     "",
@@ -183,7 +185,7 @@ Live billing readiness: **${readiness.liveBillingReadiness}**
 - Commit: \`${readiness.commit}\`
 - Worktree: ${formatStatusSummary(readiness.status)}${readiness.allowDirty ? " (allowed for local planning)" : ""}
 - Latest auth D1 migration from \`config/release-compat.json\`: \`${readiness.latestAuthMigration}\`
-- Expected Phase 2.1-2.4 deploy units: ${readiness.expectedDeployUnits.map((unit) => `\`${unit}\``).join(", ")}
+- Expected current deploy units: ${readiness.expectedDeployUnits.map((unit) => `\`${unit}\``).join(", ")}
 
 ## Warnings
 

@@ -11,7 +11,7 @@ Allowed final verdicts:
 - `MAIN DEPLOYED - OPERATOR VERIFIED`
 - `ROLLBACK REQUIRED`
 
-This checklist is for direct deployment from `main`. It is not staging. It is not production-readiness approval. It is not live-billing approval.
+This checklist is for direct deployment from `main`. It is not staging. It is not production-readiness approval. It is not live-billing approval. For the Phase 3.4 member personal image AI Cost Gateway pilot, also use `docs/production-readiness/PHASE3_MEMBER_IMAGE_GATEWAY_MAIN_CHECKLIST.md`.
 
 ## 1. Pre-Commit Checks
 
@@ -52,6 +52,17 @@ For the existing Phase 2.1-2.4 runtime changes to be visible live:
 | Stripe dashboard/API change | no |  |
 | Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
 
+For the Phase 3.4 member personal image gateway pilot:
+
+| Deploy Unit | Required? | Evidence |
+| --- | --- | --- |
+| Auth schema checkpoint `0048_add_member_ai_usage_attempts.sql` | yes |  |
+| Auth Worker | yes |  |
+| Static/pages | no, unless `release:plan` reports other reviewed static changes |  |
+| AI Worker/contact Worker | no |  |
+| Stripe dashboard/API change | no |  |
+| Cloudflare dashboard/settings/secrets change | no, unless separately approved |  |
+
 If `npm run release:plan` for the reviewed runtime diff reports unexpected deploy units, stop and reconcile before deploying.
 
 ## 4. Required Production D1 Migration Evidence Through 0048
@@ -67,7 +78,8 @@ Required latest auth migration:
 | Production auth D1 migration status checked by operator |  | BLOCKED |
 | `0048_add_member_ai_usage_attempts.sql` present/applied |  | BLOCKED |
 | Evidence records migration names/status only |  | BLOCKED |
-| No remote migration was run from this checklist |  | BLOCKED |
+| No remote migration was run by Codex or automation from this checklist |  | BLOCKED |
+| Migration `0048` verified before auth Worker deploy |  | BLOCKED |
 
 ## 5. Auth Worker Deploy Verification
 
@@ -77,6 +89,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | --- | --- | --- |
 | Auth Worker deployed from reviewed main commit |  | BLOCKED |
 | Auth Worker deployment id/version recorded if available |  | BLOCKED |
+| Phase 3.4 member personal image route sees migration `0048` table before Worker deploy |  | BLOCKED |
 | `/api/admin/billing/reviews` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id` available to admin only |  | BLOCKED |
 | `/api/admin/billing/reviews/:id/resolution` write route remains admin/MFA/same-origin/idempotency guarded |  | BLOCKED |
@@ -171,7 +184,23 @@ Run only on approved test review data. This route writes review metadata only.
 | Error/unavailable states are safe | readable, no fake success |  | BLOCKED |
 | Mobile layout has no overlapping badges/text | verified |  | BLOCKED |
 
-## 13. No Raw Payload/Signature/Secret/Card Rendering Checks
+## 13. Phase 3.4 Member Personal Image Gateway Smoke Checks
+
+These checks are for `POST /api/ai/generate-image` without organization context only. They must not be used to claim music, video, admin AI, platform/background AI, internal AI Worker routes, or org-scoped routes are migrated.
+
+| Check | Expected | Evidence | Result |
+| --- | --- | --- | --- |
+| Missing `Idempotency-Key` | rejected before provider call |  | BLOCKED |
+| Malformed `Idempotency-Key` | rejected before provider call |  | BLOCKED |
+| Valid key with sufficient credits | success or safe provider error |  | BLOCKED |
+| Same key and same request | no duplicate debit; replay/suppression when temp result is available |  | BLOCKED |
+| Same key and different request | idempotency conflict before provider call |  | BLOCKED |
+| Insufficient credits, if safely testable | rejected before provider call |  | BLOCKED |
+| Provider failure no-charge, if tested only with approved mocks/non-live controls | no member credit debit |  | BLOCKED |
+| Org-scoped image behavior | unchanged existing org attempt path |  | BLOCKED |
+| Admin legacy/no-org image behavior | unchanged/exempt as documented |  | BLOCKED |
+
+## 14. No Raw Payload/Signature/Secret/Card Rendering Checks
 
 Record `not observed` or a redacted field-name issue only. Do not paste forbidden values.
 
@@ -185,7 +214,7 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | Payment method detail |  |  | BLOCKED |
 | Unredacted customer PII |  |  | BLOCKED |
 
-## 14. No Stripe Action Checks
+## 15. No Stripe Action Checks
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -196,7 +225,7 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | No subscription cancellation call |  | BLOCKED |
 | UI has no Stripe/remediation action buttons |  | BLOCKED |
 
-## 15. No Credit Mutation Checks
+## 16. No Credit Mutation Checks
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -206,8 +235,9 @@ Record `not observed` or a redacted field-name issue only. Do not paste forbidde
 | Review resolution does not create credit ledger entries |  | BLOCKED |
 | Review resolution does not alter subscription state |  | BLOCKED |
 | Rollback plan does not include credit ledger mutation |  | BLOCKED |
+| Phase 3.4 rollback plan does not delete `member_ai_usage_attempts` rows |  | BLOCKED |
 
-## 16. Evidence Collection Command
+## 17. Evidence Collection Command
 
 Local main-release gate:
 
@@ -229,7 +259,7 @@ npm run readiness:evidence -- \
 
 These commands do not deploy, migrate, call Stripe, mutate Cloudflare, or prove production/live billing readiness.
 
-## 17. Rollback Notes
+## 18. Rollback Notes
 
 | Rollback Item | Evidence | Result |
 | --- | --- | --- |
@@ -237,9 +267,11 @@ These commands do not deploy, migrate, call Stripe, mutate Cloudflare, or prove 
 | Previous static/pages deployment identified |  | BLOCKED |
 | Live billing flags remain disabled |  | BLOCKED |
 | Billing provider/review/ledger/subscription records will not be deleted |  | BLOCKED |
+| Member AI attempt rows will not be deleted |  | BLOCKED |
+| Migration `0048` remains additive/forward-only |  | BLOCKED |
 | Rollback owner and communication channel recorded |  | BLOCKED |
 
-## 18. Final Operator Verdict
+## 19. Final Operator Verdict
 
 Final verdict:
 
