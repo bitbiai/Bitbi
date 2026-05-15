@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 4.2 admin/platform AI budget policy contract/helper foundation. Phase 3.1 added design and inventory. Phase 3.2 added the member AI Cost Gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposed member music into parent, lyrics, audio, and cover operations. Phase 3.6 migrates only member music generation to the AI Cost Gateway. Phase 3.7 hardens replay/result metadata, replay-unavailable behavior, cover status writeback, finalization edge cases, and scheduled cleanup for already migrated member image/music flows. Phase 3.8 migrates only member video generation to the same member gateway foundation. Phase 3.9 adds `config/ai-cost-policy-baseline.json` and makes `npm run check:ai-cost-policy` fail on unbaselined provider-cost drift while allowing explicitly documented admin/platform/internal/OpenClaw gaps. Phase 4.1 adds the budget policy design and taxonomy. Phase 4.2 adds `workers/auth/src/lib/admin-platform-budget-policy.js`, deterministic tests, kill-switch/future-enforcement baseline validation, and preflight coverage for the pure helper contract. It does not change runtime route behavior, migrate admin video jobs, migrate admin AI, migrate platform/background AI, migrate OpenClaw/News Pulse, migrate internal AI Worker routes directly, change org-scoped/member routes, call Stripe/providers, deploy, mutate billing, or change public pricing.
+Status: Phase 4.3 charged Admin BFL image-test budget hardening. Phase 3.1 added design and inventory. Phase 3.2 added the member AI Cost Gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposed member music into parent, lyrics, audio, and cover operations. Phase 3.6 migrates only member music generation to the AI Cost Gateway. Phase 3.7 hardens replay/result metadata, replay-unavailable behavior, cover status writeback, finalization edge cases, and scheduled cleanup for already migrated member image/music flows. Phase 3.8 migrates only member video generation to the same member gateway foundation. Phase 3.9 adds `config/ai-cost-policy-baseline.json` and makes `npm run check:ai-cost-policy` fail on unbaselined provider-cost drift while allowing explicitly documented admin/platform/internal/OpenClaw gaps. Phase 4.1 adds the budget policy design and taxonomy. Phase 4.2 adds `workers/auth/src/lib/admin-platform-budget-policy.js`, deterministic tests, kill-switch/future-enforcement baseline validation, and preflight coverage for the pure helper contract. Phase 4.3 imports that helper only into the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata while preserving selected-organization credit debits and no-charge-on-provider-failure behavior. It does not migrate admin video jobs, admin text/music/compare/live-agent, platform/background AI, OpenClaw/News Pulse, internal AI Worker routes directly, org-scoped/member routes, Stripe/providers, deployments, live billing, or public pricing.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -29,7 +29,7 @@ The current code already has important foundations:
 - `workers/auth/src/lib/ai-usage-policy.js` centralizes some org/member AI usage checks.
 - `workers/auth/src/lib/ai-usage-attempts.js` implements reservation, provider-running, provider-failed, finalizing, billing-failed, succeeded, expiry, and replay metadata states for org-scoped usage attempts.
 - Org-scoped `/api/ai/generate-image` and `/api/ai/generate-text` require idempotency and use usage-attempt reservation/replay behavior.
-- Chargeable Admin AI image tests use org credits and `ai_usage_attempts`.
+- Chargeable Admin AI image tests use org credits and `ai_usage_attempts`; Phase 4.3 adds safe admin/platform budget-policy plan/audit metadata for the charged Admin BFL image-test branch without changing unpriced admin image behavior.
 - Member personal image generation now requires `Idempotency-Key`, reserves member credits before provider execution, suppresses same-key duplicate provider calls, replays safe stored temporary image metadata when available, returns safe replay-unavailable responses without re-executing providers or double-debiting when the temp result is missing/expired, debits once after provider success, and releases/no-charges on provider failure.
 - Member music generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before lyrics/audio/cover provider-cost work, suppresses same-key duplicate provider execution, debits exactly once after audio persistence, returns safe replay metadata for duplicate completed requests, records pending/succeeded/failed/skipped cover status, and releases/no-charges on lyrics/audio provider failure.
 - Member video generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before PixVerse/HappyHorse provider work, suppresses same-key duplicate provider execution, debits exactly once after durable video asset persistence, returns safe durable-asset replay metadata when available, and returns replay-unavailable without provider re-execution or double debit when the saved result is missing.
@@ -37,7 +37,8 @@ The current code already has important foundations:
 - News Pulse visual generation and generated music cover creation can call AI providers outside the member billing lifecycle.
 - `config/ai-cost-policy-baseline.json` explicitly lists the remaining accepted-for-now admin, platform/background, OpenClaw, and internal AI Worker provider-cost gaps. New provider-cost source files, unregistered operations, duplicate registry/baseline ids, and member image/music/video regressions now fail the local policy check by default.
 - Phase 4.1 defines budget scopes for admin/org-charged admin tests, platform admin lab budget, platform background budget, OpenClaw/News Pulse budget, internal caller-enforced AI Worker routes, explicit unmetered admin exceptions, and external-provider-only cases.
-- Phase 4.2 adds pure helper contracts for those scopes: budget operation normalization, deterministic fingerprinting, safe audit field construction, kill-switch metadata validation, and plan classification. This is helper/test metadata only; it does not enforce budgets at runtime.
+- Phase 4.2 adds pure helper contracts for those scopes: budget operation normalization, deterministic fingerprinting, safe audit field construction, kill-switch metadata validation, and plan classification.
+- Phase 4.3 uses that helper only for the existing charged Admin image-test branch and records safe budget metadata in the admin response, usage event metadata, and admin AI usage attempt metadata. It does not enforce a new runtime env kill switch; the recorded kill-switch field is a future target.
 
 Phase 3.2 adds:
 
@@ -158,12 +159,22 @@ Phase 4.2 adds:
 
 It is contract/helper/test/documentation only. It does not change runtime route behavior, debit behavior, provider routing, pricing, migrations, deploys, Admin UI, admin/platform/internal/OpenClaw route behavior, or live billing readiness.
 
+Phase 4.3 adds:
+
+- `admin_org_credit_account` budget plan/audit metadata to the existing charged Admin AI image-test branch in `workers/auth/src/routes/admin-ai.js`
+- deterministic budget policy fingerprints built by `workers/auth/src/lib/admin-platform-budget-policy.js`
+- safe `budget_policy` metadata in the admin image-test success response, usage event metadata, and admin AI usage attempt metadata
+- registry/check output that marks `admin.image.test.charged` as implemented/hardened while keeping unmetered admin image, admin text/music/video/compare/live-agent, OpenClaw, platform/background, and internal AI Worker gaps baselined
+- focused Worker tests for the charged BFL branch covering required organization/idempotency, malformed idempotency rejection, insufficient credits before provider call, no-charge provider failure, exactly-once debit, conflict handling, billing-finalization failure, and sanitized budget metadata
+
+It changes only the existing charged Admin image-test path. It does not call real providers in tests, add a migration, enforce a new env kill switch, change member/org routes, migrate broad Admin AI, call Stripe, deploy, or prove production/live billing readiness.
+
 ## Current Non-Goals
 
-Phase 4.2 does not:
+Phase 4.3 does not:
 
 - migrate admin video jobs
-- migrate admin AI routes
+- migrate broad admin AI routes beyond the already charged Admin image-test branch
 - migrate platform/background AI routes
 - migrate OpenClaw/News Pulse
 - migrate internal AI Worker routes directly
@@ -172,7 +183,7 @@ Phase 4.2 does not:
 - change model routing
 - enforce admin/platform budget limits at runtime
 - add admin budget UI or dashboards
-- import the admin/platform helper from runtime routes
+- enforce a new runtime admin/platform budget env flag
 - change public pricing
 - call AI providers
 - call Stripe APIs
@@ -186,7 +197,7 @@ Phase 4.2 does not:
 - `AI_COST_GATEWAY_ROADMAP.md` splits future implementation into small, reviewable phases.
 - `MEMBER_MUSIC_COST_DECOMPOSITION.md` decomposes member music provider-cost sub-operations and target failure/replay semantics.
 - `ADMIN_PLATFORM_BUDGET_POLICY.md` defines the Phase 4.1 budget-scope taxonomy and Phase 4.2 helper contract for the future admin/platform/internal budget policy model.
-- `workers/auth/src/lib/admin-platform-budget-policy.js` provides pure Phase 4.2 helper contracts for future admin/platform route migrations.
+- `workers/auth/src/lib/admin-platform-budget-policy.js` provides pure helper contracts; Phase 4.3 uses it only to produce safe metadata for charged Admin image tests.
 - `workers/auth/src/lib/ai-cost-operations.js` records the Phase 3.3 operation registry and the member image/music/video gateway status.
 - `config/ai-cost-policy-baseline.json` records the Phase 3.9 accepted-for-now admin/platform/internal/OpenClaw known gaps plus Phase 4.1 target budget scopes and Phase 4.2 kill-switch/future-enforcement metadata.
 
@@ -198,8 +209,8 @@ Phase 4.2 does not:
 
 `npm run test:ai-cost-operations` validates the Phase 3.3 registry baseline, uniqueness, target config normalization, deterministic summary counts, source-file coverage, duplicate detection, and no external calls.
 
-`npm run test:admin-platform-budget-policy` validates the Phase 4.2 pure helper contract: valid budget scopes, kill-switch defaults, explicit unmetered justification, internal caller-enforced exemptions, deterministic fingerprints, safe audit fields, plan statuses, and no provider calls.
+`npm run test:admin-platform-budget-policy` validates the pure helper contract: valid budget scopes, kill-switch defaults, explicit unmetered justification, internal caller-enforced exemptions, deterministic fingerprints, safe audit fields, plan statuses, and no provider calls.
 
 The check intentionally allows current admin, platform/background, OpenClaw, and internal AI Worker gaps only when they match `config/ai-cost-policy-baseline.json` and its Phase 4.1/4.2 metadata. Member personal image generation, member music generation, and member video generation are gateway-covered and must not regress to missing idempotency, reservation, replay, credit check, or provider suppression.
 
-Next implementation phase: Phase 4.3 should migrate exactly one narrow admin/provider-cost flow, preferably charged admin BFL image test budget hardening, or add a report-only budget evidence collector. Production/live billing remains blocked until operator evidence is complete and reviewed.
+Next implementation phase: Phase 4.4 should migrate exactly one admin async video job budget-enforcement path or add a report-only budget evidence collector. Production/live billing remains blocked until operator evidence is complete and reviewed.

@@ -221,6 +221,8 @@ ${inventoryExtra}
   assert(output.includes("Registry summary:"));
   assert(output.includes("Mode: baseline-enforced"));
   assert(output.includes("Migrated member gateway routes:"));
+  assert(output.includes("Hardened admin/platform budget operations:"));
+  assert(output.includes("admin.image.test.charged: implemented/hardened; scope=admin_org_credit_account"));
   assert(output.includes("Known baseline gaps:"));
   assert(output.includes("killSwitch="));
   assert(output.includes("Admin gaps by budget scope:"));
@@ -234,7 +236,7 @@ ${inventoryExtra}
   assert(output.includes("Missing pre-provider reservation"));
   assert(output.includes("Cover/background provider-cost policy"));
   assert(output.includes("Recommended next phase:"));
-  assert(output.includes("Phase 4.3 should migrate exactly one narrow admin/provider-cost flow"));
+  assert(output.includes("Phase 4.4 should migrate the admin async video job budget enforcement path"));
   assert(output.includes("Strict mode intentionally remains failing"));
   assert(output.includes("does not read secret values"));
   delete process.env.AI_PROVIDER_SECRET;

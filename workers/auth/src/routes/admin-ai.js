@@ -69,6 +69,12 @@ import {
   calculateAdminImageTestCreditCost,
   isChargeableAdminImageTestModel,
 } from "../lib/admin-ai-image-credit-pricing.js";
+import {
+  ADMIN_PLATFORM_BUDGET_SCOPES,
+  buildAdminPlatformBudgetFingerprint,
+  classifyAdminPlatformBudgetPlan,
+} from "../lib/admin-platform-budget-policy.js";
+import { getAiCostOperationRegistryEntry } from "../lib/ai-cost-operations.js";
 import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
@@ -92,6 +98,7 @@ import { createAiGeneratedSaveReferenceFromBase64 } from "./ai/generated-image-s
 const ADMIN_AI_USAGE_ATTEMPT_CURSOR_TYPE = "admin_ai_usage_attempts";
 const DEFAULT_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 25;
 const MAX_ADMIN_AI_USAGE_ATTEMPT_LIMIT = 100;
+const CHARGED_ADMIN_IMAGE_OPERATION_ID = "admin.image.test.charged";
 
 function inputErrorResponse(error, correlationId = null) {
   return withCorrelationId(json(
@@ -180,7 +187,14 @@ async function adminImageOrganizationSummary(env, organizationId) {
   };
 }
 
-function adminImageAttemptResponse({ usageKind, organizationId, organizationName = null, pricing, attempt }, correlationId) {
+function adminImageAttemptResponse({
+  usageKind,
+  organizationId,
+  organizationName = null,
+  pricing,
+  attempt,
+  budgetPolicy = null,
+}, correlationId) {
   if (usageKind === "completed" || usageKind === "completed_expired") {
     return withCorrelationId(json({
       ok: true,
@@ -200,6 +214,7 @@ function adminImageAttemptResponse({ usageKind, organizationId, organizationName
         model_id: attempt?.resultModel || null,
         idempotent_replay: true,
         replay_available: false,
+        budget_policy: budgetPolicy,
       },
     }), correlationId);
   }
@@ -229,6 +244,116 @@ function adminImageAttemptResponse({ usageKind, organizationId, organizationName
       feature: "ai.image.generate",
     },
   }, { status: 503 }), correlationId);
+}
+
+function adminImageBudgetProviderFamily(modelId) {
+  const id = String(modelId || "").trim().toLowerCase();
+  if (id.includes("black-forest-labs") || id.includes("flux")) return "bfl";
+  if (id.includes("gpt-image") || id.includes("openai")) return "openai";
+  return "ai_worker";
+}
+
+function adminImageBudgetKillSwitchFlag(modelId) {
+  const providerFamily = adminImageBudgetProviderFamily(modelId);
+  if (providerFamily === "bfl") return "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET";
+  if (providerFamily === "openai") return "ENABLE_ADMIN_AI_GPT_IMAGE_BUDGET";
+  return "ENABLE_ADMIN_AI_CHARGED_IMAGE_BUDGET";
+}
+
+function adminImageBudgetOperation({ modelId, pricing }) {
+  const registryEntry = getAiCostOperationRegistryEntry(CHARGED_ADMIN_IMAGE_OPERATION_ID);
+  const registryConfig = registryEntry?.operationConfig || {};
+  return {
+    operationId: CHARGED_ADMIN_IMAGE_OPERATION_ID,
+    featureKey: registryConfig.featureKey || "admin.ai.test_image",
+    actorType: "admin",
+    actorRole: "platform_admin",
+    budgetScope: registryEntry?.budgetPolicy?.targetBudgetScope
+      || ADMIN_PLATFORM_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
+    ownerDomain: "admin-ai",
+    providerFamily: adminImageBudgetProviderFamily(modelId),
+    modelId,
+    modelResolverKey: registryConfig.modelResolverKey || "admin.image.priced_model_catalog",
+    providerCost: true,
+    estimatedCostUnits: pricing?.credits || 0,
+    estimatedCredits: pricing?.credits || 0,
+    idempotencyPolicy: registryConfig.idempotencyPolicy || "required",
+    killSwitchPolicy: {
+      flagName: adminImageBudgetKillSwitchFlag(modelId),
+      defaultState: "disabled",
+      requiredForProviderCall: true,
+      disabledBehavior: "fail_closed",
+      operatorCanOverride: false,
+      scope: ADMIN_PLATFORM_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT,
+      notes: "Future enforcement target only in Phase 4.3; existing org-credit/idempotency gates remain the runtime controls.",
+    },
+    routeId: registryConfig.routeId || "admin.ai.test-image",
+    routePath: registryConfig.routePath || "/api/admin/ai/test-image",
+    auditEventPrefix: registryConfig.observabilityEventPrefix || "admin.image.test.charged",
+    notes: "Charged Admin image tests use selected organization credits; Phase 4.3 records budget policy plan/audit metadata.",
+  };
+}
+
+function compactAdminImageBudgetPolicy(plan, fingerprint) {
+  return {
+    budget_policy_version: plan.policyVersion,
+    operation_id: plan.operationId,
+    budget_scope: plan.budgetScope,
+    owner_domain: plan.ownerDomain,
+    provider_family: plan.providerFamily,
+    model_id: plan.auditFields?.model_id || null,
+    estimated_cost_units: plan.estimatedCostUnits,
+    estimated_credits: plan.estimatedCredits,
+    idempotency_policy: plan.idempotencyPolicy,
+    plan_status: plan.status,
+    required_next_action: plan.requiredNextAction,
+    kill_switch_flag_name: plan.killSwitchPolicy?.flagName || null,
+    kill_switch_default_state: plan.killSwitchPolicy?.defaultState || null,
+    kill_switch_required_for_provider_call: plan.killSwitchPolicy?.requiredForProviderCall ?? null,
+    fingerprint,
+    audit_fields: plan.auditFields,
+  };
+}
+
+async function buildAdminImageBudgetPolicyContext({
+  user,
+  organizationId,
+  modelId,
+  payload,
+  pricing,
+  correlationId,
+}) {
+  const operation = adminImageBudgetOperation({ modelId, pricing });
+  const plan = classifyAdminPlatformBudgetPlan({
+    operation,
+    actorUserId: user?.id || null,
+    actorRole: "platform_admin",
+    modelId,
+    reason: "charged_admin_image_test",
+    correlationId,
+  });
+  if (!plan.ok) {
+    throw new BillingError("Admin image test budget policy is unavailable.", {
+      status: 503,
+      code: "admin_image_budget_policy_unavailable",
+    });
+  }
+  const fingerprint = await buildAdminPlatformBudgetFingerprint({
+    operation,
+    actorId: user?.id || null,
+    budgetScopeId: organizationId,
+    modelId,
+    routeId: "admin.ai.test-image",
+    routePath: "/api/admin/ai/test-image",
+    body: payload,
+    hashFields: ["prompt", "structuredPrompt"],
+    excludeFields: ["organization_id", "organizationId"],
+  });
+  return {
+    plan,
+    fingerprint,
+    summary: compactAdminImageBudgetPolicy(plan, fingerprint),
+  };
 }
 
 function adminImageBillingErrorResponse(error, correlationId) {
@@ -594,6 +719,14 @@ export async function handleAdminAI(ctx) {
       const organizationId = adminImageOrganizationId(body);
       const organization = await adminImageOrganizationSummary(env, organizationId);
       const clientIdempotencyKey = normalizeBillingIdempotencyKey(request.headers.get("Idempotency-Key"));
+      const budgetPolicy = await buildAdminImageBudgetPolicyContext({
+        user: result.user,
+        organizationId,
+        modelId,
+        payload,
+        pricing,
+        correlationId,
+      });
       const scopedIdempotencyKey = `admin-ai-image:${await sha256Hex(stableJson({
         organizationId,
         userId: result.user.id,
@@ -630,6 +763,7 @@ export async function handleAdminAI(ctx) {
           organizationName: organization.name,
           pricing,
           attempt: attemptState.attempt,
+          budgetPolicy: budgetPolicy.summary,
         }, correlationId);
       }
 
@@ -689,6 +823,7 @@ export async function handleAdminAI(ctx) {
             reference_image_count: pricing.normalized?.referenceImageCount
               ?? (Array.isArray(payload.referenceImages) ? payload.referenceImages.length : null),
             pricing_version: pricing.formula?.pricingVersion || null,
+            budget_policy: budgetPolicy.summary,
           },
         });
       } catch (error) {
@@ -722,6 +857,7 @@ export async function handleAdminAI(ctx) {
             normalized: pricing.normalized,
             formula: pricing.formula,
           },
+          budget_policy: budgetPolicy.summary,
           replay: {
             available: false,
             reason: "admin_image_test_result_not_replayed",
@@ -742,6 +878,7 @@ export async function handleAdminAI(ctx) {
         usage_event_id: debit.usageEvent?.id || null,
         usage_attempt_id: attemptState.attempt.id,
         idempotent_replay: false,
+        budget_policy: budgetPolicy.summary,
       }, correlationId);
       return attachAdminImageSaveReference(billedResponse, env, result.user, correlationId, requestInfo);
     } catch (error) {

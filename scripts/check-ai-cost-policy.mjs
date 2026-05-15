@@ -614,6 +614,25 @@ function renderBudgetScopeGroup(title, gaps, scopes) {
   return lines.join("\n");
 }
 
+function renderHardenedAdminBudgetOperations(entries = AI_COST_OPERATION_REGISTRY) {
+  const hardened = entries
+    .filter((entry) =>
+      entry.budgetPolicy?.targetEnforcementStatus === "implemented"
+      && ["admin", "platform"].includes(entry.operationConfig?.actorType)
+    )
+    .map((entry) => ({
+      operationId: entry.operationConfig.operationId,
+      scope: entry.budgetPolicy.targetBudgetScope,
+      status: entry.currentStatus,
+      route: entry.operationConfig.routePath,
+    }))
+    .sort((left, right) => left.operationId.localeCompare(right.operationId));
+  if (!hardened.length) return "- None";
+  return hardened
+    .map((entry) => `- ${entry.operationId}: ${entry.status}/hardened; scope=${entry.scope}; route=${entry.route}`)
+    .join("\n");
+}
+
 export function renderAiCostPolicyReport(result) {
   const highRisk = result.registrySummary.highRiskOperations.length
     ? result.registrySummary.highRiskOperations.join(", ")
@@ -652,6 +671,9 @@ export function renderAiCostPolicyReport(result) {
     "- POST /api/ai/generate-image member personal path: gateway-migrated",
     "- POST /api/ai/generate-music: gateway-migrated",
     "- POST /api/ai/generate-video: gateway-migrated",
+    "",
+    "Hardened admin/platform budget operations:",
+    renderHardenedAdminBudgetOperations(),
     "",
     "Known baseline gaps:",
     formatList(knownBaselineGaps, (gap) =>
@@ -715,7 +737,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 4.3 should migrate exactly one narrow admin/provider-cost flow or add a report-only budget evidence collector after the Phase 4.2 helper contract.",
+    "- Phase 4.4 should migrate the admin async video job budget enforcement path or add a report-only budget evidence collector before any broader admin/provider-cost migration.",
     "- Strict mode intentionally remains failing while accepted baseline gaps remain.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",

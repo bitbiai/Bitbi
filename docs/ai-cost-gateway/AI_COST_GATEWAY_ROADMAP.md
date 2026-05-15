@@ -522,10 +522,12 @@ Non-goals:
 
 ## Phase 4.3: Admin BFL Image Test Budget Enforcement Hardening
 
+Status: completed for the charged Admin image-test branch only. No broad Admin AI route, admin video job, OpenClaw/News Pulse, platform/background, internal AI Worker, member, org-scoped, Stripe, pricing, migration, or live billing behavior changed.
+
 Scope:
 
 - Narrowly harden priced Admin AI BFL image tests that already debit selected organization credits.
-- Preserve existing selected-organization credit debit behavior and add explicit `admin_org_credit_account` metadata, budget reason, finalization/replay classification, and operator-safe telemetry.
+- Preserve existing selected-organization credit debit behavior and add explicit `admin_org_credit_account` plan/audit metadata, deterministic budget-policy fingerprint, future kill-switch target metadata, finalization/replay classification, and operator-safe telemetry.
 - Keep unpriced admin image models either disabled or under explicit platform admin lab budget policy.
 
 Likely files:
@@ -540,10 +542,12 @@ Likely files:
 Tests:
 
 - priced admin BFL image still requires organization id and `Idempotency-Key`
+- malformed `Idempotency-Key` rejects before provider execution
 - insufficient org credits fail before provider call
 - provider failure does not debit credits
 - same-key duplicate does not double debit
-- unpriced branch cannot silently bypass budget metadata
+- successful charged BFL response/usage/attempt metadata includes safe budget-policy fields and omits raw prompt/secrets/cookies/auth headers
+- unpriced branch remains a separate baseline gap and is not silently marked hardened
 - no Stripe, public pricing, or member route behavior changes
 
 Rollback:

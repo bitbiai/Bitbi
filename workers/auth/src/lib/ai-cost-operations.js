@@ -160,9 +160,9 @@ const BUDGET_POLICY_BY_OPERATION_ID = Object.freeze({
   }),
   "admin.image.test.charged": budgetPolicy(AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT, {
     targetFuturePhase: "Phase 4.3 admin BFL image test budget enforcement hardening",
-    targetEnforcementStatus: "partial",
-    targetEnforcement: { idempotency: "required", budgetLedger: "selected_org_credit_account", replay: "metadata_only", killSwitch: "required" },
-    notes: "Charged BFL image tests already debit selected organization credits; future work should align metadata with the admin/platform policy contract.",
+    targetEnforcementStatus: "implemented",
+    targetEnforcement: { idempotency: "required", budgetLedger: "selected_org_credit_account", replay: "metadata_only", killSwitch: "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET metadata target" },
+    notes: "Phase 4.3 hardens the charged Admin image-test branch with admin_org_credit_account budget policy metadata while preserving selected organization credit debits and no provider replay.",
   }),
   "admin.image.test.unmetered": budgetPolicy(AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET, {
     currentBudgetScope: AI_COST_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
@@ -747,10 +747,10 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       observabilityEventPrefix: "admin.image.test.charged",
       routeId: "admin.ai.test-image",
       routePath: "/api/admin/ai/test-image",
-      notes: "Priced Admin AI image test path charges selected organization credits.",
+      notes: "Priced Admin AI image test path charges selected organization credits. Phase 4.3 adds admin_org_credit_account budget-policy plan/audit metadata for the charged branch without changing unpriced admin image behavior.",
     },
     sourceFiles: ["workers/auth/src/routes/admin-ai.js", "workers/ai/src/routes/image.js", "workers/ai/src/lib/invoke-ai.js"],
-    currentStatus: "partial",
+    currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",
       reservation: "implemented",
@@ -763,9 +763,9 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       path: "/api/admin/ai/test-image",
       expectedIdempotency: "required",
     },
-    currentGaps: ["Completed same-key result replay returns billing metadata but not the generated image result."],
-    gapSeverity: "P2",
-    nextMigrationPhase: "Phase 4.2 admin AI budget policy contract/helpers",
+    currentGaps: ["Completed same-key result replay returns billing metadata and budget-policy metadata but not the generated image result."],
+    gapSeverity: "P3",
+    nextMigrationPhase: "Phase 4.4 admin async video job budget enforcement",
   }),
   operation({
     operationConfig: {
@@ -1599,6 +1599,10 @@ export function getAiCostRoutePolicyBaselines(entries = AI_COST_OPERATION_REGIST
 export function getAiCostOperationConfig(operationId, entries = AI_COST_OPERATION_REGISTRY) {
   const match = entries.find((entry) => entry.operationConfig?.operationId === operationId);
   return match ? normalizeAiCostOperationConfig(match.operationConfig) : null;
+}
+
+export function getAiCostOperationRegistryEntry(operationId, entries = AI_COST_OPERATION_REGISTRY) {
+  return entries.find((entry) => entry.operationConfig?.operationId === operationId) || null;
 }
 
 export function getAiCostProviderCallSourceFiles(entries = AI_COST_OPERATION_REGISTRY) {

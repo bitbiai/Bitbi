@@ -163,6 +163,14 @@ assert.equal(
   AI_COST_BUDGET_SCOPES.ADMIN_ORG_CREDIT_ACCOUNT
 );
 assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").currentStatus,
+  "implemented"
+);
+assert.equal(
+  AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "admin.image.test.charged").budgetPolicy.targetEnforcementStatus,
+  "implemented"
+);
+assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) => entry.operationConfig.operationId === "platform.news_pulse.visual.ingest").budgetPolicy.targetBudgetScope,
   AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET
 );

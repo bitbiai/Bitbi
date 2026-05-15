@@ -31,9 +31,14 @@ Phase 4.1 adds admin/platform AI budget policy design and local
 registry/baseline/check metadata only. Phase 4.2 adds pure admin/platform
 budget policy helper contracts, deterministic tests, and stricter baseline/check
 metadata for kill-switch targets or explicit exemptions plus future enforcement
-paths. These phases do not change runtime AI provider behavior, call providers,
-add storage, mutate billing/credits, add Admin UI, or make
-admin/platform/internal/OpenClaw AI cost flows production-ready.
+paths. Phase 4.3 uses that helper only on the existing charged Admin BFL
+image-test branch to record safe `admin_org_credit_account` plan/audit metadata
+in the admin response, `usage_events`, and `ai_usage_attempts` metadata. These
+phases do not call providers in tests, add storage tables, change public
+billing, add Admin UI, migrate broad admin/platform/internal/OpenClaw AI routes,
+or make admin/platform/internal/OpenClaw AI cost flows production-ready. Phase
+4.3 metadata must not include raw prompts, provider request bodies, auth
+headers, cookies, Stripe data, Cloudflare tokens, private R2 keys, or secrets.
 
 The existing public privacy pages were materially stale. They described a
 lighter site, made broad third-party/no-sharing statements that are no longer

@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: target design plus Phase 4.2 admin/platform budget policy helper contract. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module for future route migrations, but Admin AI, admin video jobs, platform/background AI, OpenClaw/News Pulse, and internal AI Worker provider routes remain outside runtime budget enforcement.
+Status: target design plus Phase 4.3 charged Admin BFL image-test hardening. The member gateway module and registry are currently wired into migrated member image, member music, and member video generation. Phase 4.2 adds a pure admin/platform budget-policy helper module. Phase 4.3 imports that helper only from the existing charged Admin image-test branch to add safe `admin_org_credit_account` plan/audit metadata. Admin video jobs, broad Admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker provider routes remain outside runtime budget enforcement.
 
 ## Goals
 
@@ -29,7 +29,8 @@ Primary goals:
    - Actor is anonymous, member, org member, platform admin, or machine actor.
    - Billing scope is member personal balance, organization balance, admin-unmetered, or platform-internal budget.
    - Phase 4.1 adds a target budget-scope taxonomy for non-member-credit flows: `admin_org_credit_account`, `platform_admin_lab_budget`, `platform_background_budget`, `openclaw_news_pulse_budget`, `internal_ai_worker_caller_enforced`, `explicit_unmetered_admin`, and `external_provider_only`.
-   - Phase 4.2 adds pure helper validation and plan classification for those scopes; no runtime route imports the helper yet.
+   - Phase 4.2 adds pure helper validation and plan classification for those scopes.
+   - Phase 4.3 uses the helper only for charged Admin image-test metadata; it does not enforce a new env kill switch or migrate broad Admin AI.
    - Platform/admin-unmetered operations still need explicit cost telemetry and a budget exception before runtime migration.
 
 3. Resolve model/provider/cost
@@ -139,7 +140,7 @@ The registry currently exports:
 - `getAiCostProviderCallSourceFiles(entries)`
 - `summarizeAiCostOperationRegistry(entries)`
 
-The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract, but admin/platform/internal operations still use their pre-existing adapters.
+The registry stores target gateway operation configs plus current enforcement metadata. Member image, member music, and member video use it at runtime. Phase 4.1 extends registry metadata for admin/platform/internal operations with target budget scopes and future enforcement notes. Phase 4.2 adds a separate pure budget helper contract. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened because the existing selected-organization credit branch now records safe budget-policy metadata; all other admin/platform/internal/OpenClaw gaps remain baselined.
 
 Phase 4.2 admin/platform budget helper: `workers/auth/src/lib/admin-platform-budget-policy.js`
 
@@ -156,7 +157,7 @@ The helper currently exports:
 - `classifyAdminPlatformBudgetPlan(input)`
 - `validateAdminPlatformKillSwitchConfig(input)`
 
-The Phase 4.2 implementation is pure and deterministic. It does not call D1, R2, Cloudflare AI, the AI Worker, Stripe, Cloudflare APIs, network fetch, or live environment variables. It validates target budget-scope contracts, kill-switch metadata, explicit unmetered-admin justification, caller-enforced exemptions, safe audit field shape, and plan status for future admin/platform route migrations.
+The helper implementation is pure and deterministic. It does not call D1, R2, Cloudflare AI, the AI Worker, Stripe, Cloudflare APIs, network fetch, or live environment variables. It validates target budget-scope contracts, kill-switch metadata, explicit unmetered-admin justification, caller-enforced exemptions, safe audit field shape, and plan status. Phase 4.3 uses it in the charged Admin image-test route only to produce safe plan/audit metadata and a deterministic policy fingerprint.
 
 ```js
 const gateway = await prepareAiCostOperation({
@@ -241,7 +242,7 @@ Future implementation details should also define:
 
 ## Member Music Gateway Flow
 
-Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for future budget-scope, kill-switch, audit, fingerprint, and plan classification work. Admin video jobs, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated at runtime.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. Phase 3.7 hardens the already migrated member image/music gateway paths using the existing additive `0048` member attempt table and does not add a new migration. Phase 3.8 migrates member `/api/ai/generate-video` to the same member attempt foundation. Phase 3.9 adds an enforcement guard plus known-gap baseline so new provider-cost routes cannot appear silently without registry metadata or baseline classification. Phase 4.1 maps remaining admin/platform/internal/OpenClaw gaps to target budget scopes. Phase 4.2 adds pure helper contracts for budget-scope, kill-switch, audit, fingerprint, and plan classification work. Phase 4.3 uses that helper only for the existing charged Admin image-test branch. Admin video jobs, broad Admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated at runtime.
 
 Target operation structure:
 
@@ -363,7 +364,23 @@ Helper contract:
 - Fingerprints are deterministic, omit sensitive fields, and hash prompt-like fields inside the fingerprint payload.
 - Plan statuses are `ready_for_budget_check`, `requires_kill_switch`, `blocked_by_policy`, `caller_enforced`, `explicit_unmetered`, `platform_budget_review`, `admin_org_credit_required`, and `invalid_config`.
 
-Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. The next implementation phase should migrate exactly one narrow admin/provider-cost flow or add a report-only budget evidence collector.
+Phase 4.2 does not add D1 schema, budget ledgers, env reads, route guards, Admin UI, provider calls, credit mutations, or live readiness evidence. Phase 4.3 adds no schema or env reads; it records metadata only for the already charged Admin image-test branch and preserves selected-organization credit debits, required idempotency, provider-failure no-charge behavior, and metadata-only replay. The next implementation phase should migrate the admin async video job budget path or add a report-only budget evidence collector.
+
+## Phase 4.3 Charged Admin BFL Image-Test Hardening
+
+Phase 4.3 is a narrow runtime hardening for `POST /api/admin/ai/test-image` when the requested image model is already in the charged admin image-test catalog. It does not change unpriced admin image tests, admin text/music/video/compare/live-agent routes, member routes, org-scoped routes, public pricing, Stripe, or live billing.
+
+Implemented behavior:
+
+- requires selected organization context and a valid `Idempotency-Key` before provider execution, preserving the existing charged path
+- keeps selected organization credits as the spend source and uses `ai_usage_attempts` for reservation/provider-running/finalization/replay-unavailable state
+- creates an `admin_org_credit_account` budget policy plan through `classifyAdminPlatformBudgetPlan`
+- computes a deterministic budget policy fingerprint through `buildAdminPlatformBudgetFingerprint`, hashing prompt-like fields and excluding organization aliases
+- records safe `budget_policy` metadata in the Admin AI response, `usage_events.metadata_json`, and `ai_usage_attempts.metadata_json`
+- records future kill-switch target metadata such as `ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET` for BFL models without reading or enforcing a new env flag in this phase
+- preserves no charge on provider failure, exactly-once debit on provider success, conflict handling for same-key/different-body retries, and metadata-only duplicate-completed replay
+
+Safe metadata can include policy version, operation id, actor user id, actor role/class, budget scope, owner domain, provider family, model id, estimated credits, idempotency policy, plan status, required next action, kill-switch flag name, correlation id, and the budget fingerprint. It must not include raw prompts, provider request bodies, cookies, auth headers, tokens, Stripe data, Cloudflare tokens, secrets, or internal R2 keys.
 
 ## Route Adapter Responsibilities
 

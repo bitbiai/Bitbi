@@ -16069,12 +16069,42 @@ test.describe('Worker routes', () => {
           usage_event_id: expect.any(String),
           usage_attempt_id: expect.any(String),
           idempotent_replay: false,
+          budget_policy: expect.objectContaining({
+            budget_policy_version: 'admin-platform-budget-policy-v1',
+            operation_id: 'admin.image.test.charged',
+            budget_scope: 'admin_org_credit_account',
+            owner_domain: 'admin-ai',
+            provider_family: 'bfl',
+            model_id: '@cf/black-forest-labs/flux-1-schnell',
+            estimated_credits: 1,
+            idempotency_policy: 'required',
+            plan_status: 'admin_org_credit_required',
+            required_next_action: 'check_admin_org_credits',
+            kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+            kill_switch_default_state: 'disabled',
+            kill_switch_required_for_provider_call: true,
+            fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+            audit_fields: expect.objectContaining({
+              budget_policy_version: 'admin-platform-budget-policy-v1',
+              operation_id: 'admin.image.test.charged',
+              actor_user_id: 'admin-ai-user',
+              actor_class: 'admin',
+              actor_role: 'platform_admin',
+              budget_scope: 'admin_org_credit_account',
+              owner_domain: 'admin-ai',
+              provider_family: 'bfl',
+              estimated_credits: 1,
+              kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+              plan_status: 'admin_org_credit_required',
+            }),
+          }),
         }),
         elapsedMs: expect.any(Number),
       }));
       expect(JSON.stringify(body.billing)).not.toContain('A cinematic skyline');
-      expect(JSON.stringify(body.billing)).not.toContain('provider');
       expect(JSON.stringify(body.billing)).not.toContain('secret');
+      expect(JSON.stringify(body.billing)).not.toContain('Cookie');
+      expect(JSON.stringify(body.billing)).not.toContain('Authorization');
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
       expect(env.DB.state.creditLedger.at(-1)).toEqual(expect.objectContaining({
         organization_id: ADMIN_AI_CHARGE_ORG_ID,
@@ -16082,6 +16112,30 @@ test.describe('Worker routes', () => {
         balance_after: 99,
         source: 'admin_ai_image_test',
       }));
+      const usageMetadata = JSON.parse(env.DB.state.usageEvents.at(-1).metadata_json);
+      expect(usageMetadata.budget_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.image.test.charged',
+        budget_scope: 'admin_org_credit_account',
+        provider_family: 'bfl',
+        model_id: '@cf/black-forest-labs/flux-1-schnell',
+        estimated_credits: 1,
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+      }));
+      expect(usageMetadata.budget_policy.audit_fields).toEqual(expect.objectContaining({
+        actor_user_id: 'admin-ai-user',
+        provider_family: 'bfl',
+      }));
+      const attemptMetadata = JSON.parse(env.DB.state.aiUsageAttempts.at(-1).metadata_json);
+      expect(attemptMetadata.budget_policy).toEqual(expect.objectContaining({
+        operation_id: 'admin.image.test.charged',
+        budget_scope: 'admin_org_credit_account',
+        kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+      }));
+      const serializedMetadata = JSON.stringify({ usageMetadata, attemptMetadata });
+      expect(serializedMetadata).not.toContain('A cinematic skyline');
+      expect(serializedMetadata).not.toContain('Cookie');
+      expect(serializedMetadata).not.toContain('Authorization');
+      expect(serializedMetadata).not.toContain('secret');
       expect(body.result).toHaveProperty('requestedSize');
       expect(body.result).toHaveProperty('appliedSize');
       const decodedReference = await decodeAiGeneratedSaveReference(env, body.result.saveReference, {
@@ -16616,6 +16670,19 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
       expect(missingKey.status).toBe(428);
+      const malformedKey = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-image', 'POST', adminImageChargePayload({
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          prompt: 'Malformed key should fail.',
+          steps: 4,
+        }), {
+          ...authHeaders,
+          'Idempotency-Key': 'bad key with spaces',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(malformedKey.status).toBe(428);
       expect(providerCalls).toBe(0);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     });
@@ -16723,6 +16790,12 @@ test.describe('Worker routes', () => {
         original_credits_charged: 1,
         idempotent_replay: true,
         replay_available: false,
+        budget_policy: expect.objectContaining({
+          operation_id: 'admin.image.test.charged',
+          budget_scope: 'admin_org_credit_account',
+          provider_family: 'bfl',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET',
+        }),
       }));
 
       const conflict = await authWorker.fetch(

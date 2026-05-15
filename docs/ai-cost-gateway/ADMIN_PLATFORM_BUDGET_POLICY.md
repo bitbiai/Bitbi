@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 4.2 contract/helper foundation. Phase 4.1 converted the Phase 3.9 known-gap baseline into a concrete budget policy model for provider-cost AI flows that are not normal member-credit routes. Phase 4.2 adds a pure helper contract in `workers/auth/src/lib/admin-platform-budget-policy.js` plus deterministic tests; it does not change runtime behavior, migrate admin AI, migrate OpenClaw/News Pulse, migrate internal AI Worker routes, call providers, mutate billing, add migrations, deploy, or prove production/live billing readiness.
+Status: Phase 4.3 charged Admin BFL image-test hardening on top of the Phase 4.2 contract/helper foundation. Phase 4.1 converted the Phase 3.9 known-gap baseline into a concrete budget policy model for provider-cost AI flows that are not normal member-credit routes. Phase 4.2 adds the pure helper contract in `workers/auth/src/lib/admin-platform-budget-policy.js` plus deterministic tests. Phase 4.3 imports that helper only from the existing charged Admin image-test branch that already debits selected organization credits. It does not migrate broad Admin AI, admin video jobs, OpenClaw/News Pulse, internal AI Worker routes, public billing, or live readiness.
 
 ## Scope
 
@@ -16,15 +16,15 @@ Covered provider-cost classes:
 
 Non-goals:
 
-- No runtime budget enforcement.
-- No admin route migration.
+- No broad runtime budget enforcement.
+- No broad admin route migration beyond the charged Admin BFL image-test branch.
 - No D1 schema.
 - No Admin UI.
 - No provider, Stripe, Cloudflare, GitHub, DNS, WAF, secret, deployment, or live-billing action.
 
 ## Phase 4.2 Helper Contract
 
-`workers/auth/src/lib/admin-platform-budget-policy.js` is the reusable target contract for future admin/platform AI budget migrations. It is pure and not imported by current runtime routes in this phase.
+`workers/auth/src/lib/admin-platform-budget-policy.js` is the reusable target contract for admin/platform AI budget migrations. It remains pure. Phase 4.3 imports it only from the charged Admin image-test branch to build safe plan/audit metadata; the helper still does not call D1, R2, providers, Stripe, Cloudflare APIs, network fetch, or live environment variables.
 
 Exports:
 
@@ -63,8 +63,8 @@ Policy rule: new provider-cost routes must use one of these scopes in the operat
 | Flow class | Budget owner | Current cost behavior | Current idempotency | Target behavior | Failure/replay policy | Limits and kill switch | Future tests | Rollout phase |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Admin text test | `platform_admin_lab_budget` | Admin-only provider call, implicit unmetered platform spend. | Not required by route policy. | Explicit platform lab budget metadata, deterministic idempotency or explicit one-shot exception, safe model/cost metadata. | No member charge; provider failure records no budget finalization; replay may be disabled if no result is persisted. | Daily/monthly admin lab budget, per-admin rate cap, admin AI kill switch. | Missing key/duplicate/conflict, no provider on budget denial, sanitized telemetry. | Phase 4.2 helper done; later narrow route migration. |
-| Charged admin BFL image tests | `admin_org_credit_account` | Existing selected-org credit debit for priced BFL image tests. | Required. | Preserve org-credit debit, add explicit admin budget policy metadata, budget reason, and better replay/finalization classification. | No charge on provider failure; metadata-only replay remains acceptable until full output replay is designed. | Existing org balance plus admin BFL model allowlist/kill switch. | Existing charge tests plus policy metadata and no unmetered fallback. | Phase 4.3. |
-| Unmetered admin image branch | `platform_admin_lab_budget` | Admin-only provider call for unpriced models, no debit. | Partial/route-dependent. | Either disable unpriced models or classify as platform lab budget with limits and kill switch. | No credit debit; replay disabled unless result persisted safely. | Model allowlist, per-admin daily/monthly lab budget, kill switch. | Unpriced model budget denial and no provider call. | Phase 4.3 or later. |
+| Charged admin BFL image tests | `admin_org_credit_account` | Existing selected-org credit debit for priced BFL image tests. | Required. | Phase 4.3 preserves org-credit debit and adds explicit admin budget policy plan/audit metadata, deterministic policy fingerprint, kill-switch target metadata, and sanitized usage/attempt metadata. | No charge on provider failure; metadata-only replay remains acceptable until full output replay is designed. | Existing org balance plus metadata target `ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET`; no new env flag is enforced in this phase. | Existing charge tests plus policy metadata and no unmetered fallback. | Phase 4.3 completed for charged branch hardening. |
+| Unmetered admin image branch | `platform_admin_lab_budget` | Admin-only provider call for unpriced models, no debit. | Partial/route-dependent. | Either disable unpriced models or classify as platform lab budget with limits and kill switch. | No credit debit; replay disabled unless result persisted safely. | Model allowlist, per-admin daily/monthly lab budget, kill switch. | Unpriced model budget denial and no provider call. | Later narrow admin lab budget phase. |
 | Admin embeddings | `platform_admin_lab_budget` | Admin-only provider call, not product-facing. | Not required. | Explicit lab budget or remove/disable if unused. | No replay required; sanitized telemetry only. | Low daily cap and kill switch. | Route remains admin-only, no secrets/raw vectors. | Later narrow migration or removal. |
 | Admin music test | `platform_admin_lab_budget` | Admin-only MiniMax music provider spend. | Not required. | Mandatory idempotency and platform lab budget reservation before provider call. | No member debit; provider failure releases budget reservation; replay is metadata-only or disabled. | Tight daily/monthly cap, route kill switch. | No provider on missing key/budget denial, no duplicate spend. | Later narrow migration. |
 | Admin compare | `platform_admin_lab_budget` | Multi-provider text calls can fan out. | Not required. | One parent compare budget reservation with per-model child telemetry. | Partial model failure records partial provider spend; no member debit. | Per-request model count cap, daily/monthly cap, kill switch. | Fanout budget cap, partial failure telemetry. | Later narrow migration. |
@@ -79,13 +79,13 @@ Policy rule: new provider-cost routes must use one of these scopes in the operat
 
 ## Operation Mapping
 
-Admin and platform operation metadata is now explicit in `workers/auth/src/lib/ai-cost-operations.js`; known temporary gaps are mirrored in `config/ai-cost-policy-baseline.json`. Phase 4.2 adds helper validation for the future contract, but this mapping remains policy metadata only and does not change request handling.
+Admin and platform operation metadata is now explicit in `workers/auth/src/lib/ai-cost-operations.js`; known temporary gaps are mirrored in `config/ai-cost-policy-baseline.json`. Phase 4.3 marks `admin.image.test.charged` as implemented/hardened for the existing selected-organization credit branch. Other admin/platform/internal/OpenClaw entries remain policy metadata and known gaps unless a later phase migrates them.
 
 | Operation / route | Target budget scope | Current status | Target phase |
 | --- | --- | --- | --- |
 | `/api/admin/ai/test-text` / `admin.text.test` | `platform_admin_lab_budget` | implicit unmetered admin spend | helper contract done; future narrow route migration |
-| `/api/admin/ai/test-image` priced BFL branch / `admin.image.test.charged` | `admin_org_credit_account` | partial existing selected-org credit debit | Phase 4.3 |
-| `/api/admin/ai/test-image` unpriced branch / `admin.image.test.unmetered` | `platform_admin_lab_budget` | implicit unmetered admin spend | Phase 4.3 or later |
+| `/api/admin/ai/test-image` priced BFL branch / `admin.image.test.charged` | `admin_org_credit_account` | Phase 4.3 hardened selected-org credit debit with safe budget policy metadata; result replay remains metadata-only | Completed for charged branch hardening |
+| `/api/admin/ai/test-image` unpriced branch / `admin.image.test.unmetered` | `platform_admin_lab_budget` | implicit unmetered admin spend | later narrow phase or removal |
 | `/api/admin/ai/test-embeddings` / `admin.embeddings.test` | `platform_admin_lab_budget` | implicit unmetered admin spend | future narrow migration or removal |
 | `/api/admin/ai/test-music` / `admin.music.test` | `platform_admin_lab_budget` | implicit unmetered admin spend | future narrow migration |
 | `/api/admin/ai/test-video` sync debug / `admin.video.sync_debug` | `platform_admin_lab_budget` | default-disabled debug spend path | future narrow migration or removal |
@@ -148,7 +148,7 @@ Do not store raw prompts, lyrics, auth headers, cookies, tokens, Stripe data, pr
 ## Recommended Implementation Order
 
 1. Phase 4.2: Add admin/platform budget policy contract/helpers and tests only; no route migration. Completed for helper/test scope.
-2. Phase 4.3: Harden charged admin BFL image test budget metadata while preserving current organization-credit debit behavior.
+2. Phase 4.3: Harden charged admin BFL image test budget metadata while preserving current organization-credit debit behavior. Completed for the charged branch only; broad Admin AI remains unmigrated.
 3. Phase 4.4: Add admin async video job budget reservation and internal task create/poll caller linkage.
 4. Phase 4.5: Add OpenClaw/News Pulse visual budget controls, caps, and kill switch.
 5. Phase 4.6: Add internal AI Worker caller-policy guard for service-bound routes.
