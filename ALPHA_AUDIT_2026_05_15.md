@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Scope: Alpha Audit hardening status. Phase 0 reconciled audit/documentation currentness. Phase 2.1 added Stripe live billing lifecycle operator-review ingestion for failed-payment, refund, dispute, and expired-checkout events; Phase 2.2 added an admin-only billing review queue/detail/resolution API for those events; Phase 2.3 exposes that API in the Admin Control Plane UI; Phase 2.4 adds a read-only local D1 billing reconciliation report for admins/operators. This report is based on repository files and local release metadata. It does not approve production deploy, remote migrations, Cloudflare changes, Stripe changes, live billing readiness, full SaaS maturity, full tenant isolation, or legal compliance.
+Scope: Alpha Audit hardening status. Phase 0 reconciled audit/documentation currentness. Phase 2.1 added Stripe live billing lifecycle operator-review ingestion for failed-payment, refund, dispute, and expired-checkout events; Phase 2.2 added an admin-only billing review queue/detail/resolution API for those events; Phase 2.3 exposes that API in the Admin Control Plane UI; Phase 2.4 adds a read-only local D1 billing reconciliation report for admins/operators; Phase 2.6 adds main-only direct-release runbook/checklist evidence guidance and a local non-mutating main-release readiness gate. This report is based on repository files and local release metadata. It does not approve production deploy, remote migrations, Cloudflare changes, Stripe changes, live billing readiness, full SaaS maturity, full tenant isolation, or legal compliance.
 
 Current release truth: `config/release-compat.json` declares the latest auth D1 migration as `0047_add_member_subscriptions_and_credit_buckets.sql`.
 
@@ -12,7 +12,7 @@ BITBI has a substantial Cloudflare-native SaaS foundation: static frontend, Auth
 
 The weakest current area is evidence integrity. Several current-state docs lagged the release contract and still implied older auth migrations (`0040` or `0046`) were latest/current. That creates a direct production-readiness risk because operators could apply the wrong migration boundary before deploying code that expects `0047`.
 
-Production readiness verdict: BLOCKED. The repo contains local validation and release metadata, but no verified live/staging Cloudflare, Stripe, D1/R2/Queue, webhook, billing lifecycle, restore, alert, or canary evidence is recorded here.
+Production readiness verdict: BLOCKED. The repo contains local validation, release metadata, staging/main-only evidence runbooks, and a local main-release readiness check, but no verified live Cloudflare, Stripe, D1/R2/Queue, webhook, billing lifecycle, restore, alert, or canary evidence is recorded here.
 
 SaaS maturity verdict: partial foundation. Organizations, billing, member subscriptions, credits, review-only Stripe lifecycle event capture, an admin-only review queue/resolution metadata API, Admin Control Plane UI for that queue, and a read-only local billing reconciliation report exist as scaffolding and selected working paths, but full tenant ownership, automated billing remediation, legal policy, customer portal/invoice/tax handling, and broad AI cost enforcement are incomplete or need verification.
 
@@ -61,14 +61,14 @@ Elite-readiness score: 54/100. The architecture and guardrails are stronger than
 2. Reconcile current-state docs to latest auth D1 migration `0047_add_member_subscriptions_and_credit_buckets.sql`.
 3. Preserve historical phase reports exactly as historical evidence.
 4. Run the doc-currentness guard in CI/preflight.
-5. Before any live claim, verify migrations through `0047`, live Cloudflare bindings/secrets/resources, Stripe Testmode/live webhooks, BITBI Pro subscription behavior, failure/refund/dispute/chargeback operator-review UI and resolution evidence, Phase 2.4 read-only reconciliation report evidence, approved remediation workflow, and rollback.
+5. Before any live claim, verify migrations through `0047`, live Cloudflare bindings/secrets/resources, Stripe Testmode/live webhooks, BITBI Pro subscription behavior, failure/refund/dispute/chargeback operator-review UI and resolution evidence, Phase 2.4 read-only reconciliation report evidence, main-only release evidence if deploying directly from `main`, approved remediation workflow, and rollback.
 
 ## Implementation Roadmap
 
 | Phase | Scope | Notes |
 | --- | --- | --- |
 | Phase 0: audit reconciliation | Currentness docs, audit index, Alpha report, doc-currentness guard. | This report covers only Phase 0. |
-| Phase 1: production readiness evidence | Staging/live validation evidence, health/header checks, restore drill, alert verification. | No code readiness claim without evidence. |
+| Phase 1: production readiness evidence | Staging/live validation evidence, direct-main evidence gates where staging is not used, health/header checks, restore drill, alert verification. | No code readiness claim without evidence. |
 | Phase 2: route-policy enforcement architecture | Move from registry/guardrails toward central enforcement where practical. | Avoid broad rewrites; migrate high-risk routes first. |
 | Phase 3: billing/credit invariants | Build on Phase 2.3 review queue/resolution UI and Phase 2.4 read-only reconciliation reporting with a real reconciliation process and approved remediation policy. | Tests for duplicate/mismatch/replay/concurrency and no unintended credit mutation. |
 | Phase 4: full AI cost gateway and LLM efficiency | Unified reservations, provider-call suppression, telemetry, model/cost policy. | Cover image/text/video/music/admin paths. |

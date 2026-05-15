@@ -98,6 +98,100 @@ npm run readiness:evidence -- \
 
 The helper refuses to write outside `docs/production-readiness/evidence/` and refuses to overwrite existing files unless `--force` is passed.
 
+## Phase 2.5 Billing Review/Reconciliation Staging Plan
+
+Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` before any staging verification of the Phase 2.1-2.4 billing lifecycle review/reconciliation workflow. Phase 2.5 is a checklist and evidence-plan phase only. It does not approve production deploy, live billing, Stripe remediation, credit clawback, subscription cancellation, or automatic reconciliation.
+
+Local preflight examples:
+
+```bash
+npm run release:preflight
+npm run release:plan
+npm run readiness:evidence
+npm run readiness:evidence -- --markdown
+```
+
+Expected Phase 2.1-2.4 deploy units from `npm run release:plan` are the auth Worker and static/pages. Phase 2.4 added no schema apply, but staging auth D1 must already have migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` before API smoke checks.
+
+Staging read-only evidence example with explicit URLs:
+
+```bash
+npm run readiness:evidence -- \
+  --include-live \
+  --static-url https://<staging-static-origin>/ \
+  --auth-worker-url https://<staging-auth-origin>/ \
+  --ai-worker-url https://<staging-ai-origin>/ \
+  --contact-worker-url https://<staging-contact-origin>/ \
+  --output docs/production-readiness/evidence/YYYY-MM-DD-staging-readiness.md
+```
+
+Manual API smoke examples should use a staging admin session and a local cookie file path. Do not paste cookie values, bearer tokens, raw signatures, raw payloads, or secrets into commands, shell history, issue comments, screenshots, or evidence files.
+
+```bash
+curl --fail --silent --show-error \
+  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
+  "https://<staging-auth-origin>/api/admin/billing/reviews?provider=stripe&provider_mode=live&review_state=needs_review&limit=20" \
+  | jq '{ok, count: (.events | length), reviewStates: [.events[]?.reviewState], eventTypes: [.events[]?.eventType]}'
+```
+
+```bash
+curl --fail --silent --show-error \
+  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
+  "https://<staging-auth-origin>/api/admin/billing/reviews/<review-event-id>" \
+  | jq '{ok, eventType, reviewState, reviewReason, recommendedAction, safeIdentifiers, sideEffectsEnabled}'
+```
+
+```bash
+curl --fail --silent --show-error \
+  --request POST \
+  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
+  --header "Content-Type: application/json" \
+  --header "Idempotency-Key: <operator-generated-review-resolution-key>" \
+  --data '{"resolution_status":"dismissed","resolution_note":"Staging smoke: no customer action taken."}' \
+  "https://<staging-auth-origin>/api/admin/billing/reviews/<review-event-id>/resolution" \
+  | jq '{ok, reviewState, resolutionStatus, resolvedAt}'
+```
+
+```bash
+curl --fail --silent --show-error \
+  --cookie "$BITBI_STAGING_ADMIN_COOKIE_FILE" \
+  "https://<staging-auth-origin>/api/admin/billing/reconciliation" \
+  | jq '{ok, source, verdict, productionReadiness, liveBillingReadiness, generatedAt, sectionIds: [.sections[]?.id], notes}'
+```
+
+These smoke checks must verify admin-only access, MFA expectations, sanitized output, blocked/live-billing warnings, read-only reconciliation, no raw payload/signature/secret/card rendering, no credit mutation, and no Stripe action. They must remain staging-only unless a human operator separately approves a canary/production evidence window.
+
+Any production deploy or canary mention in this repository is **not approved by this document**. Production requires human operator approval, complete evidence review, migration/resource/secret verification, rollback readiness, and explicit legal/product/billing acceptance. Live billing remains `BLOCKED`.
+
+## Main-Only Direct Release Gate
+
+The owner deploys directly from `main` and does not use a separate staging environment. This is riskier than staging because the first deployed environment is live. Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md` for any direct-main release of the Phase 2.1-2.4 billing lifecycle review/reconciliation workflow.
+
+Local main-release gate:
+
+```bash
+npm run check:main-release-readiness
+```
+
+The check reads the current branch, commit, worktree status, and latest auth migration from `config/release-compat.json`. It rejects dirty worktrees by default, verifies the latest auth migration is `0047_add_member_subscriptions_and_credit_buckets.sql`, and warns that direct-main release is risky, production/live billing remains blocked, auth Worker plus static/pages deploy are required for Phase 2.1-2.4 runtime visibility, and production D1 migration status must be verified manually.
+
+For local planning evidence only:
+
+```bash
+npm run check:main-release-readiness -- --allow-dirty --markdown
+```
+
+The gate never deploys, runs remote migrations, calls Stripe APIs, mutates Cloudflare/GitHub settings, changes secrets, or enables live billing. Do not run it as proof of production readiness. Direct-main production deploy steps are not approved by this documentation; they require human operator approval, evidence review, rollback readiness, and final operator verdict.
+
+Allowed direct-main checklist verdicts are:
+
+- `BLOCKED`
+- `MAIN DEPLOYED - EVIDENCE INCOMPLETE`
+- `MAIN DEPLOYED - OPERATOR VERIFIED`
+- `ROLLBACK REQUIRED`
+
+`PRODUCTION READY` is not an automatic checklist outcome. Main-only evidence does not prove external Stripe truth, live billing readiness, refund/dispute/chargeback remediation, or legal/accounting readiness.
+
 ## Live/Staging Credential Checks
 
 These are not run automatically by this framework:

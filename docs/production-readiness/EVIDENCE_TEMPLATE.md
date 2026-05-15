@@ -207,7 +207,59 @@ The helper runs only read-only GET requests against explicit URLs. It records st
 | Phase 2.4 reconciliation report lists critical/warning items from local billing events, checkouts, ledgers, subscriptions, and reviews only |  | BLOCKED |  |
 | Phase 2.4 reconciliation UI has no Stripe, refund, credit reversal, clawback, cancellation, or remediation action buttons |  | BLOCKED |  |
 
-## 16. Live Credit-Pack Canary Evidence, If Intentionally Enabled
+## 16. Phase 2.1-2.4 Billing Review/Reconciliation Staging Evidence
+
+Use `docs/production-readiness/PHASE2_BILLING_REVIEW_STAGING_CHECKLIST.md` for the full operator checklist. This section records staging evidence only. It does not authorize production deploy, live billing, Stripe remediation, credit clawback, subscription cancellation, or automatic reconciliation.
+
+| Evidence Item | Staging Evidence | Result |
+| --- | --- | --- |
+| Auth Worker deployed commit |  | BLOCKED |
+| Static deployed commit |  | BLOCKED |
+| Release plan attached and expected deploy units are auth Worker plus static/pages |  | BLOCKED |
+| Staging auth D1 migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` |  | BLOCKED |
+| Admin authentication and MFA prerequisites verified |  | BLOCKED |
+| Billing Review Queue API smoke: admin-only list/filter with sanitized fields |  | BLOCKED |
+| Billing Review Detail API smoke: safe identifiers, no raw payload/signature/secret/card data |  | BLOCKED |
+| Billing Review Resolution API smoke: note, confirmation, `Idempotency-Key`, idempotent duplicate behavior |  | BLOCKED |
+| Billing Review Resolution no-mutation evidence: credits, subscriptions, checkout state, and Stripe unchanged |  | BLOCKED |
+| Billing Reconciliation API smoke: `source=local_d1_only`, blocked verdict, local sections, no forbidden fields |  | BLOCKED |
+| Admin Control Plane Review Queue UI smoke |  | BLOCKED |
+| Admin Control Plane Billing Reconciliation UI smoke |  | BLOCKED |
+| Blocked/live-billing warning evidence visible in UI |  | BLOCKED |
+| Read-only/no-Stripe/no-automatic-remediation copy visible in UI |  | BLOCKED |
+| No raw payload, signature, secret, card, payment method, or unredacted customer data rendered |  | BLOCKED |
+| Remaining staging blockers recorded |  | BLOCKED |
+
+Phase 2.1-2.4 staging evidence may support a `STAGING EVIDENCE COLLECTED` operator note, but it must not be recorded as production readiness or live billing readiness.
+
+## 17. Main-Only Release Evidence
+
+Use `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` and `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md` when the owner deploys directly from `main` without a separate staging environment. This is riskier than staging and requires strict evidence discipline. This section does not approve production readiness or live billing readiness.
+
+| Evidence Item | Main/Live Evidence | Result |
+| --- | --- | --- |
+| Deployed commit SHA |  | BLOCKED |
+| `npm run check:main-release-readiness` output attached |  | BLOCKED |
+| Release plan output attached |  | BLOCKED |
+| Auth Worker deploy evidence and deployed commit/version |  | BLOCKED |
+| Static/pages deploy evidence and deployed commit/build |  | BLOCKED |
+| Production D1 migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql` |  | BLOCKED |
+| Live readiness evidence collector output with explicit URLs |  | BLOCKED |
+| Manual admin login/MFA smoke evidence |  | BLOCKED |
+| Manual billing review queue list/filter evidence |  | BLOCKED |
+| Manual billing review detail evidence |  | BLOCKED |
+| Manual billing review resolution evidence on approved test review data only |  | BLOCKED |
+| Manual reconciliation report evidence with `source=local_d1_only` and blocked verdict |  | BLOCKED |
+| No raw payload/signature/secret/card/payment method rendering evidence |  | BLOCKED |
+| No Stripe API action evidence |  | BLOCKED |
+| No credit mutation evidence |  | BLOCKED |
+| Rollback target and owner recorded |  | BLOCKED |
+| Operator verdict: `BLOCKED`, `MAIN DEPLOYED - EVIDENCE INCOMPLETE`, `MAIN DEPLOYED - OPERATOR VERIFIED`, or `ROLLBACK REQUIRED` |  | BLOCKED |
+| Remaining blockers |  | BLOCKED |
+
+Main-only release evidence does not prove external Stripe truth, does not enable live billing, does not prove refund/dispute/chargeback remediation, and does not prove legal/accounting readiness.
+
+## 18. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
 Leave this section BLOCKED unless an approved bounded live canary occurred.
 
@@ -221,7 +273,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Role revocation/no-credit path | BLOCKED |  |
 | Flag disabled after canary | BLOCKED |  |
 
-## 17. BITBI Pro Subscription Evidence
+## 19. BITBI Pro Subscription Evidence
 
 | Smoke | Environment | Result | Evidence |
 | --- | --- | --- | --- |
@@ -235,7 +287,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Refund/dispute/chargeback behavior documented and tested as review queue/resolution metadata only |  | BLOCKED |  |
 | Automated refund/dispute/chargeback credit remediation is intentionally absent or separately approved |  | BLOCKED |  |
 
-## 18. Restore Drill Evidence
+## 20. Restore Drill Evidence
 
 | Drill | Environment | Operator | Date | Result | Evidence |
 | --- | --- | --- | --- | --- | --- |
@@ -244,7 +296,7 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Queue backlog/poison recovery drill |  |  |  | BLOCKED |  |
 | Rollback rehearsal |  |  |  | BLOCKED |  |
 
-## 19. Alert / WAF / Static Header / RUM Evidence
+## 21. Alert / WAF / Static Header / RUM Evidence
 
 | Control | Environment | Result | Evidence |
 | --- | --- | --- | --- |
@@ -256,12 +308,14 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 | Static security transform rules |  | BLOCKED |  |
 | Cloudflare RUM setting reviewed |  | BLOCKED |  |
 
-## 20. Blockers
+## 22. Blockers
 
 - Production Cloudflare live validation:
 - Remote migration evidence through `0047_add_member_subscriptions_and_credit_buckets.sql`:
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
+- Phase 2.1-2.4 billing review/reconciliation staging evidence:
+- Main-only release evidence and operator verdict:
 - Phase 2.3 review queue UI/resolution refund/dispute/chargeback/failed-payment/expired-checkout evidence:
 - Phase 2.4 read-only local billing reconciliation report evidence:
 - Automated billing remediation evidence:
@@ -269,13 +323,13 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Alert/WAF/static header/RUM evidence:
 - Legal/product approval:
 
-## 21. Final Verdict
+## 23. Final Verdict
 
 Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records and Phase 2.4 read-only reconciliation reports are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records, Phase 2.4 read-only reconciliation reports, Phase 2.5 staging evidence plans, and Phase 2.6 main-only release evidence processes are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 
