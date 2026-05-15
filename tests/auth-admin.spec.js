@@ -5363,6 +5363,79 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.assets-manager__status-pill')).toHaveText('Private by default');
   });
 
+  test('shared image generation API sends valid idempotency keys without changing request bodies', async ({
+    page,
+  }) => {
+    const imageRequests = [];
+    const keyPattern = /^[A-Za-z0-9._:-]{8,128}$/;
+
+    await page.route('**/api/ai/generate-image', async (route) => {
+      imageRequests.push({
+        body: route.request().postDataJSON(),
+        idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      });
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          imageBase64: ONE_PX_PNG_BASE64,
+          mimeType: 'image/png',
+          saveReference: 'frontend-idempotency-reference',
+        },
+        billing: {
+          credits_charged: 1,
+          balance_after: 9,
+        },
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    const results = await page.evaluate(async () => {
+      const { apiAiGenerateImage } = await import('/js/shared/auth-api.js');
+      const first = await apiAiGenerateImage(
+        'First browser image request',
+        4,
+        123,
+        '@cf/black-forest-labs/flux-1-schnell',
+      );
+      const second = await apiAiGenerateImage({
+        prompt: 'Second browser image request',
+        model: 'openai/gpt-image-2',
+        quality: 'medium',
+        size: '1024x1024',
+      });
+      const retry = await apiAiGenerateImage(
+        'Retry browser image request',
+        4,
+        456,
+        '@cf/black-forest-labs/flux-1-schnell',
+        { headers: { 'Idempotency-Key': 'frontend-image-retry-123' } },
+      );
+      return [first.ok, second.ok, retry.ok];
+    });
+
+    expect(results).toEqual([true, true, true]);
+    expect(imageRequests).toHaveLength(3);
+    expect(imageRequests[0].idempotencyKey).toMatch(keyPattern);
+    expect(imageRequests[1].idempotencyKey).toMatch(keyPattern);
+    expect(imageRequests[0].idempotencyKey).not.toBe(imageRequests[1].idempotencyKey);
+    expect(imageRequests[2].idempotencyKey).toBe('frontend-image-retry-123');
+    expect(imageRequests[0].idempotencyKey).not.toContain('First browser image request');
+    expect(imageRequests[1].idempotencyKey).not.toContain('Second browser image request');
+    expect(imageRequests[0].body).toEqual(expect.objectContaining({
+      prompt: 'First browser image request',
+      steps: 4,
+      seed: 123,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(imageRequests[1].body).toEqual(expect.objectContaining({
+      prompt: 'Second browser image request',
+      model: 'openai/gpt-image-2',
+      quality: 'medium',
+      size: '1024x1024',
+    }));
+  });
+
   test('homepage create studio keeps the public model selector restricted to FLUX.1 Schnell', async ({
     page,
   }) => {
@@ -5407,6 +5480,66 @@ test.describe('Assets Manager (authenticated)', () => {
 
     expect(requests.at(-1)).toEqual(expect.objectContaining({
       prompt: 'homepage legacy model request',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+  });
+
+  test('homepage create studio sends a fresh idempotency key for each image generation click', async ({
+    page,
+  }) => {
+    const requests = [];
+    const keyPattern = /^[A-Za-z0-9._:-]{8,128}$/;
+
+    await mockAuthenticatedAssetsManager(page, []);
+    await page.unroute('**/api/ai/generate-image');
+    await page.route('**/api/ai/generate-image', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push({
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      });
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          imageBase64: ONE_PX_PNG_BASE64,
+          mimeType: 'image/png',
+          prompt: body.prompt,
+          model: body.model || '@cf/black-forest-labs/flux-1-schnell',
+          steps: body.steps ?? 4,
+          seed: body.seed ?? null,
+          saveReference: `homepage-click-${requests.length}`,
+        },
+        billing: {
+          credits_charged: 1,
+          balance_after: Math.max(0, 10 - requests.length),
+        },
+      });
+    });
+
+    const response = await page.goto('/');
+    expect(response.status()).toBe(200);
+    await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Gallery' }).click();
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-active-category', 'gallery');
+    await page.locator('.gallery-mode__btn[data-mode="create"]').click();
+    await expect(page.locator('#galleryStudio')).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('#galStudioPrompt').fill('homepage idempotency request one');
+    await page.locator('#galStudioGenerate').click();
+    await expect(page.locator('#galStudioPreview img')).toBeVisible();
+
+    await page.locator('#galStudioPrompt').fill('homepage idempotency request two');
+    await page.locator('#galStudioGenerate').click();
+    await expect.poll(() => requests.length).toBe(2);
+
+    expect(requests[0].idempotencyKey).toMatch(keyPattern);
+    expect(requests[1].idempotencyKey).toMatch(keyPattern);
+    expect(requests[0].idempotencyKey).not.toBe(requests[1].idempotencyKey);
+    expect(requests[0].body).toEqual(expect.objectContaining({
+      prompt: 'homepage idempotency request one',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    }));
+    expect(requests[1].body).toEqual(expect.objectContaining({
+      prompt: 'homepage idempotency request two',
       model: '@cf/black-forest-labs/flux-1-schnell',
     }));
   });

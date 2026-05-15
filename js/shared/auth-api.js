@@ -520,9 +520,54 @@ export function apiReactivateMemberSubscription({ idempotencyKey } = {}) {
     });
 }
 
-export function apiAiGenerateImage(promptOrPayload, steps, seed, model) {
+function createSafeRandomToken() {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi?.randomUUID) {
+        return cryptoApi.randomUUID();
+    }
+    if (cryptoApi?.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        cryptoApi.getRandomValues(bytes);
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+}
+
+export function createAiImageIdempotencyKey(prefix = 'ai-image') {
+    const safePrefix = String(prefix || 'ai-image')
+        .replace(/[^A-Za-z0-9._:-]/g, '-')
+        .slice(0, 48) || 'ai-image';
+    const token = createSafeRandomToken().replace(/[^A-Za-z0-9._:-]/g, '-');
+    return `${safePrefix}-${token}`.slice(0, 128);
+}
+
+function hasHeader(headers, targetName) {
+    const expected = targetName.toLowerCase();
+    return Object.keys(headers || {}).some((name) => name.toLowerCase() === expected);
+}
+
+function withImageGenerationIdempotency(options = {}) {
+    const normalizedOptions = options && typeof options === 'object' ? options : {};
+    const headers = {
+        ...(normalizedOptions.headers && typeof normalizedOptions.headers === 'object'
+            ? normalizedOptions.headers
+            : {}),
+    };
+    if (!hasHeader(headers, 'Idempotency-Key')) {
+        headers['Idempotency-Key'] = createAiImageIdempotencyKey();
+    }
+    return {
+        ...normalizedOptions,
+        headers,
+    };
+}
+
+export function apiAiGenerateImage(promptOrPayload, steps, seed, model, options = {}) {
     if (promptOrPayload && typeof promptOrPayload === 'object' && !Array.isArray(promptOrPayload)) {
-        return request('POST', '/ai/generate-image', promptOrPayload);
+        const requestOptions = steps && typeof steps === 'object' && !Array.isArray(steps)
+            ? steps
+            : options;
+        return request('POST', '/ai/generate-image', promptOrPayload, withImageGenerationIdempotency(requestOptions));
     }
 
     const prompt = promptOrPayload;
@@ -530,7 +575,7 @@ export function apiAiGenerateImage(promptOrPayload, steps, seed, model) {
     if (steps != null) body.steps = steps;
     if (seed != null) body.seed = seed;
     if (model) body.model = model;
-    return request('POST', '/ai/generate-image', body);
+    return request('POST', '/ai/generate-image', body, withImageGenerationIdempotency(options));
 }
 
 export function apiAiGenerateMusic(payload, options = {}) {
