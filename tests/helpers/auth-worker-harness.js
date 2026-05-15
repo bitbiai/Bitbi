@@ -3435,6 +3435,8 @@ class MockD1 {
       const [
         providerFilter,
         providerValue,
+        modeFilter,
+        modeValue,
         statusFilter,
         statusValue,
         typeFilter,
@@ -3446,6 +3448,7 @@ class MockD1 {
       const rows = this.state.billingProviderEvents
         .filter((row) =>
           (providerFilter == null || row.provider === providerValue) &&
+          (modeFilter == null || row.provider_mode === modeValue) &&
           (statusFilter == null || row.processing_status === statusValue) &&
           (typeFilter == null || row.event_type === typeValue) &&
           (organizationFilter == null || row.organization_id === organizationValue)
@@ -3466,6 +3469,138 @@ class MockD1 {
           String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
           String(a.id || '').localeCompare(String(b.id || ''))
         );
+      return { results: deepClone(rows) };
+    }
+
+    if (
+      query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, organization_id, user_id, credit_pack_id, credits, amount_cents, currency, status, billing_event_id, credit_ledger_entry_id, authorization_scope, payment_status, granted_at, failed_at, expired_at, created_at, updated_at, completed_at FROM billing_checkout_sessions') &&
+      query.includes("WHERE provider = 'stripe' AND provider_mode = 'live'")
+    ) {
+      const [limit] = bindings;
+      const rows = this.state.billingCheckoutSessions
+        .filter((row) => row.provider === 'stripe' && row.provider_mode === 'live')
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (
+      query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, user_id, credit_pack_id, credits, amount_cents, currency, status, billing_event_id, member_credit_ledger_entry_id, authorization_scope, payment_status, granted_at, failed_at, expired_at, created_at, updated_at, completed_at FROM billing_member_checkout_sessions') &&
+      query.includes("WHERE provider = 'stripe' AND provider_mode = 'live'")
+    ) {
+      const [limit] = bindings;
+      const rows = this.state.billingMemberCheckoutSessions
+        .filter((row) => row.provider === 'stripe' && row.provider_mode === 'live')
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (
+      query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_subscription_id, user_id, plan_id, provider_price_id, amount_cents, currency, status, billing_event_id, authorization_scope, payment_status, failed_at, expired_at, created_at, updated_at, completed_at FROM billing_member_subscription_checkout_sessions') &&
+      query.includes("WHERE provider = 'stripe' AND provider_mode = 'live'")
+    ) {
+      const [limit] = bindings;
+      const rows = this.state.billingMemberSubscriptionCheckoutSessions
+        .filter((row) => row.provider === 'stripe' && row.provider_mode === 'live')
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, created_at FROM credit_ledger ORDER BY created_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.creditLedger
+        .slice()
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, created_at FROM member_credit_ledger ORDER BY created_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.memberCreditLedger
+        .slice()
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, credits_delta, credit_ledger_id, idempotency_key, status, created_at FROM usage_events ORDER BY created_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.usageEvents
+        .slice()
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, user_id, feature_key, credits_delta, credit_ledger_id, idempotency_key, status, created_at FROM member_usage_events ORDER BY created_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.memberUsageEvents
+        .slice()
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (
+      query.startsWith('SELECT id, user_id, provider, provider_mode, provider_customer_id, provider_subscription_id, provider_price_id, status, current_period_start, current_period_end, cancel_at_period_end, canceled_at, created_at, updated_at FROM billing_member_subscriptions') &&
+      query.includes("WHERE provider = 'stripe' AND provider_mode = 'live'")
+    ) {
+      const [limit] = bindings;
+      const rows = this.state.billingMemberSubscriptions
+        .filter((row) => row.provider === 'stripe' && row.provider_mode === 'live')
+        .sort((a, b) =>
+          String(b.updated_at || '').localeCompare(String(a.updated_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, user_id, bucket_type, balance, local_subscription_id, provider_subscription_id, period_start, period_end, source, created_at, updated_at FROM member_credit_buckets ORDER BY updated_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.memberCreditBuckets
+        .slice()
+        .sort((a, b) =>
+          String(b.updated_at || '').localeCompare(String(a.updated_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, user_id, bucket_id, bucket_type, amount, balance_after, member_credit_ledger_id, source, idempotency_key, created_at FROM member_credit_bucket_events ORDER BY created_at DESC, id DESC LIMIT ?')) {
+      const [limit] = bindings;
+      const rows = this.state.memberCreditBucketEvents
+        .slice()
+        .sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit) || 500);
       return { results: deepClone(rows) };
     }
 

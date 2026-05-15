@@ -19,9 +19,13 @@ const EVENT_TYPE_PATTERN = /^[a-z0-9_.:-]{3,128}$/i;
 const PROVIDER_PATTERN = /^[a-z0-9_-]{2,32}$/i;
 const MAX_SUMMARY_STRING_LENGTH = 128;
 const MAX_REVIEW_NOTE_LENGTH = 1000;
+const RECONCILIATION_SCAN_LIMIT = 500;
+const RECONCILIATION_ITEM_LIMIT = 12;
+const RECONCILIATION_STALE_REVIEW_MS = 7 * 24 * 60 * 60 * 1000;
 const REVIEW_STATES = new Set(["needs_review", "blocked", "informational", "resolved", "dismissed"]);
 const REVIEW_RESOLUTION_STATUSES = new Set(["resolved", "dismissed"]);
 const REVIEW_PROVIDER_MODES = new Set(["test", "sandbox", "synthetic", "live"]);
+const UNRESOLVED_REVIEW_STATES = new Set(["needs_review", "blocked"]);
 const REVIEW_IDENTIFIER_KEYS = new Set([
   "providerEventId",
   "invoiceId",
@@ -636,6 +640,633 @@ function serializeBillingReviewEvent(event, action, { includeSummary = false } =
   return review;
 }
 
+async function queryRows(env, sql, bindings = []) {
+  const statement = env.DB.prepare(sql);
+  const result = bindings.length
+    ? await statement.bind(...bindings).all()
+    : await statement.all();
+  return result.results || [];
+}
+
+function countBy(rows, fieldName) {
+  const counts = {};
+  for (const row of rows) {
+    const key = String(row?.[fieldName] || "unknown");
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function latestRowsByKey(rows, keyName) {
+  const latest = new Map();
+  const sorted = [...rows].sort((a, b) =>
+    String(b.created_at || "").localeCompare(String(a.created_at || "")) ||
+    String(b.id || "").localeCompare(String(a.id || ""))
+  );
+  for (const row of sorted) {
+    const key = row?.[keyName];
+    if (!key || latest.has(key)) continue;
+    latest.set(key, row);
+  }
+  return [...latest.values()];
+}
+
+function countDuplicateIdempotencyKeys(rows, scopeKeys = []) {
+  const seen = new Map();
+  let duplicateGroups = 0;
+  for (const row of rows) {
+    if (!row?.idempotency_key) continue;
+    const scope = scopeKeys.map((key) => row[key] || "").join(":");
+    const key = `${scope}:${row.idempotency_key}`;
+    const count = seen.get(key) || 0;
+    if (count === 1) duplicateGroups += 1;
+    seen.set(key, count + 1);
+  }
+  return duplicateGroups;
+}
+
+function severityRank(severity) {
+  if (severity === "critical") return 3;
+  if (severity === "warning") return 2;
+  return 1;
+}
+
+function maxSeverity(items) {
+  let severity = "info";
+  for (const item of items) {
+    if (severityRank(item.severity) > severityRank(severity)) {
+      severity = item.severity;
+    }
+  }
+  return severity;
+}
+
+function reportItem({ id, severity = "info", title, detail, count = null, refs = {} }) {
+  return {
+    id,
+    severity,
+    title: safeString(title, 160) || "Billing reconciliation item",
+    detail: safeString(detail, 512) || null,
+    count: Number.isFinite(Number(count)) ? Number(count) : null,
+    refs,
+  };
+}
+
+function reportSection(id, title, items, summary = {}) {
+  return {
+    id,
+    title,
+    severity: maxSeverity(items),
+    summary,
+    items: items.slice(0, RECONCILIATION_ITEM_LIMIT),
+    truncated: items.length > RECONCILIATION_ITEM_LIMIT,
+  };
+}
+
+function safeRowRefs(row, extra = {}) {
+  return {
+    id: safeString(row?.id, 128),
+    providerEventId: safeString(row?.providerEventId || row?.provider_event_id, 128),
+    eventType: safeString(row?.eventType || row?.event_type, 128),
+    providerMode: safeString(row?.providerMode || row?.provider_mode, 32),
+    checkoutSessionId: safeString(row?.provider_checkout_session_id, 128),
+    organizationId: safeString(row?.organization_id || row?.organizationId, 128),
+    userId: safeString(row?.user_id || row?.userId, 128),
+    subscriptionId: safeString(row?.provider_subscription_id || row?.providerSubscriptionId, 128),
+    ...extra,
+  };
+}
+
+function isReviewStale(review, generatedAt) {
+  if (!UNRESOLVED_REVIEW_STATES.has(review?.reviewState)) return false;
+  const received = Date.parse(review.receivedAt || review.createdAt || "");
+  const generated = Date.parse(generatedAt);
+  if (!Number.isFinite(received) || !Number.isFinite(generated)) return false;
+  return generated - received > RECONCILIATION_STALE_REVIEW_MS;
+}
+
+async function listReconciliationCheckouts(env) {
+  const [
+    organizationCheckouts,
+    memberCheckouts,
+    subscriptionCheckouts,
+    organizationLedger,
+    memberLedger,
+    organizationUsage,
+    memberUsage,
+    memberSubscriptions,
+    memberCreditBuckets,
+    memberCreditBucketEvents,
+  ] = await Promise.all([
+    queryRows(env, `SELECT id, provider, provider_mode, provider_checkout_session_id,
+                          provider_payment_intent_id, organization_id, user_id,
+                          credit_pack_id, credits, amount_cents, currency, status,
+                          billing_event_id, credit_ledger_entry_id, authorization_scope,
+                          payment_status, granted_at, failed_at, expired_at,
+                          created_at, updated_at, completed_at
+                   FROM billing_checkout_sessions
+                   WHERE provider = 'stripe' AND provider_mode = 'live'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, provider, provider_mode, provider_checkout_session_id,
+                          provider_payment_intent_id, user_id, credit_pack_id,
+                          credits, amount_cents, currency, status, billing_event_id,
+                          member_credit_ledger_entry_id, authorization_scope,
+                          payment_status, granted_at, failed_at, expired_at,
+                          created_at, updated_at, completed_at
+                   FROM billing_member_checkout_sessions
+                   WHERE provider = 'stripe' AND provider_mode = 'live'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, provider, provider_mode, provider_checkout_session_id,
+                          provider_subscription_id, user_id, plan_id, provider_price_id,
+                          amount_cents, currency, status, billing_event_id,
+                          authorization_scope, payment_status, failed_at, expired_at,
+                          created_at, updated_at, completed_at
+                   FROM billing_member_subscription_checkout_sessions
+                   WHERE provider = 'stripe' AND provider_mode = 'live'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, organization_id, amount, balance_after, entry_type,
+                          feature_key, source, idempotency_key, created_at
+                   FROM credit_ledger
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, user_id, amount, balance_after, entry_type,
+                          feature_key, source, idempotency_key, created_at
+                   FROM member_credit_ledger
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, organization_id, user_id, feature_key, credits_delta,
+                          credit_ledger_id, idempotency_key, status, created_at
+                   FROM usage_events
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, user_id, feature_key, credits_delta, credit_ledger_id,
+                          idempotency_key, status, created_at
+                   FROM member_usage_events
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, user_id, provider, provider_mode, provider_customer_id,
+                          provider_subscription_id, provider_price_id, status,
+                          current_period_start, current_period_end, cancel_at_period_end,
+                          canceled_at, created_at, updated_at
+                   FROM billing_member_subscriptions
+                   WHERE provider = 'stripe' AND provider_mode = 'live'
+                   ORDER BY updated_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, user_id, bucket_type, balance, local_subscription_id,
+                          provider_subscription_id, period_start, period_end,
+                          source, created_at, updated_at
+                   FROM member_credit_buckets
+                   ORDER BY updated_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+    queryRows(env, `SELECT id, user_id, bucket_id, bucket_type, amount, balance_after,
+                          member_credit_ledger_id, source, idempotency_key, created_at
+                   FROM member_credit_bucket_events
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?`, [RECONCILIATION_SCAN_LIMIT]),
+  ]);
+
+  return {
+    organizationCheckouts,
+    memberCheckouts,
+    subscriptionCheckouts,
+    organizationLedger,
+    memberLedger,
+    organizationUsage,
+    memberUsage,
+    memberSubscriptions,
+    memberCreditBuckets,
+    memberCreditBucketEvents,
+  };
+}
+
+export async function getBillingReconciliationReport(env) {
+  const generatedAt = nowIso();
+  const providerEvents = (await listBillingProviderEvents(env, {
+    provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
+    providerMode: LIVE_MODE,
+    limit: RECONCILIATION_SCAN_LIMIT,
+  }));
+  const eventDetails = [];
+  for (const event of providerEvents) {
+    eventDetails.push(await getBillingProviderEvent(env, { id: event.id }));
+  }
+  const reviews = [];
+  for (const event of eventDetails) {
+    const reviewAction = findBillingReviewAction(event);
+    if (!reviewAction) continue;
+    reviews.push(serializeBillingReviewEvent(event, reviewAction.action, { includeSummary: true }));
+  }
+
+  const reconciliation = await listReconciliationCheckouts(env);
+  const {
+    organizationCheckouts,
+    memberCheckouts,
+    subscriptionCheckouts,
+    organizationLedger,
+    memberLedger,
+    organizationUsage,
+    memberUsage,
+    memberSubscriptions,
+    memberCreditBuckets,
+    memberCreditBucketEvents,
+  } = reconciliation;
+
+  const reviewCounts = countBy(reviews, "reviewState");
+  const unresolvedReviews = reviews.filter((review) => UNRESOLVED_REVIEW_STATES.has(review.reviewState));
+  const blockedReviews = reviews.filter((review) => review.reviewState === "blocked");
+  const staleReviews = reviews.filter((review) => isReviewStale(review, generatedAt));
+  const reviewTypeCounts = countBy(unresolvedReviews, "eventType");
+
+  const providerItems = [];
+  const failedEvents = providerEvents.filter((event) => event.processingStatus === "failed");
+  const duplicateEventIds = Object.entries(countBy(providerEvents, "providerEventId"))
+    .filter(([, count]) => count > 1);
+  const conflictEvents = providerEvents.filter((event) =>
+    /conflict|mismatch/i.test(`${event.errorCode || ""} ${event.errorMessage || ""}`)
+  );
+  if (failedEvents.length > 0) {
+    providerItems.push(reportItem({
+      id: "provider_events_failed",
+      severity: "warning",
+      title: "Live Stripe provider events failed local processing.",
+      detail: "Failed provider events need operator inspection before any live billing readiness claim.",
+      count: failedEvents.length,
+      refs: { sampleEventId: safeString(failedEvents[0].id, 128) },
+    }));
+  }
+  if (duplicateEventIds.length > 0) {
+    providerItems.push(reportItem({
+      id: "provider_events_duplicate_ids",
+      severity: "warning",
+      title: "Duplicate live Stripe provider event ids are present in local scan.",
+      detail: "Provider event id uniqueness should prevent this; inspect D1 constraints and webhook idempotency.",
+      count: duplicateEventIds.length,
+    }));
+  }
+  if (conflictEvents.length > 0) {
+    providerItems.push(reportItem({
+      id: "provider_events_conflicts",
+      severity: "critical",
+      title: "Live Stripe provider event conflicts are present in local scan.",
+      detail: "Payload mismatch/conflict markers require operator investigation before billing readiness.",
+      count: conflictEvents.length,
+      refs: { sampleEventId: safeString(conflictEvents[0].id, 128) },
+    }));
+  }
+  if (providerEvents.length === 0) {
+    providerItems.push(reportItem({
+      id: "provider_events_none",
+      severity: "info",
+      title: "No recent live Stripe provider events were found in the bounded local scan.",
+      detail: "This is not evidence that live webhooks are healthy; it only reflects local D1 state.",
+      count: 0,
+    }));
+  }
+
+  const reviewItems = [];
+  if (blockedReviews.length > 0) {
+    reviewItems.push(reportItem({
+      id: "reviews_blocked_unresolved",
+      severity: "critical",
+      title: "Unresolved blocked billing review events exist.",
+      detail: "Blocked live Stripe dispute events prevent live billing readiness claims until human review is complete.",
+      count: blockedReviews.length,
+      refs: safeRowRefs(blockedReviews[0]),
+    }));
+  }
+  if ((reviewCounts.needs_review || 0) > 0) {
+    reviewItems.push(reportItem({
+      id: "reviews_needs_review",
+      severity: "warning",
+      title: "Billing review events still need operator review.",
+      detail: "Refund, failed-payment, or dispute lifecycle events remain unresolved.",
+      count: reviewCounts.needs_review || 0,
+      refs: safeRowRefs(reviews.find((review) => review.reviewState === "needs_review")),
+    }));
+  }
+  if (staleReviews.length > 0) {
+    reviewItems.push(reportItem({
+      id: "reviews_stale_unresolved",
+      severity: "warning",
+      title: "Stale unresolved billing reviews exist.",
+      detail: "At least one unresolved review is older than seven days in local D1 state.",
+      count: staleReviews.length,
+      refs: safeRowRefs(staleReviews[0]),
+    }));
+  }
+  if (reviewItems.length === 0) {
+    reviewItems.push(reportItem({
+      id: "reviews_no_unresolved_blockers",
+      severity: "info",
+      title: "No unresolved blocked or needs-review events were found in the bounded local scan.",
+      detail: "This does not prove Stripe, accounting, or live billing readiness.",
+      count: 0,
+    }));
+  }
+
+  const checkoutItems = [];
+  const completedOrgWithoutLedger = organizationCheckouts.filter((row) =>
+    row.status === "completed" && !row.credit_ledger_entry_id
+  );
+  const completedMemberWithoutLedger = memberCheckouts.filter((row) =>
+    row.status === "completed" && !row.member_credit_ledger_entry_id
+  );
+  const ledgerLinkedWithoutEvent = [
+    ...organizationCheckouts.filter((row) => row.credit_ledger_entry_id && !row.billing_event_id),
+    ...memberCheckouts.filter((row) => row.member_credit_ledger_entry_id && !row.billing_event_id),
+  ];
+  const expiredInconsistent = [
+    ...organizationCheckouts,
+    ...memberCheckouts,
+    ...subscriptionCheckouts,
+  ].filter((row) =>
+    row.status === "expired" && (row.completed_at || row.granted_at || row.credit_ledger_entry_id || row.member_credit_ledger_entry_id)
+  );
+  const completedSubscriptionWithoutProviderId = subscriptionCheckouts.filter((row) =>
+    row.status === "completed" && !row.provider_subscription_id
+  );
+  if (completedOrgWithoutLedger.length || completedMemberWithoutLedger.length) {
+    const sample = completedOrgWithoutLedger[0] || completedMemberWithoutLedger[0];
+    checkoutItems.push(reportItem({
+      id: "checkouts_completed_without_ledger",
+      severity: "critical",
+      title: "Completed live credit-pack checkout sessions without linked ledger entries.",
+      detail: "Completed checkout sessions without local credit ledger links may indicate ungranted credits or an incomplete webhook path.",
+      count: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
+      refs: safeRowRefs(sample),
+    }));
+  }
+  if (ledgerLinkedWithoutEvent.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "checkouts_ledger_without_billing_event",
+      severity: "warning",
+      title: "Ledger-linked live checkout sessions are missing billing event links.",
+      detail: "Credits appear locally linked to checkout sessions but lack a billing provider event id for audit traceability.",
+      count: ledgerLinkedWithoutEvent.length,
+      refs: safeRowRefs(ledgerLinkedWithoutEvent[0]),
+    }));
+  }
+  if (expiredInconsistent.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "checkouts_expired_inconsistent",
+      severity: "critical",
+      title: "Expired checkout sessions have completion or ledger markers.",
+      detail: "Expired sessions with completion/grant markers need operator investigation.",
+      count: expiredInconsistent.length,
+      refs: safeRowRefs(expiredInconsistent[0]),
+    }));
+  }
+  if (completedSubscriptionWithoutProviderId.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "subscription_checkouts_missing_subscription_id",
+      severity: "warning",
+      title: "Completed subscription checkout sessions are missing provider subscription ids.",
+      detail: "Subscription checkout completion without a provider subscription id blocks reliable subscription lifecycle reconciliation.",
+      count: completedSubscriptionWithoutProviderId.length,
+      refs: safeRowRefs(completedSubscriptionWithoutProviderId[0]),
+    }));
+  }
+  if (checkoutItems.length === 0) {
+    checkoutItems.push(reportItem({
+      id: "checkouts_no_local_mismatch",
+      severity: "info",
+      title: "No critical local checkout/ledger mismatches were found in the bounded scan.",
+      detail: "This does not call Stripe and does not prove external checkout state.",
+      count: 0,
+    }));
+  }
+
+  const latestOrgBalances = latestRowsByKey(organizationLedger, "organization_id");
+  const latestMemberBalances = latestRowsByKey(memberLedger, "user_id");
+  const negativeOrgBalances = organizationLedger.filter((row) => Number(row.balance_after) < 0);
+  const negativeMemberBalances = memberLedger.filter((row) => Number(row.balance_after) < 0);
+  const missingOrgUsageLedger = organizationUsage.filter((row) =>
+    Number(row.credits_delta) < 0 && !row.credit_ledger_id
+  );
+  const missingMemberUsageLedger = memberUsage.filter((row) =>
+    Number(row.credits_delta) < 0 && !row.credit_ledger_id
+  );
+  const duplicateOrgIdempotency = countDuplicateIdempotencyKeys(organizationLedger, ["organization_id"]);
+  const duplicateMemberIdempotency = countDuplicateIdempotencyKeys(memberLedger, ["user_id"]);
+  const ledgerItems = [];
+  if (negativeOrgBalances.length || negativeMemberBalances.length) {
+    const sample = negativeOrgBalances[0] || negativeMemberBalances[0];
+    ledgerItems.push(reportItem({
+      id: "credit_ledger_negative_balances",
+      severity: "critical",
+      title: "Suspicious negative credit balances exist.",
+      detail: "Credit ledgers should not expose negative latest balances without explicit product approval.",
+      count: negativeOrgBalances.length + negativeMemberBalances.length,
+      refs: safeRowRefs(sample),
+    }));
+  }
+  if (missingOrgUsageLedger.length || missingMemberUsageLedger.length) {
+    const sample = missingOrgUsageLedger[0] || missingMemberUsageLedger[0];
+    ledgerItems.push(reportItem({
+      id: "usage_missing_ledger_entry",
+      severity: "warning",
+      title: "Usage events are missing linked ledger entries.",
+      detail: "Credit-consuming usage without ledger linkage weakens billing auditability.",
+      count: missingOrgUsageLedger.length + missingMemberUsageLedger.length,
+      refs: safeRowRefs(sample),
+    }));
+  }
+  if (duplicateOrgIdempotency || duplicateMemberIdempotency) {
+    ledgerItems.push(reportItem({
+      id: "credit_ledger_duplicate_idempotency",
+      severity: "critical",
+      title: "Duplicate credit-ledger idempotency keys were detected.",
+      detail: "Duplicate idempotency keys could indicate double-grant or duplicate debit risk.",
+      count: duplicateOrgIdempotency + duplicateMemberIdempotency,
+    }));
+  }
+  if (ledgerItems.length === 0) {
+    ledgerItems.push(reportItem({
+      id: "credit_ledger_no_local_mismatch",
+      severity: "info",
+      title: "No negative balances or missing usage-ledger links were found in the bounded scan.",
+      detail: "This is a local D1 consistency check only.",
+      count: 0,
+    }));
+  }
+
+  const subscriptionCounts = countBy(memberSubscriptions, "status");
+  const activeSubscriptions = memberSubscriptions.filter((row) => row.status === "active" || row.status === "trialing");
+  const missingSubscriptionIds = memberSubscriptions.filter((row) => !row.provider_subscription_id);
+  const cancelAtPeriodEnd = memberSubscriptions.filter((row) => Number(row.cancel_at_period_end || 0) === 1);
+  const subscriptionBucketsByProviderId = new Map();
+  for (const bucket of memberCreditBuckets) {
+    if (bucket.bucket_type !== "subscription" || !bucket.provider_subscription_id) continue;
+    if (!subscriptionBucketsByProviderId.has(bucket.provider_subscription_id)) {
+      subscriptionBucketsByProviderId.set(bucket.provider_subscription_id, []);
+    }
+    subscriptionBucketsByProviderId.get(bucket.provider_subscription_id).push(bucket);
+  }
+  const bucketEventsByBucketId = new Map();
+  for (const event of memberCreditBucketEvents) {
+    if (!bucketEventsByBucketId.has(event.bucket_id)) bucketEventsByBucketId.set(event.bucket_id, []);
+    bucketEventsByBucketId.get(event.bucket_id).push(event);
+  }
+  const activeWithoutTopUp = activeSubscriptions.filter((subscription) => {
+    const buckets = subscriptionBucketsByProviderId.get(subscription.provider_subscription_id) || [];
+    return !buckets.some((bucket) => (bucketEventsByBucketId.get(bucket.id) || [])
+      .some((event) => event.source === "subscription_period_top_up"));
+  });
+  const subscriptionItems = [];
+  if (missingSubscriptionIds.length > 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscriptions_missing_provider_subscription_id",
+      severity: "warning",
+      title: "Subscription records are missing provider subscription ids.",
+      detail: "Provider subscription ids are required for reliable lifecycle reconciliation.",
+      count: missingSubscriptionIds.length,
+      refs: safeRowRefs(missingSubscriptionIds[0]),
+    }));
+  }
+  if (activeWithoutTopUp.length > 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscriptions_active_without_top_up",
+      severity: "warning",
+      title: "Active/trialing subscriptions lack a local subscription credit top-up marker.",
+      detail: "This local signal needs operator review against paid invoice history before readiness claims.",
+      count: activeWithoutTopUp.length,
+      refs: safeRowRefs(activeWithoutTopUp[0]),
+    }));
+  }
+  if (cancelAtPeriodEnd.length > 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscriptions_cancel_at_period_end",
+      severity: "info",
+      title: "Subscriptions scheduled to cancel at period end exist.",
+      detail: "This is informational and should be considered during operator reconciliation.",
+      count: cancelAtPeriodEnd.length,
+      refs: safeRowRefs(cancelAtPeriodEnd[0]),
+    }));
+  }
+  if (subscriptionItems.length === 0) {
+    subscriptionItems.push(reportItem({
+      id: "subscriptions_no_local_mismatch",
+      severity: "info",
+      title: "No local subscription reconciliation warnings were found in the bounded scan.",
+      detail: "This does not call Stripe and does not prove external subscription status.",
+      count: 0,
+    }));
+  }
+
+  const sections = [
+    reportSection("billing_provider_events", "Billing Provider Events", providerItems, {
+      recentLiveStripeEvents: providerEvents.length,
+      failed: failedEvents.length,
+      duplicateEventIds: duplicateEventIds.length,
+      conflicts: conflictEvents.length,
+    }),
+    reportSection("billing_reviews", "Billing Reviews", reviewItems, {
+      needsReview: reviewCounts.needs_review || 0,
+      blocked: reviewCounts.blocked || 0,
+      informational: reviewCounts.informational || 0,
+      resolved: reviewCounts.resolved || 0,
+      dismissed: reviewCounts.dismissed || 0,
+      staleUnresolved: staleReviews.length,
+      topUnresolvedEventTypes: Object.entries(reviewTypeCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([eventType, count]) => ({ eventType, count })),
+    }),
+    reportSection("checkout_sessions", "Checkout Sessions", checkoutItems, {
+      organizationLiveCreditPackByStatus: countBy(organizationCheckouts, "status"),
+      memberLiveCreditPackByStatus: countBy(memberCheckouts, "status"),
+      memberSubscriptionCheckoutByStatus: countBy(subscriptionCheckouts, "status"),
+      completedWithoutLedger: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
+      ledgerLinkedWithoutBillingEvent: ledgerLinkedWithoutEvent.length,
+      expiredInconsistent: expiredInconsistent.length,
+    }),
+    reportSection("credit_ledger", "Credit Ledger", ledgerItems, {
+      organizationAccountsScanned: latestOrgBalances.length,
+      memberAccountsScanned: latestMemberBalances.length,
+      organizationLedgerRowsScanned: organizationLedger.length,
+      memberLedgerRowsScanned: memberLedger.length,
+      negativeBalances: negativeOrgBalances.length + negativeMemberBalances.length,
+      usageEventsMissingLedger: missingOrgUsageLedger.length + missingMemberUsageLedger.length,
+      duplicateIdempotencyKeyGroups: duplicateOrgIdempotency + duplicateMemberIdempotency,
+    }),
+    reportSection("subscriptions", "Subscriptions", subscriptionItems, {
+      byStatus: subscriptionCounts,
+      activeOrTrialing: activeSubscriptions.length,
+      cancelAtPeriodEnd: cancelAtPeriodEnd.length,
+      missingProviderSubscriptionId: missingSubscriptionIds.length,
+      activeWithoutTopUpMarker: activeWithoutTopUp.length,
+    }),
+  ];
+
+  const criticalCount = sections.reduce(
+    (count, section) => count + section.items.filter((item) => item.severity === "critical").length,
+    0
+  );
+  const warningCount = sections.reduce(
+    (count, section) => count + section.items.filter((item) => item.severity === "warning").length,
+    0
+  );
+
+  return {
+    ok: true,
+    generatedAt,
+    source: "local_d1_only",
+    verdict: "blocked",
+    productionReadiness: "blocked",
+    liveBillingReadiness: "blocked",
+    summary: {
+      scanLimit: RECONCILIATION_SCAN_LIMIT,
+      criticalItems: criticalCount,
+      warningItems: warningCount,
+      providerEvents: {
+        recentLiveStripeTotal: providerEvents.length,
+        failed: failedEvents.length,
+        duplicateEventIds: duplicateEventIds.length,
+        conflicts: conflictEvents.length,
+      },
+      reviews: {
+        needsReview: reviewCounts.needs_review || 0,
+        blocked: reviewCounts.blocked || 0,
+        informational: reviewCounts.informational || 0,
+        resolved: reviewCounts.resolved || 0,
+        dismissed: reviewCounts.dismissed || 0,
+        staleUnresolved: staleReviews.length,
+      },
+      checkouts: {
+        organizationLiveCreditPackByStatus: countBy(organizationCheckouts, "status"),
+        memberLiveCreditPackByStatus: countBy(memberCheckouts, "status"),
+        memberSubscriptionCheckoutByStatus: countBy(subscriptionCheckouts, "status"),
+        completedWithoutLedger: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
+        ledgerLinkedWithoutBillingEvent: ledgerLinkedWithoutEvent.length,
+      },
+      creditLedger: {
+        organizationAccountsScanned: latestOrgBalances.length,
+        memberAccountsScanned: latestMemberBalances.length,
+        negativeBalances: negativeOrgBalances.length + negativeMemberBalances.length,
+        usageEventsMissingLedger: missingOrgUsageLedger.length + missingMemberUsageLedger.length,
+      },
+      subscriptions: {
+        byStatus: subscriptionCounts,
+        activeOrTrialing: activeSubscriptions.length,
+        cancelAtPeriodEnd: cancelAtPeriodEnd.length,
+        activeWithoutTopUpMarker: activeWithoutTopUp.length,
+      },
+    },
+    sections,
+    notes: [
+      "This report is read-only.",
+      "It uses local D1 state only.",
+      "It does not call Stripe.",
+      "It does not reconcile automatically.",
+      "It does not adjust credits, subscriptions, checkout state, review state, or provider events.",
+      "Operator review is required before any production or live billing readiness claim.",
+    ],
+  };
+}
+
 export async function ingestVerifiedBillingProviderEvent({
   env,
   provider,
@@ -763,6 +1394,7 @@ function normalizeOptionalFilter(value, maxLength = 128) {
 
 export async function listBillingProviderEvents(env, {
   provider = null,
+  providerMode = null,
   status = null,
   eventType = null,
   organizationId = null,
@@ -770,6 +1402,7 @@ export async function listBillingProviderEvents(env, {
 } = {}) {
   const appliedLimit = normalizeLimit(limit);
   const providerFilter = provider ? normalizeProvider(provider) : null;
+  const modeFilter = providerMode ? normalizeReviewProviderMode(providerMode) : null;
   const statusFilter = normalizeOptionalFilter(status, 32);
   const typeFilter = eventType ? normalizeEventType(eventType) : null;
   const orgFilter = organizationId ? normalizeOrgId(organizationId) : null;
@@ -781,6 +1414,7 @@ export async function listBillingProviderEvents(env, {
             error_message, attempt_count, last_processed_at, created_at, updated_at
      FROM billing_provider_events
      WHERE (? IS NULL OR provider = ?)
+       AND (? IS NULL OR provider_mode = ?)
        AND (? IS NULL OR processing_status = ?)
        AND (? IS NULL OR event_type = ?)
        AND (? IS NULL OR organization_id = ?)
@@ -789,6 +1423,8 @@ export async function listBillingProviderEvents(env, {
   ).bind(
     providerFilter,
     providerFilter,
+    modeFilter,
+    modeFilter,
     statusFilter,
     statusFilter,
     typeFilter,
@@ -849,12 +1485,12 @@ export async function listBillingReviewEvents(env, {
   const scanLimit = Math.min(Math.max(appliedLimit * 5, 25), 500);
   const candidateEvents = await listBillingProviderEvents(env, {
     provider,
+    providerMode: modeFilter,
     eventType,
     limit: scanLimit,
   });
   const reviews = [];
   for (const event of candidateEvents) {
-    if (modeFilter && event.providerMode !== modeFilter) continue;
     const detail = await getBillingProviderEvent(env, { id: event.id });
     const reviewAction = findBillingReviewAction(detail);
     if (!reviewAction) continue;

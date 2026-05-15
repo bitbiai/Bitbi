@@ -2086,6 +2086,99 @@ async function mockAdminControlPlane(page, captures = {}) {
     });
   });
 
+  const billingReconciliationPayload = {
+    ok: true,
+    generatedAt: '2026-05-15T12:00:00.000Z',
+    source: 'local_d1_only',
+    verdict: 'blocked',
+    productionReadiness: 'blocked',
+    liveBillingReadiness: 'blocked',
+    summary: {
+      scanLimit: 500,
+      criticalItems: 2,
+      warningItems: 1,
+      reviews: {
+        blocked: 1,
+        needsReview: 1,
+        resolved: 0,
+        dismissed: 0,
+        staleUnresolved: 0,
+      },
+      checkouts: {
+        completedWithoutLedger: 1,
+        ledgerLinkedWithoutBillingEvent: 0,
+        organizationLiveCreditPackByStatus: { completed: 1 },
+      },
+      creditLedger: {
+        negativeBalances: 0,
+        usageEventsMissingLedger: 0,
+      },
+      subscriptions: {
+        activeWithoutTopUpMarker: 0,
+      },
+    },
+    sections: [
+      {
+        id: 'billing_reviews',
+        title: 'Billing Reviews',
+        severity: 'critical',
+        summary: { blocked: 1, needsReview: 1 },
+        items: [
+          {
+            id: 'reviews_blocked_unresolved',
+            severity: 'critical',
+            title: 'Unresolved blocked billing review events exist.',
+            detail: 'Blocked live Stripe dispute events prevent live billing readiness claims until human review is complete.',
+            count: 1,
+            refs: {
+              id: 'bpe_review_2',
+              providerEventId: 'evt_review_dispute_1',
+              eventType: 'charge.dispute.created',
+              paymentMethodId: 'pm_card_should_not_render',
+              stripeSignature: 'Stripe-Signature should-not-render',
+            },
+          },
+        ],
+      },
+      {
+        id: 'checkout_sessions',
+        title: 'Checkout Sessions',
+        severity: 'critical',
+        summary: { completedWithoutLedger: 1 },
+        items: [
+          {
+            id: 'checkouts_completed_without_ledger',
+            severity: 'critical',
+            title: 'Completed live credit-pack checkout sessions without linked ledger entries.',
+            detail: 'Completed checkout sessions without local credit ledger links may indicate ungranted credits or an incomplete webhook path.',
+            count: 1,
+            refs: {
+              id: 'bcs_reconciliation_1',
+              checkoutSessionId: 'cs_live_reconciliation_1',
+              secretValue: 'sk_live_should_not_render',
+              cardLast4: '4242',
+            },
+          },
+        ],
+      },
+    ],
+    notes: [
+      'This report is read-only.',
+      'It uses local D1 state only.',
+      'It does not call Stripe.',
+      'It does not reconcile automatically.',
+      'Operator review is required.',
+    ],
+  };
+
+  await page.route('**/api/admin/billing/reconciliation', async (route) => {
+    if (captures.billingReconciliationUnavailable) {
+      await fulfillJson(route, { ok: false, error: 'Billing reconciliation unavailable.' }, 503);
+      return;
+    }
+    await fulfillJson(route, billingReconciliationPayload);
+  });
+
   const billingReviews = [
     {
       id: 'bpe_review_1',
@@ -8420,6 +8513,8 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'billing-events');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Testmode only');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Reconciliation');
+    await expect(page.locator('#billingReconciliationPanel')).toContainText('Unresolved blocked billing review events exist.');
     await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Review Queue');
     await expect(page.locator('#billingReviewsList')).toContainText('invoice.payment_failed');
     await expect(page.locator('#billingReviewsList')).toContainText('charge.dispute.created');
@@ -8530,6 +8625,46 @@ test.describe('Admin Control Plane', () => {
       },
     });
     expect(captures.billingReviewResolutionRequests[0].idempotencyKey).toMatch(/^billing-review-resolution-/);
+  });
+
+  test('renders billing reconciliation report as a read-only local-only operator view', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page);
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Reconciliation');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Local D1 only');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Live billing blocked');
+    await expect(page.locator('#billingReconciliationState')).toContainText('Verdict remains BLOCKED');
+
+    const panel = page.locator('#billingReconciliationPanel');
+    await expect(panel).toContainText('2 critical');
+    await expect(panel).toContainText('Unresolved blocked billing review events exist.');
+    await expect(panel).toContainText('Completed live credit-pack checkout sessions without linked ledger entries.');
+    await expect(panel).toContainText('Read-only operator report');
+    await expect(panel).toContainText('no Stripe API calls');
+    await expect(panel).toContainText('no automatic remediation');
+    await expect(panel).not.toContainText('Stripe-Signature');
+    await expect(panel).not.toContainText('sk_live_should_not_render');
+    await expect(panel).not.toContainText('pm_card_should_not_render');
+    await expect(panel).not.toContainText('4242');
+    await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /fix|remediate|refund|reverse credits|clawback|cancel subscription|retry payment|call stripe|chargeback action/i })).toHaveCount(0);
+  });
+
+  test('renders billing reconciliation unavailable state safely', async ({
+    page,
+  }) => {
+    await mockAdminControlPlane(page, { billingReconciliationUnavailable: true });
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#billingReconciliationPanel')).toContainText('Backend dependency is unavailable or fail-closed');
+    await expect(page.locator('#billingReconciliationPanel')).not.toContainText('Production ready');
+    await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /fix|remediate|refund|reverse credits|clawback|cancel subscription|retry payment|call stripe/i })).toHaveCount(0);
   });
 
   test('renders billing review unavailable state without unsafe fallback actions', async ({

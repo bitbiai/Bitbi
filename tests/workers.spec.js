@@ -1424,6 +1424,13 @@ test.describe('Phase 1-E auth route policy registry', () => {
       id: 'admin.billing.events.read',
       auth: 'admin',
     }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/reconciliation')).toEqual(expect.objectContaining({
+      id: 'admin.billing.reconciliation.read',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
     expect(getRoutePolicy('GET', '/api/admin/billing/reviews')).toEqual(expect.objectContaining({
       id: 'admin.billing.reviews.list',
       auth: 'admin',
@@ -5101,6 +5108,172 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     ];
     expect(auditActions).toContain('billing_review_resolved');
     expect(auditActions).toContain('billing_review_dismissed');
+  });
+
+  test('billing reconciliation report is admin-only, local-only, blocked, sanitized, and read-only', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase24-reconciliation-admin');
+    const nonAdmin = createContractUser({ id: 'phase24-reconciliation-member', role: 'user' });
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      platformAdmin: admin,
+      extra: {
+        billingCheckoutSessions: [{
+          id: 'bcs_phase24_missing_ledger',
+          provider: 'stripe',
+          provider_mode: 'live',
+          provider_checkout_session_id: 'cs_live_phase24_missing_ledger',
+          provider_payment_intent_id: 'pi_live_phase24_missing_ledger',
+          organization_id: ORG_ID,
+          user_id: 'phase2l-owner',
+          credit_pack_id: 'live_credits_5000',
+          credits: 5000,
+          amount_cents: 999,
+          currency: 'eur',
+          status: 'completed',
+          idempotency_key_hash: 'hash_should_not_render',
+          request_fingerprint_hash: 'fingerprint_should_not_render',
+          checkout_url: 'https://checkout.stripe.com/c/pay/cs_live_phase24_missing_ledger',
+          provider_customer_id: 'cus_phase24_missing_ledger',
+          billing_event_id: 'bpe_phase24_checkout_event',
+          credit_ledger_entry_id: null,
+          authorization_scope: 'org_owner',
+          payment_status: 'paid',
+          error_code: null,
+          error_message: null,
+          metadata_json: '{}',
+          granted_at: null,
+          failed_at: null,
+          expired_at: null,
+          created_at: '2026-05-15T08:00:00.000Z',
+          updated_at: '2026-05-15T08:01:00.000Z',
+          completed_at: '2026-05-15T08:01:00.000Z',
+        }],
+      },
+    }));
+    env.DB.state.users.push(nonAdmin);
+    let stripeCalls = 0;
+    env.__TEST_FETCH = async () => {
+      stripeCalls += 1;
+      throw new Error('Billing reconciliation must not call Stripe.');
+    };
+    const adminToken = await seedSession(env, admin.id);
+    const nonAdminToken = await seedSession(env, nonAdmin.id);
+
+    const disputePayload = liveStripeReviewPayload({
+      id: 'evt_phase24_blocked_dispute',
+      type: 'charge.dispute.created',
+      object: {
+        id: 'dp_phase24_blocked_dispute',
+        object: 'dispute',
+        charge: 'ch_phase24_blocked_dispute',
+        payment_intent: 'pi_live_phase24_blocked_dispute',
+        payment_method: 'pm_phase24_should_not_render',
+        card: { last4: '4242' },
+      },
+    });
+    const refundPayload = liveStripeReviewPayload({
+      id: 'evt_phase24_refund_resolved',
+      type: 'refund.created',
+      object: {
+        id: 're_phase24_refund_resolved',
+        object: 'refund',
+        charge: 'ch_phase24_refund_resolved',
+        payment_intent: 'pi_live_phase24_refund_resolved',
+      },
+    });
+
+    for (const payload of [disputePayload, refundPayload]) {
+      const ingested = await worker.fetch(
+        await signedLiveStripeWebhookRequest({ body: payload }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(ingested.status).toBe(202);
+    }
+    const refundEventId = env.DB.state.billingProviderEvents.find((row) =>
+      row.provider_event_id === 'evt_phase24_refund_resolved'
+    ).id;
+    const resolved = await worker.fetch(
+      authJsonRequest(`/api/admin/billing/reviews/${refundEventId}/resolution`, 'POST', {
+        resolution_status: 'resolved',
+        resolution_note: 'Operator reviewed the refund externally. No credit or Stripe action was taken.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase24-resolve-refund',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(resolved.status).toBe(200);
+
+    const billingStateBeforeReport = JSON.stringify({
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      billingEventActions: env.DB.state.billingEventActions,
+      billingCheckoutSessions: env.DB.state.billingCheckoutSessions,
+      creditLedger: env.DB.state.creditLedger,
+      memberCreditLedger: env.DB.state.memberCreditLedger,
+      billingMemberSubscriptions: env.DB.state.billingMemberSubscriptions,
+    });
+
+    const denied = await worker.fetch(
+      authJsonRequest('/api/admin/billing/reconciliation', 'GET', undefined, {
+        Cookie: `bitbi_session=${nonAdminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const reportResponse = await worker.fetch(
+      authJsonRequest('/api/admin/billing/reconciliation', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const report = await reportResponse.json();
+    expect(reportResponse.status).toBe(200);
+    expect(report).toEqual(expect.objectContaining({
+      ok: true,
+      source: 'local_d1_only',
+      verdict: 'blocked',
+      productionReadiness: 'blocked',
+      liveBillingReadiness: 'blocked',
+    }));
+    expect(report.notes).toEqual(expect.arrayContaining([
+      'It does not call Stripe.',
+      'It does not reconcile automatically.',
+    ]));
+    expect(report.summary.reviews).toEqual(expect.objectContaining({
+      blocked: 1,
+      needsReview: 0,
+      resolved: 1,
+    }));
+    expect(report.summary.checkouts.completedWithoutLedger).toBe(1);
+    const reviewsSection = report.sections.find((section) => section.id === 'billing_reviews');
+    const checkoutSection = report.sections.find((section) => section.id === 'checkout_sessions');
+    expect(reviewsSection.severity).toBe('critical');
+    expect(reviewsSection.items.some((item) => item.id === 'reviews_blocked_unresolved' && item.severity === 'critical')).toBe(true);
+    expect(checkoutSection.items.some((item) => item.id === 'checkouts_completed_without_ledger' && item.severity === 'critical')).toBe(true);
+
+    const serialized = JSON.stringify(report);
+    expect(serialized).not.toContain('pm_phase24_should_not_render');
+    expect(serialized).not.toContain('4242');
+    expect(serialized).not.toContain('hash_should_not_render');
+    expect(serialized).not.toContain('fingerprint_should_not_render');
+    expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+    expect(serialized).not.toContain('Stripe-Signature');
+    expect(serialized).not.toContain('payload_hash');
+    expect(stripeCalls).toBe(0);
+    expect(JSON.stringify({
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      billingEventActions: env.DB.state.billingEventActions,
+      billingCheckoutSessions: env.DB.state.billingCheckoutSessions,
+      creditLedger: env.DB.state.creditLedger,
+      memberCreditLedger: env.DB.state.memberCreditLedger,
+      billingMemberSubscriptions: env.DB.state.billingMemberSubscriptions,
+    })).toBe(billingStateBeforeReport);
   });
 
   test('credits dashboard is owner-or-platform-admin only and returns sanitized live billing data', async () => {

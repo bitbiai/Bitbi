@@ -28,6 +28,7 @@ import {
   BillingEventError,
   billingEventErrorResponse,
   getBillingProviderEvent,
+  getBillingReconciliationReport,
   getBillingReviewEvent,
   listBillingProviderEvents,
   listBillingReviewEvents,
@@ -124,6 +125,7 @@ export async function handleAdminBilling(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   const isBillingRoute = pathname === "/api/admin/billing/plans"
     || pathname === "/api/admin/billing/events"
+    || pathname === "/api/admin/billing/reconciliation"
     || pathname === "/api/admin/billing/reviews"
     || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/billing\/reviews\/[^/]+$/.test(pathname)
@@ -159,6 +161,17 @@ export async function handleAdminBilling(ctx) {
         limit: url.searchParams.get("limit"),
       });
       return json({ ok: true, events, livePaymentProviderEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  if (pathname === "/api/admin/billing/reconciliation" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const report = await getBillingReconciliationReport(env);
+      return json(report);
     } catch (error) {
       return billingErrorJson(error, ctx);
     }

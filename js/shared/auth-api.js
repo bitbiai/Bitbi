@@ -322,6 +322,10 @@ export function apiAdminBillingEvent(eventId) {
     return request('GET', `/admin/billing/events/${encodeURIComponent(eventId)}`);
 }
 
+export function apiAdminBillingReconciliation() {
+    return request('GET', '/admin/billing/reconciliation');
+}
+
 export function apiAdminBillingReviews({ reviewState, provider, providerMode, eventType, limit } = {}) {
     const params = new URLSearchParams();
     if (reviewState) params.set('review_state', reviewState);

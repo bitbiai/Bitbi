@@ -468,6 +468,21 @@
                     </div>
                 </div>
                 <div class="admin-control-subsection">
+                    <div class="admin-control-subsection__header">
+                        <div>
+                            <h3 class="admin-section-title">Billing Reconciliation</h3>
+                            <p class="admin-shell__desc">Read-only local D1 report for checkout, ledger, subscription, provider-event, and review-state mismatches. It does not call Stripe, fix state, reverse credits, or prove production readiness.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges">
+                            <span class="badge badge--user">Local D1 only</span>
+                            <span class="badge badge--disabled">Live billing blocked</span>
+                            <button type="button" id="billingReconciliationRefresh" class="btn-action">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="billingReconciliationState" class="admin-state" aria-live="polite">Loading billing reconciliation...</div>
+                    <div id="billingReconciliationPanel"></div>
+                </div>
+                <div class="admin-control-subsection">
                     <h3 class="admin-section-title">Billing Review Queue</h3>
                     <p class="admin-shell__desc">Live Stripe failure, refund, dispute, and expired-checkout lifecycle events are shown here for human review only. Refund, dispute, chargeback, and credit remediation remains manual outside this UI until a later approved phase.</p>
                     <form id="billingReviewsFilter" class="admin-control-filter">

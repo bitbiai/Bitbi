@@ -400,6 +400,11 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },
     notes: "Read-only sanitized billing event detail and dry-run action plan inspection.",
   }),
+  adminRead("admin.billing.reconciliation.read", "/api/admin/billing/reconciliation", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Read-only local-D1 billing reconciliation report for operators. Does not call Stripe, mutate credits, mutate subscriptions, resolve reviews, or remediate billing state.",
+  }),
   adminRead("admin.billing.reviews.list", "/api/admin/billing/reviews", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },

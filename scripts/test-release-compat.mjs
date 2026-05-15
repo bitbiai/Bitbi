@@ -583,6 +583,7 @@ const baseManifest = {
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
       "GET /api/admin/billing/events",
+      "GET /api/admin/billing/reconciliation",
       "GET /api/admin/billing/reviews",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
@@ -914,6 +915,7 @@ function createValidContext() {
       if (pathname === "/api/admin/orgs" && method === "GET") return handleAdminOrgs();
       if (pathname === "/api/admin/billing/plans" && method === "GET") return handleAdminBillingPlans();
       if (pathname === "/api/admin/billing/events" && method === "GET") return handleAdminBillingEvents();
+      if (pathname === "/api/admin/billing/reconciliation" && method === "GET") return handleAdminBillingReconciliation();
       if (pathname === "/api/admin/billing/reviews" && method === "GET") return handleAdminBillingReviews();
       if (pathname === "/api/admin/avatars/latest" && method === "GET") return handleAdminLatestAvatars();
       if (pathname === "/api/admin/activity" && method === "GET") return handleAdminActivity();

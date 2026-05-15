@@ -775,6 +775,15 @@
         min-width: 0;
     }
 
+    .admin-control-subsection__header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-block-end: var(--space-4);
+    }
+
     .admin-control-card,
     .admin-control-mini-card,
     .admin-control-detail,
@@ -890,6 +899,67 @@
         display: flex;
         flex-wrap: wrap;
         gap: var(--space-2);
+    }
+
+    .admin-reconciliation-overview,
+    .admin-reconciliation-section {
+        margin-block-start: var(--space-4);
+        min-width: 0;
+    }
+
+    .admin-reconciliation-overview {
+        padding: var(--space-4);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .admin-reconciliation-summary {
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-reconciliation-safety {
+        margin-block-start: var(--space-4);
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid rgba(245, 158, 11, 0.24);
+        border-radius: var(--radius-sm);
+        background: rgba(245, 158, 11, 0.06);
+    }
+
+    .admin-reconciliation-section {
+        padding: var(--space-5);
+    }
+
+    .admin-reconciliation-items {
+        display: grid;
+        gap: var(--space-3);
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-reconciliation-item {
+        padding: var(--space-4);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.02);
+        min-width: 0;
+    }
+
+    .admin-reconciliation-item--critical {
+        border-color: rgba(239, 68, 68, 0.28);
+        background: rgba(239, 68, 68, 0.06);
+    }
+
+    .admin-reconciliation-item--warning {
+        border-color: rgba(245, 158, 11, 0.24);
+        background: rgba(245, 158, 11, 0.05);
+    }
+
+    .admin-reconciliation-item__header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+        color: rgba(255, 255, 255, 0.9);
     }
 
     .admin-control-card .admin-inventory,

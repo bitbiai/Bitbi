@@ -203,6 +203,9 @@ The helper runs only read-only GET requests against explicit URLs. It records st
 | Phase 2.3 review detail UI shows safe identifiers/recommended action and no raw payload/signatures/secrets |  | BLOCKED |  |
 | Phase 2.3 review resolution UI records `resolved`/`dismissed` metadata with `Idempotency-Key` and audit evidence |  | BLOCKED |  |
 | Phase 2.3 review-only/resolution events do not call Stripe, reverse, claw back, or subtract credits automatically |  | BLOCKED |  |
+| Phase 2.4 reconciliation report shows generated timestamp, local D1 source, and BLOCKED verdict |  | BLOCKED |  |
+| Phase 2.4 reconciliation report lists critical/warning items from local billing events, checkouts, ledgers, subscriptions, and reviews only |  | BLOCKED |  |
+| Phase 2.4 reconciliation UI has no Stripe, refund, credit reversal, clawback, cancellation, or remediation action buttons |  | BLOCKED |  |
 
 ## 16. Live Credit-Pack Canary Evidence, If Intentionally Enabled
 
@@ -260,7 +263,8 @@ Leave this section BLOCKED unless an approved bounded live canary occurred.
 - Stripe Testmode checkout/webhook evidence:
 - Stripe live credit-pack/BITBI Pro canary evidence:
 - Phase 2.3 review queue UI/resolution refund/dispute/chargeback/failed-payment/expired-checkout evidence:
-- Automated billing remediation/reconciliation evidence:
+- Phase 2.4 read-only local billing reconciliation report evidence:
+- Automated billing remediation evidence:
 - Restore drill evidence:
 - Alert/WAF/static header/RUM evidence:
 - Legal/product approval:
@@ -271,7 +275,7 @@ Final verdict: **BLOCKED**
 
 Rationale:
 
-Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records are not live billing readiness, accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
+Read-only HTTP evidence alone is not sufficient to move the verdict above `BLOCKED`. Phase 2.3 review queue UI/resolution records and Phase 2.4 read-only reconciliation reports are not live billing readiness, automated accounting reconciliation, or automated remediation. A human approver must verify migrations through `0047_add_member_subscriptions_and_credit_buckets.sql`, Cloudflare resources/secrets, Stripe Testmode/live billing lifecycle, restore drills, alerts, WAF/RUM/static headers, Admin Control Plane smoke, Pricing/Credits/Organization smoke, and legal/product gates before selecting any higher verdict.
 
 Approver:
 

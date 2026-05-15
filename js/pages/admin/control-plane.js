@@ -12,6 +12,7 @@ import {
     apiAdminBillingEvent,
     apiAdminBillingEvents,
     apiAdminBillingPlans,
+    apiAdminBillingReconciliation,
     apiAdminBillingReview,
     apiAdminBillingReviews,
     apiAdminResolveBillingReview,
@@ -465,7 +466,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Billing Events / Stripe',
                 badge: { label: probes[2].status, variant: probes[2].variant },
-                copy: 'Inspect sanitized provider events and operator-only live Stripe review records. Automated reconciliation, credit clawback, and Stripe remediation remain disabled.',
+                copy: 'Inspect sanitized provider events, operator-only live Stripe review records, and read-only local reconciliation signals. Automated remediation, credit clawback, and Stripe actions remain disabled.',
                 href: '#billing-events',
             },
             {
@@ -843,6 +844,119 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             }
             detail.appendChild(wrap);
         }
+    }
+
+    function reconciliationSeverityVariant(severity) {
+        const value = String(severity || '').toLowerCase();
+        if (value === 'critical') return 'disabled';
+        if (value === 'warning') return 'legacy';
+        return 'user';
+    }
+
+    function renderReconciliationSummaryCard(title, badgeText, badgeVariant, meta) {
+        const card = el('article', 'admin-control-card glass glass-card reveal visible');
+        const top = el('div', 'admin-control-card__top');
+        top.appendChild(el('h3', 'admin-section-title', title));
+        top.appendChild(badge(badgeText, badgeVariant));
+        card.appendChild(top);
+        card.appendChild(detailRows(meta));
+        return card;
+    }
+
+    function appendReconciliationSection(container, section) {
+        const article = el('article', 'admin-reconciliation-section glass glass-card');
+        const header = el('div', 'admin-control-card__top');
+        header.appendChild(el('h3', 'admin-section-title', section.title || section.id || 'Report Section'));
+        header.appendChild(badge(section.severity || 'info', reconciliationSeverityVariant(section.severity)));
+        article.appendChild(header);
+        if (section.summary && typeof section.summary === 'object') {
+            article.appendChild(el('p', 'admin-shell__desc', renderJsonSummary(section.summary)));
+        }
+        const items = Array.isArray(section.items) ? section.items : [];
+        if (items.length === 0) {
+            article.appendChild(el('p', 'admin-shell__empty', 'No local items reported in this section.'));
+        } else {
+            const list = el('div', 'admin-reconciliation-items');
+            for (const item of items) {
+                const rowNode = el('article', `admin-reconciliation-item admin-reconciliation-item--${item.severity || 'info'}`);
+                const itemHeader = el('div', 'admin-reconciliation-item__header');
+                itemHeader.appendChild(badge(item.severity || 'info', reconciliationSeverityVariant(item.severity)));
+                itemHeader.appendChild(el('strong', null, item.title || 'Billing reconciliation item'));
+                rowNode.appendChild(itemHeader);
+                if (item.detail) rowNode.appendChild(el('p', 'admin-shell__desc', item.detail));
+                const meta = [];
+                if (item.count != null) meta.push(['Count', item.count]);
+                if (item.refs && typeof item.refs === 'object') meta.push(['Safe refs', renderJsonSummary(item.refs)]);
+                if (meta.length) rowNode.appendChild(detailRows(meta));
+                list.appendChild(rowNode);
+            }
+            article.appendChild(list);
+        }
+        if (section.truncated) {
+            article.appendChild(el('p', 'admin-shell__desc', 'Additional local findings were omitted from this bounded UI view.'));
+        }
+        container.appendChild(article);
+    }
+
+    async function loadBillingReconciliation() {
+        const panel = byId('billingReconciliationPanel');
+        setState('billingReconciliationState', 'Loading billing reconciliation...');
+        clear(panel);
+        const res = await apiAdminBillingReconciliation();
+        if (!res.ok) {
+            setState('billingReconciliationState', '');
+            renderUnavailable(panel, res, 'Billing reconciliation report unavailable.');
+            return;
+        }
+        const report = res.data || {};
+        const summary = report.summary || {};
+        const reviews = summary.reviews || {};
+        const checkouts = summary.checkouts || {};
+        const ledger = summary.creditLedger || {};
+        const subscriptions = summary.subscriptions || {};
+        setState(
+            'billingReconciliationState',
+            `Generated ${formatDate(report.generatedAt)} from local D1 only. Verdict remains ${String(report.verdict || 'blocked').toUpperCase()}.`
+        );
+
+        const overview = el('div', 'admin-reconciliation-overview');
+        overview.appendChild(detailRows([
+            ['Generated', formatDate(report.generatedAt)],
+            ['Source', report.source || 'local_d1_only'],
+            ['Production readiness', report.productionReadiness || 'blocked'],
+            ['Live billing readiness', report.liveBillingReadiness || 'blocked'],
+            ['Notes', Array.isArray(report.notes) ? report.notes.join(' ') : 'Read-only local report.'],
+        ]));
+        panel.appendChild(overview);
+
+        const cards = el('div', 'admin-control-grid admin-reconciliation-summary');
+        cards.appendChild(renderReconciliationSummaryCard('Risk Items', `${summary.criticalItems || 0} critical`, (summary.criticalItems || 0) > 0 ? 'disabled' : 'user', [
+            ['Warnings', summary.warningItems || 0],
+            ['Scan limit', summary.scanLimit || '-'],
+        ]));
+        cards.appendChild(renderReconciliationSummaryCard('Billing Reviews', `${reviews.blocked || 0} blocked`, (reviews.blocked || 0) > 0 ? 'disabled' : 'user', [
+            ['Needs review', reviews.needsReview || 0],
+            ['Stale unresolved', reviews.staleUnresolved || 0],
+        ]));
+        cards.appendChild(renderReconciliationSummaryCard('Checkouts', `${checkouts.completedWithoutLedger || 0} missing ledger`, (checkouts.completedWithoutLedger || 0) > 0 ? 'disabled' : 'user', [
+            ['Ledger without event', checkouts.ledgerLinkedWithoutBillingEvent || 0],
+            ['Org statuses', renderJsonSummary(checkouts.organizationLiveCreditPackByStatus)],
+        ]));
+        cards.appendChild(renderReconciliationSummaryCard('Ledger / Subscriptions', `${ledger.negativeBalances || 0} negative`, (ledger.negativeBalances || 0) > 0 ? 'disabled' : 'user', [
+            ['Missing usage ledger', ledger.usageEventsMissingLedger || 0],
+            ['Active subscriptions without top-up', subscriptions.activeWithoutTopUpMarker || 0],
+        ]));
+        panel.appendChild(cards);
+
+        const safety = el('p', 'admin-shell__desc admin-reconciliation-safety', 'Read-only operator report: no Stripe API calls, no refunds, no credit reversal, no subscription cancellation, and no automatic remediation are available from this panel.');
+        panel.appendChild(safety);
+
+        const sections = Array.isArray(report.sections) ? report.sections : [];
+        if (sections.length === 0) {
+            panel.appendChild(el('div', 'admin-shell__empty', 'No reconciliation sections were returned.'));
+            return;
+        }
+        for (const section of sections) appendReconciliationSection(panel, section);
     }
 
     function reviewStateLabel(value) {
@@ -1369,6 +1483,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             loadBillingReviews();
         });
         byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
+        byId('billingReconciliationRefresh')?.addEventListener('click', loadBillingReconciliation);
         byId('aiAttemptsRefresh')?.addEventListener('click', loadAiAttempts);
         byId('aiAttemptsFilter')?.addEventListener('submit', (event) => {
             event.preventDefault();
@@ -1402,7 +1517,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         loaded.add(sectionName);
         if (sectionName === 'orgs') await loadOrgs();
         if (sectionName === 'billing') await loadBillingPlans();
-        if (sectionName === 'billing-events') await Promise.all([loadBillingReviews(), loadBillingEvents()]);
+        if (sectionName === 'billing-events') await Promise.all([loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
         if (sectionName === 'ai-usage') await loadAiAttempts();
         if (sectionName === 'lifecycle') await loadLifecycle();
         if (sectionName === 'operations') await loadOperations();
