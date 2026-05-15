@@ -50,6 +50,16 @@ function normalizeMetadataJson(value) {
   }
 }
 
+function parseMetadataJson(value) {
+  if (!value || typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function unavailableAttemptsError(error) {
   if (String(error || "").includes("no such table: member_ai_usage_attempts")) {
     return new BillingError("Member AI usage attempt tracking is unavailable.", {
@@ -90,6 +100,7 @@ function serializeAttempt(row) {
     updatedAt: row.updated_at,
     completedAt: row.completed_at || null,
     expiresAt: row.expires_at,
+    metadata: parseMetadataJson(row.metadata_json),
   };
 }
 
@@ -102,7 +113,7 @@ async function fetchAttemptByIdempotency(env, { userId, idempotencyKey }) {
               result_temp_key, result_save_reference, result_mime_type,
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
-              completed_at, expires_at
+              completed_at, expires_at, metadata_json
        FROM member_ai_usage_attempts
        WHERE user_id = ? AND idempotency_key = ?
        LIMIT 1`
@@ -122,7 +133,7 @@ async function fetchAttemptById(env, attemptIdValue) {
               result_temp_key, result_save_reference, result_mime_type,
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
-              completed_at, expires_at
+              completed_at, expires_at, metadata_json
        FROM member_ai_usage_attempts
        WHERE id = ?
        LIMIT 1`

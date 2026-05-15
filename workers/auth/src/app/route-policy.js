@@ -609,7 +609,7 @@ export const ROUTE_POLICIES = Object.freeze([
     billing: {
       mode: "member-credit-account",
       feature: "ai.music.generate",
-      idempotency: "recommended; member usage events prevent duplicate credit consumption when Idempotency-Key is supplied",
+      idempotency: "required; member music generation is guarded by one bundled member_ai_usage_attempts parent reservation covering lyrics/audio/cover provider-cost work",
     },
   }),
   userJsonWrite("ai.generate-video", "POST", "/api/ai/generate-video", "ai-studio", "aiGenerateVideoJson", "ai-generate-video-user", {

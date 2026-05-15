@@ -218,9 +218,9 @@ Future implementation details should also define:
 - `resultRetentionPolicy`
 - `observabilityFields`
 
-## Member Music Gateway Target Flow
+## Member Music Gateway Flow
 
-Phase 3.5 decomposes member music for a future Phase 3.6 migration only. The live `/api/ai/generate-music` route is not migrated by this design update.
+Phase 3.6 migrates member `/api/ai/generate-music` to the AI Cost Gateway. The implementation uses the existing additive `0048` member attempt table and does not add a new migration. It changes only the member music route; member video, admin AI, platform/background AI, OpenClaw/News Pulse, and internal AI Worker routes remain unmigrated.
 
 Target operation structure:
 
@@ -229,9 +229,9 @@ Target operation structure:
 - Audio sub-operation: `member.music.audio.generate`
 - Cover sub-operation: `member.music.cover.generate`
 
-The target music adapter should use one parent request idempotency key and one parent reservation for the full bundled music credit amount. Sub-operations should be recorded under the parent attempt as safe metadata rather than independently debiting member credits. This matches the current product charge model: one fixed music debit after successful audio generation and local save, with the separate lyrics option represented by the current pricing schedule.
+The music adapter uses one parent request idempotency key and one parent reservation for the full bundled music credit amount. Sub-operations are recorded under the parent attempt as safe metadata rather than independently debiting member credits. This matches the current product charge model: one fixed music debit after successful audio generation and local save, with the separate lyrics option represented by the current pricing schedule.
 
-Target sequence:
+Implemented sequence:
 
 1. Require `Idempotency-Key` before lyrics, audio, storage, or cover provider work.
 2. Build a parent fingerprint from route id, operation id, member id, member credit account, pricing version, prompt hash/length, lyrics hash/length or generated-lyrics flag, instrumental mode, model id, and stable request options.
@@ -243,18 +243,18 @@ Target sequence:
 8. Run required audio generation under `member.music.audio.generate`; store safe provider status and a replay pointer only after audio is persisted safely.
 9. Persist the music asset before final debit. If storage fails after provider success, mark a no-charge failure or terminal safe state and do not return an uncharged paid result.
 10. Finalize exactly one member debit after audio provider success and successful local save.
-11. Schedule cover generation only after final music success. Cover must have an explicit policy before it is called gateway-covered: included in the parent bundle, platform-budgeted with caps, or disabled/retry-limited.
+11. Schedule cover generation only after final music success. Phase 3.6 policy includes cover generation in the parent music bundle with no separate visible charge.
 12. Replay a completed same-key request from safe asset/result metadata when available. If replay expired, return safe replay-expired metadata and require a new key for fresh provider work.
 
 Failure and replay policy:
 
-- Lyrics success plus music failure releases the parent reservation and charges nothing. A future implementation may reuse safe lyrics metadata for the same key/fingerprint, but must not expose raw lyrics outside existing product-owned asset behavior.
+- Lyrics success plus music failure releases the parent reservation and charges nothing. Raw generated lyrics are intentionally not stored in member attempt metadata; future work may add a safer lyrics replay pointer if needed.
 - Music audio failure releases the parent reservation and charges nothing.
 - Music audio success plus storage failure should not debit and should not return the paid output as user-owned media.
 - Billing finalization failure is terminal; do not replay unpaid output.
 - Duplicate in-progress same-key requests should return in-progress/conflict without additional provider calls.
 - Duplicate completed same-key requests should not debit again and should not call lyrics/audio providers again when replay metadata is valid.
-- Cover failure is non-fatal to the finalized music debit, but must emit safe metadata/telemetry and remain bounded by the selected budget policy.
+- Cover failure is non-fatal to the finalized music debit. Cover final-status writeback to the parent attempt remains a Phase 3.7 hardening gap.
 
 Safe music gateway metadata may include operation ids, model ids, pricing version, credit amount, prompt hash/length, lyrics hash/length, generated lyrics flag, instrumental flag, asset id, provider status, replay availability, cover status, and correlation id. It must not include secret values, cookies, raw auth tokens, provider credentials, raw request fingerprints, unbounded prompts, or unbounded lyrics in gateway state.
 

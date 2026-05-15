@@ -73,8 +73,10 @@ assert.equal(
   AI_COST_OPERATION_REGISTRY.find((entry) =>
     entry.operationConfig.operationId === "member.music.cover.generate"
   ).billingRelationship,
-  "post_success_background_budget_pending"
+  "included_in_parent_music_charge"
 );
+assert.equal(musicParent.currentStatus, "implemented");
+assert.equal(musicParent.currentEnforcement.idempotency, "implemented");
 
 const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
@@ -84,16 +86,11 @@ assert.deepEqual(summary, {
   memberOperations: 7,
   organizationOperations: 2,
   adminPlatformOperations: 22,
-  currentMissingMandatoryIdempotency: 4,
-  currentMissingReservation: 4,
-  currentNoReplay: 4,
-  platformBudgetReviewOperations: 3,
+  currentMissingMandatoryIdempotency: 1,
+  currentMissingReservation: 1,
+  currentNoReplay: 1,
+  platformBudgetReviewOperations: 2,
   highRiskOperations: [
-    "internal.music.generate",
-    "member.music.audio.generate",
-    "member.music.cover.generate",
-    "member.music.generate",
-    "member.music.lyrics.generate",
     "member.video.generate",
   ],
 });

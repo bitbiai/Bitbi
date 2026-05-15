@@ -1959,14 +1959,14 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM member_ai_usage_attempts WHERE user_id = ? AND idempotency_key = ?')) {
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE user_id = ? AND idempotency_key = ?')) {
       const [userId, idempotencyKey] = bindings;
       return deepClone(this.state.memberAiUsageAttempts.find((row) =>
         row.user_id === userId && row.idempotency_key === idempotencyKey
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM member_ai_usage_attempts WHERE id = ? LIMIT 1')) {
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE id = ? LIMIT 1')) {
       const [attemptId] = bindings;
       return deepClone(this.state.memberAiUsageAttempts.find((row) => row.id === attemptId) || null);
     }

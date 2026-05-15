@@ -263,27 +263,26 @@ export function summarizeMemberMusicGatewayPrep(entries = AI_COST_OPERATION_REGI
     missingProviderSuppression,
     missingReplay,
     partialSuccessRisks: Object.freeze([
-      "lyrics success followed by music failure",
-      "audio success followed by storage failure",
-      "audio success followed by billing finalization failure",
-      "duplicate in-progress or completed request without durable replay",
+      "audio success followed by storage failure remains no-charge but can waste provider spend",
+      "billing finalization failure is terminal and still requires operator/customer support handling",
+      "generated lyrics are not replayed raw from attempt metadata",
     ]),
     coverBudgetAmbiguity: cover
-      ? "generated music cover/background cover is automatic after successful music generation, not billed separately today, and still needs an explicit bundled-vs-platform-budget decision"
+      ? "generated music cover/background cover is included in the Phase 3.6 parent bundled music reservation with no separate user-visible charge; final cover status writeback remains partial"
       : "generated music cover/background cover operation is missing from the registry",
   });
 }
 
 function renderMemberMusicGatewayPrep(summary) {
   return [
-    "- Status: member music is still unmigrated; member personal image remains the only migrated member AI Cost Gateway route.",
+    `- Status: ${summary.unmigrated ? "member music is still partially unmigrated" : "member music parent gateway migration is represented in the registry; member image and member music are the migrated member AI Cost Gateway routes."}`,
     `- Sub-operations tracked: ${formatIdList(summary.operationIds)}`,
     `- Missing mandatory idempotency: ${formatIdList(summary.missingMandatoryIdempotency)}`,
     `- Missing pre-provider reservation: ${formatIdList(summary.missingPreProviderReservation)}`,
     `- Missing duplicate provider-call suppression: ${formatIdList(summary.missingProviderSuppression)}`,
     `- Missing replay/cache: ${formatIdList(summary.missingReplay)}`,
     `- Partial-success risks: ${summary.partialSuccessRisks.join("; ")}`,
-    `- Cover/background provider-cost ambiguity: ${summary.coverBudgetAmbiguity}`,
+    `- Cover/background provider-cost policy: ${summary.coverBudgetAmbiguity}`,
   ].join("\n");
 }
 
@@ -337,7 +336,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Phase 3.6 should migrate member music generation in one narrow PR after the Phase 3.5 decomposition/check baseline is reviewed and the Phase 3.4 image pilot evidence is accepted or explicitly waived.",
+    "- Phase 3.7 should harden replay/result metadata and then migrate the next single high-risk member route, with member video remaining the primary unmigrated member AI cost gap.",
     "",
     "Safety: this check is local-only. It does not read secret values, call AI providers, deploy, run migrations, or mutate Cloudflare/Stripe/GitHub resources.",
   ].join("\n");

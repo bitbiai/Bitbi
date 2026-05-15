@@ -197,7 +197,7 @@ function aiCostGatewayErrorToBillingError(error) {
   return error;
 }
 
-async function prepareMemberImageGatewayPolicy({
+async function prepareMemberGatewayPolicy({
   env,
   request,
   user,
@@ -225,12 +225,12 @@ async function prepareMemberImageGatewayPolicy({
       routeId: operationConfig.routeId,
       actorId: user?.id || null,
       billingScopeId: user?.id || null,
-      modelId: body?.model || null,
+      modelId: resolvedOperation.modelId || body?.model || operationConfig.modelId || operationConfig.modelResolverKey || null,
       providerFamily: operationConfig.providerFamily,
       clientIdempotencyKey: request.headers.get("Idempotency-Key"),
       body,
       includePromptHash: true,
-      hashFields: ["prompt", "negativePrompt", "negative_prompt", "referenceImages"],
+      hashFields: ["prompt", "lyrics", "negativePrompt", "negative_prompt", "referenceImages"],
       excludeOrganizationContextAliases: true,
       excludeFields: ["csrf", "csrfToken", "authToken", "authorization", "cookie"],
     });
@@ -266,6 +266,14 @@ async function prepareMemberImageGatewayPolicy({
       operation_id: gatewayPlan.operationId,
       route,
       replay_policy: gatewayPlan.replayPolicy,
+      ...(resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id ? {
+        bundled_sub_operations: [
+          "member.music.lyrics.generate",
+          "member.music.audio.generate",
+          "member.music.cover.generate",
+        ],
+        cover_generation_policy: "included_in_parent_music_bundle",
+      } : {}),
     },
     beforeReserve: () => topUpMemberDailyCredits({
       env,
@@ -369,8 +377,11 @@ export async function prepareAiUsagePolicy({
       };
     }
 
-    if (resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE.id) {
-      return prepareMemberImageGatewayPolicy({
+    if (
+      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE.id ||
+      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id
+    ) {
+      return prepareMemberGatewayPolicy({
         env,
         request,
         user,

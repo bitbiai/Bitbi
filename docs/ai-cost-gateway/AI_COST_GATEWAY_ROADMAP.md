@@ -223,29 +223,31 @@ Non-goals:
 
 ## Phase 3.6: Member Music Gateway Migration
 
+Status: completed for the member music route only. Phase 3.6 adds mandatory idempotency, one parent member-credit reservation, duplicate provider-call suppression, exactly-once debit after audio persistence, safe no-charge failure handling, and an explicit bundled cover-generation budget policy. It adds no migration and does not deploy.
+
 Scope:
 
 - Require idempotency on `/api/ai/generate-music`.
 - Reserve the full parent music cost before optional lyrics or required audio provider calls.
-- Treat optional lyrics generation and audio generation as sub-operations under one parent cost policy.
-- Decide whether cover generation is bundled, platform-budgeted, or disabled/retry-limited before claiming cover coverage.
-- Preserve the current bundled credit schedule unless product explicitly changes pricing separately.
+- Treat optional lyrics generation, audio generation, and scheduled cover generation as sub-operations under one parent cost policy.
+- Use the conservative cover policy: cover generation is included in the parent bundled music reservation with no separate visible charge.
+- Preserve the current bundled credit schedule.
 
 Likely files:
 
 - `workers/auth/src/routes/ai/music-generate.js`
-- `workers/auth/src/lib/member-music-cover.js`
-- `workers/auth/src/lib/ai-cost-gateway.js`
+- `workers/auth/src/lib/ai-usage-policy.js`
 - `workers/auth/src/lib/ai-cost-operations.js`
 - `workers/auth/src/lib/member-ai-usage-attempts.js`
 - `tests/workers.spec.js`
-- static Sound Lab callers/tests if needed
+- `tests/helpers/auth-worker-harness.js`
+- AI Cost Gateway docs and current-state docs
 
 Why music is more complex than member image:
 
 - One user request can run a separate lyrics text provider call and a MiniMax audio provider call before final debit.
 - Audio provider success is followed by local R2/D1 save and then billing finalization, so storage/billing failures must not return unpaid output.
-- Background cover generation currently runs after music success and has an unresolved bundled-vs-platform-budget policy.
+- Background cover generation runs after music success and is included in the parent bundle for now, but cover final-status writeback remains partial.
 - Safe replay may need both asset replay metadata and sub-operation status metadata.
 
 Tests:
@@ -260,24 +262,67 @@ Tests:
 - cover failure does not affect finalized music billing unless policy says otherwise
 - save/billing failure cleanup remains safe
 - same-key completed retry does not debit twice and does not call providers again when replay is available
+- attempt metadata does not contain raw prompts, raw lyrics, secrets, cookies, or unsafe R2 keys
 
 Rollback:
 
-- Revert the music adapter to previous post-provider debit behavior. Leave gateway modules and additive tables intact. Do not delete saved music assets, member attempt rows, or credit ledger rows during rollback.
+- Revert the music adapter to previous post-provider debit behavior if needed. Leave gateway modules and additive tables intact. Do not delete saved music assets, member attempt rows, or credit ledger rows during rollback.
 
 Deploy units:
 
-- Auth Worker and static/pages if caller idempotency changes.
+- Auth Worker. Static/pages are not required by Phase 3.6 because existing callers already send an idempotency key in tested paths.
 
 Migration risk:
 
-- Existing `member_ai_usage_attempts` from migration `0048` may be sufficient if it can safely store music operation keys, parent request fingerprints, replay metadata, and terminal billing failure states. Verify before coding. Additive schema should be used only if the table cannot safely represent music parent/sub-operation metadata.
+- Existing `member_ai_usage_attempts` from migration `0048` is reused. No new schema was added. Operators must still apply/verify migration `0048` before deploying auth Worker code that depends on member attempts.
 
 Non-goals:
 
 - No video migration, no admin/platform/internal AI migration, no public pricing change, no automatic cover retry storm, no Stripe work.
 
-## Phase 3.7: Migrate Member Video
+## Phase 3.7: Replay/Result Cache Hardening Before Member Video
+
+Scope:
+
+- Harden member image/music replay metadata and result availability semantics.
+- Add explicit cleanup/expiry behavior for member music attempt replay metadata if needed.
+- Decide whether generated lyrics need a safe replay pointer or should remain intentionally absent from attempt metadata.
+- Add cover final-status writeback or an explicit no-writeback policy.
+- Prepare member video migration only after replay/result-cache behavior is reviewed.
+
+Likely files:
+
+- `workers/auth/src/lib/member-ai-usage-attempts.js`
+- `workers/auth/src/routes/ai/images-write.js`
+- `workers/auth/src/routes/ai/music-generate.js`
+- `workers/auth/src/lib/member-music-cover.js`
+- `tests/workers.spec.js`
+- AI Cost Gateway docs/check scripts
+
+Tests:
+
+- expired/replay-unavailable member music attempts do not call providers or double debit
+- metadata cleanup does not delete saved media, ledger rows, member usage rows, or unrelated R2 objects
+- cover status writeback, if added, does not expose raw prompts/lyrics/R2 keys
+- image replay behavior remains unchanged
+
+Rollback:
+
+- Revert replay metadata/writeback changes only. Do not delete attempt rows, saved assets, ledger rows, or R2 media.
+
+Deploy units:
+
+- Auth Worker if route/helper behavior changes; no schema unless a later approved additive migration is required.
+
+Migration risk:
+
+- Prefer no schema. Stop and plan a forward-only migration if replay cleanup/writeback cannot fit safely in `member_ai_usage_attempts.metadata_json`.
+
+Non-goals:
+
+- No member video migration yet, no admin/platform/internal AI migration, no public pricing change, no Stripe work.
+
+## Phase 3.8: Migrate Member Video
 
 Scope:
 
@@ -318,7 +363,7 @@ Non-goals:
 
 - No admin async video rewrite.
 
-## Phase 3.8: Normalize Admin AI Provider-Cost Behavior
+## Phase 3.9: Normalize Admin AI Provider-Cost Behavior
 
 Scope:
 
@@ -358,7 +403,7 @@ Non-goals:
 
 - No public/member changes.
 
-## Phase 3.9: Provider Replay And Result Cache Hardening
+## Phase 3.10: Broader Provider Replay And Result Cache Hardening
 
 Scope:
 
@@ -397,7 +442,7 @@ Non-goals:
 
 - No destructive cleanup expansion.
 
-## Phase 3.10: Cost Telemetry And Admin Cost Dashboard
+## Phase 3.11: Cost Telemetry And Admin Cost Dashboard
 
 Scope:
 
@@ -436,7 +481,7 @@ Non-goals:
 
 - No automated provider budget shutdown until separately approved.
 
-## Phase 3.11: Policy Enforcement Guard
+## Phase 3.12: Policy Enforcement Guard
 
 Scope:
 

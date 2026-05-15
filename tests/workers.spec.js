@@ -8276,6 +8276,60 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     }));
     expect(env.DB.state.aiTextAssets[0].r2_key).toContain('/audio/');
     expect(env.USER_IMAGES.objects.has(env.DB.state.aiTextAssets[0].r2_key)).toBe(true);
+    expect(env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        user_id: user.id,
+        feature_key: 'ai.music.generate',
+        operation_key: 'member.music.generate',
+        status: 'succeeded',
+        billing_status: 'finalized',
+        result_status: 'stored',
+        result_save_reference: env.DB.state.aiTextAssets[0].id,
+        balance_after: 50,
+      }),
+    ]);
+    const attemptJson = JSON.stringify(env.DB.state.memberAiUsageAttempts);
+    expect(attemptJson).not.toContain('Warm synthwave with bright vocals.');
+    expect(attemptJson).not.toContain('[Verse]\nHold the light inside the wire');
+    expect(attemptJson).toContain('included_in_parent_music_bundle');
+  });
+
+  test('member music generation requires a valid Idempotency-Key before provider calls', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness();
+
+    const missing = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nMissing key',
+      },
+      idempotencyKey: null,
+    });
+    expect(missing.status).toBe(428);
+    await expect(missing.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_key_required',
+    });
+
+    const malformed = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nBad key',
+      },
+      idempotencyKey: 'bad key with spaces',
+    });
+    expect(malformed.status).toBe(428);
+    await expect(malformed.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_idempotency_key',
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.DB.state.memberUsageEvents).toHaveLength(0);
   });
 
   test('member music cover generation runs after successful save and attaches a thumbnail without extra credits', async () => {
@@ -8486,8 +8540,202 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(0);
   });
 
-  test('member music generation reuses billing idempotency without double-charging retries', async () => {
-    const { authWorker, env, token } = await createMemberMusicHarness();
+  test('member music provider and storage failures release or block attempts without debiting credits', async () => {
+    const musicFailure = await createMemberMusicHarness({
+      aiRun: async (modelId) => {
+        if (modelId === 'minimax/music-2.6') {
+          const error = new Error('music provider unavailable');
+          error.code = 'upstream_error';
+          error.status = 502;
+          throw error;
+        }
+        return { response: '[Verse]\nGenerated lyrics' };
+      },
+    });
+    const providerRes = await postGenerateMusic({
+      worker: musicFailure.authWorker,
+      env: musicFailure.env,
+      token: musicFailure.token,
+      body: {
+        lyrics: '[Verse]\nProvider failure',
+      },
+      idempotencyKey: 'member-music-provider-fail-key',
+    });
+    expect(providerRes.status).toBe(502);
+    await expect(providerRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'upstream_error',
+    });
+    expect(musicFailure.env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+    expect(musicFailure.env.DB.state.memberAiUsageAttempts).toEqual([
+      expect.objectContaining({
+        operation_key: 'member.music.generate',
+        status: 'provider_failed',
+        billing_status: 'released',
+      }),
+    ]);
+
+    const lyricsFailure = await createMemberMusicHarness({
+      aiRun: async (modelId) => {
+        if (modelId === 'minimax/music-2.6') {
+          return { data: { audio: '494433040000000000', status: 2 } };
+        }
+        return { response: '' };
+      },
+    });
+    const lyricsRes = await postGenerateMusic({
+      worker: lyricsFailure.authWorker,
+      env: lyricsFailure.env,
+      token: lyricsFailure.token,
+      body: {
+        generateLyrics: true,
+      },
+      idempotencyKey: 'member-music-lyrics-fail-key',
+    });
+    expect(lyricsRes.status).toBe(502);
+    await expect(lyricsRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'upstream_error',
+    });
+    expect(lyricsFailure.calls).toHaveLength(1);
+    expect(lyricsFailure.env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+    expect(lyricsFailure.env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      status: 'provider_failed',
+      billing_status: 'released',
+    }));
+
+    const storageFailure = await createMemberMusicHarness();
+    storageFailure.env.USER_IMAGES.failPutWith = new Error('R2 unavailable');
+    const storageRes = await postGenerateMusic({
+      worker: storageFailure.authWorker,
+      env: storageFailure.env,
+      token: storageFailure.token,
+      body: {
+        lyrics: '[Verse]\nStorage failure',
+      },
+      idempotencyKey: 'member-music-storage-fail-key',
+    });
+    expect(storageRes.status).toBe(500);
+    await expect(storageRes.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'storage_error',
+    });
+    expect(storageFailure.calls).toHaveLength(1);
+    expect(storageFailure.env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(0);
+    expect(storageFailure.env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      status: 'billing_failed',
+      provider_status: 'succeeded',
+      billing_status: 'failed',
+      error_code: 'storage_error',
+    }));
+  });
+
+  test('member music billing finalization failures are terminal, no double-debit, and suppress same-key retries', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness({
+      missingTables: ['member_usage_events'],
+    });
+    const idempotencyKey = 'member-music-billing-fail-key';
+
+    const res = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nBilling failure',
+      },
+      idempotencyKey,
+    });
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'ai_usage_policy_unavailable',
+    });
+    expect(calls).toHaveLength(1);
+    expect(env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
+      status: 'billing_failed',
+      billing_status: 'failed',
+    }));
+    expect(env.DB.state.memberCreditLedger.filter((row) =>
+      row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+    )).toHaveLength(0);
+
+    const retry = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nBilling failure',
+      },
+      idempotencyKey,
+    });
+    expect(retry.status).toBe(503);
+    await expect(retry.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'member_ai_usage_billing_failed',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test('member music duplicate in-progress request is suppressed before a second provider call', async () => {
+    let resolveProvider;
+    let providerStarted;
+    const started = new Promise((resolve) => { providerStarted = resolve; });
+    const pendingProvider = new Promise((resolve) => { resolveProvider = resolve; });
+    const { authWorker, env, token, calls } = await createMemberMusicHarness({
+      aiRun: async (modelId) => {
+        if (modelId === 'minimax/music-2.6') {
+          providerStarted();
+          return pendingProvider;
+        }
+        return { response: '[Verse]\nGenerated lyrics' };
+      },
+    });
+
+    const request = {
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nIn progress',
+      },
+      idempotencyKey: 'member-music-in-progress-key',
+    };
+    const first = postGenerateMusic(request);
+    await started;
+
+    const second = await postGenerateMusic(request);
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'member_ai_usage_attempt_in_progress',
+    });
+    expect(calls).toHaveLength(1);
+
+    resolveProvider({
+      data: {
+        audio: '494433040000000000',
+        status: 2,
+      },
+      trace_id: 'member-music-trace',
+      extra_info: {
+        music_duration: 25364,
+        music_sample_rate: 44100,
+        music_channel: 2,
+        bitrate: 256000,
+        music_size: 813651,
+      },
+    });
+    const firstRes = await first;
+    expect(firstRes.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('member music generation replays same idempotency key without double provider call or debit', async () => {
+    const { authWorker, env, token, calls } = await createMemberMusicHarness();
     const idempotencyKey = 'member-music-retry-key-123456';
 
     const first = await postGenerateMusic({
@@ -8500,6 +8748,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       idempotencyKey,
     });
     expect(first.status).toBe(200);
+    const firstBody = await first.json();
 
     const second = await postGenerateMusic({
       worker: authWorker,
@@ -8511,6 +8760,22 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       idempotencyKey,
     });
     expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody).toMatchObject({
+      ok: true,
+      data: {
+        audioUrl: firstBody.data.audioUrl,
+        asset: {
+          id: firstBody.data.asset.id,
+          source_module: 'music',
+        },
+      },
+      billing: {
+        credits_charged: 150,
+        balance_after: 50,
+        idempotent_replay: true,
+      },
+    });
 
     const consumes = env.DB.state.memberCreditLedger.filter((row) =>
       row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
@@ -8518,6 +8783,23 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(consumes).toHaveLength(1);
     expect(consumes[0].amount).toBe(-150);
     expect(env.DB.state.memberUsageEvents.filter((row) => row.feature_key === 'ai.music.generate')).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+
+    const conflict = await postGenerateMusic({
+      worker: authWorker,
+      env,
+      token,
+      body: {
+        lyrics: '[Verse]\nDifferent request same key',
+      },
+      idempotencyKey,
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      ok: false,
+      code: 'idempotency_conflict',
+    });
+    expect(calls).toHaveLength(1);
   });
 
   test('member music generation fails closed when personal credit policy storage is unavailable', async () => {

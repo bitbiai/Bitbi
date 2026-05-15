@@ -151,7 +151,7 @@ Optional analytics/marketing storage or scripts require consent if enabled.
 | --- | --- | --- | --- |
 | Live credit pack checkout | User/org id, pack id, credits, EUR amount, Stripe checkout session/customer/payment intent ids, checkout URL/status | `billing_checkout_sessions`, `credit_ledger`, `usage_events` | Auth, org owner/platform admin checks, same-origin, idempotency |
 | Stripe live/test webhooks | Raw body is verified, then sanitized event summary/hash/action state is stored | `billing_provider_events`, `billing_event_actions` | Signature verification, rate limiting, no raw body/signature/card data stored |
-| Member AI charges | Feature, model, credits, idempotency/attempt metadata | `member_credit_ledger`, `member_usage_events` | Server-side pricing, balance checks, charge after successful save for music/video |
+| Member AI charges | Feature, model, credits, idempotency/attempt metadata | `member_credit_ledger`, `member_usage_events`, `member_ai_usage_attempts` | Server-side pricing, balance checks, member image and music gateway idempotency/reservation before provider work, charge after successful persistence; member video remains post-success only |
 | Organization/admin AI charges | Org id, actor, feature/model/credit amount, attempt/ledger rows | `credit_ledger`, `usage_events`, `ai_usage_attempts` | Idempotency and reservation/finalization helpers |
 
 Public wording should say Stripe handles checkout/payment details and Bitbi stores
@@ -165,7 +165,7 @@ items.
 | --- | --- | --- | --- |
 | Member image generation | Prompt, model/settings, optional org context | Temporary R2 object, saved image row/R2, derivatives | Cloudflare Workers AI model binding; Black Forest Labs models for configured image models |
 | Member text generation | Prompt/system/settings when org-scoped text is used | Response/replay metadata where enabled | Cloudflare Workers AI text models through auth/AI worker patterns |
-| Member music generation | Style prompt, optional lyrics, mode/settings; optional separate lyrics generation | MP3/audio bytes in R2, asset row, generated cover thumbnail | Auth Worker -> AI service binding -> Workers AI/AI Gateway `minimax/music-2.6`; cover uses `@cf/black-forest-labs/flux-1-schnell` |
+| Member music generation | Style prompt, optional lyrics, mode/settings; optional separate lyrics generation | MP3/audio bytes in R2, asset row, generated cover thumbnail, safe member attempt/replay metadata without raw prompt or lyrics | Auth Worker -> AI service binding -> Workers AI/AI Gateway `minimax/music-2.6`; cover uses `@cf/black-forest-labs/flux-1-schnell` |
 | Member PixVerse video generation | Prompt, optional negative prompt, optional data URI image, duration/aspect/quality/audio/seed | Video bytes/poster in R2, asset row | Auth Worker -> Workers AI `pixverse/v6` with AI Gateway |
 | Admin AI Lab | Admin prompts/settings/images/audio/video jobs | Admin-visible result metadata and optionally saved assets/jobs | AI Worker internal service routes with service-auth |
 

@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-Status: Phase 3.5 member music cost decomposition and gateway prep. Phase 3.1 added design and inventory. Phase 3.2 added the gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the report-only policy check. Phase 3.4 uses that foundation only for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposes member music into parent, lyrics, audio, and cover operations for future migration. It does not migrate music, video, admin AI, platform/background AI, internal AI Worker routes, org-scoped routes, Stripe, deployment, or public pricing.
+Status: Phase 3.6 member music gateway migration. Phase 3.1 added design and inventory. Phase 3.2 added the gateway contract/helper module and deterministic tests. Phase 3.3 added a central operation registry for known AI provider-cost operations and strengthened the report-only policy check. Phase 3.4 uses that foundation for member personal image generation. Phase 3.4.1 adds main-only release/evidence guidance for the image pilot. Phase 3.5 decomposed member music into parent, lyrics, audio, and cover operations. Phase 3.6 migrates only member music generation to the AI Cost Gateway. It does not migrate video, admin AI, platform/background AI, internal AI Worker routes directly, org-scoped routes, Stripe, deployment, or public pricing.
 
 Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 
@@ -31,7 +31,8 @@ The current code already has important foundations:
 - Org-scoped `/api/ai/generate-image` and `/api/ai/generate-text` require idempotency and use usage-attempt reservation/replay behavior.
 - Chargeable Admin AI image tests use org credits and `ai_usage_attempts`.
 - Member personal image generation now requires `Idempotency-Key`, reserves member credits before provider execution, suppresses same-key duplicate provider calls, replays safe stored temporary image metadata when available, debits once after provider success, and releases/no-charges on provider failure.
-- Member music/video routes check credits before provider execution and charge after success, but member idempotency is not mandatory and provider execution is not uniformly suppressed on retries.
+- Member music generation now requires `Idempotency-Key`, reserves one parent `member_ai_usage_attempts` row before lyrics/audio/cover provider-cost work, suppresses same-key duplicate provider execution, debits exactly once after audio persistence, returns safe replay metadata for duplicate completed requests, and releases/no-charges on lyrics/audio provider failure.
+- Member video still checks credits before provider execution and charges after success, but member idempotency is not mandatory and provider execution is not uniformly suppressed on retries.
 - Admin AI Lab text/music/video/compare/live-agent routes are admin-only but generally uncharged and do not use a shared cost lifecycle.
 - News Pulse visual generation and generated music cover creation can call AI providers outside the member billing lifecycle.
 
@@ -82,15 +83,27 @@ Phase 3.5 adds:
 
 It is design/check/test-only. It does not change `/api/ai/generate-music`, require `Idempotency-Key`, reserve credits, change debits, add replay, call providers, or mutate billing.
 
+Phase 3.6 adds:
+
+- member music gateway wiring in `workers/auth/src/routes/ai/music-generate.js`
+- shared member gateway policy support in `workers/auth/src/lib/ai-usage-policy.js`
+- safe replay metadata from `member_ai_usage_attempts.metadata_json` for completed music attempts
+- mandatory `Idempotency-Key` for `POST /api/ai/generate-music`
+- one parent member-credit reservation for bundled lyrics/audio/cover work
+- no-charge release on lyrics/audio provider failure and terminal no-charge handling on storage/billing finalization failure
+- report-only registry/check updates marking member music parent/lyrics/audio as gateway-covered and cover as bundled/partial
+- focused Worker tests for idempotency, insufficient credits, provider/storage/billing failures, duplicate in-progress suppression, completed replay, conflict behavior, and safe metadata
+
+It changes only the member music route behavior. It does not call real providers in tests, add a migration, change public pricing, migrate video/admin/platform/internal routes, call Stripe, deploy, or prove production/live billing readiness.
+
 ## Current Non-Goals
 
-Phase 3.5 does not:
+Phase 3.6 does not:
 
-- migrate music routes
 - migrate video routes
 - migrate admin AI routes
 - migrate platform/background AI routes
-- migrate internal AI Worker routes
+- migrate internal AI Worker routes directly
 - change org-scoped image/text behavior
 - change model routing
 - change public pricing
@@ -115,6 +128,6 @@ Phase 3.5 does not:
 
 `npm run test:ai-cost-operations` validates the Phase 3.3 registry baseline, uniqueness, target config normalization, deterministic summary counts, source-file coverage, duplicate detection, and no external calls.
 
-The check intentionally reports current gaps without failing by default. It now treats member personal image generation as pilot-covered, decomposes member music gaps by sub-operation, and continues to report member music/video, admin, platform/background, and internal AI Worker gaps.
+The check intentionally reports current gaps without failing by default. It now treats member personal image generation and member music generation as gateway-covered, keeps member music cover generation marked partial because final cover status is not written back to the parent attempt yet, and continues to report member video, admin, platform/background, and internal AI Worker gaps.
 
-Next implementation phase: Phase 3.6 should migrate member music generation in a narrow PR, accounting for parent reservation, lyrics/audio sub-operation suppression, durable result replay, cover budget policy, and billing finalization safety. Do not begin Phase 3.6 until Phase 3.4 deploy/evidence is recorded, or the owner explicitly accepts skipping that evidence in writing.
+Next implementation phase: Phase 3.7 should harden provider-result replay/cache and then migrate the next single high-risk route, with member video remaining the primary unmigrated member provider-cost route. Production/live billing remains blocked until operator evidence is complete and reviewed.

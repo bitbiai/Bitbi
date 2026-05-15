@@ -169,9 +169,15 @@ function normalizeMemberMusicBody(body) {
     lyricsMode,
     policyBody: {
       prompt,
+      lyrics,
       instrumental,
       generateLyrics: separateLyricsGeneration,
       hasManualLyrics: Boolean(lyrics),
+      title,
+      folderId,
+      musicMode,
+      lyricsMode,
+      price,
     },
   };
 }
@@ -429,6 +435,165 @@ async function cleanupSavedAsset(env, userId, assetId) {
   } catch {}
 }
 
+function safeMusicReplayAsset(asset = {}) {
+  return {
+    id: asset.id || null,
+    folder_id: asset.folder_id || null,
+    title: null,
+    file_name: null,
+    source_module: asset.source_module || "music",
+    mime_type: asset.mime_type || "audio/mpeg",
+    size_bytes: asset.size_bytes ?? null,
+    preview_text: null,
+    created_at: asset.created_at || null,
+    poster_r2_key: null,
+    poster_width: asset.poster_width ?? null,
+    poster_height: asset.poster_height ?? null,
+    poster_size_bytes: asset.poster_size_bytes ?? null,
+  };
+}
+
+function buildMusicReplayMetadata({
+  input,
+  result,
+  musicBody,
+  savedAsset,
+  generatedLyrics,
+  lyricsModel,
+  lyricsElapsedMs,
+  billingMetadata,
+}) {
+  const model = musicBody?.model || null;
+  const replayAsset = safeMusicReplayAsset(savedAsset);
+  return {
+    gateway_result_type: "member_music",
+    cover_generation_policy: "included_in_parent_music_bundle",
+    cover_generation_status: "scheduled",
+    sub_operations: {
+      lyrics: {
+        operation_id: "member.music.lyrics.generate",
+        status: input.separateLyricsGeneration ? "succeeded" : "not_requested",
+        model_id: lyricsModel?.id || null,
+        elapsed_ms: lyricsElapsedMs ?? null,
+        output_length: generatedLyrics ? generatedLyrics.length : 0,
+      },
+      audio: {
+        operation_id: "member.music.audio.generate",
+        status: "succeeded",
+        model_id: model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
+      },
+      cover: {
+        operation_id: "member.music.cover.generate",
+        status: "scheduled",
+        billing_relationship: "included_in_parent_music_bundle",
+      },
+    },
+    music_request: {
+      prompt_length: input.prompt.length,
+      manual_lyrics_present: Boolean(input.lyrics),
+      manual_lyrics_length: input.lyrics ? input.lyrics.length : 0,
+      generated_lyrics_present: Boolean(generatedLyrics),
+      generated_lyrics_length: generatedLyrics ? generatedLyrics.length : 0,
+      instrumental: Boolean(input.instrumental),
+      lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
+      mode: result.mode || input.musicMode,
+      lyrics_mode: result.lyricsMode || (input.instrumental ? "auto" : generatedLyrics || input.lyrics ? "custom" : "auto"),
+      price: input.price,
+    },
+    music_replay: {
+      mode: result.mode || input.musicMode,
+      lyricsMode: result.lyricsMode || (input.instrumental ? "auto" : generatedLyrics || input.lyrics ? "custom" : "auto"),
+      generatedLyricsAvailable: false,
+      lyricsPreviewAvailable: Boolean(input.lyrics),
+      model,
+      preset: musicBody?.preset || "music_studio",
+      mimeType: savedAsset.mime_type,
+      audioUrl: savedAsset.file_url,
+      durationMs: result.durationMs ?? null,
+      sampleRate: result.sampleRate ?? null,
+      channels: result.channels ?? null,
+      bitrate: result.bitrate ?? null,
+      sizeBytes: savedAsset.size_bytes,
+      traceId: musicBody?.traceId || null,
+      asset: replayAsset,
+      lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
+      balance_after: billingMetadata?.balance_after ?? null,
+    },
+  };
+}
+
+function buildMusicReplayData({ input, replay }) {
+  return {
+    prompt: input.prompt,
+    mode: replay.mode || input.musicMode,
+    lyricsMode: replay.lyricsMode || (input.instrumental ? "auto" : input.lyrics ? "custom" : "auto"),
+    generatedLyrics: null,
+    model: replay.model || null,
+    preset: replay.preset || "music_studio",
+    mimeType: replay.mimeType || "audio/mpeg",
+    audioUrl: replay.audioUrl,
+    durationMs: replay.durationMs ?? null,
+    sampleRate: replay.sampleRate ?? null,
+    channels: replay.channels ?? null,
+    bitrate: replay.bitrate ?? null,
+    sizeBytes: replay.sizeBytes ?? null,
+    lyricsPreview: replay.lyricsPreviewAvailable ? input.lyrics || null : null,
+    traceId: replay.traceId || null,
+    asset: replay.asset || null,
+  };
+}
+
+function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
+  if (usagePolicy.attemptKind === "completed_expired") {
+    return respond({
+      ok: false,
+      error: "The idempotent music result is no longer available.",
+      code: "member_ai_usage_result_expired",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 410 });
+  }
+
+  const replay = usagePolicy.attempt?.metadata?.music_replay || null;
+  if (
+    usagePolicy.attempt?.resultStatus !== "stored" ||
+    !usagePolicy.attempt?.resultSaveReference ||
+    !replay?.audioUrl ||
+    !replay?.asset?.id
+  ) {
+    return respond({
+      ok: false,
+      error: "The idempotent music request completed, but the generated audio is no longer replayable.",
+      code: "member_ai_usage_result_unavailable",
+      billing: usagePolicy.billingMetadata({ replay: true }),
+    }, { status: 409 });
+  }
+
+  return respond({
+    ok: true,
+    data: buildMusicReplayData({ input, replay }),
+    billing: {
+      ...usagePolicy.billingMetadata({ replay: true }),
+      credits_charged: usagePolicy.credits,
+      price: usagePolicy.credits,
+      lyrics_generation: replay.lyrics_generation || (input.separateLyricsGeneration ? "separate_call" : "none"),
+    },
+  });
+}
+
+async function markMusicProviderFailed(usagePolicy, { code, message }) {
+  if (typeof usagePolicy?.markProviderFailed !== "function") return;
+  try {
+    await usagePolicy.markProviderFailed({ code, message });
+  } catch {}
+}
+
+async function markMusicBillingFailed(usagePolicy, { code, message }) {
+  if (typeof usagePolicy?.markBillingFailed !== "function") return;
+  try {
+    await usagePolicy.markBillingFailed({ code, message });
+  } catch {}
+}
+
 export async function handleGenerateMusic(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
@@ -475,6 +640,7 @@ export async function handleGenerateMusic(ctx) {
       operation: {
         ...AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE,
         credits: input.price,
+        modelId: MINIMAX_MUSIC_2_6_MODEL_ID,
       },
       route: ROUTE_PATH,
     });
@@ -502,6 +668,32 @@ export async function handleGenerateMusic(ctx) {
   }
 
   if (usagePolicy.mode === "member") {
+    if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
+      return replayGeneratedMusicAttempt({ usagePolicy, input, respond });
+    }
+    if (usagePolicy.attemptKind === "in_progress") {
+      return respond({
+        ok: false,
+        error: "This idempotent music request is already in progress.",
+        code: "member_ai_usage_attempt_in_progress",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+          credits_reserved: usagePolicy.credits,
+        },
+      }, { status: 409 });
+    }
+    if (usagePolicy.attemptKind === "billing_failed") {
+      return respond({
+        ok: false,
+        error: "Music generation could not be finalized. Please use a new idempotency key to retry.",
+        code: "member_ai_usage_billing_failed",
+        billing: {
+          user_id: userId,
+          feature: usagePolicy.featureKey,
+        },
+      }, { status: 503 });
+    }
     try {
       await usagePolicy.prepareForProvider();
     } catch (error) {
@@ -520,13 +712,44 @@ export async function handleGenerateMusic(ctx) {
     }
   }
 
+  if (typeof usagePolicy.markProviderRunning === "function") {
+    try {
+      await usagePolicy.markProviderRunning();
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-music",
+        event: "member_music_attempt_start_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        ...getErrorFields(error),
+      });
+      return respond({
+        ok: false,
+        error: "AI usage policy could not be verified.",
+        code: "ai_usage_policy_unavailable",
+      }, { status: 503 });
+    }
+  }
+
   let generatedLyrics = null;
   let lyricsModel = null;
   let lyricsElapsedMs = null;
   if (input.separateLyricsGeneration) {
     const lyricsResponse = await generateLyrics({ env, input, user: session.user, correlationId, requestInfo });
-    if (lyricsResponse.response) return lyricsResponse.response;
+    if (lyricsResponse.response) {
+      await markMusicProviderFailed(usagePolicy, {
+        code: "lyrics_provider_unavailable",
+        message: "Lyrics generation could not start.",
+      });
+      return lyricsResponse.response;
+    }
     if (!lyricsResponse.ok) {
+      await markMusicProviderFailed(usagePolicy, {
+        code: lyricsResponse.code || "lyrics_provider_failed",
+        message: "Lyrics generation failed.",
+      });
       return respond({
         ok: false,
         error: lyricsResponse.error || "Lyrics generation failed.",
@@ -549,6 +772,10 @@ export async function handleGenerateMusic(ctx) {
       requestInfo,
     });
   } catch (error) {
+    await markMusicProviderFailed(usagePolicy, {
+      code: error?.code || "music_provider_validation_failed",
+      message: "Music generation request validation failed.",
+    });
     if (error instanceof AdminAiValidationError) {
       return respond({ ok: false, error: error.message, code: error.code || "validation_error" }, {
         status: error.status || 400,
@@ -556,8 +783,18 @@ export async function handleGenerateMusic(ctx) {
     }
     throw error;
   }
-  if (musicResponse.response) return musicResponse.response;
+  if (musicResponse.response) {
+    await markMusicProviderFailed(usagePolicy, {
+      code: "music_provider_unavailable",
+      message: "Music generation could not start.",
+    });
+    return musicResponse.response;
+  }
   if (!musicResponse.ok) {
+    await markMusicProviderFailed(usagePolicy, {
+      code: musicResponse.code || "music_provider_failed",
+      message: "Music generation failed.",
+    });
     return respond({
       ok: false,
       error: musicResponse.error || "Music generation failed.",
@@ -567,6 +804,10 @@ export async function handleGenerateMusic(ctx) {
 
   const result = musicResponse.body?.result || {};
   if (!result.audioBase64 && !result.audioUrl) {
+    await markMusicProviderFailed(usagePolicy, {
+      code: "provider_empty_result",
+      message: "Music provider returned no audio.",
+    });
     return respond({ ok: false, error: "Music provider returned no audio.", code: "provider_empty_result" }, {
       status: 502,
     });
@@ -588,6 +829,10 @@ export async function handleGenerateMusic(ctx) {
       correlationId,
     });
   } catch (error) {
+    await markMusicBillingFailed(usagePolicy, {
+      code: error?.code || "music_storage_failed",
+      message: "Music generation succeeded, but required audio persistence failed before billing.",
+    });
     if (isAssetStorageQuotaError(error)) {
       return respond(assetStorageQuotaErrorBody(error), { status: error?.status || 413 });
     }
@@ -610,6 +855,9 @@ export async function handleGenerateMusic(ctx) {
 
   let billingMetadata = null;
   try {
+    if (typeof usagePolicy.markFinalizing === "function") {
+      await usagePolicy.markFinalizing();
+    }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: musicResponse.body?.model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
       preset: musicResponse.body?.preset || "music_studio",
@@ -623,6 +871,10 @@ export async function handleGenerateMusic(ctx) {
     });
   } catch (error) {
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
+    await markMusicBillingFailed(usagePolicy, {
+      code: error?.code || "billing_failed",
+      message: "Music usage billing finalization failed.",
+    });
     const policyError = aiUsagePolicyErrorResponse(error);
     logDiagnostic({
       service: "bitbi-auth",
@@ -635,6 +887,39 @@ export async function handleGenerateMusic(ctx) {
       ...getErrorFields(error),
     });
     return respond(policyError.body, { status: policyError.status });
+  }
+
+  if (typeof usagePolicy.markSucceeded === "function") {
+    try {
+      await usagePolicy.markSucceeded({
+        saveReference: savedAsset.id,
+        mimeType: savedAsset.mime_type,
+        model: musicResponse.body?.model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
+        promptLength: input.prompt.length,
+        balanceAfter: billingMetadata.balance_after,
+        resultStatus: "stored",
+        metadata: buildMusicReplayMetadata({
+          input,
+          result,
+          musicBody: musicResponse.body,
+          savedAsset,
+          generatedLyrics,
+          lyricsModel,
+          lyricsElapsedMs,
+          billingMetadata,
+        }),
+      });
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-generate-music",
+        event: "member_music_attempt_result_update_failed",
+        level: "error",
+        correlationId,
+        user_id: userId,
+        ...getErrorFields(error),
+      });
+    }
   }
 
   scheduleMemberMusicCoverGeneration(ctx, {
